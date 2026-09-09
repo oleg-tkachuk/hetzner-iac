@@ -5,13 +5,6 @@
 # SHAs, checkouts drop their credentials, and no workflow input reaches a
 # shell.
 rules:
-  artipacked:
-    ignore:
-      # semantic-release pushes the tag it creates, so this checkout genuinely
-      # needs its credentials. Every other checkout in the repository sets
-      # persist-credentials: false.
-      - release.yaml
-
   self-repository:
     ignore:
       # zizmor suggests `$/...` in place of `./...` for local actions. The
