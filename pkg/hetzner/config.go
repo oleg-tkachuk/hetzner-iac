@@ -40,12 +40,14 @@ type Topology struct {
 	WorkerPools  []WorkerPoolSpec `json:"workerPools"`
 }
 
+// MetadataSpec names the cluster.
 type MetadataSpec struct {
 	// Name is the Talos cluster name, the server-name prefix and the value
 	// of the label every resource in the cluster carries.
 	Name string `json:"name"`
 }
 
+// PlacementSpec says where in Hetzner's estate the cluster lives.
 type PlacementSpec struct {
 	// Location is an hcloud location: fsn1, nbg1, hel1, ash, hil or sin.
 	Location string `json:"location"`
@@ -54,6 +56,8 @@ type PlacementSpec struct {
 	NetworkZone string `json:"networkZone"`
 }
 
+// NetworkSpec describes the private network, the address ranges inside it,
+// and who may reach the cluster's control APIs.
 type NetworkSpec struct {
 	// IPRange is the private network range the cluster lives in.
 	IPRange string `json:"ipRange"`
@@ -78,6 +82,8 @@ type NetworkSpec struct {
 	AdminCIDRs []string `json:"adminCIDRs"`
 }
 
+// TalosSpec pins the Talos version contract and the architecture it was
+// built for. Both must match the baked snapshot.
 type TalosSpec struct {
 	// Version is the Talos version contract. It must match the snapshot baked
 	// into the project: the image lookup keys off this value, so bumping it
@@ -87,12 +93,15 @@ type TalosSpec struct {
 	Architecture string `json:"architecture"`
 }
 
+// KubernetesSpec pins the Kubernetes version, or leaves it to Talos.
 type KubernetesSpec struct {
 	// Version pins the Kubernetes version. Empty keeps the default that ships
 	// with the configured Talos version, which is the supported pairing.
 	Version string `json:"version"`
 }
 
+// ControlPlaneSpec sizes the control plane and the load balancer in front of
+// it.
 type ControlPlaneSpec struct {
 	// Count must be odd and positive: etcd needs a quorum, and an even count
 	// costs more without tolerating more failures.
@@ -105,6 +114,9 @@ type ControlPlaneSpec struct {
 	APILoadBalancerType string `json:"apiLoadBalancerType"`
 }
 
+// WorkerPoolSpec is one group of identically shaped worker nodes. Node shape
+// is a property of a pool, so a GPU pool and a general pool differ in server
+// type, labels and taints while sharing one control plane.
 type WorkerPoolSpec struct {
 	Name       string `json:"name"`
 	Count      int    `json:"count"`

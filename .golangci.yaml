@@ -1,0 +1,123 @@
+# golangci-lint v2 configuration.
+#
+# Deliberately a working set rather than everything available. A linter set
+# that produces hundreds of findings on day one gets `--no-verify`d and then
+# ignored; this one is chosen so a clean run is achievable and a finding means
+# something.
+version: "2"
+
+run:
+  timeout: 10m
+
+linters:
+  default: standard
+
+  enable:
+    # Correctness
+    - bodyclose      # a leaked response body is a leaked connection
+    - contextcheck
+    - durationcheck
+    - errorlint      # %w and errors.Is/As, so error wrapping actually works
+    - exhaustive     # a switch over an enum that silently ignores a new value
+    - makezero
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+
+    # Clarity
+    - dupl
+    - goconst
+    - gocritic
+    - misspell
+    - nakedret
+    - nolintlint     # a //nolint with no explanation is a silenced finding
+    - revive
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+    - wsl_v5         # blank line before a return / after a block
+
+    # Security
+    - gosec
+
+  settings:
+    dupl:
+      # Chart value maps repeat by nature — two layers both setting replicas
+      # and a disruption budget is not duplication worth removing.
+      threshold: 200
+
+    exhaustive:
+      default-signifies-exhaustive: true
+
+    gosec:
+      excludes:
+        # File permissions are set explicitly where they matter (kubeconfig,
+        # talosconfig are 0600 in the Taskfile); the check fires on test
+        # fixtures written to t.TempDir().
+        - G306
+
+    govet:
+      enable-all: true
+      disable:
+        # Field alignment optimises struct padding at the cost of grouping
+        # related fields together. Readability wins in configuration structs,
+        # which is most of what this repository holds.
+        - fieldalignment
+
+    revive:
+      rules:
+        - name: exported
+          disabled: false
+        - name: package-comments
+          disabled: false
+
+    errcheck:
+      exclude-functions:
+        # Writes to stdout/stderr and to a tabwriter whose Flush IS checked.
+        # Checking each Fprintf turns a twelve-line report into forty lines of
+        # error plumbing for a failure mode that is "the terminal went away".
+        - fmt.Fprintln
+        - fmt.Fprintf
+
+  exclusions:
+    rules:
+      # Helm value maps are keyed by the chart's own vocabulary: "enabled",
+      # "replicas", "storage". Hoisting those into Go constants makes the
+      # values unreadable and impossible to compare against the chart's
+      # documentation, which is the one thing a reviewer actually does with
+      # them.
+      - path: ^layers/
+        linters:
+          - goconst
+
+      # Same reasoning for two data tables. pkg/charts/registry.go IS a table
+      # — a repeated namespace or repository URL is its content, and a constant
+      # per column would hide what each row says. pkg/hetzner/machineconfig.go
+      # writes Talos's own configuration vocabulary, where a Go constant named
+      # after a Talos key adds a level of indirection between the code and the
+      # documentation it is written against.
+      - path: ^pkg/(charts/registry|hetzner/(config|machineconfig))\.go$
+        linters:
+          - goconst
+
+      # Tests legitimately repeat structure, use long literals, and assert
+      # against values that would be constants in production code.
+      - path: _test\.go
+        linters:
+          - dupl
+          - goconst
+          - gosec
+          - unparam
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  # 0 = report everything. The defaults cap at 3 per linter, which hides the
+  # scale of a problem and makes a fix look complete when it is not.
+  max-issues-per-linter: 0
+  max-same-issues: 0

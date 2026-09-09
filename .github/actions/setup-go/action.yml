@@ -1,0 +1,40 @@
+name: Set up Go
+description: >
+  Install the Go toolchain named by go.mod, with module caching, and optionally
+  go-task.
+
+  The version comes from `go-version-file: go.mod` rather than a GO_VERSION env
+  var each workflow declares for itself — that would be several places to edit
+  for one bump, and a missed one silently builds a job against a different
+  toolchain than the rest of the run.
+
+inputs:
+  cache:
+    description: >
+      Enable module caching. Set "false" for jobs whose object files are
+      useless to other jobs — a race build fills the shared cache with
+      artifacts keyed on go.sum that other jobs restore and cannot use.
+    required: false
+    default: "true"
+  task:
+    description: Also install go-task ("true" | "false")
+    required: false
+    default: "false"
+  repo-token:
+    description: GITHUB_TOKEN, so setup-task avoids API rate limits
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v7
+      with:
+        go-version-file: go.mod
+        cache: ${{ inputs.cache == 'true' }}
+
+    - if: inputs.task == 'true'
+      uses: arduino/setup-task@v3
+      with:
+        version: 3.x
+        repo-token: ${{ inputs.repo-token }}

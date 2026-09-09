@@ -44,8 +44,8 @@ func NewFirewall(ctx *pulumi.Context, name string, args *FirewallArgs, opts ...p
 	}
 
 	component := &Firewall{}
-	if err := ctx.RegisterComponentResource(typeFirewall, name, component, opts...); err != nil {
-		return nil, fmt.Errorf("register %s: %w", typeFirewall, err)
+	if registerErr := ctx.RegisterComponentResource(typeFirewall, name, component, opts...); registerErr != nil {
+		return nil, fmt.Errorf("register %s: %w", typeFirewall, registerErr)
 	}
 
 	ruleArray := make(hcloud.FirewallRuleArray, 0, len(rules))

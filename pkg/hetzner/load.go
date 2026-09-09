@@ -12,6 +12,8 @@ import (
 // Defaulting happens before validation so that a sparse file is judged on the
 // values that will actually be applied, not on the blanks it left.
 func LoadTopology(path string) (*Topology, error) {
+	//nolint:gosec // the path names a committed topology file chosen by the
+	// operator; reading the file they asked for is what this function is.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read cluster topology: %w", err)

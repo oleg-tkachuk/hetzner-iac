@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -57,13 +58,18 @@ func outdated() error {
 	out := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(out, "CHART\tPINNED\tLATEST\tSTATUS")
 
+	// A context so a hung registry cannot hang the whole report; the client
+	// timeout alone does not cover a slow body.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
 	client := &http.Client{Timeout: 30 * time.Second}
 	stale := 0
 
 	for _, key := range charts.Keys() {
 		chart := charts.MustGet(key)
 
-		latest, err := latestInRepo(client, chart)
+		latest, err := latestInRepo(ctx, client, chart)
 		if err != nil {
 			fmt.Fprintf(out, "%s\t%s\t?\t%v\n", key, chart.Version, err)
 
@@ -107,7 +113,7 @@ type repoIndex struct {
 	} `json:"entries"`
 }
 
-func latestInRepo(client *http.Client, chart charts.Chart) (Version, error) {
+func latestInRepo(ctx context.Context, client *http.Client, chart charts.Chart) (Version, error) {
 	url := chart.Repo
 	if url[len(url)-1] != '/' {
 		url += "/"
@@ -115,11 +121,16 @@ func latestInRepo(client *http.Client, chart charts.Chart) (Version, error) {
 
 	url += "index.yaml"
 
-	response, err := client.Get(url)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return Version{}, fmt.Errorf("build request: %w", err)
+	}
+
+	response, err := client.Do(request)
 	if err != nil {
 		return Version{}, fmt.Errorf("fetch index: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
 		return Version{}, fmt.Errorf("index returned %s", response.Status)

@@ -124,17 +124,17 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 	applies := make([]pulumi.Resource, 0, len(nodes))
 
 	for i, node := range nodes {
-		patch := controlPlaneNodePatch(node, apiAddress, args.Count == 1)
+		patch := controlPlaneNodePatch(node, apiAddress)
 
-		apply, err := talosmachine.NewConfigurationApply(ctx, fmt.Sprintf("%s-config-%d", name, i),
+		apply, applyErr := talosmachine.NewConfigurationApply(ctx, fmt.Sprintf("%s-config-%d", name, i),
 			&talosmachine.ConfigurationApplyArgs{
 				ClientConfiguration:       clientConfig,
 				MachineConfigurationInput: machineConfig.MachineConfiguration(),
 				Node:                      node.address,
 				ConfigPatches:             pulumi.StringArray{patch},
 			}, parent, pulumi.DependsOn([]pulumi.Resource{node.server}))
-		if err != nil {
-			return nil, fmt.Errorf("talos configuration apply for %s: %w", node.hostname, err)
+		if applyErr != nil {
+			return nil, fmt.Errorf("talos configuration apply for %s: %w", node.hostname, applyErr)
 		}
 
 		applies = append(applies, apply)
@@ -231,7 +231,7 @@ func createControlPlaneNodes(ctx *pulumi.Context, args *ControlPlaneArgs, opts .
 // replaces hands the callback a []any and leaves the two addresses to be
 // recovered by position — swap the indices and it still compiles, still runs,
 // and quietly signs the wrong certificate SAN.
-func controlPlaneNodePatch(node controlPlaneNode, apiAddress pulumi.StringInput, singleNode bool) pulumi.StringOutput {
+func controlPlaneNodePatch(node controlPlaneNode, apiAddress pulumi.StringInput) pulumi.StringOutput {
 	return pulumix.Cast[pulumi.StringOutput](pulumix.Apply2Err(
 		node.address, apiAddress.ToStringOutput(),
 		func(address, endpointAddress string) (string, error) {

@@ -1,0 +1,36 @@
+version: 2
+
+updates:
+  # Actions rot silently: a pin ages until a runtime deprecation notice does
+  # the telling, usually mid-incident.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      # One PR for the routine bumps. Majors stay separate, because that is
+      # where the runtime and API breaks live.
+      actions-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    groups:
+      # The Pulumi SDK and the providers move together often enough that
+      # separate PRs mostly conflict with each other.
+      pulumi:
+        patterns:
+          - "github.com/pulumi/*"
+          - "github.com/pulumiverse/*"
+      go-minor:
+        update-types: [minor, patch]

@@ -97,10 +97,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		return nil, err
 	}
 
-	image, err := lookupTalosImage(ctx, args)
-	if err != nil {
-		return nil, err
-	}
+	image := lookupTalosImage(ctx, args)
 
 	// Talos secrets are the cluster's root of trust: the CA keys every node
 	// and client certificate descends from. Protect stops a `pulumi destroy`
@@ -309,7 +306,7 @@ func apiEndpointAddress(
 // server — so baking is a deliberate out-of-band step (`task cluster:image-bake`).
 // Doing it inside the stack would mean dd-over-SSH in the provisioning path,
 // re-run on every unrelated `pulumi up`.
-func lookupTalosImage(ctx *pulumi.Context, args *ClusterArgs) (pulumi.StringOutput, error) {
+func lookupTalosImage(ctx *pulumi.Context, args *ClusterArgs) pulumi.StringOutput {
 	selector := args.ImageSelector
 	if selector == "" {
 		selector = fmt.Sprintf("os=talos,talos-version=%s", args.Topology.Talos.Version)
@@ -332,7 +329,7 @@ func lookupTalosImage(ctx *pulumi.Context, args *ClusterArgs) (pulumi.StringOutp
 		}
 
 		return strconv.Itoa(*id), nil
-	})), nil
+	}))
 }
 
 func idToIntPtr(id pulumi.IDOutput) pulumi.IntPtrInput {

@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One run per ref. Rapid pushes to a branch would otherwise leave every earlier
+# run grinding through a preview matrix nobody will read.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned rather than latest: a tool that changes version between runs turns
+  # "CI went red and nothing changed" into a debugging session.
+  PULUMI_VERSION: "3.261.0"
+  GOVULNCHECK_VERSION: "v1.1.4"
+  GOLANGCI_VERSION: "v2.12.2"
+
+jobs:
+  # Guards the thing a Go build cannot see: that the layer list in the
+  # Taskfile and the directories under layers/ still describe the same set.
+  # They drift when a layer is renamed and one of the two is updated.
+  layers:
+    name: Layer list matches the tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          set -euo pipefail
+          declared="$(task platform:layers --yes | sort)"
+          onDisk="$(find layers -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"
+          if [ "$declared" != "$onDisk" ]; then
+            echo "Taskfile LAYERS and layers/ disagree:" >&2
+            diff <(echo "$declared") <(echo "$onDisk") >&2 || true
+            exit 1
+          fi
+          echo "$declared"
+
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+      # No separate `go build ./...`: `go test ./...` already compiles every
+      # package, including those with no test files.
+      - name: go test
+        run: go test -count=1 ./...
+      - name: gofmt
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l . | grep -v '^$' || true)"
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-clean:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+
+  race:
+    name: Tests with the race detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+        with:
+          # Race artifacts have their own build IDs, so nothing else can reuse
+          # them. Writing them into the shared cache makes every other job's
+          # restore useless while growing the cache several times over.
+          cache: "false"
+      - run: go test -race -count=1 ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    # Above golangci's own --timeout, or the runner kills the job first and the
+    # log says nothing useful.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_VERSION }}
+          # --fix=false: the config enables fix for local development, where it
+          # is a convenience. In CI it would rewrite a read-only checkout and
+          # hide the findings it repaired.
+          args: --timeout=15m --fix=false
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+      - run: |
+          set -euo pipefail
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          govulncheck ./...
+
+  charts:
+    name: Chart pins
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+      # Enforces the pinning policy: exact versions, no floating tags.
+      - run: go test -count=1 ./pkg/charts/
+      # Read-only. Reports what is behind upstream without failing the build —
+      # an upgrade is a decision with a changelog to read, and a gate that goes
+      # red on every upstream release is a gate people switch off.
+      - name: Report outdated pins
+        continue-on-error: true
+        run: go run ./tools/charts outdated
+
+  topology:
+    name: Cluster topology
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+      # Every committed topology must load, default and validate. A cluster
+      # file that only fails at `pulumi up` has already cost an operator a
+      # round trip.
+      - run: go run ./tools/topology infra/cluster
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks scans the full history, not the worktree.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
