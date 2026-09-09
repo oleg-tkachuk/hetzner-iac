@@ -1,0 +1,329 @@
+package hetzner_test
+
+import (
+	"testing"
+
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
+)
+
+// decode parses a rendered patch back into a map, so assertions are made
+// against structure rather than against substrings of YAML — a substring
+// check passes on a document whose nesting is wrong.
+func decode(t *testing.T, patch string) map[string]any {
+	t.Helper()
+
+	var out map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(patch), &out))
+
+	return out
+}
+
+func TestBuildClusterPatch(t *testing.T) {
+	t.Parallel()
+
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+		NodeSubnet:  "10.0.1.0/24",
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	cluster, _ := doc["cluster"].(map[string]any)
+	network, _ := cluster["network"].(map[string]any)
+
+	assert.Equal(t, []any{"10.244.0.0/16"}, network["podSubnets"])
+	assert.Equal(t, []any{"10.96.0.0/12"}, network["serviceSubnets"])
+}
+
+func TestBuildClusterPatch_LeavesTheCNIToItsOwnLayer(t *testing.T) {
+	t.Parallel()
+
+	// Talos installs Flannel unless told otherwise. Shipping with a CNI the
+	// 10-cni layer would then have to remove is worse than shipping without
+	// one: nodes stay NotReady until that layer runs, which is visible and
+	// intended, rather than two CNIs briefly fighting.
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	cluster, _ := doc["cluster"].(map[string]any)
+	network, _ := cluster["network"].(map[string]any)
+	cni, _ := network["cni"].(map[string]any)
+
+	assert.Equal(t, "none", cni["name"])
+}
+
+func TestBuildClusterPatch_DisablesKubeProxyForCilium(t *testing.T) {
+	t.Parallel()
+
+	// Cilium replaces kube-proxy in eBPF. Leaving kube-proxy enabled means
+	// two components programming the same service dataplane.
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	cluster, _ := doc["cluster"].(map[string]any)
+	proxy, _ := cluster["proxy"].(map[string]any)
+
+	assert.Equal(t, true, proxy["disabled"])
+}
+
+func TestBuildClusterPatch_HandsNodeLifecycleToTheCCM(t *testing.T) {
+	t.Parallel()
+
+	// cloud-provider=external is what leaves nodes carrying the
+	// `uninitialized` taint until the hcloud CCM starts — the mechanism that
+	// stops workloads landing on a node before its routes exist.
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+
+	machine, _ := doc["machine"].(map[string]any)
+	kubelet, _ := machine["kubelet"].(map[string]any)
+	kubeletArgs, _ := kubelet["extraArgs"].(map[string]any)
+	assert.Equal(t, "external", kubeletArgs["cloud-provider"])
+
+	cluster, _ := doc["cluster"].(map[string]any)
+	for _, component := range []string{"controllerManager", "apiServer"} {
+		section, _ := cluster[component].(map[string]any)
+		args, _ := section["extraArgs"].(map[string]any)
+		assert.Equal(t, "external", args["cloud-provider"], component)
+	}
+}
+
+func TestBuildClusterPatch_PinsKubeletToThePrivateNetwork(t *testing.T) {
+	t.Parallel()
+
+	// Without validSubnets a node with a public address advertises it, and
+	// every intra-cluster connection then leaves the private network —
+	// metered, and exposed.
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	machine, _ := doc["machine"].(map[string]any)
+	kubelet, _ := machine["kubelet"].(map[string]any)
+	nodeIP, _ := kubelet["nodeIP"].(map[string]any)
+
+	assert.Equal(t, []any{"10.0.1.0/24"}, nodeIP["validSubnets"])
+}
+
+func TestBuildClusterPatch_SchedulingOnControlPlanes(t *testing.T) {
+	t.Parallel()
+
+	for _, allow := range []bool{true, false} {
+		patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+			PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+			AllowSchedulingOnControlPlanes: allow,
+		})
+		require.NoError(t, err)
+
+		doc := decode(t, patch)
+		cluster, _ := doc["cluster"].(map[string]any)
+		assert.Equal(t, allow, cluster["allowSchedulingOnControlPlanes"])
+	}
+}
+
+func TestBuildClusterPatch_Rejects(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    hetzner.ClusterPatchArgs
+		wantMsg string
+	}{
+		{
+			name:    "no pod CIDR",
+			args:    hetzner.ClusterPatchArgs{ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24"},
+			wantMsg: "podCIDR and serviceCIDR are required",
+		},
+		{
+			name:    "no service CIDR",
+			args:    hetzner.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", NodeSubnet: "10.0.1.0/24"},
+			wantMsg: "podCIDR and serviceCIDR are required",
+		},
+		{
+			name:    "no node subnet",
+			args:    hetzner.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12"},
+			wantMsg: "nodeSubnet is required",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := hetzner.BuildClusterPatch(tc.args)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestBuildNodePatch(t *testing.T) {
+	t.Parallel()
+
+	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+		Hostname: "platform-hel-control-plane-0",
+		CertSANs: []string{"203.0.113.10", "10.0.1.2", "203.0.113.99"},
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	machine, _ := doc["machine"].(map[string]any)
+	network, _ := machine["network"].(map[string]any)
+
+	assert.Equal(t, "platform-hel-control-plane-0", network["hostname"])
+	assert.Equal(t, []any{"203.0.113.10", "10.0.1.2", "203.0.113.99"}, machine["certSANs"])
+}
+
+func TestBuildNodePatch_SignsSANsIntoTheAPIServerToo(t *testing.T) {
+	t.Parallel()
+
+	// Talos signs the cluster endpoint into the apiserver certificate itself,
+	// but not the node addresses. Setting only machine.certSANs makes the
+	// Talos API answer everywhere while kube-apiserver answers on one name —
+	// which looks fine on a single-node cluster and fails the moment kubectl
+	// aims at a node behind a load balancer.
+	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+		Hostname: "cp-0",
+		CertSANs: []string{"203.0.113.10", "10.0.1.2"},
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	machine, _ := doc["machine"].(map[string]any)
+	cluster, _ := doc["cluster"].(map[string]any)
+	apiServer, _ := cluster["apiServer"].(map[string]any)
+
+	assert.Equal(t, machine["certSANs"], apiServer["certSANs"])
+}
+
+func TestBuildNodePatch_DedupesSANs(t *testing.T) {
+	t.Parallel()
+
+	// On a single control plane the node address and the cluster endpoint are
+	// the same string; a duplicate is accepted but makes the certificate
+	// harder to read.
+	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+		Hostname: "cp-0",
+		CertSANs: []string{"10.0.1.2", "10.0.1.2", "", "203.0.113.10"},
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	machine, _ := doc["machine"].(map[string]any)
+
+	assert.Equal(t, []any{"10.0.1.2", "203.0.113.10"}, machine["certSANs"])
+}
+
+func TestBuildNodePatch_LabelsAndTaints(t *testing.T) {
+	t.Parallel()
+
+	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+		Hostname:   "gpu-0",
+		CertSANs:   []string{"10.0.1.80"},
+		NodeLabels: map[string]string{"pool": "gpu"},
+		NodeTaints: []string{"gpu=true:NoSchedule"},
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	machine, _ := doc["machine"].(map[string]any)
+	kubelet, _ := machine["kubelet"].(map[string]any)
+
+	labels, _ := kubelet["nodeLabels"].(map[string]any)
+	assert.Equal(t, "gpu", labels["pool"])
+
+	taints, _ := kubelet["nodeTaints"].(map[string]any)
+	assert.Equal(t, "true:NoSchedule", taints["gpu"])
+}
+
+func TestBuildNodePatch_OmitsKubeletSectionWhenNothingToSay(t *testing.T) {
+	t.Parallel()
+
+	// An empty kubelet block would be a no-op patch key that still shows in
+	// diffs; leaving it out keeps the rendered config to what was asked for.
+	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+		Hostname: "cp-0",
+		CertSANs: []string{"10.0.1.2"},
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	machine, _ := doc["machine"].(map[string]any)
+
+	assert.NotContains(t, machine, "kubelet")
+}
+
+func TestBuildNodePatch_Rejects(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    hetzner.NodePatchArgs
+		wantMsg string
+	}{
+		{
+			name:    "no hostname",
+			args:    hetzner.NodePatchArgs{CertSANs: []string{"10.0.1.2"}},
+			wantMsg: "hostname is required",
+		},
+		{
+			name:    "no certificate SANs",
+			args:    hetzner.NodePatchArgs{Hostname: "cp-0"},
+			wantMsg: "at least one certificate SAN is required",
+		},
+		{
+			name: "malformed taint",
+			args: hetzner.NodePatchArgs{
+				Hostname: "cp-0", CertSANs: []string{"10.0.1.2"},
+				NodeTaints: []string{"nonsense"},
+			},
+			wantMsg: "must be key=value:Effect",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := hetzner.BuildNodePatch(tc.args)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestBuildNodePatch_HostileValuesCannotBreakTheDocument(t *testing.T) {
+	t.Parallel()
+
+	// The reason these patches are marshalled from structs rather than
+	// rendered from a template: a value containing YAML syntax must end up as
+	// a string, not as structure.
+	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+		Hostname: "evil\nmachine:\n  install:\n    disk: /dev/sda",
+		CertSANs: []string{"10.0.1.2"},
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+	machine, _ := doc["machine"].(map[string]any)
+	network, _ := machine["network"].(map[string]any)
+
+	assert.Equal(t, "evil\nmachine:\n  install:\n    disk: /dev/sda", network["hostname"])
+	assert.NotContains(t, machine, "install")
+}
