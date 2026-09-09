@@ -40,6 +40,7 @@ infra/cluster              the only project that talks to the Hetzner API
   - [Security](#security)
   - [Charts](#charts)
 - [Configuration](#configuration)
+- [How changes land](#how-changes-land)
 - [Security scanning](#security-scanning)
 - [Testing](#testing)
 - [Layout](#layout)
@@ -284,6 +285,38 @@ a `pulumi up` cleanly:
 
 `task verify` runs them all. They need `helm`, a `talosctl` matching the pinned
 Talos minor, and a running Docker.
+
+## How changes land
+
+Everything goes through a pull request; `main` is protected and takes no direct
+pushes.
+
+```
+branch → PR → CI → rebase merge → release
+```
+
+The pieces that make that work, and the reason each one is there:
+
+- **Rebase is the only merge method.** Each commit of the PR is replayed onto
+  `main` as it was written, so the history stays the sequence of changes it
+  actually was rather than one squashed lump.
+- **Every commit is checked against Conventional Commits.** Under rebase they
+  all land on `main`, and semantic-release reads each of them to pick the next
+  version and write the notes. A commit that does not conform contributes
+  nothing, and a PR made entirely of them produces no release at all —
+  silently. CI checks them with the same expression as the local commit-msg
+  hook, which is opt-in per clone; the CI check is not.
+- **Release is a job of the CI workflow**, gated by `needs:` on every check.
+  It used to be a workflow of its own triggered on push, running in parallel
+  with the checks — and v1.0.2 was cut from a commit whose CI was failing.
+  The commit-message check is deliberately *not* in that `needs:` list: it
+  only runs on pull requests, and a skipped dependency would skip the release
+  along with it. It is enforced as a required check on the branch instead.
+- **`main` requires linear history** and refuses force pushes, so the commit a
+  release points at is the commit that was tested.
+
+Release notes are generated from the commit history by semantic-release; there
+is no changelog file to keep in step.
 
 ## Security scanning
 
