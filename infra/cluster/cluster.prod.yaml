@@ -1,0 +1,58 @@
+# Production cluster topology.
+#
+# Committed on purpose: a cluster must be reviewable in a diff before it exists
+# and reproducible from a clone. Parameters that live only in `pulumi config`
+# leave somebody's shell history as the only record of how a cluster was shaped.
+#
+# Sparse by design — anything omitted keeps the default in pkg/hetzner, so this
+# file never restates a default and a default can change in one place.
+#
+# Secrets are NOT here and must not be. The Hetzner token is set as a Pulumi
+# secret by `task cluster:apply`.
+apiVersion: hetzner-iac/v1
+kind: Cluster
+
+metadata:
+  name: platform-prod
+
+placement:
+  location: hel1
+  # Derived from the location when omitted; stated here only because a
+  # location change must be a deliberate two-line edit.
+  networkZone: eu-central
+
+network:
+  # CIDRs allowed to reach tcp/6443 (kube-apiserver) and tcp/50000 (Talos API).
+  #
+  # MUST include the host running `task cluster:*` — Talos machine
+  # configuration is applied over the Talos API from there, and a host outside
+  # this list hangs on apply with the port filtered rather than failing.
+  #
+  # There is no default: an empty list is refused rather than widened to
+  # 0.0.0.0/0. Replace the placeholder with your egress CIDR.
+  adminCIDRs:
+    - 203.0.113.4/32
+
+talos:
+  # Bump this and re-run `task cluster:image-bake`. The image selector keys off
+  # the version label, so a bump without a bake fails at plan time with "no
+  # available Talos snapshot matches the selector".
+  version: v1.14.0
+  architecture: x86
+
+kubernetes:
+  # Empty keeps the version that ships with this Talos release, which is the
+  # pairing Talos supports.
+  version: ""
+
+controlPlane:
+  # Three for etcd quorum. One is a development shape: it survives no node
+  # failure and its API endpoint moves if the node is replaced.
+  count: 3
+  serverType: cx22
+  apiLoadBalancerType: lb11
+
+workerPools:
+  - name: worker
+    count: 3
+    serverType: cx32
