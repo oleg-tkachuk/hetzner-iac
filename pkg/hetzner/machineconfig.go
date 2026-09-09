@@ -161,7 +161,6 @@ func BuildNodePatch(args NodePatchArgs) (string, error) {
 	}
 
 	machine := map[string]any{
-		"network":  map[string]any{"hostname": args.Hostname},
 		"certSANs": dedupe(args.CertSANs),
 	}
 
@@ -180,7 +179,33 @@ func BuildNodePatch(args NodePatchArgs) (string, error) {
 		},
 	}
 
-	return marshalPatch(patch)
+	rendered, err := marshalPatch(patch)
+	if err != nil {
+		return "", err
+	}
+
+	// The hostname goes in its own document, NOT in machine.network.
+	//
+	// Talos rejects `machine.network.hostname` outright — "static hostname is
+	// already set in v1alpha1 config" — because a HostnameConfig document is
+	// always present, defaulting to `auto: stable`. Setting both is the
+	// conflict, so the automatic mode has to be turned off in the same
+	// document that sets the name. Measured against talosctl 1.13.10:
+	// `auto: "off"` is the only spelling accepted; "", "none" and "disabled"
+	// are all rejected as not belonging to AutoHostnameKind.
+	hostname := map[string]any{
+		"apiVersion": "v1alpha1",
+		"kind":       "HostnameConfig",
+		"auto":       "off",
+		"hostname":   args.Hostname,
+	}
+
+	hostnameDoc, err := marshalPatch(hostname)
+	if err != nil {
+		return "", err
+	}
+
+	return rendered + "---\n" + hostnameDoc, nil
 }
 
 func marshalPatch(patch map[string]any) (string, error) {
