@@ -117,6 +117,17 @@ jobs:
   # They drift when a layer is renamed and one of the two is updated.
   layers:
     name: Layer list matches the tree
+    # Pull requests only. A push to main has just been through this exact
+    # tree on the pull request, and branch protection requires the branch to
+    # be current with main before merging, so the rebased result is what was
+    # tested. Re-running it on main adds no information and cost about fifteen
+    # minutes of every merge.
+    #
+    # What DOES run on main is prime, because a cache written on a pull request
+    # is scoped to refs/pull/N/merge and no other branch can read it — only the
+    # default branch can seed a cache everything else restores. Plus the
+    # scanners, which gate the release.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -167,6 +178,7 @@ jobs:
 
   build:
     name: Build and test
+    if: github.event_name == 'pull_request'
     needs: [changes, prime]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -202,6 +214,7 @@ jobs:
 
   lint:
     name: golangci-lint
+    if: github.event_name == 'pull_request'
     needs: [changes, prime]
     runs-on: ubuntu-latest
     # Above golangci's own --timeout, or the runner kills the job first and the
@@ -223,6 +236,7 @@ jobs:
 
   charts:
     name: Chart pins
+    if: github.event_name == 'pull_request'
     needs: [prime]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -253,6 +267,7 @@ jobs:
 
   topology:
     name: Cluster topology
+    if: github.event_name == 'pull_request'
     needs: [prime]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -357,7 +372,11 @@ jobs:
     # NOT `commits`: that job only runs on a pull request, and a skipped
     # dependency skips its dependents — release would never fire on a push to
     # main. It is enforced where it belongs, as a required check on the branch.
-    needs: [layers, build, lint, charts, topology, security]
+    # Only jobs that run on a push to main. The pull-request checks are
+    # skipped there, and a skipped dependency skips its dependents — listing
+    # them would mean the release never fires. The pull request is what gated
+    # this commit; security still gates it here.
+    needs: [prime, security]
     # Only from a push to main. On a pull request the checks still run; there
     # is simply nothing to release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
