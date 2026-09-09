@@ -81,6 +81,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-go
+        with:
+          # The one writer. Every other job in every workflow restores only,
+          # so nothing can take this key before the tree has been built.
+          cache-mode: save
       # No `if:` here, deliberately. This job exists to OWN the cache, and the
       # cache key is immutable — whoever saves first keeps it. Skipping the
       # build on a docs-only change saves an EMPTY cache under that key and
@@ -125,6 +129,33 @@ jobs:
             exit 1
           fi
           echo "$declared"
+
+      # Exactly one job may write the shared Go cache.
+      #
+      # An Actions cache key is immutable, so whichever job saves first owns it
+      # — and the job that compiles the tree is by definition slower than one
+      # that does not. This went wrong twice: once a 31 MB cache from a run that
+      # failed before touching Go, once an empty one from a prime job that
+      # skipped its build. Both were restored by every later run, which then
+      # rebuilt everything.
+      #
+      # A comment did not prevent the second occurrence, so this is a check.
+      - name: One writer for the Go cache
+        run: |
+          set -euo pipefail
+          # Anchored to the start of the line, or this step counts the string
+          # inside its own source — which it did on the first attempt.
+          writers="$(grep -rnE '^[[:space:]]+cache-mode: save$' .github/workflows/ || true)"
+          count="$(printf '%s' "$writers" | grep -c . || true)"
+          echo "writers:"
+          printf '  %s\n' "${writers:-none}"
+          if [ "$count" -ne 1 ]; then
+            echo "::error::expected exactly one job with cache-mode: save, found $count"
+            echo "The key is immutable and the fastest saver wins it. More than one" >&2
+            echo "writer is a race the priming job always loses; none means the"      >&2
+            echo "cache is never populated at all."                                   >&2
+            exit 1
+          fi
 
   build:
     name: Build and test
