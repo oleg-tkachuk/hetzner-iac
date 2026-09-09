@@ -20,7 +20,25 @@ import (
 )
 
 func main() {
-	dirs := os.Args[1:]
+	args := os.Args[1:]
+
+	// `talos-version <file>` prints the pinned Talos version, for anything that
+	// needs to install a matching talosctl. It reads the topology with the same
+	// parser everything else uses — a grep over the file breaks the moment a
+	// comment above the field gets longer, which is exactly how CI broke once.
+	if len(args) == 2 && args[0] == "talos-version" {
+		version, err := talosVersion(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+
+		fmt.Println(version)
+
+		return
+	}
+
+	dirs := args
 	if len(dirs) == 0 {
 		dirs = []string{"infra/cluster"}
 	}
@@ -133,4 +151,14 @@ func indent(text string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// talosVersion reports the Talos version a topology pins.
+func talosVersion(path string) (string, error) {
+	topology, err := hetzner.LoadTopology(path)
+	if err != nil {
+		return "", err
+	}
+
+	return topology.Talos.Version, nil
 }

@@ -18,7 +18,12 @@ concurrency:
 env:
   # Pinned rather than latest: a tool that changes version between runs turns
   # "CI went red and nothing changed" into a debugging session.
-  GOLANGCI_VERSION: "v2.12.2"
+  #
+  # It must also be BUILT with a Go at least as new as go.mod targets, or it
+  # refuses to load the config: "the Go language version (go1.26) used to build
+  # golangci-lint is lower than the targeted Go version (1.27.1)". 2.13.2 is
+  # built with go1.27.
+  GOLANGCI_VERSION: "v2.13.2"
 
 jobs:
   # Guards the thing a Go build cannot see: that the layer list in the
@@ -149,10 +154,15 @@ jobs:
       - name: Install the pinned talosctl
         run: |
           set -euo pipefail
-          version="$(grep -A6 '^talos:' infra/cluster/cluster.prod.yaml | grep -m1 'version:' | awk '{print $2}')"
-          curl -sSfL -o /usr/local/bin/talosctl \
+          # Read through the real parser, not a grep: the first version of this
+          # used `grep -A6` and broke the moment the comment above the field
+          # grew, leaving the version empty and the download URL malformed.
+          version="$(go run ./tools/topology talos-version infra/cluster/cluster.prod.yaml)"
+          test -n "$version"
+          curl -sSfL -o "${RUNNER_TEMP}/talosctl" \
             "https://github.com/siderolabs/talos/releases/download/${version}/talosctl-linux-amd64"
-          chmod +x /usr/local/bin/talosctl
+          chmod +x "${RUNNER_TEMP}/talosctl"
+          echo "${RUNNER_TEMP}" >>"$GITHUB_PATH"
       - name: Talos machine config
         run: go run ./tools/talosvalidate infra/cluster
       # Docker is already on the runner, and Alloy is validated from the image
