@@ -142,6 +142,19 @@ jobs:
       # file that only fails at `pulumi up` has already cost an operator a
       # round trip.
       - run: go run ./tools/topology infra/cluster
+      # Validate the machine-config patches against Talos itself. The talosctl
+      # version is read from the topology rather than pinned here, because a
+      # mismatched binary reports conflicts that will not happen on the cluster
+      # being built.
+      - name: Install the pinned talosctl
+        run: |
+          set -euo pipefail
+          version="$(grep -A6 '^talos:' infra/cluster/cluster.prod.yaml | grep -m1 'version:' | awk '{print $2}')"
+          curl -sSfL -o /usr/local/bin/talosctl \
+            "https://github.com/siderolabs/talos/releases/download/${version}/talosctl-linux-amd64"
+          chmod +x /usr/local/bin/talosctl
+      - name: Talos machine config
+        run: go run ./tools/talosvalidate infra/cluster
 
   # Extracted into its own workflow so it can ALSO run on a schedule: a CVE
   # published today makes yesterday's green commit vulnerable, and a gate that
