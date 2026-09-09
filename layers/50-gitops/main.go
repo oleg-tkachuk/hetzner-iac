@@ -15,6 +15,11 @@ import (
 )
 
 // AdminSecret is where Argo CD writes its initial admin password.
+//
+// the password itself is generated in-cluster and deliberately never read by
+// this program.
+//
+//nolint:gosec // this is the NAME of a Kubernetes Secret, not a credential —
 const AdminSecret = "argocd-initial-admin-secret"
 
 // IssuerName must match the ClusterIssuer created by 30-core.

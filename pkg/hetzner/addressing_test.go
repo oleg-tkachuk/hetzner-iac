@@ -42,8 +42,8 @@ func TestAddressing_ControlPlane(t *testing.T) {
 	// Offsets 0 and 1 are the network address and the Hetzner gateway, so the
 	// first control-plane node lands on .2.
 	for ordinal, want := range map[int]string{0: "10.0.1.2", 1: "10.0.1.3", 2: "10.0.1.4"} {
-		got, err := addressing.ControlPlaneIP(ordinal)
-		require.NoError(t, err)
+		got, ipErr := addressing.ControlPlaneIP(ordinal)
+		require.NoError(t, ipErr)
 		assert.Equal(t, want, got)
 	}
 

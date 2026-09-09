@@ -17,7 +17,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
@@ -32,7 +31,7 @@ func main() {
 		// shell block wrote. `pulumi config` keeps only what must not be in
 		// git — the Hetzner token — plus the few switches that are properties
 		// of the operator's position rather than of the cluster.
-		topologyPath := filepath.Join("cluster." + ctx.Stack() + ".yaml")
+		topologyPath := "cluster." + ctx.Stack() + ".yaml"
 
 		topology, err := hetzner.LoadTopology(topologyPath)
 		if err != nil {

@@ -1,0 +1,94 @@
+name: Preview
+
+# A real `pulumi preview` needs real credentials and a real cluster stack:
+# every layer resolves the cluster through a StackReference, and the cluster
+# tier resolves a Talos snapshot through the Hetzner API.
+#
+# It is therefore NOT part of pull-request CI. A preview faked against an empty
+# local backend passes without checking anything, which is worse than not
+# running it — it reports green over an untested change.
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: Stack to preview
+        required: true
+        default: prod
+  # Drift detection. A preview that is not empty means something changed the
+  # cluster outside this repository.
+  schedule:
+    - cron: "17 6 * * 1-5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PULUMI_VERSION: "3.261.0"
+
+jobs:
+  layers:
+    name: Resolve layer matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      layers: ${{ steps.list.outputs.layers }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # DERIVED from the Taskfile, which is also what `task platform:apply-all`
+      # walks. A hand-written copy here is how a matrix ends up previewing
+      # directories that were renamed months ago.
+      - id: list
+        run: |
+          set -euo pipefail
+          layers=$(task platform:layers --yes | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "layers=$layers" >>"$GITHUB_OUTPUT"
+
+  cluster:
+    name: Preview the cluster tier
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.stack || 'prod' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+      - uses: pulumi/actions@v7
+        with:
+          pulumi-version: ${{ env.PULUMI_VERSION }}
+      - name: Preview
+        working-directory: infra/cluster
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: pulumi --non-interactive --stack "${{ inputs.stack || 'prod' }}" preview --diff
+
+  layer:
+    # No `name:` on purpose. A custom name is used verbatim, so a skipped job
+    # shows as one check literally called "Preview (${{ matrix.layer }})".
+    # Without it GitHub builds the label per layer: "layer (20-cni)".
+    needs: [layers]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.stack || 'prod' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: ${{ fromJSON(needs.layers.outputs.layers) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+      - uses: pulumi/actions@v7
+        with:
+          pulumi-version: ${{ env.PULUMI_VERSION }}
+      - name: Preview
+        working-directory: layers/${{ matrix.layer }}
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: pulumi --non-interactive --stack "${{ inputs.stack || 'prod' }}" preview --diff
