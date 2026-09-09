@@ -1,0 +1,65 @@
+name: Nightly
+
+# The checks worth running, but not worth running on every pull request.
+#
+# Both of these cost more than ten minutes each and neither catches something
+# the pipeline would otherwise miss on the same day:
+#
+#   - the race detector compiles the whole tree a second time, with its own
+#     build IDs that nothing else can reuse;
+#   - standalone gosec re-loads the package graph per package, where
+#     golangci-lint loads it once and runs gosec over it along with everything
+#     else.
+#
+# Running them nightly keeps the coverage and takes twenty-six minutes off
+# every pipeline.
+on:
+  schedule:
+    # After the working day, before the next one.
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+env:
+  GOSEC_VERSION: "v2.29.0"
+
+jobs:
+  race:
+    name: Tests with the race detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          # Race artifacts carry their own build IDs, so nothing else can reuse
+          # them. Writing them into the shared cache would make every other
+          # job's restore useless while growing the cache several times over.
+          cache: "false"
+      - run: go test -race -count=1 ./...
+
+  gosec:
+    name: gosec
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+      # Suppressions use #nosec, which both this and the gosec inside
+      # golangci-lint honour — //nolint:gosec would pass the lint job and fail
+      # here.
+      - run: task security:gosec

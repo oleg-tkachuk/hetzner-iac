@@ -333,24 +333,41 @@ Accepted findings live in `.trivyignore.yaml`, each with the reason it stands.
 Entries are removed as soon as a fix lands — a stale ignore masks the finding
 coming back.
 
-### gosec is the expensive one
+### What runs when
 
-It loads every analysed package with full syntax *and* full type information
-for the entire transitive graph, and processes up to `-concurrency` packages at
-once — a flag that defaults to the machine's core count. This module's graph is
-208 modules dominated by the generated Pulumi Kubernetes SDK, so a single
-worker already holds a large graph; fourteen of them will exhaust a laptop's
-memory and send it to swap.
+Pull requests run everything cheap and everything that catches a mistake the
+same day. Two checks run nightly instead, because each cost more than ten
+minutes of every pipeline for coverage a day's delay does not meaningfully
+weaken:
 
-`GOSEC_FLAGS: -concurrency=4` in the Taskfile caps that. Four is the CI
-runner's core count, so it costs nothing there.
+- **the race detector**, which compiles the whole tree a second time with build
+  IDs nothing else can reuse;
+- **standalone gosec**, because golangci-lint already runs gosec over this code
+  and finishes sooner — it loads the package graph once and runs every linter
+  over it, where standalone gosec re-loads per package.
 
-The remaining cost is compilation, not analysis: three seconds against a warm
-build cache, and over fifteen minutes on a cold runner. Worth knowing that
-golangci-lint already runs gosec over this code, in a job that finishes sooner,
-because it loads the graph once and runs every linter over it. The standalone
-job earns its place by scanning with gosec's own defaults — and it is the first
-thing to reconsider if CI minutes start to matter.
+`task scan` still runs the full set locally.
+
+### Why the pipeline is not slow any more
+
+Every run used to pay for a cold compile of a 208-module graph dominated by the
+generated Pulumi Kubernetes SDK. Two separate causes.
+
+**The shared Go cache was poisoned.** `actions/setup-go` caches the module and
+build directories under a key derived from `go.sum`, and that key is immutable:
+whichever job saves first owns it for good. Early runs failed before they
+touched Go, saved a 31 MB cache, and every later run restored those 31 MB and
+rebuilt everything. A `prime` job now compiles the tree first, so the cache that
+gets saved is the useful one, and the jobs that need it depend on it.
+
+**gosec's memory.** It loads every package with full syntax *and* type
+information for the whole transitive graph, and processes `-concurrency` of them
+at once — defaulting to the core count, so fourteen large graphs at once on a
+developer machine. `GOSEC_FLAGS: -concurrency=4` caps it.
+
+A docs-only change still reports every check: the jobs run and skip their
+expensive step, rather than being skipped themselves. A required check that
+never reports leaves the pull request waiting forever.
 
 Note that govulncheck and trivy disagree by design: govulncheck reports only
 what this code can actually reach, trivy reports everything present in the

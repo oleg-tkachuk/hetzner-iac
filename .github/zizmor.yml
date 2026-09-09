@@ -15,3 +15,4 @@ rules:
       - ci.yaml
       - security.yaml
       - preview.yaml
+      - nightly.yaml
