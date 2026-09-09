@@ -6,26 +6,59 @@ import (
 	"context"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/workloads"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 )
 
-func TestCNI(t *testing.T) {
-	cilium := features.New("Cilium is the cluster's dataplane").
+// TestWorkloads checks every object the platform is expected to run.
+//
+// The list comes from pkg/workloads, the same table `task charts:render-check`
+// proves the charts still produce. That check runs offline in seconds; this one
+// runs against a cluster. A rename caught by the first never reaches the second.
+func TestWorkloads(t *testing.T) {
+	byChart := map[string][]workloads.Workload{}
+	for _, w := range workloads.Expected {
+		byChart[w.Chart] = append(byChart[w.Chart], w)
+	}
+
+	for _, chart := range workloads.Charts() {
+		expected := byChart[chart]
+
+		feature := features.New(chart+" is running").
+			WithLabel("chart", chart)
+
+		for _, w := range expected {
+			workload := w // captured per assessment
+
+			feature = feature.Assess(string(workload.Kind)+" "+workload.Name,
+				func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+					switch workload.Kind {
+					case workloads.Deployment:
+						deploymentAvailable(ctx, t, cfg, workload.Namespace, workload.Name)
+					case workloads.StatefulSet:
+						statefulSetReady(ctx, t, cfg, workload.Namespace, workload.Name)
+					case workloads.DaemonSet:
+						daemonSetReady(ctx, t, cfg, workload.Namespace, workload.Name)
+					default:
+						t.Fatalf("unknown workload kind %q", workload.Kind)
+					}
+
+					return ctx
+				})
+		}
+
+		testenv.Test(t, feature.Feature())
+	}
+}
+
+func TestCNIReplacesKubeProxy(t *testing.T) {
+	noKubeProxy := features.New("kube-proxy is not running alongside Cilium").
 		WithLabel("layer", "20-cni").
-		Assess("the agent runs on every node", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			daemonSetReady(ctx, t, cfg, "kube-system", "cilium")
-
-			return ctx
-		}).
-		Assess("the operator is available", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			deploymentAvailable(ctx, t, cfg, "kube-system", "cilium-operator")
-
-			return ctx
-		}).
-		Assess("kube-proxy is not running alongside it", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+		Assess("no kube-proxy DaemonSet", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// Talos was configured with kube-proxy disabled because Cilium
 			// replaces it in eBPF. Both running means two components
 			// programming the same service dataplane, and the symptoms are
@@ -45,49 +78,16 @@ func TestCNI(t *testing.T) {
 			return ctx
 		}).Feature()
 
-	testenv.Test(t, cilium)
+	testenv.Test(t, noKubeProxy)
 }
 
-func TestCorePlatform(t *testing.T) {
-	core := features.New("core platform services are available").
-		WithLabel("layer", "30-core").
-		Assess("cert-manager", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			for _, name := range []string{"cert-manager", "cert-manager-webhook", "cert-manager-cainjector"} {
-				deploymentAvailable(ctx, t, cfg, "cert-manager", name)
-			}
-
-			return ctx
-		}).
-		Assess("external-secrets", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			deploymentAvailable(ctx, t, cfg, "external-secrets", "external-secrets")
-
-			return ctx
-		}).
-		Assess("metrics-server serves node metrics", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			// Availability alone is not enough here: metrics-server starts
-			// happily and then fails every scrape when it cannot reach kubelet
-			// by InternalIP, which is the Talos-specific failure the layer
-			// configures around.
-			deploymentAvailable(ctx, t, cfg, "kube-system", "metrics-server")
-
-			return ctx
-		}).Feature()
-
-	testenv.Test(t, core)
-}
-
-func TestIngress(t *testing.T) {
+func TestIngressLoadBalancer(t *testing.T) {
 	ingress := features.New("ingress is published through a Hetzner load balancer").
 		WithLabel("layer", "40-ingress").
-		Assess("the controller is available", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			deploymentAvailable(ctx, t, cfg, "ingress-nginx", "ingress-nginx-controller")
-
-			return ctx
-		}).
 		Assess("the load balancer was provisioned", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// A Service of type LoadBalancer with no ingress address means the
 			// CCM never created one — usually a bad annotation, and the
-			// Service sits <pending> indefinitely with no event that says so.
+			// Service sits <pending> indefinitely with no event saying so.
 			service := &corev1.Service{}
 			if err := cfg.Client().Resources("ingress-nginx").
 				Get(ctx, "ingress-nginx-controller", "ingress-nginx", service); err != nil {
@@ -108,58 +108,13 @@ func TestIngress(t *testing.T) {
 	testenv.Test(t, ingress)
 }
 
-func TestGitOps(t *testing.T) {
-	argocd := features.New("Argo CD is running").
-		WithLabel("layer", "50-gitops").
-		Assess("server and repo server are available", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			for _, name := range []string{"argo-cd-argocd-server", "argo-cd-argocd-repo-server"} {
-				deploymentAvailable(ctx, t, cfg, "argocd", name)
-			}
-
-			return ctx
-		}).
-		Assess("the application controller is running", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			// The controller is what actually reconciles; the UI being up
-			// while it is down is the failure that looks healthy.
-			statefulSetReady(ctx, t, cfg, "argocd", "argo-cd-argocd-application-controller")
-
-			return ctx
-		}).Feature()
-
-	testenv.Test(t, argocd)
-}
-
-func TestObservability(t *testing.T) {
-	stack := features.New("the observability stack is collecting").
+func TestObservabilityStorage(t *testing.T) {
+	storage := features.New("observability persists its data").
 		WithLabel("layer", "60-observability").
-		Assess("Prometheus and Alertmanager", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			statefulSetReady(ctx, t, cfg, "observability", "prometheus-kube-prometheus-stack-prometheus")
-			statefulSetReady(ctx, t, cfg, "observability", "alertmanager-kube-prometheus-stack-alertmanager")
-
-			return ctx
-		}).
-		Assess("Grafana", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			deploymentAvailable(ctx, t, cfg, "observability", "kube-prometheus-stack-grafana")
-
-			return ctx
-		}).
-		Assess("Loki and Tempo", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			statefulSetReady(ctx, t, cfg, "observability", "loki")
-			statefulSetReady(ctx, t, cfg, "observability", "tempo")
-
-			return ctx
-		}).
-		Assess("Alloy collects on every node", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			// A DaemonSet, because log collection is per-node work: a
-			// Deployment would quietly collect from one node only.
-			daemonSetReady(ctx, t, cfg, "observability", "alloy")
-
-			return ctx
-		}).
-		Assess("persistent volumes were bound", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			// The whole point of the storage class wiring: an unbound claim
-			// means metrics and logs are being written to a volume that does
-			// not exist yet, and the pod is Pending rather than failing.
+		Assess("every claim is bound", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+			// The point of the storage-class wiring: an unbound claim means
+			// metrics and logs are being written to a volume that does not
+			// exist, and the pod is Pending rather than failing.
 			claims := &corev1.PersistentVolumeClaimList{}
 			if err := cfg.Client().Resources("observability").List(ctx, claims); err != nil {
 				t.Fatalf("list persistent volume claims: %v", err)
@@ -179,5 +134,5 @@ func TestObservability(t *testing.T) {
 			return ctx
 		}).Feature()
 
-	testenv.Test(t, stack)
+	testenv.Test(t, storage)
 }

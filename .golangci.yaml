@@ -98,7 +98,7 @@ linters:
       # writes Talos's own configuration vocabulary, where a Go constant named
       # after a Talos key adds a level of indirection between the code and the
       # documentation it is written against.
-      - path: ^pkg/(charts/registry|hetzner/(config|machineconfig))\.go$
+      - path: ^pkg/(charts/registry|workloads/workloads|hetzner/(config|machineconfig))\.go$
         linters:
           - goconst
 

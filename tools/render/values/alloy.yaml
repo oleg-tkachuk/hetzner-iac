@@ -1,0 +1,4 @@
+# Log collection is per-node work, so the layer runs Alloy as a DaemonSet
+# rather than the chart's default Deployment.
+controller:
+  type: daemonset

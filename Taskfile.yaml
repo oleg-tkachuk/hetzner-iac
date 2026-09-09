@@ -116,6 +116,7 @@ tasks:
       - task: go:lint
       - task: go:vuln
       - task: charts:validate
+      - task: charts:render-check
 
   fmt-check:
     desc: "Fail if any Go file is not gofmt-clean"
