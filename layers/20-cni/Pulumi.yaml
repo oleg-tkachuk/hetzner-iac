@@ -1,0 +1,21 @@
+name: cni
+runtime:
+  name: go
+  options:
+    # Stable build path so repeated previews skip the link step; content
+    # hashing still rebuilds when sources change.
+    buildTarget: ../../.cache/pulumi-bin/cni
+description: |
+  Container network interface: Cilium, with kube-proxy replaced in eBPF.
+
+  The cluster tier ships with no CNI on purpose, so nodes are NotReady until
+  this layer runs. Talos was configured with kube-proxy disabled, which is why
+  Cilium must be installed with kubeProxyReplacement enabled — the cluster has
+  no service dataplane otherwise.
+
+config:
+  cni:clusterStackRef:
+    description: |
+      Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
+      This layer reads the kubeconfig from it, which is what lets it be applied
+      and destroyed without touching the cluster.

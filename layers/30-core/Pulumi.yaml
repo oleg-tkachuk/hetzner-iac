@@ -1,0 +1,19 @@
+name: core
+runtime:
+  name: go
+  options:
+    # Stable build path so repeated previews skip the link step; content
+    # hashing still rebuilds when sources change.
+    buildTarget: ../../.cache/pulumi-bin/core
+description: |
+  Core platform: cert-manager, external-secrets and metrics-server.
+
+  Everything above assumes these exist: ingress wants certificates, workloads
+  want secrets, and the horizontal pod autoscaler wants metrics.
+
+config:
+  core:clusterStackRef:
+    description: |
+      Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
+      This layer reads the kubeconfig from it, which is what lets it be applied
+      and destroyed without touching the cluster.

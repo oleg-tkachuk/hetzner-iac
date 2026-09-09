@@ -1,0 +1,20 @@
+name: cloud-integration
+runtime:
+  name: go
+  options:
+    # Stable build path so repeated previews skip the link step; content
+    # hashing still rebuilds when sources change.
+    buildTarget: ../../.cache/pulumi-bin/cloud-integration
+description: |
+  Hetzner cloud integration: the cloud controller manager and the CSI driver.
+
+  Runs first. Talos leaves every node carrying the `uninitialized` taint until
+  a cloud controller manager clears it, so nothing else schedules until this
+  layer is applied.
+
+config:
+  cloud-integration:clusterStackRef:
+    description: |
+      Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
+      This layer reads the kubeconfig from it, which is what lets it be applied
+      and destroyed without touching the cluster.
