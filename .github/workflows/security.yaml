@@ -76,7 +76,15 @@ jobs:
   sast:
     name: gosec
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 30, not 15: gosec spends its time COMPILING, not analysing. It takes
+    # three seconds here against a warm build cache and over fifteen minutes on
+    # a runner that has to type-check the whole Pulumi SDK from cold.
+    #
+    # Worth naming as a cost rather than hiding: golangci-lint already runs
+    # gosec with this repository's config, in a job that finishes sooner. This
+    # job earns its place by scanning with gosec's own defaults, and it is the
+    # first thing to reconsider if CI minutes start to matter.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
