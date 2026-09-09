@@ -151,7 +151,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 |------|------|
 | `task up` | cluster, then every layer in dependency order |
 | `task plan` | preview the cluster and every layer; change nothing |
-| `task verify` | the fast gate — format, tests, lint, reachable vulnerabilities, chart pins |
+| `task verify` | everything checkable without a cluster — needs helm, talosctl and docker |
 | `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec |
 | `task e2e` | verify a running cluster; read-only, safe against production |
 | `task fmt` | format and tidy |
@@ -227,6 +227,9 @@ changes to its image.
 | `task charts:list` | every pinned chart |
 | `task charts:outdated` | each pin against the latest upstream chart |
 | `task charts:validate` | pins are exact versions, not floating tags |
+| `task charts:render-check` | the charts still produce the workloads and honour the values |
+| `task cluster:config-check` | Talos accepts the machine-config patches |
+| `task observability:check` | Alloy parses the collector config |
 
 ## Configuration
 
@@ -267,6 +270,20 @@ Pulumi config:
 The Hetzner token is read by the cloud-integration layer rather than exported
 by the cluster tier: a stack that exports a cloud credential puts it into the
 state of every stack that references it.
+
+### Asking the real tool
+
+Four checks run offline against the actual software rather than against this
+repository's own assumptions, because that is where the expensive mistakes hide
+— each of the following was found this way, and none of them would have failed
+a `pulumi up` cleanly:
+
+- Grafana pointed at Tempo's port 3100, which the chart does not expose.
+- `machine.network.hostname`, which Talos rejects outright.
+- A Talos version pinned ahead of what the provider's generator knows.
+
+`task verify` runs them all. They need `helm`, a `talosctl` matching the pinned
+Talos minor, and a running Docker.
 
 ## Security scanning
 
