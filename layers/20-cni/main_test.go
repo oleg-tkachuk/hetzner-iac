@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +23,7 @@ func TestCiliumValues_ReplacesKubeProxy(t *testing.T) {
 	// with no error anywhere.
 	values := CiliumValues(pulumi.String("10.244.0.0/16"))
 
-	assert.Equal(t, pulumi.Bool(true), values["kubeProxyReplacement"])
+	assert.Equal(t, pulumi.Bool(true), values[chartsettings.CiliumKubeProxyReplacement])
 }
 
 func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
@@ -32,9 +34,9 @@ func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
 	// instead would tie the CNI to one control-plane node's life.
 	values := CiliumValues(pulumi.String("10.244.0.0/16"))
 
-	assert.Equal(t, pulumi.String("localhost"), values["k8sServiceHost"])
-	assert.Equal(t, pulumi.Int(KubePrismPort), values["k8sServicePort"])
-	assert.Equal(t, 7445, KubePrismPort,
+	assert.Equal(t, pulumi.String("localhost"), values[chartsettings.CiliumK8sServiceHost])
+	assert.Equal(t, pulumi.Int(chartsettings.KubePrismPort), values[chartsettings.CiliumK8sServicePort])
+	assert.Equal(t, 7445, chartsettings.KubePrismPort,
 		"KubePrism port must match the machine config written by the cluster tier")
 }
 
