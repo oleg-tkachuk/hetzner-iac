@@ -30,3 +30,25 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Internal design docs — kept out of the public repository (temporary)
+docs/
+
+# Pulumi
+Pulumi.*.yaml.bak
+.pulumi/
+
+# Build output. Pulumi's go language host compiles each layer to a stable
+# path under here so repeated previews skip the link step.
+.cache/
+
+# Task
+.task/
+
+# Cluster credentials produced by `task cluster:kubeconfig` / `cluster:talosconfig`
+kubeconfig
+talosconfig
+*.kubeconfig
+
+# Local etcd snapshots
+.backups/
