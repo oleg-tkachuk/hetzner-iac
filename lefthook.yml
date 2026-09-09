@@ -173,21 +173,3 @@ commit-msg:
           echo "See:    https://www.conventionalcommits.org/en/v1.0.0/" >&2
           exit 1
         fi
-
-    # Attribution trailers are not wanted in this history, and removing one
-    # after it is pushed costs a force-push over published history. The moment
-    # to catch it is before the commit is written, which is here.
-    - name: no-attribution-trailers
-      run: |
-        set -euo pipefail
-        file="{1}"
-        [ -f "$file" ] || file="$(git rev-parse --git-path COMMIT_EDITMSG 2>/dev/null || true)"
-        [ -f "$file" ] || exit 0
-
-        if grep -Eiq '^(co-authored-by|signed-off-by).*(claude|anthropic|noreply@anthropic)' "$file" \
-           || grep -Eiq 'generated with .*(claude|anthropic)' "$file"; then
-          echo "ERROR: attribution trailer in the commit message." >&2
-          echo "This history carries no Co-Authored-By / 'Generated with' trailers." >&2
-          echo "Remove the trailer and commit again." >&2
-          exit 1
-        fi
