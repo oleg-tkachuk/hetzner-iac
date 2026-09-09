@@ -92,3 +92,30 @@ jobs:
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: pulumi --non-interactive --stack "${{ inputs.stack || 'prod' }}" preview --diff
+
+  e2e:
+    name: Verify the running cluster
+    needs: [cluster]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.stack || 'prod' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+      - uses: pulumi/actions@v7
+        with:
+          pulumi-version: ${{ env.PULUMI_VERSION }}
+      - name: Fetch the kubeconfig
+        working-directory: infra/cluster
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          pulumi --non-interactive --stack "${{ inputs.stack || 'prod' }}" \
+            stack output kubeconfig --show-secrets > "${RUNNER_TEMP}/kubeconfig"
+          chmod 600 "${RUNNER_TEMP}/kubeconfig"
+      # Read-only apart from nothing: the suite creates no workloads, so it is
+      # safe to run against the cluster that is actually serving traffic —
+      # which is the only cluster whose health is worth reporting.
+      - name: e2e
+        run: go test -tags e2e -count=1 -v -timeout 40m ./test/e2e/... --kubeconfig "${RUNNER_TEMP}/kubeconfig"

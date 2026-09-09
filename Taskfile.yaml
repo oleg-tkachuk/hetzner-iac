@@ -96,6 +96,21 @@ tasks:
       - gofmt -w .
       - go mod tidy
 
+  e2e:
+    desc: "Verify a real cluster — read-only, safe against production"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          [ -f "{{.ROOT}}/kubeconfig" ] || {
+            echo "no ./kubeconfig — run: task cluster:kubeconfig stack={{.stack}}" >&2
+            exit 1
+          }
+          # The suite verifies the cluster this repository built, so it runs
+          # against an existing one rather than spinning up a throwaway: none
+          # of the Hetzner integration exists in a local cluster.
+          go test -tags e2e -count=1 -v -timeout 30m ./test/e2e/... \
+            --kubeconfig "{{.ROOT}}/kubeconfig"
+
   clean:
     desc: "Remove build output — the compiled layer binaries under .cache"
     cmds:
