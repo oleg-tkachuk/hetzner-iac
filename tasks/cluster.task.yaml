@@ -18,7 +18,7 @@ tasks:
       - sh: command -v hcloud >/dev/null
         msg: "hcloud CLI not installed — brew install hcloud"
       - sh: command -v hcloud-upload-image >/dev/null
-        msg: "hcloud-upload-image not installed — go install github.com/apricote/hcloud-upload-image/cmd/hcloud-upload-image@latest"
+        msg: "hcloud-upload-image not installed — go install github.com/apricote/hcloud-upload-image@latest"
       - sh: command -v jq >/dev/null
         msg: "jq not installed — brew install jq"
       - sh: '[ -n "${HCLOUD_TOKEN:-}" ]'

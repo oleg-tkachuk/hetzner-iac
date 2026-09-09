@@ -68,3 +68,7 @@ talosconfig
 # Local-only lefthook overrides. Gates that belong to a working copy rather
 # than to the project; lefthook merges the file automatically when present.
 lefthook-local.yml
+
+# Development cluster topology. Kept local: its adminCIDRs holds the
+# operator's real egress address, and this repository is public.
+infra/cluster/cluster.dev.yaml
