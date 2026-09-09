@@ -13,6 +13,7 @@ package main
 
 import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/observability"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
@@ -25,21 +26,6 @@ const StorageClass = "hcloud-volumes"
 const (
 	DefaultRetention   = "30d"
 	DefaultMetricsSize = "50Gi"
-)
-
-// In-cluster endpoints Grafana and Alloy address.
-//
-// These are the chart's names and ports, not ours, so they are pinned by a
-// test rather than left as literals: a wrong one does not fail the apply, it
-// produces a platform that comes up and then cannot query traces or ship logs.
-const (
-	// LokiGateway serves on port 80, so the URL carries no port.
-	LokiGateway = "http://loki-gateway.observability.svc.cluster.local"
-
-	// TempoHTTP is 3200. The chart's Service exposes no 3100 at all — the
-	// port named tempo-prom-metrics is Tempo's HTTP listener, and it serves
-	// the query API Grafana's datasource uses as well as metrics.
-	TempoHTTP = "http://tempo.observability.svc.cluster.local:3200"
 )
 
 func main() {
@@ -154,13 +140,13 @@ func PrometheusValues(retention, metricsSize string) pulumi.Map {
 				pulumi.Map{
 					"name":   pulumi.String("Loki"),
 					"type":   pulumi.String("loki"),
-					"url":    pulumi.String(LokiGateway),
+					"url":    pulumi.String(observability.LokiGateway),
 					"access": pulumi.String("proxy"),
 				},
 				pulumi.Map{
 					"name":   pulumi.String("Tempo"),
 					"type":   pulumi.String("tempo"),
-					"url":    pulumi.String(TempoHTTP),
+					"url":    pulumi.String(observability.TempoHTTP),
 					"access": pulumi.String("proxy"),
 				},
 			},
@@ -255,7 +241,7 @@ func AlloyValues() pulumi.Map {
 				"varlog": pulumi.Bool(true),
 			},
 			"configMap": pulumi.Map{
-				"content": pulumi.String(AlloyConfig),
+				"content": pulumi.String(observability.AlloyConfig()),
 			},
 		},
 	}
@@ -273,48 +259,3 @@ func persistentVolumeSpec(size string) pulumi.Map {
 		},
 	}
 }
-
-// AlloyConfig is Alloy's configuration: discover pods, read their logs,
-// relabel with Kubernetes metadata, ship to Loki.
-//
-// Kept as a string because Alloy's configuration is a language in its own
-// right. Building it from Go values would be harder to read than the thing it
-// replaces, and impossible to paste into a running Alloy to debug.
-const AlloyConfig = `
-discovery.kubernetes "pods" {
-  role = "pod"
-}
-
-discovery.relabel "pods" {
-  targets = discovery.kubernetes.pods.targets
-
-  rule {
-    source_labels = ["__meta_kubernetes_namespace"]
-    target_label  = "namespace"
-  }
-  rule {
-    source_labels = ["__meta_kubernetes_pod_name"]
-    target_label  = "pod"
-  }
-  rule {
-    source_labels = ["__meta_kubernetes_pod_container_name"]
-    target_label  = "container"
-  }
-  rule {
-    source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_app_kubernetes_io_name"]
-    separator     = "/"
-    target_label  = "job"
-  }
-}
-
-loki.source.kubernetes "pods" {
-  targets    = discovery.relabel.pods.output
-  forward_to = [loki.write.default.receiver]
-}
-
-loki.write "default" {
-  endpoint {
-    url = "http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push"
-  }
-}
-`

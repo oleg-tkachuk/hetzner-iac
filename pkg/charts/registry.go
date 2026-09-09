@@ -28,6 +28,10 @@ type Chart struct {
 	// version — kube-prometheus-stack 90.0.0 ships Prometheus Operator
 	// v0.93.1, and confusing the two produces a chart that does not exist.
 	Version string
+	// AppVersion is what the chart deploys, when anything needs to name it
+	// independently — a validation image, say, which must be the version that
+	// will actually run. Empty when the chart publishes none.
+	AppVersion string
 	// Namespace the release is installed into.
 	Namespace string
 }
@@ -41,10 +45,11 @@ var registry = map[string]Chart{
 	// Layer 10 — CNI. Cilium replaces kube-proxy in eBPF, which is why the
 	// cluster tier disables kube-proxy in the Talos machine config.
 	"cilium": {
-		Name:      "cilium",
-		Repo:      "https://helm.cilium.io",
-		Version:   "1.20.1", // app 1.20.1
-		Namespace: "kube-system",
+		Name:       "cilium",
+		Repo:       "https://helm.cilium.io",
+		Version:    "1.20.1", // app 1.20.1
+		AppVersion: "1.20.1",
+		Namespace:  "kube-system",
 	},
 
 	// Layer 15 — cloud integration. The CCM clears the `uninitialized` taint
@@ -64,65 +69,74 @@ var registry = map[string]Chart{
 
 	// Layer 20 — core platform.
 	"cert-manager": {
-		Name:      "cert-manager",
-		Repo:      "https://charts.jetstack.io",
-		Version:   "v1.21.1", // app v1.21.1 — this chart tags with a leading v
-		Namespace: "cert-manager",
+		Name:       "cert-manager",
+		Repo:       "https://charts.jetstack.io",
+		Version:    "v1.21.1", // app v1.21.1 — this chart tags with a leading v
+		AppVersion: "v1.21.1",
+		Namespace:  "cert-manager",
 	},
 	"external-secrets": {
-		Name:      "external-secrets",
-		Repo:      "https://charts.external-secrets.io",
-		Version:   "2.10.0", // app v2.10.0
-		Namespace: "external-secrets",
+		Name:       "external-secrets",
+		Repo:       "https://charts.external-secrets.io",
+		Version:    "2.10.0", // app v2.10.0
+		AppVersion: "v2.10.0",
+		Namespace:  "external-secrets",
 	},
 	"metrics-server": {
-		Name:      "metrics-server",
-		Repo:      "https://kubernetes-sigs.github.io/metrics-server/",
-		Version:   "3.14.0", // app 0.9.0
-		Namespace: "kube-system",
+		Name:       "metrics-server",
+		Repo:       "https://kubernetes-sigs.github.io/metrics-server/",
+		Version:    "3.14.0", // app 0.9.0
+		AppVersion: "0.9.0",
+		Namespace:  "kube-system",
 	},
 
 	// Layer 30 — ingress.
 	"ingress-nginx": {
-		Name:      "ingress-nginx",
-		Repo:      "https://kubernetes.github.io/ingress-nginx",
-		Version:   "4.15.1", // app 1.15.1
-		Namespace: "ingress-nginx",
+		Name:       "ingress-nginx",
+		Repo:       "https://kubernetes.github.io/ingress-nginx",
+		Version:    "4.15.1", // app 1.15.1
+		AppVersion: "1.15.1",
+		Namespace:  "ingress-nginx",
 	},
 
 	// Layer 40 — GitOps.
 	"argo-cd": {
-		Name:      "argo-cd",
-		Repo:      "https://argoproj.github.io/argo-helm",
-		Version:   "10.8.4", // app v3.5.2
-		Namespace: "argocd",
+		Name:       "argo-cd",
+		Repo:       "https://argoproj.github.io/argo-helm",
+		Version:    "10.8.4", // app v3.5.2
+		AppVersion: "v3.5.2",
+		Namespace:  "argocd",
 	},
 
 	// Layer 50 — observability. Metrics, logs and traces, with Alloy as the
 	// collector: Promtail is deprecated upstream and Alloy is its replacement.
 	"kube-prometheus-stack": {
-		Name:      "kube-prometheus-stack",
-		Repo:      "https://prometheus-community.github.io/helm-charts",
-		Version:   "90.0.0", // app v0.93.1 (Prometheus Operator)
-		Namespace: "observability",
+		Name:       "kube-prometheus-stack",
+		Repo:       "https://prometheus-community.github.io/helm-charts",
+		Version:    "90.0.0", // app v0.93.1 (Prometheus Operator)
+		AppVersion: "v0.93.1",
+		Namespace:  "observability",
 	},
 	"loki": {
-		Name:      "loki",
-		Repo:      "https://grafana.github.io/helm-charts",
-		Version:   "7.3.0", // app 3.6.12
-		Namespace: "observability",
+		Name:       "loki",
+		Repo:       "https://grafana.github.io/helm-charts",
+		Version:    "7.3.0", // app 3.6.12
+		AppVersion: "3.6.12",
+		Namespace:  "observability",
 	},
 	"tempo": {
-		Name:      "tempo",
-		Repo:      "https://grafana.github.io/helm-charts",
-		Version:   "1.24.4", // app 2.9.0
-		Namespace: "observability",
+		Name:       "tempo",
+		Repo:       "https://grafana.github.io/helm-charts",
+		Version:    "1.24.4", // app 2.9.0
+		AppVersion: "2.9.0",
+		Namespace:  "observability",
 	},
 	"alloy": {
-		Name:      "alloy",
-		Repo:      "https://grafana.github.io/helm-charts",
-		Version:   "1.12.1", // app v1.19.2
-		Namespace: "observability",
+		Name:       "alloy",
+		Repo:       "https://grafana.github.io/helm-charts",
+		Version:    "1.12.1", // app v1.19.2
+		AppVersion: "v1.19.2",
+		Namespace:  "observability",
 	},
 }
 

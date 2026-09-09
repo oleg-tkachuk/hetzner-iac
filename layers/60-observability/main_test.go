@@ -1,8 +1,9 @@
 package main
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/observability"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
@@ -146,7 +147,7 @@ func TestAlloyValues_ShipsLogsToTheLokiGateway(t *testing.T) {
 	content, ok := configMap["content"].(pulumi.String)
 	require.True(t, ok)
 
-	assert.Contains(t, string(content), "loki-gateway.observability.svc.cluster.local")
+	assert.Contains(t, string(content), observability.LokiGateway)
 	assert.Contains(t, string(content), "/loki/api/v1/push")
 }
 
@@ -159,31 +160,6 @@ func TestAlloyValues_RunsOnEveryNode(t *testing.T) {
 	require.True(t, ok)
 
 	assert.Equal(t, pulumi.String("daemonset"), controller["type"])
-}
-
-func TestAlloyConfig_ReferencesOnlyDeclaredComponents(t *testing.T) {
-	t.Parallel()
-
-	// Alloy fails to start on a reference to a component that is not declared,
-	// and the failure is a crash-loop rather than a config error at apply.
-	for _, reference := range []string{
-		"discovery.kubernetes.pods.targets",
-		"discovery.relabel.pods.output",
-		"loki.write.default.receiver",
-	} {
-		assert.Contains(t, AlloyConfig, reference)
-	}
-
-	declarations := []string{
-		`discovery.kubernetes "pods"`,
-		`discovery.relabel "pods"`,
-		`loki.source.kubernetes "pods"`,
-		`loki.write "default"`,
-	}
-	for _, declaration := range declarations {
-		assert.Equal(t, 1, strings.Count(AlloyConfig, declaration),
-			"component %q must be declared exactly once", declaration)
-	}
 }
 
 func TestGrafanaValues_RegistersLokiAndTempoDatasources(t *testing.T) {
@@ -240,23 +216,6 @@ func resourceRequest(t *testing.T, claim pulumi.Map) pulumi.String {
 	return size
 }
 
-func TestDataSourceEndpoints_MatchTheServicesTheChartsCreate(t *testing.T) {
-	t.Parallel()
-
-	// Verified by rendering the charts offline (`task charts:render-check`):
-	//
-	//   loki-gateway   Service, port 80    -> no port in the URL
-	//   tempo          Service, port 3200  -> the chart exposes NO 3100
-	//
-	// Tempo's HTTP listener is the port the chart names tempo-prom-metrics; it
-	// serves the query API Grafana uses as well as metrics. Pointing Grafana at
-	// 3100 does not fail the apply — the platform comes up and traces simply
-	// never load, which is the expensive kind of wrong.
-	assert.Equal(t, "http://loki-gateway.observability.svc.cluster.local", LokiGateway)
-	assert.Equal(t, "http://tempo.observability.svc.cluster.local:3200", TempoHTTP)
-	assert.NotContains(t, TempoHTTP, ":3100", "Tempo's Service has no 3100")
-}
-
 func TestGrafanaDataSources_UseThePinnedEndpoints(t *testing.T) {
 	t.Parallel()
 
@@ -281,14 +240,6 @@ func TestGrafanaDataSources_UseThePinnedEndpoints(t *testing.T) {
 		urls[string(sourceType)] = string(url)
 	}
 
-	assert.Equal(t, LokiGateway, urls["loki"])
-	assert.Equal(t, TempoHTTP, urls["tempo"])
-}
-
-func TestAlloyWritesToTheLokiGateway(t *testing.T) {
-	t.Parallel()
-
-	// Alloy pushes to the same Service Grafana reads from, so the two must not
-	// drift apart.
-	assert.Contains(t, AlloyConfig, LokiGateway+"/loki/api/v1/push")
+	assert.Equal(t, observability.LokiGateway, urls["loki"])
+	assert.Equal(t, observability.TempoHTTP, urls["tempo"])
 }
