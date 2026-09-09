@@ -100,18 +100,17 @@ func (a *Addressing) at(offset int) (string, error) {
 	// that already holds it.
 	size := uint64(1) << (addr.BitLen() - a.subnet.Bits())
 
-	//nolint:gosec // offset is non-negative (checked by every caller) and the
-	// comparison below is exactly the bounds check that makes the conversion
-	// on the next line safe.
+	// #nosec G115 -- offset is non-negative (every caller checks it) and this
+	// comparison IS the bounds check that makes the conversions below safe.
 	if uint64(offset) >= size {
 		return "", fmt.Errorf("offset %d is outside node subnet %s, which holds %d addresses", offset, a.subnet, size)
 	}
 
-	//nolint:gosec // bounded by the size check above: offset < size <= 2^32.
+	// #nosec G115 -- bounded by the size check above: 0 <= offset < size <= 2^32.
 	result := base + uint32(offset)
 
-	//nolint:gosec // byte() of a shifted uint32 is a deliberate truncation to
-	// one octet, which is how an IPv4 address is assembled.
+	// #nosec G115 -- truncating each shifted octet is how an IPv4 address is
+	// assembled; the narrowing is the operation, not an accident.
 	return netip.AddrFrom4([4]byte{
 		byte(result >> 24), byte(result >> 16), byte(result >> 8), byte(result),
 	}).String(), nil
