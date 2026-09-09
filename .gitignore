@@ -48,8 +48,13 @@ Pulumi.*.yaml.bak
 /charts
 /topology
 
-# Task
-.task/
+# Task. The remote lock is the exception and is committed on purpose: it pins
+# the CONTENT behind the `?ref=vX.Y.Z` tag, so a moved tag stops the build
+# instead of silently changing it. Refresh deliberately with `task --download`.
+.task/*
+!.task/remote/
+.task/remote/*
+!.task/remote/*.checksum
 
 # Cluster credentials produced by `task cluster:kubeconfig` / `cluster:talosconfig`
 kubeconfig
