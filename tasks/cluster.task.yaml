@@ -71,6 +71,21 @@ tasks:
 
           echo "snapshot ready — next: task cluster:apply stack={{._CL_STACK}}"
 
+  config-check:
+    desc: "Validate the machine-config patches against Talos itself — no cluster needed"
+    preconditions:
+      - sh: command -v talosctl >/dev/null
+        msg: "talosctl not installed — https://www.talos.dev/"
+    cmds:
+      # The unit tests prove the patches contain what was intended; only Talos
+      # can say whether it accepts them. Catches at plan time what would
+      # otherwise fail after the servers exist.
+      #
+      # talosctl must match the pinned minor version — the tool refuses
+      # otherwise, because a mismatched binary reports conflicts that will not
+      # happen.
+      - go run {{.ROOT}}/tools/talosvalidate {{.ROOT}}/infra/cluster
+
   # ---------------------------------------------------------------------------
   # Bring-up
   # ---------------------------------------------------------------------------
