@@ -1,0 +1,193 @@
+# Git hooks.
+#
+# The shape: cheap, staged-scoped checks on commit; anything slow or repo-wide
+# on push; the commit-message gate last. Bypass in an emergency with
+# `git commit -n`, then fix what it would have caught.
+#
+# Install with `lefthook install`.
+
+# Fail loudly when the hooks are not actually installed, rather than passing
+# every commit silently because nobody ran `lefthook install`.
+assert_lefthook_installed: true
+
+colors: true
+
+output:
+  # Drop lefthook's own banners; keep command output so a failure still
+  # arrives with its stderr intact.
+  - execution
+  - execution_info
+  - execution_out
+  - failure
+
+pre-commit:
+  # Serial. Parallel jobs interleave their output, so a failure arrives
+  # shredded across the other jobs' lines and you re-run them one at a time to
+  # find out which one spoke. Everything here is sub-second.
+  parallel: false
+  jobs:
+    # Cluster credentials. Both are gitignored, but `git add -f` and a
+    # differently-named copy both get past that — and a kubeconfig in a public
+    # repository is cluster-admin handed to anyone who clones it. This checks
+    # CONTENT, so a rename does not evade it.
+    - name: forbid-cluster-credentials
+      tags: [security]
+      run: |
+        set -euo pipefail
+        for f in {staged_files}; do
+          [ -f "$f" ] || continue
+          case "$f" in
+            *_test.go|*/testdata/*) continue ;;
+          esac
+          # kubeconfig: the embedded client key is the giveaway, and
+          # "kind: Config" plus a clusters list covers the token-auth form.
+          if grep -qE '^[[:space:]]*client-key-data:' "$f" 2>/dev/null \
+             || { grep -qE '^kind:[[:space:]]*Config[[:space:]]*$' "$f" 2>/dev/null \
+                  && grep -qE '^clusters:' "$f" 2>/dev/null; }; then
+            echo "ERROR: $f looks like a kubeconfig — cluster-admin must never be committed" >&2
+            exit 1
+          fi
+          # talosconfig: a contexts map holding a client certificate. Talos
+          # credentials are MORE powerful than the kubeconfig — they can reset
+          # nodes and read etcd directly.
+          if grep -qE '^contexts:' "$f" 2>/dev/null \
+             && grep -qE '^[[:space:]]+crt:' "$f" 2>/dev/null; then
+            echo "ERROR: $f looks like a talosconfig — it can reset nodes and read etcd" >&2
+            exit 1
+          fi
+        done
+
+    # Compiled artefacts bloat every clone forever and no review can read them.
+    - name: forbid-binaries
+      tags: [hygiene]
+      run: |
+        set -euo pipefail
+        for f in {staged_files}; do
+          [ -f "$f" ] || continue
+          if file -b "$f" | grep -qE '(^| )ELF( |$)|(^| )Mach-O( |$)'; then
+            echo "ERROR: compiled binary detected: $f" >&2
+            exit 1
+          fi
+        done
+
+    # A secret reaches the remote once and is burned; this is the only cheap
+    # moment to catch it. A scan that skips itself when the tool is missing is
+    # not a scan, so this says what to install rather than waving the commit on.
+    - name: gitleaks
+      tags: [security]
+      run: |
+        set -euo pipefail
+        command -v gitleaks >/dev/null 2>&1 || {
+          echo "ERROR: gitleaks is not installed — brew install gitleaks" >&2
+          exit 1
+        }
+        gitleaks protect --staged --redact --verbose=true
+
+    - name: gofmt
+      tags: [go, format]
+      glob: "*.go"
+      run: |
+        set -euo pipefail
+        unformatted="$(gofmt -l {staged_files} | grep -v '^$' || true)"
+        if [ -n "$unformatted" ]; then
+          echo "ERROR: not gofmt-clean:" >&2
+          echo "$unformatted" >&2
+          echo "Run: task fmt" >&2
+          exit 1
+        fi
+
+    # The committed cluster description must be loadable. A topology that only
+    # fails at `pulumi up` has already cost an operator a round trip through
+    # credentials and a preview.
+    - name: cluster-topology
+      tags: [config]
+      glob: "infra/cluster/cluster.*.yaml"
+      run: go run ./tools/topology infra/cluster
+
+    # Exact chart versions, no floating tags.
+    - name: chart-pins
+      tags: [config]
+      glob: "pkg/charts/*.go"
+      run: go test -count=1 ./pkg/charts/
+
+    # The workflows are the one part of this repository that runs with a token.
+    - name: zizmor
+      tags: [ci, security]
+      glob: ".github/workflows/*.yaml"
+      run: |
+        set -euo pipefail
+        command -v zizmor >/dev/null 2>&1 || {
+          echo "SKIP: zizmor not installed — pipx install zizmor (CI still checks)" >&2
+          exit 0
+        }
+        zizmor --persona=auditor --format=plain .github/workflows/
+
+# Last gate before the change leaves the machine. These are the slow ones: a
+# push is rarer than a commit, and this is the point where being wrong starts
+# to cost someone else time.
+pre-push:
+  parallel: false
+  jobs:
+    - name: test
+      tags: [go, test]
+      run: go test -count=1 ./...
+
+    - name: lint
+      tags: [go, lint]
+      run: |
+        set -euo pipefail
+        command -v golangci-lint >/dev/null 2>&1 || {
+          echo "ERROR: golangci-lint is not installed — brew install golangci-lint" >&2
+          exit 1
+        }
+        golangci-lint run ./...
+
+    - name: vet
+      tags: [go]
+      run: go vet ./...
+
+commit-msg:
+  parallel: false
+  jobs:
+    # Conventional Commits are load-bearing here, not cosmetic: semantic-release
+    # derives the next version and the release notes from the commit type, so a
+    # non-conforming subject silently produces no release.
+    - name: conventional-commits
+      run: |
+        set -euo pipefail
+        # {1} is lefthook's template for the hook's first argument — the path to
+        # the message file. A bare $1 is NOT set inside a `run:` block, so the
+        # fallback below would otherwise check the wrong file.
+        file="{1}"
+        [ -f "$file" ] || file="$(git rev-parse --git-path COMMIT_EDITMSG 2>/dev/null || true)"
+        [ -f "$file" ] || exit 0
+
+        first_line="$(head -n1 "$file" | tr -d '\r')"
+        # Merges and reverts are generated by git, not written by a person.
+        echo "$first_line" | grep -Eq '^(Merge|Revert)\b' && exit 0
+
+        cc_re='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|security)(\([A-Za-z0-9._/-]+\))?(!)?: .+'
+        if ! echo "$first_line" | grep -Eq "$cc_re"; then
+          echo "ERROR: invalid commit message format (Conventional Commits required)." >&2
+          echo "Format: <type>(<scope>)!: <subject>" >&2
+          echo "See:    https://www.conventionalcommits.org/en/v1.0.0/" >&2
+          exit 1
+        fi
+
+    # Attribution trailers are not wanted in this history, and removing one
+    # after it is pushed costs a force-push over published history. The moment
+    # to catch it is before the commit is written, which is here.
+    - name: no-attribution-trailers
+      run: |
+        set -euo pipefail
+        file="{1}"
+        [ -f "$file" ] || file="$(git rev-parse --git-path COMMIT_EDITMSG 2>/dev/null || true)"
+        [ -f "$file" ] || exit 0
+
+        if grep -Eiq '^(co-authored-by|signed-off-by).*(claude|anthropic|noreply@anthropic)' "$file" \
+           || grep -Eiq 'generated with .*(claude|anthropic)' "$file"; then
+          echo "ERROR: attribution trailer in the commit message." >&2
+          echo "This history carries no Co-Authored-By / 'Generated with' trailers." >&2
+          echo "Remove the trailer and commit again." >&2
+          exit 1
+        fi
