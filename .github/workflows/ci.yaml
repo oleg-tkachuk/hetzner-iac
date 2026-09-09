@@ -81,8 +81,17 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-go
-      - if: needs.changes.outputs.code == 'true'
-        name: Build everything
+      # No `if:` here, deliberately. This job exists to OWN the cache, and the
+      # cache key is immutable — whoever saves first keeps it. Skipping the
+      # build on a docs-only change saves an EMPTY cache under that key and
+      # poisons it for every run afterwards, which is exactly the failure this
+      # job was added to fix. It happened once already, in the run that
+      # introduced the job.
+      #
+      # Against a warm cache this is a no-op and costs seconds; against a cold
+      # one somebody has to pay the compile, and it should be the job whose
+      # purpose is to pay it.
+      - name: Build everything
         run: |
           set -euo pipefail
           go build ./...
