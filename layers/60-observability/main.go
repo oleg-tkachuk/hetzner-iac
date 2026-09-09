@@ -27,6 +27,21 @@ const (
 	DefaultMetricsSize = "50Gi"
 )
 
+// In-cluster endpoints Grafana and Alloy address.
+//
+// These are the chart's names and ports, not ours, so they are pinned by a
+// test rather than left as literals: a wrong one does not fail the apply, it
+// produces a platform that comes up and then cannot query traces or ship logs.
+const (
+	// LokiGateway serves on port 80, so the URL carries no port.
+	LokiGateway = "http://loki-gateway.observability.svc.cluster.local"
+
+	// TempoHTTP is 3200. The chart's Service exposes no 3100 at all — the
+	// port named tempo-prom-metrics is Tempo's HTTP listener, and it serves
+	// the query API Grafana's datasource uses as well as metrics.
+	TempoHTTP = "http://tempo.observability.svc.cluster.local:3200"
+)
+
 func main() {
 	layer.Run(func(r *layer.Runner) error {
 		cfg := config.New(r.Ctx, "observability")
@@ -139,13 +154,13 @@ func PrometheusValues(retention, metricsSize string) pulumi.Map {
 				pulumi.Map{
 					"name":   pulumi.String("Loki"),
 					"type":   pulumi.String("loki"),
-					"url":    pulumi.String("http://loki-gateway.observability.svc.cluster.local"),
+					"url":    pulumi.String(LokiGateway),
 					"access": pulumi.String("proxy"),
 				},
 				pulumi.Map{
 					"name":   pulumi.String("Tempo"),
 					"type":   pulumi.String("tempo"),
-					"url":    pulumi.String("http://tempo.observability.svc.cluster.local:3100"),
+					"url":    pulumi.String(TempoHTTP),
 					"access": pulumi.String("proxy"),
 				},
 			},

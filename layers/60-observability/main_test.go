@@ -239,3 +239,56 @@ func resourceRequest(t *testing.T, claim pulumi.Map) pulumi.String {
 
 	return size
 }
+
+func TestDataSourceEndpoints_MatchTheServicesTheChartsCreate(t *testing.T) {
+	t.Parallel()
+
+	// Verified by rendering the charts offline (`task charts:render-check`):
+	//
+	//   loki-gateway   Service, port 80    -> no port in the URL
+	//   tempo          Service, port 3200  -> the chart exposes NO 3100
+	//
+	// Tempo's HTTP listener is the port the chart names tempo-prom-metrics; it
+	// serves the query API Grafana uses as well as metrics. Pointing Grafana at
+	// 3100 does not fail the apply — the platform comes up and traces simply
+	// never load, which is the expensive kind of wrong.
+	assert.Equal(t, "http://loki-gateway.observability.svc.cluster.local", LokiGateway)
+	assert.Equal(t, "http://tempo.observability.svc.cluster.local:3200", TempoHTTP)
+	assert.NotContains(t, TempoHTTP, ":3100", "Tempo's Service has no 3100")
+}
+
+func TestGrafanaDataSources_UseThePinnedEndpoints(t *testing.T) {
+	t.Parallel()
+
+	grafana, ok := PrometheusValues(DefaultRetention, DefaultMetricsSize)["grafana"].(pulumi.Map)
+	require.True(t, ok)
+
+	sources, ok := grafana["additionalDataSources"].(pulumi.Array)
+	require.True(t, ok)
+
+	urls := map[string]string{}
+
+	for _, source := range sources {
+		fields, ok := source.(pulumi.Map)
+		require.True(t, ok)
+
+		sourceType, ok := fields["type"].(pulumi.String)
+		require.True(t, ok)
+
+		url, ok := fields["url"].(pulumi.String)
+		require.True(t, ok)
+
+		urls[string(sourceType)] = string(url)
+	}
+
+	assert.Equal(t, LokiGateway, urls["loki"])
+	assert.Equal(t, TempoHTTP, urls["tempo"])
+}
+
+func TestAlloyWritesToTheLokiGateway(t *testing.T) {
+	t.Parallel()
+
+	// Alloy pushes to the same Service Grafana reads from, so the two must not
+	// drift apart.
+	assert.Contains(t, AlloyConfig, LokiGateway+"/loki/api/v1/push")
+}
