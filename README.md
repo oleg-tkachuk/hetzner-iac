@@ -230,6 +230,23 @@ changes to its image.
 
 ## Configuration
 
+State lives in **Pulumi Cloud**, declared as `backend:` in every `Pulumi.yaml`
+so it is a property of the repository rather than of whoever last ran
+`pulumi login`. To keep state at Hetzner instead, override the URL — it is the
+only change needed:
+
+```bash
+export PULUMI_BACKEND_URL='s3://<bucket>?endpoint=fsn1.your-objectstorage.com&s3ForcePathStyle=true&region=fsn1'
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export PULUMI_CONFIG_PASSPHRASE=...
+```
+
+A DIY backend encrypts stack secrets with that passphrase; Pulumi Cloud manages
+the key for you. Either way, cloud credentials never enter state — they stay
+with the CLI.
+
+
 Cluster shape lives in `infra/cluster/cluster.<stack>.yaml`. Everything else is
 Pulumi config:
 
