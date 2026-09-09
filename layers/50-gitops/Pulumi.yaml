@@ -1,0 +1,20 @@
+name: gitops
+runtime:
+  name: go
+  options:
+    # Stable build path so repeated previews skip the link step; content
+    # hashing still rebuilds when sources change.
+    buildTarget: ../../.cache/pulumi-bin/gitops
+description: |
+  GitOps: Argo CD.
+
+  Installed by Pulumi, not by itself. What Argo CD then manages is application
+  workloads — the platform layers below it stay with Pulumi, so a broken Argo
+  CD is never able to take the platform down with it.
+
+config:
+  gitops:clusterStackRef:
+    description: |
+      Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
+      This layer reads the kubeconfig from it, which is what lets it be applied
+      and destroyed without touching the cluster.

@@ -1,0 +1,18 @@
+name: observability
+runtime:
+  name: go
+  options:
+    # Stable build path so repeated previews skip the link step; content
+    # hashing still rebuilds when sources change.
+    buildTarget: ../../.cache/pulumi-bin/observability
+description: |
+  Observability: Prometheus, Grafana, Loki, Tempo and Alloy.
+
+  Alloy is the collector rather than Promtail, which is deprecated upstream.
+
+config:
+  observability:clusterStackRef:
+    description: |
+      Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
+      This layer reads the kubeconfig from it, which is what lets it be applied
+      and destroyed without touching the cluster.

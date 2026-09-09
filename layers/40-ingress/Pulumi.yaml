@@ -1,0 +1,20 @@
+name: ingress
+runtime:
+  name: go
+  options:
+    # Stable build path so repeated previews skip the link step; content
+    # hashing still rebuilds when sources change.
+    buildTarget: ../../.cache/pulumi-bin/ingress
+description: |
+  Ingress: ingress-nginx behind a Hetzner load balancer.
+
+  The load balancer is created by the cloud controller manager from the
+  Service of type LoadBalancer, which is why this layer depends on
+  10-cloud-integration rather than creating one itself.
+
+config:
+  ingress:clusterStackRef:
+    description: |
+      Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
+      This layer reads the kubeconfig from it, which is what lets it be applied
+      and destroyed without touching the cluster.
