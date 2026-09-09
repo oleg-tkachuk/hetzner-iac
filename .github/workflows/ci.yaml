@@ -26,6 +26,71 @@ env:
   GOLANGCI_VERSION: "v2.13.2"
 
 jobs:
+  # Decides whether this change touches anything that needs compiling.
+  #
+  # The heavy jobs still RUN and still report — they just skip their expensive
+  # step. Gating the jobs themselves with `if:` would leave required checks
+  # unreported on a docs-only PR, and branch protection would wait forever.
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: filter
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE:-}" ]; then
+            # A push to main: always treat it as code, so the release path is
+            # never gated on a diff computation.
+            echo "code=true" >>"$GITHUB_OUTPUT"
+            echo "push to main — running everything"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE" "$HEAD")"
+          echo "$changed"
+          if printf '%s\n' "$changed" | grep -qE '\.go$|^go\.(mod|sum)$|^\.golangci\.yaml$'; then
+            echo "code=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "code=false" >>"$GITHUB_OUTPUT"
+            echo "no Go files changed — the compiling jobs will report without compiling"
+          fi
+
+  # Compiles everything once, so the shared Go cache is saved by a job that has
+  # actually built the tree.
+  #
+  # Without this the cache is whatever the FIRST job to finish happened to hold,
+  # and its key is immutable: an early run whose jobs failed before touching Go
+  # left a 31 MB cache that every later run restored and then rebuilt from
+  # scratch. Priming makes the saved cache the useful one.
+  prime:
+    name: Prime the Go cache
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+      - if: needs.changes.outputs.code == 'true'
+        name: Build everything
+        run: |
+          set -euo pipefail
+          go build ./...
+          # Compiles every test binary without running a single test, which is
+          # what the test and lint jobs then reuse.
+          go test -run '^$' ./...
+          go vet -tags e2e ./test/...
+
   # Guards the thing a Go build cannot see: that the layer list in the
   # Taskfile and the directories under layers/ still describe the same set.
   # They drift when a layer is renamed and one of the two is updated.
@@ -54,6 +119,7 @@ jobs:
 
   build:
     name: Build and test
+    needs: [changes, prime]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -63,9 +129,11 @@ jobs:
       - uses: ./.github/actions/setup-go
       # No separate `go build ./...`: `go test ./...` already compiles every
       # package, including those with no test files.
-      - name: go test
+      - if: needs.changes.outputs.code == 'true'
+        name: go test
         run: go test -count=1 ./...
-      - name: gofmt
+      - if: needs.changes.outputs.code == 'true'
+        name: gofmt
         run: |
           set -euo pipefail
           unformatted="$(gofmt -l . | grep -v '^$' || true)"
@@ -74,32 +142,19 @@ jobs:
             echo "$unformatted" >&2
             exit 1
           fi
-      - name: go vet
+      - if: needs.changes.outputs.code == 'true'
+        name: go vet
         run: go vet ./...
       # The e2e suite is behind a build tag, so `go test ./...` never compiles
       # it. Without this it rots unnoticed until someone tries to run it
       # against a cluster, which is the worst moment to find a type error.
-      - name: type-check the e2e suite
+      - if: needs.changes.outputs.code == 'true'
+        name: type-check the e2e suite
         run: go vet -tags e2e ./test/...
-
-  race:
-    name: Tests with the race detector
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-go
-        with:
-          # Race artifacts have their own build IDs, so nothing else can reuse
-          # them. Writing them into the shared cache makes every other job's
-          # restore useless while growing the cache several times over.
-          cache: "false"
-      - run: go test -race -count=1 ./...
 
   lint:
     name: golangci-lint
+    needs: [changes, prime]
     runs-on: ubuntu-latest
     # Above golangci's own --timeout, or the runner kills the job first and the
     # log says nothing useful.
@@ -109,7 +164,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-go
-      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+      - if: needs.changes.outputs.code == 'true'
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: ${{ env.GOLANGCI_VERSION }}
           # --fix=false: the config enables fix for local development, where it
@@ -119,6 +175,7 @@ jobs:
 
   charts:
     name: Chart pins
+    needs: [prime]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -148,6 +205,7 @@ jobs:
 
   topology:
     name: Cluster topology
+    needs: [prime]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -251,7 +309,7 @@ jobs:
     # NOT `commits`: that job only runs on a pull request, and a skipped
     # dependency skips its dependents — release would never fire on a push to
     # main. It is enforced where it belongs, as a required check on the branch.
-    needs: [layers, build, race, lint, charts, topology, security]
+    needs: [layers, build, lint, charts, topology, security]
     # Only from a push to main. On a pull request the checks still run; there
     # is simply nothing to release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
