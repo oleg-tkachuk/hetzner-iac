@@ -69,6 +69,11 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
+      # The e2e suite is behind a build tag, so `go test ./...` never compiles
+      # it. Without this it rots unnoticed until someone tries to run it
+      # against a cluster, which is the worst moment to find a type error.
+      - name: type-check the e2e suite
+        run: go vet -tags e2e ./test/...
 
   race:
     name: Tests with the race detector
