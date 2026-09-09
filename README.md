@@ -16,6 +16,23 @@ infra/cluster              the only project that talks to the Hetzner API
                             layers/60-observability       Prometheus, Grafana, Loki, Tempo, Alloy
 ```
 
+## Contents
+
+- [Why it is shaped this way](#why-it-is-shaped-this-way)
+- [Prerequisites](#prerequisites)
+- [Bring-up](#bring-up)
+- [Commands](#commands)
+  - [Whole platform](#whole-platform)
+  - [Cluster](#cluster)
+  - [Layers](#layers)
+  - [Code](#code)
+  - [Security](#security)
+  - [Charts](#charts)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [Layout](#layout)
+- [License](#license)
+
 ## Why it is shaped this way
 
 **Each layer is its own Pulumi project.** A layer can be previewed, applied and
@@ -50,13 +67,23 @@ floating tags are rejected by validation rather than by convention.
 |------|-----|
 | [Pulumi](https://www.pulumi.com/docs/install/) 3.261+ | runs everything here |
 | [Go](https://go.dev/dl/) 1.27+ | the programs are Go |
-| [Task](https://taskfile.dev/installation/) 3.53+ | the entry points |
+| [Task](https://taskfile.dev/installation/) 3.53+ | the entry points; remote Taskfiles need 3.53 |
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/hetznercloud/hcloud-upload-image) | Hetzner has no custom-image upload API |
 | [talosctl](https://www.talos.dev/latest/introduction/getting-started/) | day-2: upgrades, etcd snapshots |
 | `jq`, `curl` | used by the image-bake task |
 
 A Hetzner Cloud API token with read+write scope on the project.
+
+Optional, and only for the tasks that name them: `golangci-lint`, `gitleaks`,
+`gosec`, `trivy`, `lefthook`. Each task says what to install rather than
+skipping itself silently.
+
+Hooks are opt-in per clone:
+
+```bash
+lefthook install
+```
 
 ## Bring-up
 
@@ -93,22 +120,100 @@ task e2e stack=prod
 
 `task up stack=prod` does steps 4 and 5 in one go, once the stacks exist.
 
-## Everyday tasks
+## Commands
 
-```bash
-task                                  # list everything
-task plan stack=prod                  # preview the cluster and every layer
-task platform:apply layer=20-cni      # one layer
-task platform:status stack=prod       # what is deployed
-task verify                           # what CI checks: fmt, tests, lint, vuln, pins
-task charts:outdated                  # chart pins vs upstream
-```
+`task` on its own lists everything. Every cluster and layer task takes
+`stack=<name>`, defaulting to `prod` — that is the only deployment parameter,
+because where a cluster lives and how it is shaped comes from its committed
+topology file.
 
-Day 2 lives under `cluster:` — `etcd-snapshot`, `upgrade-talos`, `upgrade-k8s`.
+Tasks from the shared library
+([oleg-tkachuk/taskfiles](https://github.com/oleg-tkachuk/taskfiles), pinned)
+are trimmed with `excludes:` to what works here. A module task that cannot
+succeed in this repository is worse than a missing one: it is a command
+someone runs once, in an emergency, and gets a confusing failure from.
+
+### Whole platform
+
+| Task | Does |
+|------|------|
+| `task up` | cluster, then every layer in dependency order |
+| `task plan` | preview the cluster and every layer; change nothing |
+| `task verify` | what CI checks — format, tests, lint, vulnerabilities, chart pins |
+| `task e2e` | verify a running cluster; read-only, safe against production |
+| `task fmt` | format and tidy |
+| `task fmt-check` | fail if anything is not gofmt-clean |
+| `task clean` | drop the compiled layer binaries under `.cache` |
+
+### Cluster
+
+| Task | Does |
+|------|------|
+| `task cluster:image-bake` | bake the Talos snapshot named by the topology; idempotent |
+| `task cluster:init` | create the Pulumi stack for this environment |
+| `task cluster:plan` | show what applying would change |
+| `task cluster:apply` | provision or converge the cluster |
+| `task cluster:destroy` | delete the servers; asks first |
+| `task cluster:kubeconfig` | write `./kubeconfig` |
+| `task cluster:talosconfig` | write `./talosconfig` |
+| `task cluster:outputs` | stack outputs, secrets redacted |
+| `task cluster:nodes` | list nodes |
+| `task cluster:status` | nodes, then anything not Running |
+| `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
+| `task cluster:upgrade-talos` | upgrade Talos, one node at a time |
+| `task cluster:upgrade-k8s` | upgrade Kubernetes in place |
+
 Upgrading Talos means bumping `talos.version` in the topology, re-running
 `cluster:image-bake`, then `cluster:upgrade-talos`. Nodes are upgraded in
 place; they are never replaced, which is why the server resource ignores
 changes to its image.
+
+### Layers
+
+| Task | Does |
+|------|------|
+| `task platform:init ref=<org>/hetzner-cluster/<stack>` | create every layer's stack and point it at the cluster |
+| `task platform:plan-all` | preview every layer in order |
+| `task platform:apply-all` | apply every layer in dependency order |
+| `task platform:destroy-all` | destroy every layer, in reverse |
+| `task platform:plan layer=20-cni` | preview one layer |
+| `task platform:apply layer=20-cni` | apply one layer |
+| `task platform:destroy layer=60-observability` | destroy one layer |
+| `task platform:outputs layer=50-gitops` | one layer's stack outputs |
+| `task platform:status` | which layers are deployed, and how large |
+| `task platform:layers` | the layer order; CI derives its matrix from this |
+| `task helm:list` | every Helm release on the cluster |
+
+### Code
+
+| Task | Does |
+|------|------|
+| `task go:test` | the unit suite |
+| `task go:test:coverage` | unit suite with an HTML coverage report |
+| `task go:test:tagged:compile` | type-check the `e2e` suite, which the default run never compiles |
+| `task go:lint` | golangci-lint |
+| `task go:vuln` | govulncheck |
+| `task go:compile` | type-check without writing a binary |
+| `task go:fmt` / `task go:tidy` | format; tidy the module |
+| `task go:deps:outdated` / `task go:deps:update` | dependency reports and bumps |
+
+### Security
+
+| Task | Does |
+|------|------|
+| `task security:all` | secrets, filesystem, Go vuln, lint and SAST |
+| `task security:secrets` | gitleaks over the whole history |
+| `task security:trivy` | vulnerable dependencies and secrets, plus IaC misconfig |
+| `task security:gosec` | insecure patterns the compiler is happy with |
+| `task security:vuln` / `task security:lint` | govulncheck and golangci-lint across every module |
+
+### Charts
+
+| Task | Does |
+|------|------|
+| `task charts:list` | every pinned chart |
+| `task charts:outdated` | each pin against the latest upstream chart |
+| `task charts:validate` | pins are exact versions, not floating tags |
 
 ## Configuration
 
@@ -119,11 +224,15 @@ Pulumi config:
 |-----|-------|---------|
 | `hcloud:token` | `infra/cluster` | Hetzner API token (secret) |
 | `hetzner-cluster:publicIPv4` | `infra/cluster` | routable address per node; required unless you apply from inside the private network |
+| `hetzner-cluster:allowICMP` | `infra/cluster` | open ping from the admin CIDRs |
+| `hetzner-cluster:imageSelector` | `infra/cluster` | override the Talos snapshot selector |
 | `<layer>:clusterStackRef` | every layer | `<org>/hetzner-cluster/<stack>` |
 | `cloud-integration:hcloudToken` | `10-cloud-integration` | token for the CCM and CSI (secret) |
 | `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
+| `ingress:loadBalancerType` | `40-ingress` | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
 | `observability:metricsRetention` | `60-observability` | default `30d` |
+| `observability:metricsVolumeSize` | `60-observability` | default `50Gi` |
 
 The Hetzner token is read by the cloud-integration layer rather than exported
 by the cluster tier: a stack that exports a cloud credential puts it into the
@@ -132,20 +241,23 @@ state of every stack that references it.
 ## Testing
 
 ```bash
-go test ./...        # unit: topology validation, addressing, machine config,
-                     # chart pins, and the resource graph under Pulumi's mocks
+task go:test         # unit
 task e2e stack=prod  # against a real cluster; read-only, safe in production
 ```
 
 The unit tests pin what Pulumi will *ask for*, including the settings whose
 mismatch never fails an apply — kube-proxy replacement, PROXY protocol on both
-sides of the load balancer, the KubePrism port. The e2e suite checks what
-actually happened.
+sides of the load balancer, the KubePrism port. They exercise the resource
+graph under Pulumi's mock monitor, so no cloud account is involved.
+
+The e2e suite checks what actually happened: taints cleared, routes
+programmed, the load balancer provisioned, volumes bound. It lives behind the
+`e2e` build tag, so `go test ./...` never reaches for a cluster.
 
 ## Layout
 
 ```
-infra/cluster/     the Hetzner cluster: network, firewall, control plane, workers
+infra/cluster/    the Hetzner cluster: network, firewall, control plane, workers
 layers/           one Pulumi project per platform layer
 pkg/hetzner/      cluster component resources and topology validation
 pkg/layer/        the shim every layer shares: cluster resolution, provider, Helm
