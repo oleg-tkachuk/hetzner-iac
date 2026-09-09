@@ -360,6 +360,10 @@ touched Go, saved a 31 MB cache, and every later run restored those 31 MB and
 rebuilt everything. A `prime` job now compiles the tree first, so the cache that
 gets saved is the useful one, and the jobs that need it depend on it.
 
+That job builds unconditionally, and the comment above it says why: the first
+version skipped the build when no Go had changed, saved an empty cache under
+the immutable key, and poisoned it again on the very run that introduced it.
+
 **gosec's memory.** It loads every package with full syntax *and* type
 information for the whole transitive graph, and processes `-concurrency` of them
 at once — defaulting to the core count, so fourteen large graphs at once on a
