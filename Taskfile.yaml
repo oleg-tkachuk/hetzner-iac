@@ -1,0 +1,102 @@
+version: "3"
+
+silent: true
+
+vars:
+  # Shared task library — github.com/oleg-tkachuk/taskfiles, pinned.
+  #
+  # The git form is the default because someone who clones this repository has
+  # no sibling checkout. Working on the library itself:
+  #   TASKLIB: '../taskfiles/%s'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v5.2.0'
+
+  PROJECT_NAME: hetzner-iac
+  ROOT: { sh: pwd }
+
+  # Stack selects the environment. Every cluster and layer task takes it, and
+  # nothing else about a deployment is a parameter: where a cluster lives and
+  # how it is shaped comes from infra/cluster/cluster.<stack>.yaml, which is
+  # committed.
+  #
+  #   task cluster:apply stack=prod
+  stack: '{{.stack | default "prod"}}'
+
+  # The layers, in dependency order. This list is the only place the order
+  # lives: platform:apply-all walks it, and CI derives its preview matrix from
+  # `task platform:layers`. A hand-maintained second copy is how a matrix ends
+  # up previewing directories that no longer exist.
+  LAYERS: >-
+    10-cloud-integration
+    20-cni
+    30-core
+    40-ingress
+    50-gitops
+    60-observability
+
+includes:
+  go: { taskfile: '{{printf .TASKLIB "go"}}', dir: . }
+  k8s: { taskfile: '{{printf .TASKLIB "k8s"}}', dir: . }
+  security: { taskfile: '{{printf .TASKLIB "security"}}', dir: . }
+  helm: { taskfile: '{{printf .TASKLIB "helm"}}', dir: . }
+
+  cluster: { taskfile: tasks/cluster.task.yaml, dir: . }
+  platform: { taskfile: tasks/platform.task.yaml, dir: . }
+  charts: { taskfile: tasks/charts.task.yaml, dir: . }
+
+tasks:
+  default:
+    desc: "List available tasks"
+    cmds:
+      - task --list
+
+  # ---------------------------------------------------------------------------
+  # Whole-platform entry points
+  # ---------------------------------------------------------------------------
+
+  up:
+    desc: "Bring up everything from nothing: cluster, then every layer in order"
+    cmds:
+      - task: cluster:apply
+      - task: platform:apply-all
+
+  plan:
+    desc: "Preview the cluster and every layer without changing anything"
+    cmds:
+      - task: cluster:plan
+      - task: platform:plan-all
+
+  # ---------------------------------------------------------------------------
+  # Gates. These are what CI runs, so a green local run means a green PR.
+  # ---------------------------------------------------------------------------
+
+  verify:
+    desc: "Everything CI checks: format, vet, tests, lint, vulnerabilities"
+    cmds:
+      - task: fmt-check
+      - task: go:test
+      - task: go:lint
+      - task: go:vuln
+      - task: charts:validate
+
+  fmt-check:
+    desc: "Fail if any Go file is not gofmt-clean"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          unformatted="$(gofmt -l . | grep -v '^$' || true)"
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-clean:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+  fmt:
+    desc: "Format every Go file"
+    cmds:
+      - gofmt -w .
+      - go mod tidy
+
+  clean:
+    desc: "Remove build output — the compiled layer binaries under .cache"
+    cmds:
+      - rm -rf .cache/pulumi-bin
