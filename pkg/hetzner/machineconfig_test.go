@@ -1,6 +1,7 @@
 package hetzner_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
@@ -9,14 +10,38 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// decode parses a rendered patch back into a map, so assertions are made
-// against structure rather than against substrings of YAML — a substring
-// check passes on a document whose nesting is wrong.
+// decode parses the FIRST document of a rendered patch, so assertions are made
+// against structure rather than against substrings of YAML — a substring check
+// passes on a document whose nesting is wrong.
 func decode(t *testing.T, patch string) map[string]any {
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, yaml.Unmarshal([]byte(patch), &out))
+	require.NoError(t, yaml.Unmarshal([]byte(documents(t, patch)[0]), &out))
+
+	return out
+}
+
+// documents splits a multi-document patch. A node patch carries two: the
+// v1alpha1 machine config, and a HostnameConfig document.
+func documents(t *testing.T, patch string) []string {
+	t.Helper()
+
+	parts := strings.Split(patch, "---\n")
+	require.NotEmpty(t, parts)
+
+	return parts
+}
+
+// hostnameDoc decodes the HostnameConfig document of a node patch.
+func hostnameDoc(t *testing.T, patch string) map[string]any {
+	t.Helper()
+
+	docs := documents(t, patch)
+	require.Len(t, docs, 2, "a node patch carries the machine config and a HostnameConfig document")
+
+	var out map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(docs[1]), &out))
 
 	return out
 }
@@ -184,10 +209,17 @@ func TestBuildNodePatch(t *testing.T) {
 
 	doc := decode(t, patch)
 	machine, _ := doc["machine"].(map[string]any)
-	network, _ := machine["network"].(map[string]any)
 
-	assert.Equal(t, "platform-hel-control-plane-0", network["hostname"])
 	assert.Equal(t, []any{"203.0.113.10", "10.0.1.2", "203.0.113.99"}, machine["certSANs"])
+
+	// The hostname lives in its own document: Talos refuses
+	// machine.network.hostname while a HostnameConfig document exists, which
+	// it always does.
+	hostname := hostnameDoc(t, patch)
+	assert.Equal(t, "HostnameConfig", hostname["kind"])
+	assert.Equal(t, "platform-hel-control-plane-0", hostname["hostname"])
+	assert.Equal(t, "off", hostname["auto"],
+		`"off" is the only spelling Talos accepts for disabling the automatic hostname`)
 }
 
 func TestBuildNodePatch_SignsSANsIntoTheAPIServerToo(t *testing.T) {
@@ -320,10 +352,8 @@ func TestBuildNodePatch_HostileValuesCannotBreakTheDocument(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	doc := decode(t, patch)
-	machine, _ := doc["machine"].(map[string]any)
-	network, _ := machine["network"].(map[string]any)
+	hostname := hostnameDoc(t, patch)
 
-	assert.Equal(t, "evil\nmachine:\n  install:\n    disk: /dev/sda", network["hostname"])
-	assert.NotContains(t, machine, "install")
+	assert.Equal(t, "evil\nmachine:\n  install:\n    disk: /dev/sda", hostname["hostname"])
+	assert.NotContains(t, hostname, "install")
 }
