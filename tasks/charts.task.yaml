@@ -1,0 +1,22 @@
+version: "3"
+
+silent: true
+
+tasks:
+  validate:
+    desc: "Check every chart pin is an exact version and resolves upstream"
+    cmds:
+      - go test ./pkg/charts/ -count=1
+
+  list:
+    desc: "Show every pinned chart"
+    cmds:
+      - go run ./tools/charts list
+
+  outdated:
+    desc: "Compare every pin against the latest chart upstream"
+    preconditions:
+      - sh: command -v helm >/dev/null
+        msg: "helm not installed — brew install helm"
+    cmds:
+      - go run ./tools/charts outdated

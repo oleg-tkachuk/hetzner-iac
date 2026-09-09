@@ -1,0 +1,209 @@
+version: "3"
+
+silent: true
+
+vars:
+  _CL_DIR: '{{.ROOT}}/infra/cluster'
+  _CL_STACK: '{{.stack | default "prod"}}'
+  _CL_TOPOLOGY: '{{.ROOT}}/infra/cluster/cluster.{{.stack | default "prod"}}.yaml'
+
+tasks:
+  # ---------------------------------------------------------------------------
+  # Prerequisite
+  # ---------------------------------------------------------------------------
+
+  image-bake:
+    desc: "Bake the Talos snapshot named by the topology into the hcloud project (idempotent)"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — brew install hcloud"
+      - sh: command -v hcloud-upload-image >/dev/null
+        msg: "hcloud-upload-image not installed — go install github.com/hetznercloud/hcloud-upload-image/cmd/hcloud-upload-image@latest"
+      - sh: command -v jq >/dev/null
+        msg: "jq not installed — brew install jq"
+      - sh: '[ -n "${HCLOUD_TOKEN:-}" ]'
+        msg: "HCLOUD_TOKEN is not exported"
+      - sh: test -f "{{._CL_TOPOLOGY}}"
+        msg: "no topology at {{._CL_TOPOLOGY}}"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+
+          version="$(grep -A3 '^talos:' "{{._CL_TOPOLOGY}}" | grep 'version:' | head -1 | awk '{print $2}')"
+          arch="$(grep -A3 '^talos:' "{{._CL_TOPOLOGY}}" | grep 'architecture:' | head -1 | awk '{print $2}')"
+          arch="${arch:-x86}"
+
+          [ -n "$version" ] || { echo "ERROR: talos.version not found in {{._CL_TOPOLOGY}}" >&2; exit 1; }
+
+          selector="os=talos,talos-version=${version}"
+
+          # Idempotent: an existing snapshot with these labels is what the
+          # Pulumi lookup resolves, so re-baking would cost money and leave two
+          # candidates behind for `mostRecent` to choose between.
+          if hcloud image list --type snapshot --selector "$selector" -o noheader | grep -q .; then
+            echo "snapshot already present for ${selector} — nothing to do"
+            exit 0
+          fi
+
+          case "$arch" in
+            x86) factory_arch=amd64 ;;
+            arm) factory_arch=arm64 ;;
+            *)   echo "ERROR: talos.architecture must be x86 or arm, got ${arch}" >&2; exit 1 ;;
+          esac
+
+          # Talos images come from the Image Factory, not from GitHub releases.
+          # The schematic id is content-addressed, so POSTing the customisation
+          # is deterministic and is the place to add system extensions later —
+          # no hash to keep in sync by hand.
+          schematic_id="$(curl -sfX POST --data-binary '{"customization":{}}' \
+            https://factory.talos.dev/schematics | jq -r .id)"
+          [ -n "$schematic_id" ] && [ "$schematic_id" != "null" ] || {
+            echo "ERROR: could not create an Image Factory schematic" >&2; exit 1; }
+
+          url="https://factory.talos.dev/image/${schematic_id}/${version}/hcloud-${factory_arch}.raw.xz"
+          echo "baking ${version} (${arch}) from ${url}"
+
+          hcloud-upload-image upload \
+            --image-url "$url" \
+            --compression xz \
+            --architecture "$arch" \
+            --labels "$selector"
+
+          echo "snapshot ready — next: task cluster:apply stack={{._CL_STACK}}"
+
+  # ---------------------------------------------------------------------------
+  # Bring-up
+  # ---------------------------------------------------------------------------
+
+  init:
+    desc: "Create the Pulumi stack for this environment"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{._CL_DIR}}"
+          pulumi --non-interactive stack init "{{._CL_STACK}}" 2>/dev/null \
+            || pulumi --non-interactive stack select "{{._CL_STACK}}"
+
+  plan:
+    desc: "Show what applying the cluster would change; change nothing"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{._CL_DIR}}"
+          pulumi --non-interactive --stack "{{._CL_STACK}}" preview --diff
+
+  apply:
+    desc: "Provision or converge the Talos cluster (idempotent)"
+    preconditions:
+      - sh: test -f "{{._CL_TOPOLOGY}}"
+        msg: "no topology at {{._CL_TOPOLOGY}} — copy cluster.prod.yaml and edit it"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{._CL_DIR}}"
+          pulumi --non-interactive --stack "{{._CL_STACK}}" up --yes
+
+  destroy:
+    desc: "Destroy the cluster. Asks first, because this deletes the servers."
+    prompt: "Destroy the {{._CL_STACK}} CLUSTER and every server in it?"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{._CL_DIR}}"
+          pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes
+
+  # ---------------------------------------------------------------------------
+  # Credentials and inspection
+  # ---------------------------------------------------------------------------
+
+  outputs:
+    desc: "Show the cluster stack outputs (secrets stay redacted)"
+    cmds:
+      - cmd: |
+          cd "{{._CL_DIR}}"
+          pulumi --non-interactive --stack "{{._CL_STACK}}" stack output
+
+  kubeconfig:
+    desc: "Write ./kubeconfig from the cluster stack"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{._CL_DIR}}"
+          pulumi --non-interactive --stack "{{._CL_STACK}}" stack output kubeconfig --show-secrets > "{{.ROOT}}/kubeconfig"
+          chmod 600 "{{.ROOT}}/kubeconfig"
+          echo "wrote kubeconfig — export KUBECONFIG={{.ROOT}}/kubeconfig"
+
+  talosconfig:
+    desc: "Write ./talosconfig from the cluster stack"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{._CL_DIR}}"
+          pulumi --non-interactive --stack "{{._CL_STACK}}" stack output talosconfig --show-secrets > "{{.ROOT}}/talosconfig"
+          chmod 600 "{{.ROOT}}/talosconfig"
+          echo "wrote talosconfig — export TALOSCONFIG={{.ROOT}}/talosconfig"
+
+  nodes:
+    desc: "List cluster nodes"
+    deps: [kubeconfig]
+    cmds:
+      - KUBECONFIG="{{.ROOT}}/kubeconfig" kubectl get nodes -o wide
+
+  status:
+    desc: "Cluster health at a glance: nodes, then anything not Running"
+    deps: [kubeconfig]
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          export KUBECONFIG="{{.ROOT}}/kubeconfig"
+          echo "== nodes"
+          kubectl get nodes -o wide
+          echo
+          echo "== pods that are not Running or Succeeded"
+          kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded 2>/dev/null \
+            || echo "  (none)"
+
+  # ---------------------------------------------------------------------------
+  # Day 2
+  # ---------------------------------------------------------------------------
+
+  etcd-snapshot:
+    desc: "Take an etcd snapshot into .backups/"
+    deps: [talosconfig]
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          mkdir -p "{{.ROOT}}/.backups"
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          TALOSCONFIG="{{.ROOT}}/talosconfig" talosctl etcd snapshot \
+            "{{.ROOT}}/.backups/etcd-${stamp}.db"
+          echo "wrote .backups/etcd-${stamp}.db"
+
+  upgrade-talos:
+    desc: "Upgrade Talos on every node. Bump talos.version in the topology first, then re-bake."
+    deps: [talosconfig]
+    prompt: "Upgrade Talos on every node of {{._CL_STACK}}?"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          version="$(grep -A3 '^talos:' "{{._CL_TOPOLOGY}}" | grep 'version:' | head -1 | awk '{print $2}')"
+          export TALOSCONFIG="{{.ROOT}}/talosconfig"
+          # One node at a time, waiting for each: rolling through the control
+          # plane in parallel takes etcd below quorum.
+          for node in $(talosctl get members -o json | jq -r '.spec.addresses[0]'); do
+            echo "== upgrading ${node} to ${version}"
+            talosctl upgrade --nodes "${node}" \
+              --image "ghcr.io/siderolabs/installer:${version}" --wait
+          done
+
+  upgrade-k8s:
+    desc: "Upgrade Kubernetes in place. Set kubernetes.version in the topology first."
+    deps: [talosconfig]
+    prompt: "Upgrade Kubernetes on {{._CL_STACK}}?"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          version="$(grep -A3 '^kubernetes:' "{{._CL_TOPOLOGY}}" | grep 'version:' | head -1 | awk '{print $2}' | tr -d '"')"
+          [ -n "$version" ] || { echo "ERROR: set kubernetes.version in the topology first" >&2; exit 1; }
+          export TALOSCONFIG="{{.ROOT}}/talosconfig"
+          talosctl upgrade-k8s --to "${version}"

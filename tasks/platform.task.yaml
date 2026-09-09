@@ -1,0 +1,134 @@
+version: "3"
+
+silent: true
+
+vars:
+  _PL_STACK: '{{.stack | default "prod"}}'
+  _PL_LAYERS: '{{.LAYERS}}'
+
+tasks:
+  layers:
+    desc: "Print the layers in dependency order (CI derives its matrix from this)"
+    cmds:
+      - cmd: |
+          for layer in {{._PL_LAYERS}}; do echo "$layer"; done
+
+  # ---------------------------------------------------------------------------
+  # Whole platform
+  # ---------------------------------------------------------------------------
+
+  plan-all:
+    desc: "Preview every layer in order; change nothing"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          for layer in {{._PL_LAYERS}}; do
+            echo "══ preview ${layer}"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff )
+          done
+
+  apply-all:
+    desc: "Apply every layer in dependency order (idempotent)"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          # Sequential and ordered. The layers are independent in the sense
+          # that each can be applied alone against an existing cluster — not in
+          # the sense that they can be applied in any order on an empty one:
+          # nothing schedules before the CCM clears the uninitialized taint,
+          # and nothing networks before the CNI.
+          for layer in {{._PL_LAYERS}}; do
+            echo "══ apply ${layer}"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes )
+          done
+
+  destroy-all:
+    desc: "Destroy every layer, in reverse order"
+    prompt: "Destroy every platform layer on {{._PL_STACK}}?"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          # Reverse: a layer's dependants must go first, or the CNI is removed
+          # while workloads still need to talk.
+          reversed="$(for layer in {{._PL_LAYERS}}; do echo "$layer"; done | tail -r 2>/dev/null || \
+                      for layer in {{._PL_LAYERS}}; do echo "$layer"; done | tac)"
+          for layer in $reversed; do
+            echo "══ destroy ${layer}"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes )
+          done
+
+  # ---------------------------------------------------------------------------
+  # One layer
+  # ---------------------------------------------------------------------------
+
+  init:
+    desc: "Create the stack for every layer and point it at the cluster (ref=<org>/hetzner-cluster/<stack>)"
+    requires:
+      vars: [ref]
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          for layer in {{._PL_LAYERS}}; do
+            ( cd "{{.ROOT}}/layers/${layer}"
+              project="$(grep -m1 '^name:' Pulumi.yaml | awk '{print $2}')"
+              pulumi --non-interactive stack init "{{._PL_STACK}}" 2>/dev/null \
+                || pulumi --non-interactive stack select "{{._PL_STACK}}"
+              pulumi --non-interactive --stack "{{._PL_STACK}}" config set "${project}:clusterStackRef" "{{.ref}}"
+              echo "${layer}: pointed at {{.ref}}" )
+          done
+
+  plan:
+    desc: "Preview one layer — task platform:plan layer=20-cni"
+    requires:
+      vars: [layer]
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{.ROOT}}/layers/{{.layer}}"
+          pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff
+
+  apply:
+    desc: "Apply one layer — task platform:apply layer=20-cni"
+    requires:
+      vars: [layer]
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{.ROOT}}/layers/{{.layer}}"
+          pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes
+
+  destroy:
+    desc: "Destroy one layer — task platform:destroy layer=60-observability"
+    requires:
+      vars: [layer]
+    prompt: "Destroy layer {{.layer}} on {{._PL_STACK}}?"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{.ROOT}}/layers/{{.layer}}"
+          pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes
+
+  outputs:
+    desc: "Show one layer's stack outputs — task platform:outputs layer=50-gitops"
+    requires:
+      vars: [layer]
+    cmds:
+      - cmd: |
+          cd "{{.ROOT}}/layers/{{.layer}}"
+          pulumi --non-interactive --stack "{{._PL_STACK}}" stack output
+
+  status:
+    desc: "Which layers are deployed, and how many resources each holds"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          printf '%-24s %s\n' LAYER RESOURCES
+          for layer in {{._PL_LAYERS}}; do
+            count="$( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" stack --json 2>/dev/null \
+              | jq -r '.resources | length' 2>/dev/null || echo "-" )"
+            printf '%-24s %s\n' "$layer" "$count"
+          done
