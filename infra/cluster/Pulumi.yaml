@@ -1,0 +1,43 @@
+name: hetzner-cluster
+runtime:
+  name: go
+  options:
+    # Compile to a stable path instead of Pulumi's default throwaway temp file.
+    #
+    # Without this the language host runs `go build -o $TMPFILE` on every
+    # invocation and deletes the result, so each preview pays a full link of a
+    # large binary. A stable path lets `go build` compare against the existing
+    # output and no-op when nothing changed. The staleness check is content
+    # hashing, so an edited package still rebuilds — which is why this is
+    # `buildTarget` and not `binary`; `binary` skips the build entirely and
+    # silently deploys whatever was compiled last.
+    buildTarget: ../../.cache/pulumi-bin/hetzner-cluster
+description: |
+  Hetzner Cloud cluster tier: private network, perimeter firewall, Talos
+  control plane and worker pools.
+
+  Runs before every layer under layers/ and exports the kubeconfig they
+  consume through a StackReference. Nothing here is managed — Hetzner has no
+  managed Kubernetes, so this project builds the cluster. It stops at "a
+  Kubernetes API that answers": the CNI comes from layers/10-cni.
+
+config:
+  hcloud:token:
+    description: |
+      Hetzner Cloud API token with read+write scope on the project. Set with:
+        pulumi config set --secret hcloud:token <token>
+  hetzner-cluster:publicIPv4:
+    description: |
+      Keep a routable IPv4 address on every node. Required unless `pulumi up`
+      runs from inside the private network, because Talos machine
+      configuration is pushed over the Talos API.
+    default: true
+  hetzner-cluster:allowICMP:
+    description: Open ping from the admin CIDRs. Useful when debugging routing.
+    default: false
+  hetzner-cluster:imageSelector:
+    description: |
+      Label selector for the Talos snapshot. Empty derives
+      "os=talos,talos-version=<version>" — the labels `task cluster:image-bake`
+      writes.
+    default: ""
