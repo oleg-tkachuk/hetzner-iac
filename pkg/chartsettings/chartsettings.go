@@ -43,8 +43,9 @@ const (
 	IngressUseForwardedHeaders = "use-forwarded-headers"
 )
 
-// metrics-server. Talos kubelet certificates carry the internal address, and
-// the chart default tries the hostname first — metrics-server then starts and
+// MetricsServerAddressTypes pins kubelet address resolution to the node's
+// internal address. Talos kubelet certificates carry that address, and the
+// chart default tries the hostname first — metrics-server then starts and
 // every scrape fails, so the autoscaler is silently blind.
 const MetricsServerAddressTypes = "--kubelet-preferred-address-types=InternalIP"
 

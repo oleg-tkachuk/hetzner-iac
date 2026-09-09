@@ -1,0 +1,117 @@
+name: Security
+
+# A reusable workflow, called by CI and also run on its own schedule.
+#
+# The schedule is the reason this is a separate workflow rather than four more
+# jobs in ci.yaml: a security finding appears without anyone touching the code.
+# A CVE published today makes yesterday's green commit vulnerable, and a gate
+# that only runs on push would never say so.
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    # Monday morning, before the week's work lands on top of whatever the
+    # weekend's advisories turned up.
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned rather than latest: a scanner that changes version between runs
+  # turns "CI went red and nothing changed" into a debugging session.
+  GITLEAKS_VERSION: "8.30.1"
+  GOSEC_VERSION: "v2.29.0"
+  GOVULNCHECK_VERSION: "v1.1.4"
+  ZIZMOR_VERSION: "1.30.1"
+
+jobs:
+  # Every job installs the tool and then calls the SAME task an operator runs
+  # locally, so the flags live in one place — the shared task library — rather
+  # than being restated here and drifting.
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks scans the whole history, not the worktree: a credential
+          # that was committed and then removed is still published.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+      - run: task security:secrets
+
+  vulnerabilities:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+      # Reachability-based: it reports the vulnerabilities this code actually
+      # calls, not every advisory touching the dependency tree.
+      - run: task security:vuln
+
+  sast:
+    name: gosec
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+      # Suppressions in this repository use #nosec, which both this and the
+      # gosec inside golangci-lint honour — //nolint:gosec would pass the lint
+      # job and fail here.
+      - run: task security:gosec
+
+  filesystem:
+    name: trivy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          # Report only: this step exists to make the tool available and warm
+          # its database. The gate itself is the task below, which carries the
+          # same flags an operator gets locally.
+          skip-setup-trivy: false
+          exit-code: "0"
+      - run: task security:trivy
+
+  workflows:
+    name: zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      # These workflows are the part of the repository that runs with a token,
+      # so they are worth auditing as code rather than trusted as config.
+      - run: pipx run "zizmor==${ZIZMOR_VERSION}" --persona=auditor --format=plain .github/workflows/
