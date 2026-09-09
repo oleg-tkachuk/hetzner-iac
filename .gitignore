@@ -64,3 +64,7 @@ talosconfig
 # a stray build otherwise leaves a 10 MB executable in the repository root.
 /charts
 /topology
+
+# Local-only lefthook overrides. Gates that belong to a working copy rather
+# than to the project; lefthook merges the file automatically when present.
+lefthook-local.yml
