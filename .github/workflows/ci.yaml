@@ -155,6 +155,11 @@ jobs:
           chmod +x /usr/local/bin/talosctl
       - name: Talos machine config
         run: go run ./tools/talosvalidate infra/cluster
+      # Docker is already on the runner, and Alloy is validated from the image
+      # the pinned chart deploys rather than a binary that happens to be
+      # installed.
+      - name: Alloy collector config
+        run: go run ./tools/alloyvalidate
 
   # Extracted into its own workflow so it can ALSO run on a schedule: a CVE
   # published today makes yesterday's green commit vulnerable, and a gate that
