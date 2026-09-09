@@ -28,6 +28,7 @@ env:
   GOSEC_VERSION: "v2.29.0"
   GOVULNCHECK_VERSION: "v1.1.4"
   ZIZMOR_VERSION: "1.30.1"
+  TRIVY_VERSION: "0.74.0"
 
 jobs:
   # Every job installs the tool and then calls the SAME task an operator runs
@@ -38,8 +39,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           # gitleaks scans the whole history, not the worktree: a credential
           # that was committed and then removed is still published.
           fetch-depth: 0
@@ -59,7 +61,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
         with:
           task: "true"
@@ -74,7 +78,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
         with:
           task: "true"
@@ -90,20 +96,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
         with:
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: aquasecurity/trivy-action@0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          # Report only: this step exists to make the tool available and warm
-          # its database. The gate itself is the task below, which carries the
-          # same flags an operator gets locally.
-          skip-setup-trivy: false
-          exit-code: "0"
+      # The binary rather than the action: the action would run a scan of its
+      # own whose result is then discarded, and the gate is the task below —
+      # which carries the same flags an operator gets locally.
+      - name: Install trivy
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            | tar -xz -C "${RUNNER_TEMP}" trivy
+          echo "${RUNNER_TEMP}" >>"$GITHUB_PATH"
       - run: task security:trivy
 
   workflows:
@@ -111,7 +119,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # These workflows are the part of the repository that runs with a token,
       # so they are worth auditing as code rather than trusted as config.
-      - run: pipx run "zizmor==${ZIZMOR_VERSION}" --persona=auditor --format=plain .github/workflows/
+      # regular, not auditor: the auditor persona is documented as tolerating
+      # false positives, which is the wrong contract for a blocking gate — it
+      # would be red forever and then ignored. Exceptions live in
+      # .github/zizmor.yml, each with the reason it stands.
+      - run: pipx run "zizmor==${ZIZMOR_VERSION}" --config .github/zizmor.yml --persona=regular --format=plain .github/workflows/

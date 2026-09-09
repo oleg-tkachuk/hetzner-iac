@@ -37,7 +37,9 @@ jobs:
     outputs:
       layers: ${{ steps.list.outputs.layers }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
         with:
           task: "true"
@@ -57,9 +59,11 @@ jobs:
     timeout-minutes: 20
     environment: ${{ inputs.stack || 'prod' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
-      - uses: pulumi/actions@v7
+      - uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d # v7
         with:
           pulumi-version: ${{ env.PULUMI_VERSION }}
       - name: Preview
@@ -67,7 +71,8 @@ jobs:
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-        run: pulumi --non-interactive --stack "${{ inputs.stack || 'prod' }}" preview --diff
+          STACK: ${{ inputs.stack || 'prod' }}
+        run: pulumi --non-interactive --stack "$STACK" preview --diff
 
   layer:
     # No `name:` on purpose. A custom name is used verbatim, so a skipped job
@@ -82,16 +87,19 @@ jobs:
       matrix:
         layer: ${{ fromJSON(needs.layers.outputs.layers) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
-      - uses: pulumi/actions@v7
+      - uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d # v7
         with:
           pulumi-version: ${{ env.PULUMI_VERSION }}
       - name: Preview
         working-directory: layers/${{ matrix.layer }}
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-        run: pulumi --non-interactive --stack "${{ inputs.stack || 'prod' }}" preview --diff
+          STACK: ${{ inputs.stack || 'prod' }}
+        run: pulumi --non-interactive --stack "$STACK" preview --diff
 
   e2e:
     name: Verify the running cluster
@@ -100,18 +108,21 @@ jobs:
     timeout-minutes: 45
     environment: ${{ inputs.stack || 'prod' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
-      - uses: pulumi/actions@v7
+      - uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d # v7
         with:
           pulumi-version: ${{ env.PULUMI_VERSION }}
       - name: Fetch the kubeconfig
         working-directory: infra/cluster
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          STACK: ${{ inputs.stack || 'prod' }}
         run: |
           set -euo pipefail
-          pulumi --non-interactive --stack "${{ inputs.stack || 'prod' }}" \
+          pulumi --non-interactive --stack "$STACK" \
             stack output kubeconfig --show-secrets > "${RUNNER_TEMP}/kubeconfig"
           chmod 600 "${RUNNER_TEMP}/kubeconfig"
       # Read-only apart from nothing: the suite creates no workloads, so it is
