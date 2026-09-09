@@ -9,6 +9,14 @@
 //
 // It renders with --repo rather than `helm repo add`, so a read-only check
 // does not mutate the operator's Helm configuration as a side effect.
+//
+// The effect pass was verified by breaking it on purpose: shortening
+// kubeProxyReplacement by one letter turns the check red with
+//
+//	MISS  cilium  kubeProxyReplacment=true produced no `kube-proxy-replacement: "true"`
+//
+// while `helm template` itself renders that typo without complaint and exits
+// zero. A gate nobody has seen fail is a gate nobody knows works.
 package main
 
 import (
@@ -25,6 +33,7 @@ import (
 	"time"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/workloads"
 )
 
@@ -46,7 +55,7 @@ func main() {
 	}
 
 	if failures > 0 {
-		fmt.Fprintf(os.Stderr, "\n%d expected workload(s) missing — a chart renamed something, or pkg/workloads is stale\n", failures)
+		fmt.Fprintf(os.Stderr, "\n%d check(s) failed — a chart renamed something, or a value it used to read is now ignored\n", failures)
 		os.Exit(1)
 	}
 }
@@ -103,7 +112,52 @@ func run() (int, error) {
 		}
 	}
 
+	failures += checkEffects(ctx)
+
 	return failures, nil
+}
+
+// checkEffects verifies that the settings whose misspelling fails silently
+// actually reach the chart's output.
+//
+// Rendering with the value is not enough on its own — Helm accepts any key,
+// including one no template reads. The assertion is on the EFFECT: the line
+// the chart's own template produces. A key the chart ignores cannot satisfy it.
+func checkEffects(ctx context.Context) int {
+	failures := 0
+
+	for _, effect := range chartsettings.Effects {
+		chart, err := charts.Get(effect.Chart)
+		if err != nil {
+			fmt.Printf("MISS  %-14s unknown chart\n", effect.Chart)
+
+			failures++
+
+			continue
+		}
+
+		output, err := renderRaw(ctx, chart, effect.Release, effect.Namespace, effect.Chart, effect.Set...)
+		if err != nil {
+			fmt.Printf("MISS  %-14s render failed: %v\n", effect.Chart, err)
+
+			failures++
+
+			continue
+		}
+
+		if strings.Contains(string(output), effect.Expect) {
+			fmt.Printf("ok    %-14s %s\n", effect.Chart, strings.Join(effect.Set, " "))
+
+			continue
+		}
+
+		fmt.Printf("MISS  %-14s %s produced no %q\n", effect.Chart, strings.Join(effect.Set, " "), effect.Expect)
+		fmt.Printf("      %s\n", effect.Why)
+
+		failures++
+	}
+
+	return failures
 }
 
 // rendered returns the workloads of one chart that helm template can show.
@@ -122,12 +176,26 @@ func rendered(key string) []workloads.Workload {
 // renderChart templates a chart and returns the workload objects it produced,
 // keyed "Kind/name".
 func renderChart(ctx context.Context, chart charts.Chart, release, namespace, key string) (map[string]bool, error) {
+	output, err := renderRaw(ctx, chart, release, namespace, key)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseWorkloads(output), nil
+}
+
+// renderRaw templates a chart and returns its manifests.
+func renderRaw(ctx context.Context, chart charts.Chart, release, namespace, key string, sets ...string) ([]byte, error) {
 	args := []string{
 		"template", release, chart.Name,
 		"--repo", chart.Repo,
 		"--version", chart.Version,
 		"--namespace", namespace,
 		"--skip-tests",
+	}
+
+	for _, set := range sets {
+		args = append(args, "--set", set)
 	}
 
 	valuesFile, err := writeValues(key)
@@ -154,7 +222,7 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 		return nil, err
 	}
 
-	return parseWorkloads(output), nil
+	return output, nil
 }
 
 // parseWorkloads pulls "Kind/name" out of rendered YAML.

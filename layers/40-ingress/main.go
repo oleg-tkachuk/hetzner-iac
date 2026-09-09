@@ -7,6 +7,7 @@
 package main
 
 import (
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -76,10 +77,14 @@ func IngressValues(name pulumi.StringInput, location pulumi.StringInput, loadBal
 				"externalTrafficPolicy": pulumi.String("Local"),
 			},
 			"config": pulumi.Map{
-				"use-proxy-protocol": pulumi.String("true"),
+				// Constants, not literals: a typo in either key is accepted by
+				// Helm and silently leaves the default, which here means every
+				// request arrives unparseable. task charts:render-check
+				// asserts their effect using the same constants.
+				chartsettings.IngressUseProxyProtocol: pulumi.String("true"),
 				// The real client address arrives in the PROXY header. Trusting
 				// a forwarded header as well would accept a spoofed one.
-				"use-forwarded-headers": pulumi.String("false"),
+				chartsettings.IngressUseForwardedHeaders: pulumi.String("false"),
 			},
 			"metrics": pulumi.Map{
 				"enabled": pulumi.Bool(true),

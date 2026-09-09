@@ -7,15 +7,11 @@
 package main
 
 import (
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
-
-// KubePrismPort matches the port enabled in the Talos machine config by the
-// cluster tier. The two are a pair: change one without the other and Cilium
-// cannot reach the API server.
-const KubePrismPort = 7445
 
 func main() {
 	layer.Run(func(r *layer.Runner) error {
@@ -62,9 +58,14 @@ func CiliumValues(podCIDR pulumi.StringInput) pulumi.Map {
 			"mode": pulumi.String("kubernetes"),
 		},
 
-		"kubeProxyReplacement": pulumi.Bool(true),
-		"k8sServiceHost":       pulumi.String("localhost"),
-		"k8sServicePort":       pulumi.Int(KubePrismPort),
+		// These three keys are constants rather than literals: Helm accepts an
+		// unknown key silently, so a typo here leaves the chart's default in
+		// place and the cluster starts with no service dataplane at all.
+		// task charts:render-check asserts their EFFECT on the rendered chart,
+		// reading the same constants.
+		chartsettings.CiliumKubeProxyReplacement: pulumi.Bool(true),
+		chartsettings.CiliumK8sServiceHost:       pulumi.String("localhost"),
+		chartsettings.CiliumK8sServicePort:       pulumi.Int(chartsettings.KubePrismPort),
 
 		// Native routing rather than an overlay: the CCM programmes a route
 		// per node inside the private network, so pod traffic needs no

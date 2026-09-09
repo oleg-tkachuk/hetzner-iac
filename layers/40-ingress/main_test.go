@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,7 +40,7 @@ func TestIngressValues_ProxyProtocolIsSetOnBothSides(t *testing.T) {
 	_, _, annotations, controllerConfig := values(t)
 
 	assert.Equal(t, pulumi.String("true"), annotations["load-balancer.hetzner.cloud/uses-proxyprotocol"])
-	assert.Equal(t, pulumi.String("true"), controllerConfig["use-proxy-protocol"])
+	assert.Equal(t, pulumi.String("true"), controllerConfig[chartsettings.IngressUseProxyProtocol])
 }
 
 func TestIngressValues_DoesNotTrustForwardedHeaders(t *testing.T) {
@@ -48,7 +50,7 @@ func TestIngressValues_DoesNotTrustForwardedHeaders(t *testing.T) {
 	// X-Forwarded-For would accept a spoofed one.
 	_, _, _, controllerConfig := values(t)
 
-	assert.Equal(t, pulumi.String("false"), controllerConfig["use-forwarded-headers"])
+	assert.Equal(t, pulumi.String("false"), controllerConfig[chartsettings.IngressUseForwardedHeaders])
 }
 
 func TestIngressValues_ReachesNodesOverThePrivateNetwork(t *testing.T) {

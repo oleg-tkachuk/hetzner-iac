@@ -8,6 +8,7 @@
 package main
 
 import (
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 
 	apiextensions "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
@@ -110,8 +111,8 @@ func MetricsServerValues() pulumi.Map {
 			// kubelet certificates carry the internal address. The chart's
 			// default preference order tries the hostname first, which does
 			// not resolve here — so metrics-server starts and every scrape
-			// fails.
-			"--kubelet-preferred-address-types=InternalIP",
+			// fails, and the autoscaler is silently blind.
+			chartsettings.MetricsServerAddressTypes,
 		}),
 		// Two replicas so a node failure does not take metrics — and with them
 		// the horizontal pod autoscaler — down.
