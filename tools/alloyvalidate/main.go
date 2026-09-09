@@ -101,8 +101,14 @@ func writeConfig() (string, error) {
 		return "", fmt.Errorf("close config: %w", err)
 	}
 
-	// Readable inside the container, which runs as a different user.
-	if err := os.Chmod(file.Name(), 0o644); err != nil { //nolint:gosec // must be world-readable for the container user
+	// The Alloy image runs as a different user than the one that created this
+	// file, so 0600 would make it unreadable and the check would fail on
+	// permissions rather than on the configuration. It holds no secret — it is
+	// the same text committed in pkg/observability.
+	//
+	// #nosec G302 -- deliberately readable; both gosec and golangci-lint honour
+	// this form, whereas //nolint:gosec is invisible to standalone gosec.
+	if err := os.Chmod(file.Name(), 0o644); err != nil {
 		return "", fmt.Errorf("chmod config: %w", err)
 	}
 
