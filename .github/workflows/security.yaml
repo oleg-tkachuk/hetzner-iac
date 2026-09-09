@@ -2,6 +2,12 @@ name: Security
 
 # A reusable workflow, called by CI and also run on its own schedule.
 #
+# gosec is NOT here: golangci-lint already runs it over this code, in a job
+# that finishes sooner because it loads the package graph once and runs every
+# linter over it. Standalone gosec re-loads per package and cost fifteen
+# minutes of every pipeline for the same findings. It runs nightly instead,
+# where its own defaults still get a chance to say something.
+#
 # The schedule is the reason this is a separate workflow rather than four more
 # jobs in ci.yaml: a security finding appears without anyone touching the code.
 # A CVE published today makes yesterday's green commit vulnerable, and a gate
@@ -25,7 +31,6 @@ env:
   # Pinned rather than latest: a scanner that changes version between runs
   # turns "CI went red and nothing changed" into a debugging session.
   GITLEAKS_VERSION: "8.30.1"
-  GOSEC_VERSION: "v2.29.0"
   GOVULNCHECK_VERSION: "v1.1.4"
   ZIZMOR_VERSION: "1.30.1"
   TRIVY_VERSION: "0.74.0"
@@ -72,32 +77,6 @@ jobs:
       # Reachability-based: it reports the vulnerabilities this code actually
       # calls, not every advisory touching the dependency tree.
       - run: task security:vuln
-
-  sast:
-    name: gosec
-    runs-on: ubuntu-latest
-    # 30, not 15: gosec spends its time COMPILING, not analysing. It takes
-    # three seconds here against a warm build cache and over fifteen minutes on
-    # a runner that has to type-check the whole Pulumi SDK from cold.
-    #
-    # Worth naming as a cost rather than hiding: golangci-lint already runs
-    # gosec with this repository's config, in a job that finishes sooner. This
-    # job earns its place by scanning with gosec's own defaults, and it is the
-    # first thing to reconsider if CI minutes start to matter.
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-go
-        with:
-          task: "true"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
-      # Suppressions in this repository use #nosec, which both this and the
-      # gosec inside golangci-lint honour — //nolint:gosec would pass the lint
-      # job and fail here.
-      - run: task security:gosec
 
   filesystem:
     name: trivy
