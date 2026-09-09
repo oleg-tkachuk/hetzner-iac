@@ -333,6 +333,25 @@ Accepted findings live in `.trivyignore.yaml`, each with the reason it stands.
 Entries are removed as soon as a fix lands — a stale ignore masks the finding
 coming back.
 
+### gosec is the expensive one
+
+It loads every analysed package with full syntax *and* full type information
+for the entire transitive graph, and processes up to `-concurrency` packages at
+once — a flag that defaults to the machine's core count. This module's graph is
+208 modules dominated by the generated Pulumi Kubernetes SDK, so a single
+worker already holds a large graph; fourteen of them will exhaust a laptop's
+memory and send it to swap.
+
+`GOSEC_FLAGS: -concurrency=4` in the Taskfile caps that. Four is the CI
+runner's core count, so it costs nothing there.
+
+The remaining cost is compilation, not analysis: three seconds against a warm
+build cache, and over fifteen minutes on a cold runner. Worth knowing that
+golangci-lint already runs gosec over this code, in a job that finishes sooner,
+because it loads the graph once and runs every linter over it. The standalone
+job earns its place by scanning with gosec's own defaults — and it is the first
+thing to reconsider if CI minutes start to matter.
+
 Note that govulncheck and trivy disagree by design: govulncheck reports only
 what this code can actually reach, trivy reports everything present in the
 dependency graph. Both are useful, and a finding in one and not the other is
