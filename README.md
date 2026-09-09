@@ -1,5 +1,16 @@
 # hetzner-iac
 
+[![ci](https://github.com/oleg-tkachuk/hetzner-iac/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/oleg-tkachuk/hetzner-iac/actions/workflows/ci.yaml)
+[![release](https://img.shields.io/github/v/release/oleg-tkachuk/hetzner-iac?sort=semver&label=release)](https://github.com/oleg-tkachuk/hetzner-iac/releases/latest)
+[![go](https://img.shields.io/github/go-mod/go-version/oleg-tkachuk/hetzner-iac?logo=go&logoColor=white&label=go)](go.mod)
+[![license: MIT](https://img.shields.io/github/license/oleg-tkachuk/hetzner-iac?label=license)](LICENSE)
+
+[![Pulumi](https://img.shields.io/badge/Pulumi-8A3391?logo=pulumi&logoColor=white)](https://www.pulumi.com)
+[![Talos](https://img.shields.io/badge/Talos%20Linux-FF7300?logo=talos&logoColor=white)](https://www.talos.dev)
+[![Cilium](https://img.shields.io/badge/Cilium-F8C517?logo=cilium&logoColor=black)](https://cilium.io)
+[![Argo CD](https://img.shields.io/badge/Argo%20CD-EF7B4D?logo=argo&logoColor=white)](https://argo-cd.readthedocs.io)
+[![Hetzner Cloud](https://img.shields.io/badge/Hetzner%20Cloud-D50C2D?logo=hetzner&logoColor=white)](https://www.hetzner.com/cloud)
+
 Production Kubernetes on Hetzner Cloud, built with Pulumi and Go.
 
 Hetzner has no managed Kubernetes, so this repository builds the cluster
@@ -69,8 +80,8 @@ floating tags are rejected by validation rather than by convention.
 | [Go](https://go.dev/dl/) 1.27+ | the programs are Go |
 | [Task](https://taskfile.dev/installation/) 3.53+ | the entry points; remote Taskfiles need 3.53 |
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
-| [hcloud-upload-image](https://github.com/hetznercloud/hcloud-upload-image) | Hetzner has no custom-image upload API |
-| [talosctl](https://www.talos.dev/latest/introduction/getting-started/) | day-2: upgrades, etcd snapshots |
+| [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
+| [talosctl](https://www.talos.dev/) | day-2: upgrades, etcd snapshots |
 | `jq`, `curl` | used by the image-bake task |
 
 A Hetzner Cloud API token with read+write scope on the project.
