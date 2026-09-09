@@ -18,8 +18,6 @@ concurrency:
 env:
   # Pinned rather than latest: a tool that changes version between runs turns
   # "CI went red and nothing changed" into a debugging session.
-  PULUMI_VERSION: "3.261.0"
-  GOVULNCHECK_VERSION: "v1.1.4"
   GOLANGCI_VERSION: "v2.12.2"
 
 jobs:
@@ -106,18 +104,6 @@ jobs:
           # hide the findings it repaired.
           args: --timeout=15m --fix=false
 
-  govulncheck:
-    name: govulncheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-go
-      - run: |
-          set -euo pipefail
-          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
-          govulncheck ./...
-
   charts:
     name: Chart pins
     runs-on: ubuntu-latest
@@ -157,15 +143,11 @@ jobs:
       # round trip.
       - run: go run ./tools/topology infra/cluster
 
-  gitleaks:
-    name: gitleaks
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          # gitleaks scans the full history, not the worktree.
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Extracted into its own workflow so it can ALSO run on a schedule: a CVE
+  # published today makes yesterday's green commit vulnerable, and a gate that
+  # only runs on push would never say so.
+  security:
+    name: Security
+    uses: ./.github/workflows/security.yaml
+    permissions:
+      contents: read

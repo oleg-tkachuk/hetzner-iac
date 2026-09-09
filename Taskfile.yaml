@@ -59,6 +59,9 @@ includes:
   security:
     taskfile: '{{printf .TASKLIB "security"}}'
     dir: .
+    vars:
+      # trivy does not pick the ignore file up by itself.
+      TRIVY_FLAGS: "--ignorefile .trivyignore.yaml"
     excludes:
       # No protobuf here.
       - proto:breaking
@@ -109,7 +112,7 @@ tasks:
   # ---------------------------------------------------------------------------
 
   verify:
-    desc: "Everything CI checks: format, vet, tests, lint, vulnerabilities"
+    desc: "The fast gate: format, tests, lint, reachable vulnerabilities, chart pins"
     cmds:
       - task: fmt-check
       - task: go:test
@@ -117,6 +120,15 @@ tasks:
       - task: go:vuln
       - task: charts:validate
       - task: charts:render-check
+
+  # Named scan rather than security: `security` is already the include's
+  # namespace, and two meanings for one word at the command line is a coin flip.
+  scan:
+    desc: "Every scanner CI runs — needs gitleaks, gosec and trivy installed"
+    cmds:
+      # The same tasks .github/workflows/security.yaml calls, so a green run
+      # here is a green run there.
+      - task: security:all
 
   fmt-check:
     desc: "Fail if any Go file is not gofmt-clean"
