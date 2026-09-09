@@ -83,6 +83,21 @@ pre-commit:
         }
         gitleaks protect --staged --redact --verbose=true
 
+    # The Taskfile's TASKLIB is swapped to a sibling checkout when working on
+    # the shared library, and that swap has been committed once already — a
+    # clone of this repository has no ../taskfiles, so every task breaks for
+    # everyone but the author.
+    - name: tasklib-is-remote
+      tags: [tasks]
+      glob: "Taskfile.yaml"
+      run: |
+        set -euo pipefail
+        if grep -qE "^  TASKLIB: '\.\./" Taskfile.yaml; then
+          echo "ERROR: Taskfile.yaml points TASKLIB at a local checkout." >&2
+          echo "That works only on this machine. Restore the git URL before committing." >&2
+          exit 1
+        fi
+
     - name: gofmt
       tags: [go, format]
       glob: "*.go"
