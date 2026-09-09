@@ -145,3 +145,56 @@ func TestValidate_ChecksTheRepositoryTopologies(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, failures)
 }
+
+func TestTalosVersion(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cluster.prod.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(validTopology), 0o600))
+
+	version, err := talosVersion(path)
+	require.NoError(t, err)
+	assert.Equal(t, "v1.14.0", version)
+}
+
+func TestTalosVersion_ReadsThroughTheRealParser(t *testing.T) {
+	t.Parallel()
+
+	// The point of this existing at all: CI installs a matching talosctl from
+	// it, and the first version used `grep -A6`, which returned nothing once
+	// the comment above the field grew. A parser does not care how much prose
+	// sits above the value.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cluster.prod.yaml")
+
+	commented := "talos:\n" + strings.Repeat("  # a long explanation\n", 20) + "  version: v1.13.10\n  architecture: x86\n"
+	body := strings.Replace(validTopology, "talos:\n  version: v1.14.0\n", commented, 1)
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+
+	version, err := talosVersion(path)
+	require.NoError(t, err)
+	assert.Equal(t, "v1.13.10", version)
+}
+
+func TestTalosVersion_InvalidTopology(t *testing.T) {
+	t.Parallel()
+
+	// A malformed file must fail loudly rather than print an empty string that
+	// a shell would splice into a download URL.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cluster.prod.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("not: a topology\n"), 0o600))
+
+	_, err := talosVersion(path)
+	require.Error(t, err)
+}
+
+func TestTalosVersion_MatchesTheRepositoryTopologies(t *testing.T) {
+	t.Parallel()
+
+	// What CI actually runs.
+	version, err := talosVersion(filepath.Join("..", "..", "infra", "cluster", "cluster.prod.yaml"))
+	require.NoError(t, err)
+	assert.Regexp(t, `^v\d+\.\d+\.\d+$`, version)
+}
