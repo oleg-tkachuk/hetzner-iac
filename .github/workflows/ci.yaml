@@ -73,7 +73,15 @@ jobs:
   # scratch. Priming makes the saved cache the useful one.
   prime:
     name: Prime the Go cache
-    needs: [changes]
+    # Also needs security, which is the cheap half of the pipeline — nine to
+    # thirty-five seconds. GitHub has no job-level fail-fast: a failing job does
+    # not stop its siblings. Gating the priming job on the scanners means a
+    # secret, a reachable vulnerability or a workflow finding stops the run
+    # before anything compiles, instead of after ten minutes of it.
+    #
+    # Everything expensive already depends on prime, so this one edge gates all
+    # of it.
+    needs: [changes, security]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
