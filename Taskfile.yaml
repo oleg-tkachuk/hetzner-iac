@@ -34,10 +34,49 @@ vars:
     60-observability
 
 includes:
-  go: { taskfile: '{{printf .TASKLIB "go"}}', dir: . }
-  k8s: { taskfile: '{{printf .TASKLIB "k8s"}}', dir: . }
-  security: { taskfile: '{{printf .TASKLIB "security"}}', dir: . }
-  helm: { taskfile: '{{printf .TASKLIB "helm"}}', dir: . }
+  # `excludes:` genuinely removes a task rather than hiding it, so what is left
+  # is what actually works here. A module task that cannot succeed in this
+  # repository is worse than a missing one: it is a command someone runs once,
+  # in an emergency, and gets a confusing failure from.
+  go:
+    taskfile: '{{printf .TASKLIB "go"}}'
+    dir: .
+    vars:
+      # Points test:tagged:compile at the e2e suite, which is the only
+      # build-tagged code here. Without this it type-checks the `integration`
+      # tag, which nothing in this repository uses.
+      GO_TEST_TAGS: e2e
+    excludes:
+      # No ./cmd/... to build: the Pulumi programs are compiled by Pulumi's own
+      # language host into .cache, and the tools are run with `go run`.
+      - build
+      # No benchmarks.
+      - bench
+      # No integration suite. The e2e suite uses its own tag and needs a live
+      # cluster, so it has its own entry point — `task e2e`.
+      - test:integration
+
+  security:
+    taskfile: '{{printf .TASKLIB "security"}}'
+    dir: .
+    excludes:
+      # No protobuf here.
+      - proto:breaking
+
+  helm:
+    taskfile: '{{printf .TASKLIB "helm"}}'
+    dir: .
+    excludes:
+      # Every release on this cluster is created by Pulumi. Uninstalling them
+      # with Helm would leave Pulumi state claiming they exist, so the next
+      # `up` reports no changes while the cluster is empty. Destroy through
+      # `task platform:destroy` instead.
+      - uninstall-all
+
+  # The k8s module is deliberately NOT included. Every task in it assumes the
+  # repository ships one deployable component — it rolls a Deployment named
+  # after the project and installs from ./deploy/chart. This repository ships a
+  # platform, deployed by Pulumi, and neither of those exists.
 
   cluster: { taskfile: tasks/cluster.task.yaml, dir: . }
   platform: { taskfile: tasks/platform.task.yaml, dir: . }
@@ -91,10 +130,10 @@ tasks:
           fi
 
   fmt:
-    desc: "Format every Go file"
+    desc: "Format every Go file and tidy the module"
     cmds:
-      - gofmt -w .
-      - go mod tidy
+      - task: go:fmt
+      - task: go:tidy
 
   e2e:
     desc: "Verify a real cluster — read-only, safe against production"
