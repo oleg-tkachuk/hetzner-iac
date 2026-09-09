@@ -37,7 +37,14 @@ talos:
   # Bump this and re-run `task cluster:image-bake`. The image selector keys off
   # the version label, so a bump without a bake fails at plan time with "no
   # available Talos snapshot matches the selector".
-  version: v1.14.0
+  #
+  # Held at 1.13 on purpose, not out of caution: pulumi-talos 0.8.1 bridges
+  # terraform-provider-talos 0.11.0, which embeds Talos machinery v1.13.0. It
+  # is the machinery that GENERATES the machine configuration, so a 1.14 pin
+  # would boot 1.14 nodes with a configuration built by a 1.13 generator.
+  # Move this to 1.14 when the provider ships a stable release carrying 1.14
+  # machinery, and re-run `task cluster:config-check`.
+  version: v1.13.10
   architecture: x86
 
 kubernetes:
