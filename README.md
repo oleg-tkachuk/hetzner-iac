@@ -348,6 +348,17 @@ weaken:
 
 `task scan` still runs the full set locally.
 
+A push to `main` runs almost nothing. The pull request has already been through
+this exact tree, and branch protection requires the branch to be current with
+`main` before merging, so the rebased result is what was tested — re-running it
+would cost fifteen minutes and tell nobody anything.
+
+Two things do run there. The release, obviously. And the priming job, which is
+less obvious: a cache written on a pull request is scoped to `refs/pull/N/merge`
+and no other branch can read it. Only the default branch can seed a cache that
+every pull request restores. Skipping `main` entirely would mean every pull
+request pays the cold ten-minute build for ever.
+
 The scanners also gate the expensive half of the pipeline. GitHub has no
 job-level fail-fast — a failing job does not stop its siblings — so the priming
 job depends on them, and everything expensive depends on priming. A secret, a
