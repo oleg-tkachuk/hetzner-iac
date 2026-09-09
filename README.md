@@ -364,6 +364,15 @@ That job builds unconditionally, and the comment above it says why: the first
 version skipped the build when no Go had changed, saved an empty cache under
 the immutable key, and poisoned it again on the very run that introduced it.
 
+Building unconditionally was still not enough. Every job attached the cache in
+both directions, so the *fastest* one owned the key — and the job that compiles
+the tree is by definition slower than one that does not. The roles are explicit
+now: `.github/actions/setup-go` takes a `cache-mode`, the priming job is the
+only `save`, everything else is `restore`, and a race build opts out entirely
+because its artifacts carry build IDs nothing else can reuse. CI asserts that
+exactly one writer exists, because a comment did not prevent the second
+occurrence.
+
 **gosec's memory.** It loads every package with full syntax *and* type
 information for the whole transitive graph, and processes `-concurrency` of them
 at once — defaulting to the core count, so fourteen large graphs at once on a
