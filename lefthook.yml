@@ -135,7 +135,7 @@ pre-commit:
           echo "SKIP: zizmor not installed — pipx install zizmor (CI still checks)" >&2
           exit 0
         }
-        zizmor --persona=auditor --format=plain .github/workflows/
+        zizmor --config .github/zizmor.yml --persona=regular --format=plain .github/workflows/
 
 # Last gate before the change leaves the machine. These are the slow ones: a
 # push is rarer than a commit, and this is the point where being wrong starts

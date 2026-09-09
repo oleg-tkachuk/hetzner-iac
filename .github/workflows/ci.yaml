@@ -34,7 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
         with:
           task: "true"
@@ -55,7 +57,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
       # No separate `go build ./...`: `go test ./...` already compiles every
       # package, including those with no test files.
@@ -83,7 +87,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
         with:
           # Race artifacts have their own build IDs, so nothing else can reuse
@@ -99,9 +105,11 @@ jobs:
     # log says nothing useful.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
-      - uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: ${{ env.GOLANGCI_VERSION }}
           # --fix=false: the config enables fix for local development, where it
@@ -114,14 +122,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
       # Enforces the pinning policy: exact versions, no floating tags.
       - run: go test -count=1 ./pkg/charts/
       # Renders every pinned chart and checks it still produces the workloads
       # pkg/workloads expects — the same table the e2e suite asserts against.
       # This is the gate that catches a chart rename in CI instead of at 3am.
-      - uses: azure/setup-helm@v5
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
         with:
           # Pinned to the version the check was verified against; `latest`
           # would let a Helm release change what CI renders with no commit of
@@ -141,7 +151,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-go
       # Every committed topology must load, default and validate. A cluster
       # file that only fails at `pulumi up` has already cost an operator a
