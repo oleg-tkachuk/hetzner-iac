@@ -40,6 +40,7 @@ infra/cluster              the only project that talks to the Hetzner API
   - [Security](#security)
   - [Charts](#charts)
 - [Configuration](#configuration)
+- [Security scanning](#security-scanning)
 - [Testing](#testing)
 - [Layout](#layout)
 - [License](#license)
@@ -150,7 +151,8 @@ someone runs once, in an emergency, and gets a confusing failure from.
 |------|------|
 | `task up` | cluster, then every layer in dependency order |
 | `task plan` | preview the cluster and every layer; change nothing |
-| `task verify` | what CI checks — format, tests, lint, vulnerabilities, chart pins |
+| `task verify` | the fast gate — format, tests, lint, reachable vulnerabilities, chart pins |
+| `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec |
 | `task e2e` | verify a running cluster; read-only, safe against production |
 | `task fmt` | format and tidy |
 | `task fmt-check` | fail if anything is not gofmt-clean |
@@ -212,7 +214,7 @@ changes to its image.
 
 | Task | Does |
 |------|------|
-| `task security:all` | secrets, filesystem, Go vuln, lint and SAST |
+| `task security:all` | secrets, filesystem, Go vuln, lint and SAST — what `task scan` runs |
 | `task security:secrets` | gitleaks over the whole history |
 | `task security:trivy` | vulnerable dependencies and secrets, plus IaC misconfig |
 | `task security:gosec` | insecure patterns the compiler is happy with |
@@ -248,6 +250,26 @@ Pulumi config:
 The Hetzner token is read by the cloud-integration layer rather than exported
 by the cluster tier: a stack that exports a cloud credential puts it into the
 state of every stack that references it.
+
+## Security scanning
+
+The scanners live in their own workflow, `.github/workflows/security.yaml`,
+which CI calls and which also runs weekly on its own. That schedule is the
+reason for the split: a CVE published today makes yesterday's green commit
+vulnerable, and a gate that only runs on push would never say so.
+
+Each job installs its tool and then calls the same task an operator runs
+locally, so the flags live in one place rather than being restated in YAML.
+`task scan` is the whole set.
+
+Accepted findings live in `.trivyignore.yaml`, each with the reason it stands.
+Entries are removed as soon as a fix lands — a stale ignore masks the finding
+coming back.
+
+Note that govulncheck and trivy disagree by design: govulncheck reports only
+what this code can actually reach, trivy reports everything present in the
+dependency graph. Both are useful, and a finding in one and not the other is
+information rather than a contradiction.
 
 ## Testing
 
