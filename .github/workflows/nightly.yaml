@@ -40,10 +40,10 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-go
         with:
-          # Race artifacts carry their own build IDs, so nothing else can reuse
-          # them. Writing them into the shared cache would make every other
-          # job's restore useless while growing the cache several times over.
-          cache: "false"
+          # Race artifacts carry their own build IDs, so nothing else can
+          # reuse them — and restoring the ordinary cache buys a race build
+          # nothing.
+          cache-mode: "off"
       - run: go test -race -count=1 ./...
 
   gosec:

@@ -1,21 +1,36 @@
 name: Set up Go
 description: >
-  Install the Go toolchain named by go.mod, with module caching, and optionally
-  go-task.
+  Install the Go toolchain named by go.mod, attach the shared build and module
+  cache in a defined role, and optionally install go-task.
 
   The version comes from `go-version-file: go.mod` rather than a GO_VERSION env
   var each workflow declares for itself — that would be several places to edit
   for one bump, and a missed one silently builds a job against a different
   toolchain than the rest of the run.
 
+  ONE WRITER. setup-go's own caching was doing both restore and save in every
+  job, and an Actions cache key is immutable: whichever job saved first owned
+  it. That is a race the useful job always loses, because the job that compiles
+  the tree is by definition slower than the job that does not. Twice it left a
+  cache holding almost nothing — 31 MB, then 0 MB — which every later run
+  restored and then rebuilt from.
+
+  So the roles are explicit here: `save` belongs to the priming job alone, and
+  every other job takes `restore`.
+
 inputs:
-  cache:
+  cache-mode:
     description: >
-      Enable module caching. Set "false" for jobs whose object files are
-      useless to other jobs — a race build fills the shared cache with
-      artifacts keyed on go.sum that other jobs restore and cannot use.
+      "restore" — read the shared cache, never write it. The default, and what
+      every job except the priming one should use.
+
+      "save" — read it and write it back at the end of the job. Exactly one job
+      per workflow may do this, and it must be the one that builds everything.
+
+      "off" — no shared cache at all. For work whose artifacts nothing else can
+      reuse, such as a race build, which carries its own build IDs.
     required: false
-    default: "true"
+    default: "restore"
   task:
     description: Also install go-task ("true" | "false")
     required: false
@@ -31,7 +46,42 @@ runs:
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
       with:
         go-version-file: go.mod
-        cache: ${{ inputs.cache == 'true' }}
+        # Caching is handled below, where the role can be stated. setup-go's
+        # own option cannot express "restore but do not save".
+        cache: false
+
+    - id: go-paths
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "mod=$(go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
+        echo "build=$(go env GOCACHE)"  >>"$GITHUB_OUTPUT"
+        echo "version=$(go env GOVERSION)" >>"$GITHUB_OUTPUT"
+
+    # The reader. actions/cache/restore never writes, so no consumer can take
+    # the key from the priming job.
+    - if: inputs.cache-mode == 'restore'
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: |
+          ${{ steps.go-paths.outputs.mod }}
+          ${{ steps.go-paths.outputs.build }}
+        key: go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+        # A cache from an older go.sum still holds most of what a build needs;
+        # restoring it beats starting from nothing.
+        restore-keys: |
+          go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
+
+    # The writer. actions/cache restores and then saves at the end of the job.
+    - if: inputs.cache-mode == 'save'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: |
+          ${{ steps.go-paths.outputs.mod }}
+          ${{ steps.go-paths.outputs.build }}
+        key: go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+        restore-keys: |
+          go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
 
     - if: inputs.task == 'true'
       uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3
