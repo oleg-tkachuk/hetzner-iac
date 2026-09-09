@@ -42,6 +42,12 @@ Pulumi.*.yaml.bak
 # path under here so repeated previews skip the link step.
 .cache/
 
+# `go build ./...` drops a binary named after each main package into the
+# working directory. These collide with the tools/ directory names, so a
+# stray build leaves an 10 MB executable sitting in the repository root.
+/charts
+/topology
+
 # Task
 .task/
 
@@ -52,3 +58,9 @@ talosconfig
 
 # Local etcd snapshots
 .backups/
+
+# `go build ./...` drops a binary named after each main package into the
+# working directory, and those names collide with the tools/ directories —
+# a stray build otherwise leaves a 10 MB executable in the repository root.
+/charts
+/topology
