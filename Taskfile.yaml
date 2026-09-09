@@ -62,6 +62,18 @@ includes:
     vars:
       # trivy does not pick the ignore file up by itself.
       TRIVY_FLAGS: "--ignorefile .trivyignore.yaml"
+      # Bound gosec's memory. It loads every analysed package with full syntax
+      # AND full type information for the whole transitive graph
+      # (packages.NeedSyntax|NeedTypes|NeedTypesInfo), and processes up to
+      # -concurrency packages at once — which defaults to the core count.
+      #
+      # This module's graph is 208 modules dominated by the generated Pulumi
+      # Kubernetes SDK, so one worker's graph is already large; fourteen of
+      # them on a developer laptop exhausts memory and the machine swaps.
+      #
+      # Four is the CI runner's core count, so this costs nothing there and
+      # caps peak memory at roughly a quarter on a bigger machine.
+      GOSEC_FLAGS: "-concurrency=4"
     excludes:
       # No protobuf here.
       - proto:breaking
