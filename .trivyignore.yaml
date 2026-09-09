@@ -1,0 +1,19 @@
+# Findings accepted as known. Each entry says what it is and why it stands.
+#
+# trivy does not read this file on its own — the security include passes
+# TRIVY_FLAGS: --ignorefile .trivyignore.yaml.
+#
+# Entries are removed as soon as a fix lands. A stale ignore is worse than none:
+# it masks the finding coming back.
+
+vulnerabilities:
+  - id: GO-2026-5932
+    statement: >-
+      An advisory that golang.org/x/crypto/openpgp is unmaintained and unsafe
+      by design. There is no fixed version to move to — the package is not
+      going to be repaired, which is the substance of the advisory.
+
+      Nothing here imports it: it arrives through the Pulumi SDK's git
+      handling, and govulncheck — which resolves reachability rather than
+      presence — reports no vulnerability this code can reach. Revisit if that
+      stops being true.
