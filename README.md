@@ -348,6 +348,12 @@ weaken:
 
 `task scan` still runs the full set locally.
 
+The scanners also gate the expensive half of the pipeline. GitHub has no
+job-level fail-fast — a failing job does not stop its siblings — so the priming
+job depends on them, and everything expensive depends on priming. A secret, a
+reachable vulnerability or a workflow finding therefore stops the run in under a
+minute, rather than after ten minutes of compiling.
+
 ### Why the pipeline is not slow any more
 
 Every run used to pay for a cold compile of a 208-module graph dominated by the
