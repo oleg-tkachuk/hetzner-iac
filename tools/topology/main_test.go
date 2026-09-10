@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"sigs.k8s.io/yaml"
 )
 
 const validTopology = `
@@ -197,4 +199,55 @@ func TestTalosVersion_MatchesTheRepositoryTopologies(t *testing.T) {
 	version, err := talosVersion(filepath.Join("..", "..", "infra", "cluster", "cluster.prod.yaml"))
 	require.NoError(t, err)
 	assert.Regexp(t, `^v\d+\.\d+\.\d+$`, version)
+}
+
+// projectFile is the part of a Pulumi.yaml this test cares about.
+type projectFile struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// TestProjectDescriptionsFitTheStackTag guards a limit that is invisible until
+// it is hit, and hit at the worst moment.
+//
+// Pulumi sends `description` from Pulumi.yaml as the `pulumi:description`
+// stack tag, and Pulumi Cloud refuses one over 256 characters. It refuses at
+// `pulumi stack init` — before any resource, before any preview, after the
+// operator has set up credentials:
+//
+//	error: could not create stack: validating stack properties: stack tag
+//	"pulumi:description" value is too long (max length 256 characters)
+//
+// Three of the eight projects were over it, written long because the prose
+// seemed useful. Prose belongs in a YAML comment above the key, which is not
+// sent anywhere. This test is here because two of the remaining descriptions
+// sit within ten characters of the limit, and the next edit would put them
+// over with nothing to say so.
+func TestProjectDescriptionsFitTheStackTag(t *testing.T) {
+	t.Parallel()
+
+	const maxStackTag = 256
+
+	root := filepath.Join("..", "..")
+
+	paths, err := filepath.Glob(filepath.Join(root, "layers", "*", "Pulumi.yaml"))
+	require.NoError(t, err)
+
+	paths = append(paths, filepath.Join(root, "infra", "cluster", "Pulumi.yaml"))
+	require.Len(t, paths, 8, "eight Pulumi projects: seven layers and the cluster tier")
+
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err, path)
+
+		var project projectFile
+		require.NoError(t, yaml.Unmarshal(raw, &project), path)
+
+		require.NotEmpty(t, project.Description, "%s has no description", path)
+
+		assert.LessOrEqual(t, len(project.Description), maxStackTag,
+			"%s: description is %d characters; Pulumi Cloud refuses the stack tag over %d, "+
+				"so `pulumi stack init` would fail. Move the prose into a comment above the key.",
+			project.Name, len(project.Description), maxStackTag)
+	}
 }

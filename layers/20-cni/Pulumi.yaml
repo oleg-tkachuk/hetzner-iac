@@ -5,13 +5,15 @@ runtime:
     # Stable build path so repeated previews skip the link step; content
     # hashing still rebuilds when sources change.
     buildTarget: ../../.cache/pulumi-bin/cni
+# The cluster tier ships with no CNI on purpose, so nodes are NotReady until
+# this layer runs. Talos was configured with kube-proxy disabled, which is why
+# Cilium must be installed with kubeProxyReplacement enabled — the cluster has
+# no service dataplane otherwise.
+#
+# A comment, not part of `description`: that becomes the pulumi:description
+# stack tag, which Pulumi Cloud caps at 256 characters.
 description: |
   Container network interface: Cilium, with kube-proxy replaced in eBPF.
-
-  The cluster tier ships with no CNI on purpose, so nodes are NotReady until
-  this layer runs. Talos was configured with kube-proxy disabled, which is why
-  Cilium must be installed with kubeProxyReplacement enabled — the cluster has
-  no service dataplane otherwise.
 
 # State backend. Declared here rather than left to `pulumi login`, so the
 # backend is a property of the repository and not of whoever runs it.
