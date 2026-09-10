@@ -154,6 +154,9 @@ jobs:
           onDisk="$(find layers -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"
           if [ "$declared" != "$onDisk" ]; then
             echo "Taskfile LAYERS and layers/ disagree:" >&2
+            # `|| true` because diff exits 1 when the inputs differ, which is
+            # the case we are already in and about to fail on deliberately.
+            # Nothing is hidden: the diff itself is what goes to stderr.
             diff <(echo "$declared") <(echo "$onDisk") >&2 || true
             exit 1
           fi
@@ -176,6 +179,10 @@ jobs:
           # can evaluate to save. Anchored to the start of the line, or this
           # step counts the string inside its own source, which it did on the
           # first attempt.
+          # `|| true` on both: grep exits 1 for "no matches", which is a
+          # result here rather than a failure, and `set -e` would otherwise
+          # kill the step before it can report zero writers. grep does not
+          # write to stderr in that case, so nothing is being swallowed.
           writers="$(grep -rnE '^[[:space:]]+cache-mode:.*save' .github/workflows/ || true)"
           count="$(printf '%s' "$writers" | grep -c . || true)"
           echo "writers:"
@@ -208,7 +215,7 @@ jobs:
         name: gofmt
         run: |
           set -euo pipefail
-          unformatted="$(gofmt -l . | grep -v '^$' || true)"
+          unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
             echo "not gofmt-clean:" >&2
             echo "$unformatted" >&2
