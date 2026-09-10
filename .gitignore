@@ -65,10 +65,13 @@ talosconfig
 .backups/
 
 # `go build ./...` drops a binary named after each main package into the
-# working directory, and those names collide with the tools/ directories —
-# a stray build otherwise leaves a 10 MB executable in the repository root.
+# working directory, and those names collide with the tools/ and layers/
+# directory names — a stray build otherwise leaves an executable in the
+# repository root. The layer binaries are the big ones: 52 MB each, and one
+# was committed and pushed before this line existed.
 /charts
 /topology
+/[0-9][0-9]-*
 
 # Local-only lefthook overrides. Gates that belong to a working copy rather
 # than to the project; lefthook merges the file automatically when present.
