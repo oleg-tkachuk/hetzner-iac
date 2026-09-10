@@ -90,9 +90,19 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-go
         with:
-          # The one writer. Every other job in every workflow restores only,
-          # so nothing can take this key before the tree has been built.
-          cache-mode: save
+          # The one writer, and only on a push to main.
+          #
+          # A cache written on a pull request is scoped to refs/pull/N/merge:
+          # no other branch can read it, and it lingers after the branch is
+          # gone. Three of those at 789 MB each were already sitting against a
+          # 10 GB repository limit, where eviction is least-recently-used and
+          # would eventually take the main cache with them.
+          #
+          # Pull requests restore instead. They get main's cache under the same
+          # key, which holds the dependency tree — the expensive part — so the
+          # only thing given up is one push in a pull request reusing the
+          # build of the push before it.
+          cache-mode: ${{ github.event_name == 'push' && 'save' || 'restore' }}
       # No `if:` here, deliberately. This job exists to OWN the cache, and the
       # cache key is immutable — whoever saves first keeps it. Skipping the
       # build on a docs-only change saves an EMPTY cache under that key and
@@ -164,7 +174,10 @@ jobs:
           set -euo pipefail
           # Anchored to the start of the line, or this step counts the string
           # inside its own source — which it did on the first attempt.
-          writers="$(grep -rnE '^[[:space:]]+cache-mode: save$' .github/workflows/ || true)"
+          # Matches the literal and the expression form alike — anything that
+          # can evaluate to save. Anchored, or this step counts the string
+          # inside its own source, which it did on the first attempt.
+          writers="$(grep -rnE '^[[:space:]]+cache-mode:.*save' .github/workflows/ || true)"
           count="$(printf '%s' "$writers" | grep -c . || true)"
           echo "writers:"
           printf '  %s\n' "${writers:-none}"
