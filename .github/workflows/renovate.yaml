@@ -1,0 +1,120 @@
+name: Renovate
+
+# Renovate runs here, in this repository's own Actions, rather than as the
+# hosted GitHub App. The app was not an option: installing it needs rights on
+# the account that were not available, and dependency upgrades should not be
+# blocked on that.
+#
+# Self-hosting costs one thing and buys one thing. The cost is a token, below.
+# What it buys is that the whole configuration — cadence included — is in this
+# repository, reviewable in a diff, with no third-party service holding state
+# about when it last ran.
+#
+# Dependabot was the other alternative and does not fit: it handles gomod and
+# github-actions natively but has no way to see a chart version pinned inside
+# a Go source file, which is the entire reason this exists.
+
+on:
+  # The first pass, and any pass on demand. This replaces the trick of
+  # temporarily deleting the schedule from renovate.json to make Renovate run
+  # today rather than on Monday.
+  workflow_dispatch:
+    inputs:
+      ignoreSchedule:
+        description: "Ignore renovate.json's schedule and act now"
+        type: boolean
+        default: true
+      dryRun:
+        description: "Log what would happen and open nothing"
+        type: boolean
+        default: false
+      logLevel:
+        description: "Renovate log level"
+        type: choice
+        options: [info, debug]
+        default: info
+
+  schedule:
+    # Daily, 06:00 UTC — and the two schedules here are not a contradiction.
+    #
+    # This one decides how often Renovate *runs*. renovate.json's decides what
+    # it is allowed to *do* when it runs: regular updates wait for Monday, and
+    # vulnerabilityAlerts are exempt. Together, security fixes can arrive any
+    # morning while chart upgrades still batch into one weekly review.
+    #
+    # A weekly cron alone would delay a security fix by up to seven days,
+    # which is the one thing self-hosting must not cost. A pass over this
+    # repository takes a couple of minutes.
+    - cron: "0 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renovate
+  # Never cancel a pass in flight. Renovate is not idempotent mid-run: killed
+  # between creating a branch and opening its pull request, it leaves the
+  # branch behind and the next pass has to reconcile it.
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # Fail with a sentence rather than with Renovate's own authentication
+      # error, which names neither the secret nor the scopes.
+      - name: Require the token
+        env:
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RENOVATE_TOKEN}" ]; then
+            echo "::error::the RENOVATE_TOKEN secret is not set"
+            cat >&2 <<'EOF'
+          Renovate needs a token of its own. GITHUB_TOKEN cannot be used here:
+          a pull request opened with it does not trigger `pull_request`
+          workflows, so CI would never run on an upgrade, no required check
+          would ever report, and branch protection would block the merge for
+          ever.
+
+          Create a fine-grained personal access token scoped to this
+          repository with:
+
+            Contents        read and write
+            Pull requests   read and write
+            Issues          read and write   (the Dependency Dashboard)
+            Workflows       read and write   (only to bump pinned actions)
+
+          Then: gh secret set RENOVATE_TOKEN
+          EOF
+            exit 1
+          fi
+
+      - uses: renovatebot/github-action@37beffda261423addd537c33f2d126df7f6ffbab # v46.2.6
+        env:
+          # Repo configuration still comes from .github/renovate.json. Only
+          # the settings that cannot live there — which repository to act on,
+          # and who to act as — are here.
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_PLATFORM: github
+          # Commits are authored by the bot, not by a person who did not write
+          # them. The address is GitHub's own no-reply for the app.
+          RENOVATE_GIT_AUTHOR: "renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"
+          # Renovate reads release notes from github.com to build pull request
+          # bodies. The same token serves; without it, notes are omitted and
+          # the requests are harder to review.
+          GITHUB_COM_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
+          RENOVATE_DRY_RUN: ${{ inputs.dryRun && 'full' || '' }}
+          # A manual run means "now", so it overrides the schedule in
+          # renovate.json. Without this, dispatching on a Thursday would do
+          # exactly nothing and look broken.
+          RENOVATE_FORCE: ${{ (github.event_name == 'workflow_dispatch' && inputs.ignoreSchedule) && '{"schedule":null}' || '' }}
+        with:
+          token: ${{ secrets.RENOVATE_TOKEN }}
