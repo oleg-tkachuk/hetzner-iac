@@ -42,12 +42,6 @@ Pulumi.*.yaml.bak
 # path under here so repeated previews skip the link step.
 .cache/
 
-# `go build ./...` drops a binary named after each main package into the
-# working directory. These collide with the tools/ directory names, so a
-# stray build leaves an 10 MB executable sitting in the repository root.
-/charts
-/topology
-
 # Task. The remote lock is the exception and is committed on purpose: it pins
 # the CONTENT behind the `?ref=vX.Y.Z` tag, so a moved tag stops the build
 # instead of silently changing it. Refresh deliberately with `task --download`.
