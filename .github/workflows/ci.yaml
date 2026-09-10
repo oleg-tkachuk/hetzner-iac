@@ -270,7 +270,7 @@ jobs:
           # Pinned to the version the check was verified against; `latest`
           # would let a Helm release change what CI renders with no commit of
           # ours in between.
-          version: v4.2.4
+          version: v4.3.0
       - name: Chart render check
         run: go run ./tools/render
       # Unlike the report below, this one fails. Renovate bumps Version and
