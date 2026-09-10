@@ -36,3 +36,30 @@ config:
       Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
       This layer reads the kubeconfig from it, which is what lets it be applied
       and destroyed without touching the cluster.
+  observability:objectStorageStackRef:
+    description: |
+      Fully qualified stack of the object-storage tier —
+      <org>/object-storage/<stack>. Optional.
+
+      Set, Loki and Tempo write to its bucket and keep only a WAL on disk.
+      Unset, both stay on the persistent volumes they have always used — the
+      layers are independently appliable, so this one must work with no
+      object-storage stack at all.
+  observability:objectStorageAccessKey:
+    description: |
+      S3 access key for that bucket. Required when objectStorageStackRef is
+      set. Read here rather than from the other stack's outputs: a stack that
+      exports a credential puts it into the state of every stack referencing
+      it.
+    secret: true
+  observability:objectStorageSecretKey:
+    description: |
+      S3 secret key, matching objectStorageAccessKey.
+    secret: true
+  observability:logsRetention:
+    description: |
+      How long Loki keeps logs. Defaults to 720h.
+
+      Only takes effect with a bucket, where it is what bounds growth — a
+      persistent volume bounds itself by filling up, and object storage does
+      not bound itself at all.
