@@ -55,23 +55,20 @@ func program(ctx *pulumi.Context) error {
 		return err
 	}
 
-	buckets := pulumi.Map{}
-
 	for _, bucket := range cfg.Buckets() {
 		if err := create(ctx, cfg, provider, bucket); err != nil {
 			return err
 		}
-
-		buckets[bucket.Key] = pulumi.Map{
-			"name":       pulumi.String(bucket.Name),
-			"purpose":    pulumi.String(bucket.Purpose),
-			"versioning": pulumi.Bool(bucket.Versioning),
-		}
 	}
 
-	ctx.Export(objectstorage.OutputEndpoint, pulumi.String(cfg.Endpoint()))
+	ctx.Export(objectstorage.OutputEndpointHost, pulumi.String(cfg.EndpointHost()))
 	ctx.Export(objectstorage.OutputRegion, pulumi.String(cfg.Region()))
-	ctx.Export(objectstorage.OutputBuckets, buckets)
+
+	// One output per bucket, so a consumer reads a name with StackReference's
+	// typed accessors instead of asserting its way through a nested map.
+	ctx.Export(objectstorage.OutputStateBucket, pulumi.String(cfg.BucketName(objectstorage.RoleState)))
+	ctx.Export(objectstorage.OutputObservabilityBucket,
+		pulumi.String(cfg.BucketName(objectstorage.RoleObservability)))
 
 	// The whole PULUMI_BACKEND_URL, assembled. Every layer's Pulumi.yaml
 	// documents this override and notes that the bucket has to exist first;
