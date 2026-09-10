@@ -270,6 +270,13 @@ jobs:
           version: v4.2.4
       - name: Chart render check
         run: go run ./tools/render
+      # Unlike the report below, this one fails. Renovate bumps Version and
+      # cannot touch the AppVersion beside it, so its pull requests arrive with
+      # an entry claiming a version the chart no longer ships — a misleading
+      # comment for most charts, and a real defect for alloy, whose image tag
+      # tools/alloyvalidate builds out of it.
+      - name: App versions match the pinned charts
+        run: go run ./tools/charts appversions
       # Read-only. Reports what is behind upstream without failing the build —
       # an upgrade is a decision with a changelog to read, and a gate that goes
       # red on every upstream release is a gate people switch off.

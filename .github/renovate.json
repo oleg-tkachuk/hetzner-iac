@@ -1,0 +1,82 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":dependencyDashboard"
+  ],
+  "timezone": "Europe/Kyiv",
+
+  "//": "Branch protection on main requires a branch to be current before it merges (strict). Without this, every Renovate pull request goes stale the moment anything else lands and has to be rebased by hand.",
+  "rebaseWhen": "behind-base-branch",
+
+  "//prConcurrentLimit": "Twelve charts, a Go module graph and the pinned actions all become due at once on the first run. A flood of pull requests is a flood nobody reads.",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+
+  "//schedule": "Batched weekly. Chart upgrades are read, not merged on sight, so they should arrive when somebody is going to look at them.",
+  "schedule": ["before 09:00 on monday"],
+
+  "vulnerabilityAlerts": {
+    "//": "Security fixes ignore the schedule and the concurrency limit.",
+    "schedule": ["at any time"],
+    "labels": ["security"]
+  },
+
+  "customManagers": [
+    {
+      "//": "Chart pins live in Go, not in a Chart.yaml, so no built-in manager sees them. The pattern keys off the field order Name → Repo → Version, which every entry in the registry follows; a test in tools/charts reads this very regex out of this file and asserts it still matches every chart, because the failure mode otherwise is Renovate silently opening no pull requests at all.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^pkg/charts/registry\\.go$/"],
+      "matchStrings": [
+        "Name:\\s+\"(?<depName>[^\"]+)\",\\s*\\n\\s*Repo:\\s+\"(?<registryUrl>[^\"]+)\",\\s*\\n\\s*Version:\\s+\"(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "helm",
+      "versioningTemplate": "helm"
+    }
+  ],
+
+  "packageRules": [
+    {
+      "//": "A chart upgrade changes what this repository deploys, so it belongs in a release. semantic-release cuts a patch from fix and a minor from feat, which puts a major chart jump in the version rather than hiding it.",
+      "matchDatasources": ["helm"],
+      "semanticCommitType": "fix",
+      "semanticCommitScope": "charts",
+      "labels": ["charts"],
+      "additionalBranchPrefix": "chart-"
+    },
+    {
+      "matchDatasources": ["helm"],
+      "matchUpdateTypes": ["major"],
+      "semanticCommitType": "feat",
+      "semanticCommitScope": "charts",
+      "labels": ["charts", "major"]
+    },
+    {
+      "//": "AppVersion beside each pin cannot be maintained by a bot: the helm datasource knows chart versions and nothing else. `task charts:appversions` fails these pull requests until a human sets it, which is also when the changelog gets read.",
+      "matchDatasources": ["helm"],
+      "prBodyNotes": [
+        "`AppVersion` in `pkg/charts/registry.go` is **not** updated by this pull request and the `Chart pins` check will fail until it is.",
+        "Run `task charts:appversions` for the value to set, and update the `// app <version>` comment beside `Version` to match."
+      ]
+    },
+    {
+      "//": "Tooling and the module graph are not deployable changes, so chore keeps them out of the release notes.",
+      "matchManagers": ["gomod", "github-actions"],
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "//": "One pull request for the Go module graph's routine moves. Individually they are noise; together they are one review.",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "go module graph"
+    },
+    {
+      "//": "Actions are pinned to commit shas with a version comment; Renovate maintains both.",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true,
+      "groupName": "github actions"
+    }
+  ]
+}
