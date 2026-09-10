@@ -69,7 +69,18 @@
       "semanticCommitScope": "deps"
     },
     {
-      "description": "One pull request for the module graph's routine moves. Individually they are noise; together they are one review.",
+      "description": "go mod tidy after every update. Without it go.sum is left missing entries for packages imported only behind a build tag — test/e2e is one, and the priming job's `go vet -tags e2e` is what found it.",
+      "matchManagers": ["gomod"],
+      "postUpdateOptions": ["gomodTidy"]
+    },
+    {
+      "description": "The k8s.io and sigs.k8s.io modules are one matched set and must move together. k8s.io/api v0.37.0 removed packages that client-go v0.35.3 still imports, so a lone api bump does not compile — Renovate opened exactly that pull request, and it could never have gone green.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["k8s.io/**", "sigs.k8s.io/**"],
+      "groupName": "kubernetes libraries"
+    },
+    {
+      "description": "One pull request for the rest of the module graph's routine moves. Individually they are noise; together they are one review.",
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "go module graph"
