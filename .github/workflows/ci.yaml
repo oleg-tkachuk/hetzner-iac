@@ -172,11 +172,10 @@ jobs:
       - name: One writer for the Go cache
         run: |
           set -euo pipefail
-          # Anchored to the start of the line, or this step counts the string
-          # inside its own source — which it did on the first attempt.
           # Matches the literal and the expression form alike — anything that
-          # can evaluate to save. Anchored, or this step counts the string
-          # inside its own source, which it did on the first attempt.
+          # can evaluate to save. Anchored to the start of the line, or this
+          # step counts the string inside its own source, which it did on the
+          # first attempt.
           writers="$(grep -rnE '^[[:space:]]+cache-mode:.*save' .github/workflows/ || true)"
           count="$(printf '%s' "$writers" | grep -c . || true)"
           echo "writers:"
