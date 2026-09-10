@@ -279,6 +279,9 @@ Pulumi config:
 | `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
 | `observability:metricsRetention` | `60-observability` | default `30d` |
 | `observability:metricsVolumeSize` | `60-observability` | default `50Gi` |
+| `observability:objectStorageStackRef` | `60-observability` | optional; set it and Loki and Tempo write to the bucket instead of a volume |
+| `observability:objectStorageAccessKey` / `:secretKey` | `60-observability` | S3 credentials for that bucket, required with the ref above (secret) |
+| `observability:logsRetention` | `60-observability` | default `720h`; what bounds the bucket, which has no size to fill |
 
 The Hetzner token is read by the cloud-integration layer rather than exported
 by the cluster tier: a stack that exports a cloud credential puts it into the
