@@ -295,6 +295,26 @@ file, no version literal anywhere else. Renovate watches it through a regex in
 chart, weekly, labelled `charts`, with `fix(charts):` so the upgrade reaches a
 release (`feat(charts):` for a major, so the version says so).
 
+It runs from [.github/workflows/renovate.yaml](.github/workflows/renovate.yaml)
+rather than as the hosted GitHub App, which needed account rights that were not
+available. Dependabot was the other option and does not fit: it reads gomod and
+github-actions natively but cannot see a chart version pinned inside a Go
+source file, which is the whole point here.
+
+Two schedules, which is not a contradiction. The workflow's cron decides how
+often Renovate **runs** — daily. `renovate.json` decides what it may **do**
+when it runs: regular updates wait for Monday so chart upgrades batch into one
+review, while `vulnerabilityAlerts` are exempt and can land any morning. A
+weekly cron alone would have delayed a security fix by up to seven days.
+
+`workflow_dispatch` runs a pass now and sets `RENOVATE_FORCE` to ignore the
+Monday schedule, which is how the first pass happens without waiting for it.
+
+Self-hosting costs a token. `GITHUB_TOKEN` cannot serve: a pull request opened
+with it does not trigger `pull_request` workflows, so no required check would
+ever report and branch protection would block the merge for ever. The workflow
+fails with that explanation, and the scopes, when `RENOVATE_TOKEN` is unset.
+
 Two things about that are worth knowing before a bot's pull request arrives.
 
 **Renovate cannot maintain `AppVersion`.** The helm datasource knows chart
