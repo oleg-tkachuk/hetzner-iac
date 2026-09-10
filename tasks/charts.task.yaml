@@ -21,6 +21,14 @@ tasks:
     cmds:
       - go run ./tools/charts outdated
 
+  appversions:
+    desc: "Check every AppVersion is what the pinned chart actually ships"
+    cmds:
+      # Renovate bumps Version and cannot touch AppVersion — the helm
+      # datasource knows chart versions and nothing else. This is the gate
+      # that stops a bot's pull request from landing a lie beside the pin.
+      - go run ./tools/charts appversions
+
   render-check:
     desc: "Render every pinned chart and prove it still produces the expected workloads"
     preconditions:
