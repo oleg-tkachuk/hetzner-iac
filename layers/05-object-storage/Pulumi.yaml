@@ -5,20 +5,23 @@ runtime:
     # Stable build path so repeated previews skip the link step; content
     # hashing still rebuilds when sources change.
     buildTarget: ../../.cache/pulumi-bin/object-storage
+# The only layer with no Kubernetes in it, and the only one that can be applied
+# before a cluster exists. That is the point: it holds Pulumi state, which a
+# cluster's own state cannot contain, and the objects Loki and Tempo write,
+# which are worth more than the cluster that wrote them.
+#
+# Buckets are created protected and retained on delete. `pulumi destroy` will
+# refuse, and say so — removing one takes two deliberate steps, not one.
+#
+# Hetzner has no API for Object Storage, so these are made with the AWS
+# provider aimed at a Hetzner S3 endpoint. The credentials are S3 credentials
+# from the Console, not an hcloud API token.
+#
+# All of that is a comment because `description` becomes the
+# `pulumi:description` stack tag, and Pulumi Cloud refuses one over 256
+# characters — `pulumi stack init` fails, before any resource is touched.
 description: |
   Buckets in Hetzner Object Storage that outlive the cluster.
-
-  The only layer with no Kubernetes in it, and the only one that can be applied
-  before a cluster exists. That is the point: it holds Pulumi state, which a
-  cluster's own state cannot contain, and the objects Loki and Tempo write,
-  which are worth more than the cluster that wrote them.
-
-  Buckets are created protected and retained on delete. `pulumi destroy` will
-  refuse, and say so — removing one takes two deliberate steps, not one.
-
-  Hetzner has no API for Object Storage, so these are made with the AWS
-  provider aimed at a Hetzner S3 endpoint. The credentials are S3 credentials
-  from the Console, not an hcloud API token.
 
 # State backend. Declared here rather than left to `pulumi login`, so the
 # backend is a property of the repository and not of whoever runs it.
