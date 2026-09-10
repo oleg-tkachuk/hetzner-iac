@@ -43,6 +43,10 @@ inputs:
 runs:
   using: composite
   steps:
+    # First, before the toolchain and before the cache is restored into it.
+    # Every job here restores a 4.4 GB build cache onto a runner with 13.7 GB
+    # free; the room has to exist before anything asks for it.
+    - uses: ./.github/actions/free-disk
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
       with:
         go-version-file: go.mod
