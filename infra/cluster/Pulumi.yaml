@@ -41,11 +41,21 @@ description: |
 backend:
   url: https://api.pulumi.com
 
+# The Hetzner token is NOT declared below, and cannot be. `config:` accepts
+# defaults and descriptions only for keys in this project's own namespace; a
+# key namespaced to another package — `hcloud:token` belongs to the provider —
+# must carry a `value`, and a credential in a committed file is not a value.
+#
+# Declaring it anyway is not a style problem: it makes the project file fail to
+# parse, and every pulumi command in this directory dies before it starts with
+#
+#   could not unmarshal Pulumi.yaml: Configuration key 'hcloud:token' is
+#   namespaced and must provide an attribute 'value'
+#
+# Set it per stack instead:
+#
+#   pulumi config set --secret hcloud:token <token>
 config:
-  hcloud:token:
-    description: |
-      Hetzner Cloud API token with read+write scope on the project. Set with:
-        pulumi config set --secret hcloud:token <token>
   hetzner-cluster:publicIPv4:
     description: |
       Keep a routable IPv4 address on every node. Required unless `pulumi up`
