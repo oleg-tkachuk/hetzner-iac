@@ -287,6 +287,29 @@ The Hetzner token is read by the cloud-integration layer rather than exported
 by the cluster tier: a stack that exports a cloud credential puts it into the
 state of every stack that references it.
 
+### What a run prints
+
+Every layer logs through [pkg/pulumilog](pkg/pulumilog), which borrows its
+vocabulary from the [taskfiles](https://github.com/oleg-tkachuk/taskfiles)
+repository so that `task` and `pulumi up` read as one tool:
+
+| glyph | means | survives the run |
+|-------|-------|------------------|
+| `◉` | work starting | no |
+| `✔` | work finished | no |
+| `○` | deliberately not done | **yes** |
+| `▲` | configured, and will not do what it looks like | **yes** |
+
+The last two are the point. A layer that installs cert-manager and no
+ClusterIssuer, or Loki on a volume rather than the bucket, is the most
+confusing thing this repository can do — so those lines go to Pulumi's
+permanent diagnostics and are still on screen when the run ends. Progress lines
+are ephemeral, or the summary is one line per release and nobody reads it.
+
+`NO_COLOR` drops the escape codes and keeps the glyphs. A TTY check would be
+wrong rather than merely unhelpful: a Pulumi program's output is captured by
+the CLI over gRPC, so stdout is never a terminal.
+
 ### Asking the real tool
 
 Four checks run offline against the actual software rather than against this

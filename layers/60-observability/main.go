@@ -61,6 +61,22 @@ func main() {
 			return err
 		}
 
+		if store == nil {
+			// Which of the two shapes this layer is in is the first thing
+			// anyone debugging retention or disk pressure needs to know.
+			r.Log.Skipped("object-storage",
+				"objectStorageStackRef unset, loki and tempo stay on volumes")
+
+			if cfg.Get("logsRetention") != "" {
+				// Set, plausible, and inert. Loki's compactor only enforces
+				// retention against a bucket, so this silently does nothing.
+				r.Log.Warn("retention",
+					"logsRetention %s has no effect without objectStorageStackRef", logsRetention)
+			}
+		} else {
+			r.Log.Step("object-storage", "loki chunks and tempo blocks → bucket")
+		}
+
 		// kube-prometheus-stack brings the operator, its CRDs, Prometheus,
 		// Alertmanager, Grafana and the exporters. One chart, because
 		// splitting it means owning operator/CRD version compatibility by
