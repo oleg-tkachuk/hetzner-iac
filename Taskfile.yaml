@@ -26,6 +26,7 @@ vars:
   # `task platform:layers`. A hand-maintained second copy is how a matrix ends
   # up previewing directories that no longer exist.
   LAYERS: >-
+    05-object-storage
     10-cloud-integration
     20-cni
     30-core

@@ -18,6 +18,8 @@ itself — a Talos control plane on a private network — and then deploys the
 platform onto it in independent, idempotent layers.
 
 ```
+layers/05-object-storage   buckets that outlive the cluster — no cluster needed
+
 infra/cluster              the only project that talks to the Hetzner API
   └─ exports kubeconfig ──► layers/10-cloud-integration   hcloud CCM + CSI
                             layers/20-cni                 Cilium
@@ -26,6 +28,12 @@ infra/cluster              the only project that talks to the Hetzner API
                             layers/50-gitops              Argo CD
                             layers/60-observability       Prometheus, Grafana, Loki, Tempo, Alloy
 ```
+
+`05-object-storage` stands apart on purpose. It reads no kubeconfig and holds
+what must survive a `pulumi destroy` of everything below it: Pulumi state,
+which a cluster's own state cannot contain, and the objects Loki and Tempo
+write. Its buckets are created protected and retained on delete, so removing
+one takes two deliberate steps.
 
 ## Contents
 
@@ -260,7 +268,11 @@ Pulumi config:
 | `hetzner-cluster:publicIPv4` | `infra/cluster` | routable address per node; required unless you apply from inside the private network |
 | `hetzner-cluster:allowICMP` | `infra/cluster` | open ping from the admin CIDRs |
 | `hetzner-cluster:imageSelector` | `infra/cluster` | override the Talos snapshot selector |
-| `<layer>:clusterStackRef` | every layer | `<org>/hetzner-cluster/<stack>` |
+| `<layer>:clusterStackRef` | every layer except `05-object-storage` | `<org>/hetzner-cluster/<stack>` |
+| `object-storage:location` | `05-object-storage` | `fsn1`, `nbg1` or `hel1` — fewer locations than host servers |
+| `object-storage:namePrefix` | `05-object-storage` | prefix for bucket names, which collide across all of Hetzner |
+| `object-storage:retainNoncurrentDays` | `05-object-storage` | default `30`; the only lifecycle rule Hetzner implements |
+| `object-storage:accessKey` / `:secretKey` | `05-object-storage` | S3 credentials from the Console, not an hcloud token (secret) |
 | `cloud-integration:hcloudToken` | `10-cloud-integration` | token for the CCM and CSI (secret) |
 | `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | `40-ingress` | Hetzner load balancer type, default `lb11` |

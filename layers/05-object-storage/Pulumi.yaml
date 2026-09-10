@@ -1,0 +1,68 @@
+name: object-storage
+runtime:
+  name: go
+  options:
+    # Stable build path so repeated previews skip the link step; content
+    # hashing still rebuilds when sources change.
+    buildTarget: ../../.cache/pulumi-bin/object-storage
+description: |
+  Buckets in Hetzner Object Storage that outlive the cluster.
+
+  The only layer with no Kubernetes in it, and the only one that can be applied
+  before a cluster exists. That is the point: it holds Pulumi state, which a
+  cluster's own state cannot contain, and the objects Loki and Tempo write,
+  which are worth more than the cluster that wrote them.
+
+  Buckets are created protected and retained on delete. `pulumi destroy` will
+  refuse, and say so — removing one takes two deliberate steps, not one.
+
+  Hetzner has no API for Object Storage, so these are made with the AWS
+  provider aimed at a Hetzner S3 endpoint. The credentials are S3 credentials
+  from the Console, not an hcloud API token.
+
+# State backend. Declared here rather than left to `pulumi login`, so the
+# backend is a property of the repository and not of whoever runs it.
+#
+# Pulumi Cloud is the default: it coordinates concurrent updates, keeps update
+# history, and manages the secrets encryption key, none of which a DIY backend
+# does for you.
+#
+# This layer is the one that resolves the chicken-and-egg the other layers'
+# comments describe. It creates the state bucket, and exports the whole
+# PULUMI_BACKEND_URL for it as `stateBackendUrl` — so the sequence is: apply
+# this layer against Pulumi Cloud, read the output, then point whatever you
+# want at Hetzner. This layer itself stays on Pulumi Cloud unless you are
+# willing to have its state live in a bucket it manages.
+backend:
+  url: https://api.pulumi.com
+
+config:
+  object-storage:location:
+    description: |
+      Where the buckets live: fsn1, nbg1 or hel1.
+
+      A smaller set than the locations that host servers — a cluster can
+      legitimately run somewhere Object Storage does not, and the layer says so
+      rather than failing against a host that does not resolve.
+  object-storage:namePrefix:
+    description: |
+      Prefix for every bucket name, e.g. platform-prod.
+
+      Bucket names share one DNS namespace across all of Hetzner, so they
+      collide with other customers' rather than only within this project.
+  object-storage:retainNoncurrentDays:
+    description: |
+      How long a superseded object version survives in a versioned bucket.
+      Defaults to 30.
+
+      Not optional in effect: NoncurrentVersionExpiration is the only lifecycle
+      rule Hetzner implements, so a versioned bucket without it only grows.
+  object-storage:accessKey:
+    description: |
+      S3 access key, from the Hetzner Console under the project's Object
+      Storage. Set with --secret. Not an hcloud API token.
+    secret: true
+  object-storage:secretKey:
+    description: |
+      S3 secret key, matching accessKey. Set with --secret.
+    secret: true
