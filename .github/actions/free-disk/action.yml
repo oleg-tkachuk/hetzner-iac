@@ -3,18 +3,24 @@ description: >
   Removes preinstalled toolchains this repository never uses, to make room for
   a cold Go build.
 
-  Needed because compiling this tree from scratch wants roughly 5-6 GB between
-  the build cache, the module cache and the compiler's temporary output, and a
-  hosted runner's free space is close enough to that to tip over. It did:
+  A hosted runner starts with about 13.7 GB free. This repository's Go build
+  cache expands to 4.4 GB on its own, the module cache adds 810 MB, and the
+  toolchain and checkout follow — so every job that touches Go is already close
+  to the edge before it does any work of its own.
+
+  It went over the edge twice, in two different jobs and with two different
+  faces:
 
     compile: writing output: write $WORK/b857/_pkg_.a: no space left on device
+    failed to download vulnerability DB: write .../trivy.db: no space left on device
 
-  The first sign of it was worse than the error — the disk filled far enough
-  that the runner could not write its own log pages, so the job failed with no
-  logs at all and looked like lost infrastructure.
+  The first sign of the first one was worse than the error — the disk filled far
+  enough that the runner could not write its own log pages, so the job failed
+  with no logs at all and looked like lost infrastructure.
 
-  Only jobs that compile the whole tree need this. A job that restores a warm
-  cache compiles almost nothing and pays a minute here for no reason.
+  Which is why this runs inside setup-go for every job rather than being added
+  to the ones that have failed so far. Guessing which job is next is a game of
+  whack-a-mole, and it costs about 24 seconds to stop playing.
 
 runs:
   using: composite
