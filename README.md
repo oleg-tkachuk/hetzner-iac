@@ -359,6 +359,14 @@ and no other branch can read it. Only the default branch can seed a cache that
 every pull request restores. Skipping `main` entirely would mean every pull
 request pays the cold ten-minute build for ever.
 
+That also makes the push to `main` the only run that *writes* the cache. Pull
+requests restore it and never save: a 789 MB entry under `refs/pull/N/merge` is
+unreadable the moment the branch merges, and three of them were already sitting
+against a 10 GB repository limit whose eviction policy is least-recently-used —
+which would eventually have taken the `main` entry with them. What a pull
+request gives up is one of its own pushes reusing the build of the push before
+it; the dependency tree, which is the expensive part, still comes from `main`.
+
 The scanners also gate the expensive half of the pipeline. GitHub has no
 job-level fail-fast — a failing job does not stop its siblings — so the priming
 job depends on them, and everything expensive depends on priming. A secret, a
@@ -385,7 +393,8 @@ Building unconditionally was still not enough. Every job attached the cache in
 both directions, so the *fastest* one owned the key — and the job that compiles
 the tree is by definition slower than one that does not. The roles are explicit
 now: `.github/actions/setup-go` takes a `cache-mode`, the priming job is the
-only `save`, everything else is `restore`, and a race build opts out entirely
+only writer and only on a push to `main`, everything else is `restore`, and a
+race build opts out entirely
 because its artifacts carry build IDs nothing else can reuse. CI asserts that
 exactly one writer exists, because a comment did not prevent the second
 occurrence.
