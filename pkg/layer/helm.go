@@ -89,6 +89,11 @@ func (r *Runner) Release(ctx *pulumi.Context, args ReleaseArgs, opts ...pulumi.R
 		values = pulumi.Map{}
 	}
 
+	// The pinned chart version is the thing an operator most often wants from
+	// a run and the thing that never appeared in its output: the registry
+	// holds it, the release carries it, and nothing said it out loud.
+	r.Log.Step(name, fmt.Sprintf("chart %s %s → %s", chart.Name, chart.Version, namespace))
+
 	release, err := helm.NewRelease(ctx, name, &helm.ReleaseArgs{
 		Name:            pulumi.String(name),
 		Chart:           pulumi.String(chart.Name),

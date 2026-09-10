@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/objectstorage"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
 
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/s3"
@@ -48,7 +49,8 @@ func program(ctx *pulumi.Context) error {
 		return err
 	}
 
-	banner(ctx, cfg)
+	log := pulumilog.New(ctx)
+	log.Step("endpoint", fmt.Sprintf("stack %s → %s", ctx.Stack(), cfg.EndpointHost()))
 
 	provider, err := newProvider(ctx, cfg, credentials)
 	if err != nil {
@@ -59,6 +61,16 @@ func program(ctx *pulumi.Context) error {
 		if err := create(ctx, cfg, provider, bucket); err != nil {
 			return err
 		}
+
+		detail := bucket.Name
+		if bucket.Versioning {
+			detail = fmt.Sprintf("%s · versioned, %dd noncurrent",
+				bucket.Name, cfg.RetainNoncurrentDays)
+		}
+
+		// Protected and retained is the property worth stating: it is why a
+		// destroy of everything else leaves these standing.
+		log.Done("bucket", detail+" · protected")
 	}
 
 	ctx.Export(objectstorage.OutputEndpointHost, pulumi.String(cfg.EndpointHost()))
@@ -247,14 +259,4 @@ func create(
 	}, pulumi.Provider(provider))
 
 	return err
-}
-
-// banner names what this layer is about to touch.
-//
-// Ephemeral, like the platform layers': useful live in `pulumi up`, noise in
-// the summary afterwards.
-func banner(ctx *pulumi.Context, cfg *objectstorage.Config) {
-	_ = ctx.Log.Info(
-		"layer "+ctx.Project()+" → "+cfg.Endpoint()+" prefix "+cfg.NamePrefix+" (stack "+ctx.Stack()+")",
-		&pulumi.LogArgs{Ephemeral: true})
 }

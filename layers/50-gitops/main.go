@@ -26,12 +26,17 @@ func main() {
 	layer.Run(func(r *layer.Runner) error {
 		cfg := config.New(r.Ctx, "gitops")
 
+		domain := cfg.Get("domain")
+		if domain == "" {
+			r.Log.Skipped("ingress", "gitops:domain unset, reach the UI with kubectl port-forward")
+		}
+
 		release, err := r.Release(r.Ctx, layer.ReleaseArgs{
 			Chart: "argo-cd",
 			// Several images, a Redis and five deployments; the default
 			// timeout is tight on a cold cluster.
 			TimeoutSeconds: 900,
-			Values:         ArgoCDValues(cfg.Get("domain")),
+			Values:         ArgoCDValues(domain),
 		})
 		if err != nil {
 			return err
