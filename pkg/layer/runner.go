@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
 
 	kubernetes "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -27,6 +28,10 @@ import (
 type Runner struct {
 	Ctx     *pulumi.Context
 	Cluster *clusterref.Cluster
+
+	// Log writes this layer's output. Every layer shares one vocabulary, so a
+	// reader who has seen one layer's output can read the next.
+	Log *pulumilog.Logger
 
 	// Provider is authenticated with the cluster's kubeconfig. Every resource
 	// a layer creates must be created with it — a resource created against the
@@ -74,6 +79,7 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 	return &Runner{
 		Ctx:      ctx,
 		Cluster:  cluster,
+		Log:      pulumilog.New(ctx),
 		Provider: provider,
 		Options:  []pulumi.ResourceOption{pulumi.Provider(provider)},
 	}, nil
@@ -93,16 +99,13 @@ func Run(fn func(*Runner) error) {
 	})
 }
 
-// banner names the layer and the cluster it is about to change.
+// banner names the cluster this layer is about to change.
 //
-// It goes to the ephemeral (Status) tier: visible live in `pulumi up`, when an
-// operator running several layers in one shell needs it, and dropped from the
-// final diagnostics so the summary is not the same line five times.
+// Resolved through ApplyT because the name is an output of another stack: it
+// is not known when the program starts, only when the reference resolves.
 func (r *Runner) banner() {
 	r.Cluster.ClusterName.ApplyT(func(name string) string {
-		_ = r.Ctx.Log.Info(
-			fmt.Sprintf("layer %s → cluster %s (stack %s)", r.Ctx.Project(), name, r.Ctx.Stack()),
-			&pulumi.LogArgs{Ephemeral: true})
+		r.Log.Step("cluster", fmt.Sprintf("stack %s → %s", r.Ctx.Stack(), name))
 
 		return name
 	})

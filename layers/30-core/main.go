@@ -40,7 +40,15 @@ func main() {
 		// The ACME issuer is optional: a cluster with no public DNS yet has
 		// nothing for Let's Encrypt to validate against, and an issuer that
 		// fails every order is noisier than an absent one.
-		if email := cfg.Get("acmeEmail"); email != "" {
+		email := cfg.Get("acmeEmail")
+		if email == "" {
+			// The most confusing thing this layer can do is install
+			// cert-manager and no issuer, leaving every Certificate pending
+			// with nothing to satisfy it. Permanent, so it survives the run.
+			r.Log.Skipped("cluster-issuer", "acmeEmail unset, no ClusterIssuer created")
+		}
+
+		if email != "" {
 			if _, err := apiextensions.NewCustomResource(r.Ctx, IssuerName, &apiextensions.CustomResourceArgs{
 				ApiVersion: pulumi.String("cert-manager.io/v1"),
 				Kind:       pulumi.String("ClusterIssuer"),
