@@ -41,6 +41,10 @@ pre-commit:
           esac
           # kubeconfig: the embedded client key is the giveaway, and
           # "kind: Config" plus a clusters list covers the token-auth form.
+          # grep's stderr is dropped on purpose and only here: these run over
+          # whatever is staged, including binaries and deleted paths, where
+          # grep complains about the file rather than about a failure to
+          # search. The exit status is what this reads, and it is not hidden.
           if grep -qE '^[[:space:]]*client-key-data:' "$f" 2>/dev/null \
              || { grep -qE '^kind:[[:space:]]*Config[[:space:]]*$' "$f" 2>/dev/null \
                   && grep -qE '^clusters:' "$f" 2>/dev/null; }; then
@@ -103,7 +107,7 @@ pre-commit:
       glob: "*.go"
       run: |
         set -euo pipefail
-        unformatted="$(gofmt -l {staged_files} | grep -v '^$' || true)"
+        unformatted="$(gofmt -l {staged_files})"
         if [ -n "$unformatted" ]; then
           echo "ERROR: not gofmt-clean:" >&2
           echo "$unformatted" >&2
@@ -174,6 +178,9 @@ commit-msg:
         # the message file. A bare $1 is NOT set inside a `run:` block, so the
         # fallback below would otherwise check the wrong file.
         file="{1}"
+        # Outside a repository `git rev-parse` fails and says why on stderr;
+        # here the fallback is a guess at a path that is then tested with -f,
+        # so its complaint is noise. An empty result is handled below.
         [ -f "$file" ] || file="$(git rev-parse --git-path COMMIT_EDITMSG 2>/dev/null || true)"
         [ -f "$file" ] || exit 0
 

@@ -154,7 +154,7 @@ tasks:
     cmds:
       - cmd: |
           set -euo pipefail
-          unformatted="$(gofmt -l . | grep -v '^$' || true)"
+          unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
             echo "not gofmt-clean:" >&2
             echo "$unformatted" >&2
