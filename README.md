@@ -287,6 +287,33 @@ The Hetzner token is read by the cloud-integration layer rather than exported
 by the cluster tier: a stack that exports a cloud credential puts it into the
 state of every stack that references it.
 
+### Chart upgrades arrive as pull requests
+
+Every chart is pinned in [pkg/charts/registry.go](pkg/charts/registry.go) — one
+file, no version literal anywhere else. Renovate watches it through a regex in
+[.github/renovate.json](.github/renovate.json) and opens one pull request per
+chart, weekly, labelled `charts`, with `fix(charts):` so the upgrade reaches a
+release (`feat(charts):` for a major, so the version says so).
+
+Two things about that are worth knowing before a bot's pull request arrives.
+
+**Renovate cannot maintain `AppVersion`.** The helm datasource knows chart
+versions and nothing else, so a bumped pin sits beside an app version the chart
+no longer ships. `task charts:appversions` reads each repository's index and
+fails when they disagree — a misleading comment for most charts, and a real
+defect for alloy, whose validation image tag is built out of it. The pull
+request says so in its own body, and the fix is the value that check prints.
+
+**The regex is a silent failure waiting to happen.** It keys off the field order
+`Name → Repo → Version`; reorder them and Renovate stops matching, opens no
+pull request, and reports nothing. So `tools/charts` reads that regex out of
+Renovate's own configuration and asserts it still matches every chart in the
+registry. Verified by reordering two fields on purpose:
+
+```
+Renovate's pattern does not match chart "loki" (key "loki") — it would never be upgraded
+```
+
 ### What a run prints
 
 Every layer logs through [pkg/pulumilog](pkg/pulumilog), which borrows its
