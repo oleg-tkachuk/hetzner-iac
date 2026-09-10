@@ -353,6 +353,19 @@ confusing thing this repository can do — so those lines go to Pulumi's
 permanent diagnostics and are still on screen when the run ends. Progress lines
 are ephemeral, or the summary is one line per release and nobody reads it.
 
+The loudest of them today is Alertmanager. The chart's default route ends at a
+receiver named `null`, so alerts are grouped, inhibited and then dropped —
+Prometheus stores metrics, rules evaluate, alerts fire, and they reach nobody.
+Every apply says so until a receiver exists.
+
+What is *not* wrong, checked rather than assumed: the four scrape targets Talos
+does not expose are disabled, and the chart removes their alert rules along
+with them. Rendering with and without proves it — `KubeSchedulerDown`,
+`KubeControllerManagerDown`, `KubeProxyDown` and `etcdMembersDown` are present
+in the chart's default output and absent from ours, and `absent()` drops from
+five expressions to one (the API server, which should keep it). There are no
+permanently firing alerts to silence.
+
 `NO_COLOR` drops the escape codes and keeps the glyphs. A TTY check would be
 wrong rather than merely unhelpful: a Pulumi program's output is captured by
 the CLI over gRPC, so stdout is never a terminal.
