@@ -88,6 +88,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      # Before setup-go, so the Go toolchain and the restored cache land on a
+      # disk that has room for them.
+      - uses: ./.github/actions/free-disk
       - uses: ./.github/actions/setup-go
         with:
           # The one writer, and only on a push to main.

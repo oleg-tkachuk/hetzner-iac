@@ -1,0 +1,52 @@
+name: Free disk space
+description: >
+  Removes preinstalled toolchains this repository never uses, to make room for
+  a cold Go build.
+
+  Needed because compiling this tree from scratch wants roughly 5-6 GB between
+  the build cache, the module cache and the compiler's temporary output, and a
+  hosted runner's free space is close enough to that to tip over. It did:
+
+    compile: writing output: write $WORK/b857/_pkg_.a: no space left on device
+
+  The first sign of it was worse than the error — the disk filled far enough
+  that the runner could not write its own log pages, so the job failed with no
+  logs at all and looked like lost infrastructure.
+
+  Only jobs that compile the whole tree need this. A job that restores a warm
+  cache compiles almost nothing and pays a minute here for no reason.
+
+runs:
+  using: composite
+  steps:
+    - name: Free disk space
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        before=$(df --output=avail -BM / | tail -1 | tr -dc '0-9')
+
+        # Each of these is a preinstalled toolchain for a language or platform
+        # this repository does not use. Removed rather than pruned: there is
+        # nothing here to keep.
+        sudo rm -rf \
+          /usr/local/lib/android \
+          /usr/share/dotnet \
+          /opt/ghc \
+          /usr/local/.ghcup \
+          /usr/local/share/boost \
+          /opt/hostedtoolcache/CodeQL \
+          || true
+
+        after=$(df --output=avail -BM / | tail -1 | tr -dc '0-9')
+
+        echo "free space: ${before} MB → ${after} MB (+$((after - before)) MB)"
+        df -h /
+
+        # A guard rather than a hope. If a future runner image drops these
+        # paths, this action silently frees nothing and the job fails again
+        # with the confusing disk error rather than here, with the reason.
+        if [ "$after" -lt 20000 ]; then
+          echo "::error::only ${after} MB free after cleanup; a cold Go build of this tree needs more"
+          exit 1
+        fi
