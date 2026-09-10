@@ -4,8 +4,8 @@
     "Chart pins live in Go rather than a Chart.yaml, so a regex manager does the work no built-in manager can.",
     "rebaseWhen keeps branches current because protection on main is strict: without it every pull request goes stale as soon as anything else lands, and has to be rebased by hand.",
     "The limits exist because twelve charts, a Go module graph and the pinned actions all come due on the first run, and a flood of pull requests is a flood nobody reads.",
-    "TEMPORARY: no schedule, so the first pass runs as soon as Renovate reaches this repository instead of waiting for Monday. Restore \"schedule\": [\"before 09:00 on monday\"] once the first batch has been reviewed — a chart upgrade is read, not merged on sight, and it should arrive when somebody is going to look at it.",
-    "The concurrency limits stay on deliberately, even now: they are what turns the first pass into five pull requests to look at rather than twenty."
+    "Renovate runs from .github/workflows/renovate.yaml, not the hosted app. That cron decides how often it runs; the schedule here decides what it may do when it runs. Regular updates wait for Monday so chart upgrades batch into one review; vulnerabilityAlerts below are exempt and can land on any daily pass.",
+    "A manual workflow_dispatch sets RENOVATE_FORCE and ignores the schedule below, which is how the first pass happens without waiting for Monday."
   ],
   "extends": [
     "config:recommended",
@@ -16,6 +16,7 @@
   "rebaseWhen": "behind-base-branch",
   "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
+  "schedule": ["before 09:00 on monday"],
 
   "vulnerabilityAlerts": {
     "description": "Security fixes ignore the schedule and the concurrency limits.",
