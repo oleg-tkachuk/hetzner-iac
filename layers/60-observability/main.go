@@ -61,6 +61,17 @@ func main() {
 			return err
 		}
 
+		// The chart's default route ends at a receiver named `null`, so every
+		// alert is grouped, inhibited and then dropped. Nothing else in the
+		// stack says so: Prometheus stores metrics, rules evaluate, alerts
+		// fire, and they reach nobody.
+		//
+		// Permanent rather than ephemeral, and unconditional rather than
+		// behind a config key: it is true of every apply until a receiver
+		// exists, and the commit that adds one deletes this.
+		r.Log.Warn("alerting",
+			"alertmanager has no receiver: alerts are grouped, inhibited and then dropped")
+
 		if store == nil {
 			// Which of the two shapes this layer is in is the first thing
 			// anyone debugging retention or disk pressure needs to know.
