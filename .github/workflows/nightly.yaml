@@ -38,6 +38,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      # -race roughly doubles every object file, so this job needs the room
+      # even more than the priming job does.
+      - uses: ./.github/actions/free-disk
       - uses: ./.github/actions/setup-go
         with:
           # Race artifacts carry their own build IDs, so nothing else can
