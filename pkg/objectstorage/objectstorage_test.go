@@ -145,6 +145,10 @@ func TestEndpointAndRegion(t *testing.T) {
 	// mentions neither.
 	assert.Equal(t, "https://fsn1.your-objectstorage.com", cfg.Endpoint())
 	assert.Equal(t, "fsn1", cfg.Region())
+
+	// The exported form carries no scheme: Loki and Tempo prepend their own,
+	// and a scheme here reaches them as https://https://…
+	assert.Equal(t, "fsn1.your-objectstorage.com", cfg.EndpointHost())
 }
 
 func TestBuckets_AreStableAndDistinct(t *testing.T) {
@@ -163,7 +167,6 @@ func TestBuckets_AreStableAndDistinct(t *testing.T) {
 	names := map[string]bool{}
 
 	for _, bucket := range first {
-		assert.NotEmpty(t, bucket.Purpose, bucket.Key)
 		assert.False(t, names[bucket.Name], "duplicate bucket name %q", bucket.Name)
 		names[bucket.Name] = true
 		assert.True(t, strings.HasPrefix(bucket.Name, cfg.NamePrefix+"-"), bucket.Name)
@@ -208,8 +211,32 @@ func TestOutputNames_ArePinned(t *testing.T) {
 	// These are a wire contract with anything that reads this stack. A rename
 	// is a breaking change, so it should break a test here rather than a
 	// consumer's StackReference at apply time.
-	assert.Equal(t, "endpoint", objectstorage.OutputEndpoint)
+	assert.Equal(t, "endpointHost", objectstorage.OutputEndpointHost)
 	assert.Equal(t, "region", objectstorage.OutputRegion)
-	assert.Equal(t, "buckets", objectstorage.OutputBuckets)
+	assert.Equal(t, "stateBucket", objectstorage.OutputStateBucket)
+	assert.Equal(t, "observabilityBucket", objectstorage.OutputObservabilityBucket)
 	assert.Equal(t, "stateBackendUrl", objectstorage.OutputStateBackendURL)
+}
+
+func TestBucketName_AgreesWithBuckets(t *testing.T) {
+	t.Parallel()
+
+	cfg := valid()
+
+	// Two callers build a name: the export, one role at a time, and the loop
+	// that creates them. They must not disagree — an export naming a bucket
+	// that was never created is a consumer pointed at nothing.
+	for _, bucket := range cfg.Buckets() {
+		assert.Equal(t, bucket.Name, cfg.BucketName(bucket.Key), bucket.Key)
+	}
+
+	assert.Equal(t, "platform-prod-state", cfg.BucketName(objectstorage.RoleState))
+	assert.Equal(t, "platform-prod-observability", cfg.BucketName(objectstorage.RoleObservability))
+}
+
+func TestBucketName_IsEmptyForAnUnknownRole(t *testing.T) {
+	t.Parallel()
+
+	// Rather than a plausible-looking name for a bucket that does not exist.
+	assert.Empty(t, valid().BucketName("backups"))
 }

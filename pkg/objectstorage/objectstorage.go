@@ -31,11 +31,16 @@ import (
 // Output names this layer exports. Constants rather than literals for the
 // same reason the cluster tier's are: renaming one is a breaking change to
 // every stack that reads it.
+// Flat and typed, one per bucket, rather than one nested map: a consumer
+// reads them with StackReference's typed accessors, the way pkg/clusterref
+// reads the cluster tier. Digging a name out of a nested map would mean
+// untyped assertions on the far side of a stack boundary.
 const (
-	OutputEndpoint        = "endpoint"
-	OutputRegion          = "region"
-	OutputBuckets         = "buckets"
-	OutputStateBackendURL = "stateBackendUrl"
+	OutputEndpointHost        = "endpointHost"
+	OutputRegion              = "region"
+	OutputStateBucket         = "stateBucket"
+	OutputObservabilityBucket = "observabilityBucket"
+	OutputStateBackendURL     = "stateBackendUrl"
 )
 
 // Locations that host Object Storage, mapped to the region string SigV4 signs
@@ -63,10 +68,6 @@ type Role struct {
 	// Suffix is appended to the configured prefix to name the bucket.
 	Suffix string
 
-	// Purpose is carried into the stack's outputs, so an operator reading
-	// `pulumi stack output` learns what a bucket is without reading this file.
-	Purpose string
-
 	// Versioning keeps every overwrite of an object as a recoverable
 	// version. It is not free: a versioned bucket holds every superseded
 	// object until the noncurrent-expiry rule removes it.
@@ -85,17 +86,20 @@ const RoleObservability = "observability"
 // runs — a map's iteration order would make every second preview a diff.
 var roles = map[string]Role{
 	RoleState: {
-		Suffix:  RoleState,
-		Purpose: "pulumi state, when PULUMI_BACKEND_URL points here instead of at Pulumi Cloud",
+		Suffix: RoleState,
+		// Holds Pulumi state when PULUMI_BACKEND_URL points here instead of
+		// at Pulumi Cloud.
+		//
 		// State is the one thing in this repository that cannot be rebuilt
 		// from the tree. An update that corrupts it is recoverable only from
 		// the version before it.
 		Versioning: true,
 	},
 	RoleObservability: {
-		Suffix:  RoleObservability,
-		Purpose: "loki chunks and tempo blocks",
-		// Off deliberately. Loki and Tempo write immutable objects and delete
+		Suffix: RoleObservability,
+		// Holds Loki chunks and Tempo blocks.
+		//
+		// Versioning off deliberately. Loki and Tempo write immutable objects and delete
 		// them when retention expires; versioning would keep a copy of every
 		// deleted chunk, which is storage nobody ever reads and a bill that
 		// grows with the delete rate rather than the data.
@@ -212,9 +216,17 @@ func (c *Config) validatePrefix() []string {
 	return problems
 }
 
-// Endpoint is the S3 endpoint for the configured location.
+// Endpoint is the S3 endpoint URL, which is the form the AWS provider wants.
 func (c *Config) Endpoint() string {
-	return fmt.Sprintf("https://%s.%s", c.Location, endpointSuffix)
+	return "https://" + c.EndpointHost()
+}
+
+// EndpointHost is the endpoint without a scheme, which is the form Loki and
+// Tempo want — both write it straight into an s3 client config that prepends
+// the scheme itself. This is the exported one, because it is the one a
+// consumer needs; the URL above never leaves this layer.
+func (c *Config) EndpointHost() string {
+	return fmt.Sprintf("%s.%s", c.Location, endpointSuffix)
 }
 
 // Region is what SigV4 signs with. Hetzner uses the location.
@@ -235,6 +247,16 @@ type Bucket struct {
 	Name string
 }
 
+// BucketName is the name of one role's bucket, or "" for an unknown role.
+func (c *Config) BucketName(role string) string {
+	spec, known := roles[role]
+	if !known {
+		return ""
+	}
+
+	return c.NamePrefix + "-" + spec.Suffix
+}
+
 // Buckets resolves every role against the configuration, in a stable order.
 func (c *Config) Buckets() []Bucket {
 	out := make([]Bucket, 0, len(roles))
@@ -244,7 +266,7 @@ func (c *Config) Buckets() []Bucket {
 		out = append(out, Bucket{
 			Role: role,
 			Key:  key,
-			Name: c.NamePrefix + "-" + role.Suffix,
+			Name: c.BucketName(key),
 		})
 	}
 
