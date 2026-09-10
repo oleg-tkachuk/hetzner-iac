@@ -43,6 +43,11 @@ runs:
           /usr/local/share/boost \
           /opt/hostedtoolcache/CodeQL \
           || true
+        # `|| true` tolerates a runner image that no longer ships one of these
+        # paths. It is safe only because of the check below: a removal that
+        # genuinely failed leaves the free space short, and that fails the job
+        # with a reason. Without that check this line would hide the very
+        # problem the action exists to prevent.
 
         after=$(df --output=avail -BM / | tail -1 | tr -dc '0-9')
 

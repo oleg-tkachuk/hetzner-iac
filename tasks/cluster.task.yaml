@@ -96,8 +96,20 @@ tasks:
       - cmd: |
           set -euo pipefail
           cd "{{._CL_DIR}}"
-          pulumi --non-interactive stack init "{{._CL_STACK}}" 2>/dev/null \
-            || pulumi --non-interactive stack select "{{._CL_STACK}}"
+          # Ask whether the stack exists, then do exactly one thing. The
+          # obvious `init || select` is worse than it looks: it sends init's
+          # stderr to /dev/null to keep the "already exists" case quiet, and
+          # so ANY init failure — a rejected stack tag, a bad token, no
+          # network — surfaces only as `select` complaining that the stack
+          # does not exist. That cost a diagnosis: `pulumi stack init` was
+          # refusing a description over 256 characters, and the operator saw
+          # "no stack named 'dev' found".
+          if pulumi --non-interactive stack ls --json \
+             | jq -e --arg s "{{._CL_STACK}}" 'any(.[]; .name == $s)' >/dev/null; then
+            pulumi --non-interactive stack select "{{._CL_STACK}}"
+          else
+            pulumi --non-interactive stack init "{{._CL_STACK}}"
+          fi
 
   plan:
     desc: "Show what applying the cluster would change; change nothing"
@@ -175,8 +187,21 @@ tasks:
           kubectl get nodes -o wide
           echo
           echo "== pods that are not Running or Succeeded"
-          kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded 2>/dev/null \
-            || echo "  (none)"
+          # "(none)" must mean "every pod is healthy", not "kubectl could not
+          # reach the cluster". Those are opposite answers, and discarding
+          # stderr made them print the same line.
+          if out="$(kubectl get pods -A \
+                     --field-selector=status.phase!=Running,status.phase!=Succeeded 2>&1)"; then
+            case "$out" in
+              "") echo "  (none)" ;;
+              *"No resources found"*) echo "  (none)" ;;
+              *) printf '%s\n' "$out" ;;
+            esac
+          else
+            printf '%s\n' "$out" >&2
+            echo "  cannot reach the cluster — is KUBECONFIG set?" >&2
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # Day 2
