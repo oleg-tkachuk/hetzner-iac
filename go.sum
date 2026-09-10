@@ -245,6 +245,8 @@ github.com/prometheus/procfs v0.16.1 h1:hZ15bTNuirocR6u0JZ6BAHHmwS1p8B4P6MRqxtzM
 github.com/prometheus/procfs v0.16.1/go.mod h1:teAbpZRB1iIAJYREa1LsoWUXykVXA1KlTmWl8x/U+Is=
 github.com/pulumi/appdash v0.0.0-20231130102222-75f619a67231 h1:vkHw5I/plNdTr435cARxCW6q9gc0S/Yxz7Mkd38pOb0=
 github.com/pulumi/appdash v0.0.0-20231130102222-75f619a67231/go.mod h1:murToZ2N9hNJzewjHBgfFdXhZKjY3z5cYC1VXk+lbFE=
+github.com/pulumi/pulumi-aws/sdk/v7 v7.45.0 h1:61rF2opPaWzUGNTlV83FvH5JIzlA9WG/c6AjZffKL5Y=
+github.com/pulumi/pulumi-aws/sdk/v7 v7.45.0/go.mod h1:5p7rb57CpZOvFIpcE4fa99ASf1ZuCcKfc+4vt8nsj7k=
 github.com/pulumi/pulumi-hcloud/sdk v1.41.0 h1:XUVyMgHPNrQxIJQTjtaUjlphBq4e66uNBIldohL/cs8=
 github.com/pulumi/pulumi-hcloud/sdk v1.41.0/go.mod h1:Gvd0Jyaok8rt6xi4ps+pnzgpmHEEl4X/E/aJRiShAxc=
 github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.34.1 h1:FyUnzg4Czn84k84jMeM3aQBRbBL4wTWgMJd4qIF832k=
