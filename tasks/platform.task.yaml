@@ -112,7 +112,7 @@ tasks:
           done
 
   plan:
-    desc: "Preview one layer — task platform:plan layer=10-cni"
+    desc: "Preview one layer — task platform:plan layer=10-node-platform"
     requires:
       vars: [layer]
     cmds:
@@ -122,7 +122,7 @@ tasks:
           pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff
 
   apply:
-    desc: "Apply one layer — task platform:apply layer=10-cni"
+    desc: "Apply one layer — task platform:apply layer=10-node-platform"
     requires:
       vars: [layer]
     cmds:
