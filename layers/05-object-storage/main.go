@@ -39,6 +39,20 @@ func main() {
 // program is the layer, separated from main so the tests can run it against a
 // mock monitor rather than re-implementing the wiring they are meant to check.
 func program(ctx *pulumi.Context) error {
+	log := pulumilog.New(ctx)
+
+	// Opt-in, and the credentials are the switch. `task platform:plan-all`
+	// walks every layer, so a stack that was never given S3 credentials must
+	// produce no buckets and no error — the same way 30-core creates no
+	// ClusterIssuer without acmeEmail. One credential set means the operator
+	// meant to configure this, and then the other missing is a mistake to
+	// report rather than a stack to skip.
+	if !requested(ctx) {
+		log.Skipped("buckets", "no S3 credentials configured, none created")
+
+		return nil
+	}
+
 	cfg, err := readConfig(ctx)
 	if err != nil {
 		return err
@@ -49,7 +63,6 @@ func program(ctx *pulumi.Context) error {
 		return err
 	}
 
-	log := pulumilog.New(ctx)
 	log.Step("endpoint", fmt.Sprintf("stack %s → %s", ctx.Stack(), cfg.EndpointHost()))
 
 	provider, err := newProvider(ctx, cfg, credentials)
@@ -122,6 +135,26 @@ type credentials struct {
 	SecretKey pulumi.StringOutput
 }
 
+// credentialKeys are the keys that decide whether this layer does anything.
+//
+// Deliberately not declared with a default in Pulumi.yaml: a declared key with
+// `default: ""` arrives as set-but-empty, which would make both the switch
+// above and the check below see a credential that is not there.
+var credentialKeys = []string{"accessKey", "secretKey"}
+
+// requested reports whether the stack asks for object storage at all.
+func requested(ctx *pulumi.Context) bool {
+	cfg := config.New(ctx, "object-storage")
+
+	for _, key := range credentialKeys {
+		if _, err := cfg.Try(key); err == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 // readCredentials reads the S3 credentials, reporting both missing keys at
 // once.
 //
@@ -133,7 +166,7 @@ func readCredentials(ctx *pulumi.Context) (*credentials, error) {
 
 	var missing []string
 
-	for _, key := range []string{"accessKey", "secretKey"} {
+	for _, key := range credentialKeys {
 		// Presence only. The value itself is taken as a secret output below,
 		// so it stays marked as one all the way into the provider.
 		if _, err := cfg.Try(key); err != nil {
