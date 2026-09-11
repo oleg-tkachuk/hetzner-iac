@@ -169,3 +169,152 @@ func TestSkippedKinds_AreCustomResourcesOnly(t *testing.T) {
 
 	assert.Contains(t, skippedKinds, "CustomResourceDefinition")
 }
+
+func TestCheckHostAccess(t *testing.T) {
+	t.Parallel()
+
+	// A node-exporter DaemonSet, reduced to the fields the gate reads.
+	daemonSet := func(namespace string) string {
+		return `
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: prometheus-node-exporter
+  namespace: ` + namespace + `
+spec:
+  template:
+    spec:
+      hostNetwork: true
+      hostPID: true
+      volumes:
+        - hostPath:
+            path: /
+`
+	}
+
+	const grafana = `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+        - name: grafana
+`
+
+	tests := []struct {
+		name      string
+		manifests string
+		namespace string
+		wantErr   bool
+	}{
+		{
+			name:      "host access in an exempt namespace is fine",
+			manifests: daemonSet("kube-system"),
+			namespace: "kube-system",
+		},
+		{
+			// The deploy this gate exists for: DESIRED 1, CURRENT 0, no pod
+			// at all, and Helm waiting out its whole timeout.
+			name:      "host access under baseline is refused",
+			manifests: daemonSet("observability"),
+			namespace: "observability",
+			wantErr:   true,
+		},
+		{
+			name:      "no host access needs no exemption",
+			manifests: grafana,
+			namespace: "observability",
+		},
+		{
+			// Why the check is per document. Checking the release namespace
+			// would refuse the whole chart for what one DaemonSet asks.
+			name:      "one chart in two namespaces",
+			manifests: grafana + "\n---" + daemonSet("kube-system"),
+			namespace: "observability",
+		},
+		{
+			// Helm's own behaviour for a document that names no namespace.
+			name:      "a document without a namespace takes the release's",
+			manifests: daemonSet(""),
+			namespace: "observability",
+			wantErr:   true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := checkHostAccess("kube-prometheus-stack", test.namespace, []byte(test.manifests))
+			if !test.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			// The operator has to be able to act on it: what was asked for,
+			// and where.
+			assert.Contains(t, err.Error(), "hostNetwork")
+			assert.Contains(t, err.Error(), "hostPID")
+			assert.Contains(t, err.Error(), "hostPath")
+			assert.Contains(t, err.Error(), "observability")
+		})
+	}
+}
+
+func TestDocumentNamespace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		doc  string
+		want string
+	}{
+		{
+			name: "reads metadata.namespace",
+			doc:  "metadata:\n  name: x\n  namespace: kube-system\n",
+			want: "kube-system",
+		},
+		{
+			name: "unquotes a quoted namespace",
+			doc:  "metadata:\n  namespace: \"kube-system\"\n",
+			want: "kube-system",
+		},
+		{
+			// Cluster-scoped objects have none, and Helm resolves them
+			// against the release.
+			name: "falls back when the document names none",
+			doc:  "kind: ClusterRole\nmetadata:\n  name: x\n",
+			want: "observability",
+		},
+		{
+			// `namespace: ""` is not a namespace called "": Helm resolves an
+			// empty value against the release, and reporting "" told the
+			// operator nothing about where the workload was going.
+			name: "falls back when the key is empty",
+			doc:  "metadata:\n  namespace:\n  name: x\n",
+			want: "observability",
+		},
+		{
+			// Not the `namespace:` inside a subject list or a field selector:
+			// metadata sits at two spaces and a rendered chart is machine-
+			// written.
+			name: "ignores a namespace at another indentation",
+			doc:  "subjects:\n  - kind: ServiceAccount\n    namespace: kube-system\n",
+			want: "observability",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, test.want, documentNamespace(test.doc, "observability"))
+		})
+	}
+}
