@@ -1,0 +1,13 @@
+# node-exporter installs into kube-system, not into the release's namespace.
+#
+# It needs hostNetwork, hostPID and hostPath volumes — that is what a node
+# metrics exporter is — and Talos enables Pod Security Admission with
+# `enforce: baseline` for every namespace except kube-system. Rendering with
+# the chart's default would show it in observability, where its pods are never
+# created: the DaemonSet reports DESIRED 1, CURRENT 0, and Helm waits out its
+# whole timeout.
+#
+# This mirrors layers/60-observability. A test asserts the two agree, because a
+# value stated twice is a value that will eventually be stated two ways.
+prometheus-node-exporter:
+  namespaceOverride: kube-system

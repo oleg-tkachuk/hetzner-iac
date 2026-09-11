@@ -77,6 +77,12 @@ var Expected = []Workload{
 	{Chart: "kube-prometheus-stack", Release: "kube-prometheus-stack", Namespace: "observability", Kind: Deployment, Name: "kube-prometheus-stack-operator"},
 	{Chart: "kube-prometheus-stack", Release: "kube-prometheus-stack", Namespace: "observability", Kind: StatefulSet, Name: "prometheus-kube-prometheus-stack-prometheus", OperatorCreated: true},
 	{Chart: "kube-prometheus-stack", Release: "kube-prometheus-stack", Namespace: "observability", Kind: StatefulSet, Name: "alertmanager-kube-prometheus-stack-alertmanager", OperatorCreated: true},
+	// node-exporter installs into kube-system, not the release namespace: it
+	// needs host access, and Talos exempts only that namespace from Pod
+	// Security Admission. Declared here because nothing verified it before,
+	// which is how a DaemonSet with zero created pods went unnoticed until
+	// Helm timed out on it.
+	{Chart: "kube-prometheus-stack", Release: "kube-prometheus-stack", Namespace: "kube-system", Kind: DaemonSet, Name: "kube-prometheus-stack-prometheus-node-exporter"},
 	{Chart: "loki", Release: "loki", Namespace: "observability", Kind: StatefulSet, Name: "loki"},
 	{Chart: "loki", Release: "loki", Namespace: "observability", Kind: Deployment, Name: "loki-gateway"},
 	{Chart: "tempo", Release: "tempo", Namespace: "observability", Kind: StatefulSet, Name: "tempo"},
