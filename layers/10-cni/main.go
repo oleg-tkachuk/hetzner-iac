@@ -7,10 +7,7 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -46,24 +43,16 @@ const OperatorReplicasWanted = 2
 // for the requested pod ports` and leaving a permanently red pod in
 // `kubectl get pods -A` — which teaches a reader to ignore red pods.
 //
-// nil means the cluster tier has not been applied since it began exporting the
-// count. That is an error rather than a default: guessing a replica count from
-// an absent fact is how a working operator gets scaled to nothing, and the
-// operator who sees this message fixes it in one command.
-func operatorReplicas(controlPlaneCount *int) (int, error) {
-	if controlPlaneCount == nil {
-		return 0, fmt.Errorf(
-			"the cluster stack exports no %q, so the Cilium operator cannot be sized:\n"+
-				"  task cluster:apply stack=<stack>",
-			clusterref.OutputControlPlaneCount)
+// No absent case: pkg/clusterref gates every output on the producer's contract
+// version, so by the time a count arrives here the tier has been established
+// to publish one. A count below one is a broken producer, and sizing against
+// it would scale a working operator to nothing.
+func operatorReplicas(controlPlaneCount int) int {
+	if controlPlaneCount < 1 {
+		return OperatorReplicasWanted
 	}
 
-	if *controlPlaneCount < 1 {
-		return 0, fmt.Errorf("the cluster stack reports %d control-plane nodes",
-			*controlPlaneCount)
-	}
-
-	return min(*controlPlaneCount, OperatorReplicasWanted), nil
+	return min(controlPlaneCount, OperatorReplicasWanted)
 }
 
 // CiliumValues builds the chart values.
@@ -83,7 +72,7 @@ func operatorReplicas(controlPlaneCount *int) (int, error) {
 //     20-cloud-integration. With routes but no native routing the packets are
 //     encapsulated for no reason; with native routing but no routes they are
 //     dropped.
-func CiliumValues(podCIDR pulumi.StringInput, controlPlaneCount pulumi.IntPtrInput) pulumi.Map {
+func CiliumValues(podCIDR pulumi.StringInput, controlPlaneCount pulumi.IntInput) pulumi.Map {
 	return pulumi.Map{
 		"ipam": pulumi.Map{
 			// Addresses come from the Kubernetes node spec, which the CCM
@@ -142,8 +131,7 @@ func CiliumValues(podCIDR pulumi.StringInput, controlPlaneCount pulumi.IntPtrInp
 		// resources survives a node failure — but only where two can run. See
 		// operatorReplicas.
 		"operator": pulumi.Map{
-			"replicas": controlPlaneCount.ToIntPtrOutput().
-				ApplyT(operatorReplicas).(pulumi.IntOutput),
+			"replicas": controlPlaneCount.ToIntOutput().ApplyT(operatorReplicas),
 			"prometheus": pulumi.Map{
 				"enabled": pulumi.Bool(true),
 				// ServiceMonitors belong to the observability layer, which

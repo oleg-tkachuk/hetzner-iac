@@ -85,8 +85,8 @@ const (
 )
 
 // stackMocks stands in for the cluster tier. exported == "" models a cluster
-// stack applied before the token was exported, which is the state every
-// existing stack is in until it is applied again.
+// built from an environment token rather than from stack config, which the
+// tier exports as an empty string.
 type stackMocks struct{ exported string }
 
 func (m stackMocks) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
@@ -94,13 +94,21 @@ func (m stackMocks) NewResource(args pulumi.MockResourceArgs) (string, resource.
 		return args.Name, args.Inputs, nil
 	}
 
+	// Every declared output, always: the contract is total, and the tier
+	// exports an empty token rather than none when it has none.
 	outputs := resource.PropertyMap{
-		resource.PropertyKey(clusterref.OutputKubeconfig): resource.NewStringProperty("apiVersion: v1"),
-	}
-
-	if m.exported != "" {
-		outputs[resource.PropertyKey(clusterref.OutputHcloudToken)] =
-			resource.NewStringProperty(m.exported)
+		resource.PropertyKey(clusterref.OutputContractVersion):   resource.NewNumberProperty(clusterref.ContractVersion),
+		resource.PropertyKey(clusterref.OutputKubeconfig):        resource.NewStringProperty("apiVersion: v1"),
+		resource.PropertyKey(clusterref.OutputTalosconfig):       resource.NewStringProperty("context: test"),
+		resource.PropertyKey(clusterref.OutputEndpoint):          resource.NewStringProperty("https://203.0.113.200:6443"),
+		resource.PropertyKey(clusterref.OutputAPILoadBalancerIP): resource.NewStringProperty(""),
+		resource.PropertyKey(clusterref.OutputNetworkID):         resource.NewNumberProperty(12637895),
+		resource.PropertyKey(clusterref.OutputPodCIDR):           resource.NewStringProperty("10.244.0.0/16"),
+		resource.PropertyKey(clusterref.OutputServiceCIDR):       resource.NewStringProperty("10.96.0.0/12"),
+		resource.PropertyKey(clusterref.OutputClusterName):       resource.NewStringProperty("platform-test"),
+		resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty("hel1"),
+		resource.PropertyKey(clusterref.OutputHcloudToken):       resource.NewStringProperty(m.exported),
+		resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
 	}
 
 	return args.Name, resource.PropertyMap{"outputs": resource.NewObjectProperty(outputs)}, nil
@@ -198,6 +206,6 @@ func TestResolveToken_NoTokenAnywhereFailsWithTheRemedy(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), clusterref.OutputHcloudToken)
-	assert.Contains(t, err.Error(), "apply the cluster tier again")
+	assert.Contains(t, err.Error(), "config set --secret hcloud:token")
 	assert.Contains(t, err.Error(), "config set --secret cloud-integration:hcloudToken")
 }
