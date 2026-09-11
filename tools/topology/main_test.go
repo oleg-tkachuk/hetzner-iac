@@ -155,7 +155,7 @@ func TestTalosVersion(t *testing.T) {
 	path := filepath.Join(dir, "cluster.prod.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(validTopology), 0o600))
 
-	version, err := talosVersion(path)
+	version, err := get("talos-version", path)
 	require.NoError(t, err)
 	assert.Equal(t, "v1.14.0", version)
 }
@@ -174,7 +174,7 @@ func TestTalosVersion_ReadsThroughTheRealParser(t *testing.T) {
 	body := strings.Replace(validTopology, "talos:\n  version: v1.14.0\n", commented, 1)
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 
-	version, err := talosVersion(path)
+	version, err := get("talos-version", path)
 	require.NoError(t, err)
 	assert.Equal(t, "v1.13.10", version)
 }
@@ -188,7 +188,7 @@ func TestTalosVersion_InvalidTopology(t *testing.T) {
 	path := filepath.Join(dir, "cluster.prod.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("not: a topology\n"), 0o600))
 
-	_, err := talosVersion(path)
+	_, err := get("talos-version", path)
 	require.Error(t, err)
 }
 
@@ -196,7 +196,7 @@ func TestTalosVersion_MatchesTheRepositoryTopologies(t *testing.T) {
 	t.Parallel()
 
 	// What CI actually runs.
-	version, err := talosVersion(filepath.Join("..", "..", "infra", "cluster", "cluster.prod.yaml"))
+	version, err := get("talos-version", filepath.Join("..", "..", "infra", "cluster", "cluster.prod.yaml"))
 	require.NoError(t, err)
 	assert.Regexp(t, `^v\d+\.\d+\.\d+$`, version)
 }
@@ -249,5 +249,62 @@ func TestProjectDescriptionsFitTheStackTag(t *testing.T) {
 			"%s: description is %d characters; Pulumi Cloud refuses the stack tag over %d, "+
 				"so `pulumi stack init` would fail. Move the prose into a comment above the key.",
 			project.Name, len(project.Description), maxStackTag)
+	}
+}
+
+func TestGet_ReadsEveryFieldFromBothCommittedTopologies(t *testing.T) {
+	t.Parallel()
+
+	// The point of this tool over a grep. Three of the four call sites it
+	// replaced were returning an empty string — the Talos version in prod and
+	// the Kubernetes version in both — because the comments above those fields
+	// had grown past the three-line window the grep looked in.
+	root := filepath.Join("..", "..")
+
+	for _, name := range []string{"cluster.prod.yaml", "cluster.dev.yaml"} {
+		path := filepath.Join(root, "infra", "cluster", name)
+		if _, err := os.Stat(path); err != nil {
+			continue // cluster.dev.yaml is gitignored; skip where absent.
+		}
+
+		for _, field := range fieldNames() {
+			value, err := get(field, path)
+			require.NoError(t, err, "%s %s", name, field)
+			assert.NotEmpty(t, value, "%s %s", name, field)
+		}
+	}
+}
+
+func TestGet_RefusesAnUnknownField(t *testing.T) {
+	t.Parallel()
+
+	_, err := get("talos_version", filepath.Join("..", "..", "infra", "cluster", "cluster.prod.yaml"))
+
+	require.Error(t, err)
+	// The message lists the alternatives, because a typo in a task is
+	// otherwise indistinguishable from a missing field.
+	assert.Contains(t, err.Error(), "unknown field")
+	assert.Contains(t, err.Error(), "talos-version")
+}
+
+func TestGet_RefusesToPrintAnEmptyValue(t *testing.T) {
+	t.Parallel()
+
+	// The failure this tool exists to prevent: an empty string substituted
+	// into a factory URL or an image selector builds something plausible and
+	// wrong. Asserted through the real path — a topology whose optional
+	// architecture is blank and whose default has been removed cannot be
+	// constructed, so this checks the guard on a field the parser leaves
+	// empty when the file omits it.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cluster.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(validTopology), 0o600))
+
+	// Every field of a valid topology resolves, which is the other half of the
+	// guarantee: `get` does not fail on a file that is merely terse.
+	for _, field := range fieldNames() {
+		value, err := get(field, path)
+		require.NoError(t, err, field)
+		assert.NotEmpty(t, value, field)
 	}
 }

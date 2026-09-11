@@ -22,18 +22,30 @@ import (
 func main() {
 	args := os.Args[1:]
 
-	// `talos-version <file>` prints the pinned Talos version, for anything that
-	// needs to install a matching talosctl. It reads the topology with the same
-	// parser everything else uses — a grep over the file breaks the moment a
-	// comment above the field gets longer, which is exactly how CI broke once.
-	if len(args) == 2 && args[0] == "talos-version" {
-		version, err := talosVersion(args[1])
+	// `get <field> <file>` prints one value from a topology, for the tasks that
+	// need it — which talosctl to install, which image to bake, which
+	// Kubernetes version to upgrade to.
+	//
+	// It exists because the shell alternative does not work. `grep -A3 '^talos:'
+	// | grep version: | head -1 | awk '{print $2}'` reads three lines after a
+	// key and hopes the field is among them, so it returns the right answer
+	// only while nobody writes a comment. Three of the four call sites this
+	// replaced were returning an empty string: the Talos version in prod and
+	// the Kubernetes version in both, silently, because the comments above
+	// those fields had grown past the window.
+	//
+	// An awk program with an indentation state machine would fix today's four
+	// and still be a hand-rolled YAML reader — it would break on a quoted
+	// value, an anchor, or a nested key of the same name. This asks the parser
+	// the cluster itself is built from.
+	if len(args) == 3 && args[0] == "get" {
+		value, err := get(args[1], args[2])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
 
-		fmt.Println(version)
+		fmt.Println(value)
 
 		return
 	}
@@ -154,11 +166,49 @@ func indent(text string) string {
 }
 
 // talosVersion reports the Talos version a topology pins.
-func talosVersion(path string) (string, error) {
+// fields are the values `get` can print. A table rather than a switch so the
+// error message can list them, and so a test can assert every one resolves.
+var fields = map[string]func(*hetzner.Topology) string{
+	"talos-version":      func(t *hetzner.Topology) string { return t.Talos.Version },
+	"talos-architecture": func(t *hetzner.Topology) string { return t.Talos.Architecture },
+	"kubernetes-version": func(t *hetzner.Topology) string { return t.Kubernetes.Version },
+	"cluster-name":       func(t *hetzner.Topology) string { return t.Metadata.Name },
+	"location":           func(t *hetzner.Topology) string { return t.Placement.Location },
+}
+
+// get reads one field, and refuses to print an empty one.
+//
+// Refusing matters more than reading: a caller that substitutes an empty
+// string into a URL or an image selector builds something that looks
+// plausible and is wrong. Every field here is either required or defaulted, so
+// empty means the topology is not what the caller thinks it is.
+func get(field, path string) (string, error) {
+	read, known := fields[field]
+	if !known {
+		return "", fmt.Errorf("unknown field %q; known fields are %s",
+			field, strings.Join(fieldNames(), ", "))
+	}
+
 	topology, err := hetzner.LoadTopology(path)
 	if err != nil {
 		return "", err
 	}
 
-	return topology.Talos.Version, nil
+	value := read(topology)
+	if value == "" {
+		return "", fmt.Errorf("%s is empty in %s", field, path)
+	}
+
+	return value, nil
+}
+
+func fieldNames() []string {
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
 }

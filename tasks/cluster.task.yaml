@@ -29,11 +29,16 @@ tasks:
       - cmd: |
           set -euo pipefail
 
-          version="$(grep -A3 '^talos:' "{{._CL_TOPOLOGY}}" | grep 'version:' | head -1 | awk '{print $2}')"
-          arch="$(grep -A3 '^talos:' "{{._CL_TOPOLOGY}}" | grep 'architecture:' | head -1 | awk '{print $2}')"
-          arch="${arch:-x86}"
-
-          [ -n "$version" ] || { echo "ERROR: talos.version not found in {{._CL_TOPOLOGY}}" >&2; exit 1; }
+          # Values come from the parser the cluster itself is built from, not
+          # from a grep over the file. The grep this replaced read three lines
+          # after `talos:` and hoped the field was among them — it returned an
+          # empty version for prod, where a comment above the field had grown
+          # past the window, and nothing noticed.
+          #
+          # `get` also refuses to print an empty value, so a missing field
+          # fails here instead of being substituted into the factory URL.
+          version="$(go run {{.ROOT}}/tools/topology get talos-version "{{._CL_TOPOLOGY}}")"
+          arch="$(go run {{.ROOT}}/tools/topology get talos-architecture "{{._CL_TOPOLOGY}}")"
 
           selector="os=talos,talos-version=${version}"
 
@@ -226,7 +231,7 @@ tasks:
     cmds:
       - cmd: |
           set -euo pipefail
-          version="$(grep -A3 '^talos:' "{{._CL_TOPOLOGY}}" | grep 'version:' | head -1 | awk '{print $2}')"
+          version="$(go run {{.ROOT}}/tools/topology get talos-version "{{._CL_TOPOLOGY}}")"
           export TALOSCONFIG="{{.ROOT}}/talosconfig"
           # One node at a time, waiting for each: rolling through the control
           # plane in parallel takes etcd below quorum.
@@ -243,7 +248,6 @@ tasks:
     cmds:
       - cmd: |
           set -euo pipefail
-          version="$(grep -A3 '^kubernetes:' "{{._CL_TOPOLOGY}}" | grep 'version:' | head -1 | awk '{print $2}' | tr -d '"')"
-          [ -n "$version" ] || { echo "ERROR: set kubernetes.version in the topology first" >&2; exit 1; }
+          version="$(go run {{.ROOT}}/tools/topology get kubernetes-version "{{._CL_TOPOLOGY}}")"
           export TALOSCONFIG="{{.ROOT}}/talosconfig"
           talosctl upgrade-k8s --to "${version}"
