@@ -73,6 +73,24 @@ pre-commit:
     # To allow a file that genuinely belongs here, add its path to the awk
     # invocation as -v allow=<path>. Nothing needs it today: the repository
     # tracks no binary files.
+    # Branch protection refuses the push, but by then the commit exists and
+    # has to be moved. This refuses it four steps earlier.
+    #
+    # Asked for after four commits landed on main in one session: the pattern
+    # each time was `git switch main` to pull, then editing without switching
+    # back. `LEFTHOOK=0 git commit` is the deliberate override, the same one
+    # every other gate here honours.
+    - name: forbid-main
+      tags: [hygiene]
+      run: |
+        branch="$(git symbolic-ref --short HEAD 2>/dev/null || echo DETACHED)"
+        if [ "$branch" = "main" ]; then
+          echo "ERROR: refusing to commit on main. Branch first:" >&2
+          echo "  git switch -c <type>/<what-changed>" >&2
+          echo "Already committed? git switch -c <branch> && git switch main && git reset --hard origin/main" >&2
+          exit 1
+        fi
+
     - name: forbid-binaries
       tags: [hygiene]
       run: git diff --cached --numstat | awk -f tools/awk/lib.awk -v op=staged-binaries
