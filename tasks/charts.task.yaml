@@ -31,10 +31,12 @@ tasks:
       - go run ./tools/charts appversions
 
   render-check:
-    desc: "Render every pinned chart and prove it still produces the expected workloads"
+    desc: "Render every pinned chart, validate it against the pinned Kubernetes version, and prove it still produces the expected workloads"
     preconditions:
       - sh: command -v helm >/dev/null
-        msg: "helm not installed — brew install helm"
+        msg: "helm is not installed — brew bundle, or brew install helm"
+      - sh: command -v kubeconform >/dev/null
+        msg: "kubeconform is not installed — brew bundle, or brew install kubeconform"
     cmds:
       # Offline: no cluster, no credentials. Catches the failure that `pulumi
       # up` cannot — a chart upgrade that renames a Deployment installs

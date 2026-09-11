@@ -71,7 +71,23 @@ jobs:
           set -euo pipefail
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | tar -xz -C /usr/local/bin gitleaks
+      # On a pull request, only its own commits. The history behind the base is
+      # unchanged by definition, and scanning all of it took 286 seconds of
+      # every pull request — long enough that it was the job the cache-priming
+      # job queued behind.
+      #
+      # Nothing is lost: a credential added by this branch is in this range, a
+      # credential already in the history is found by the scheduled run below,
+      # and the pre-push hook scans what is staged before either.
+      #
+      # The range needs the base commit present, which is why the checkout
+      # above still fetches everything — the clone is cheap, the scan was not.
       - run: task security:secrets
+        env:
+          GITLEAKS_FLAGS: >-
+            ${{ github.event_name == 'pull_request'
+                && format('--log-opts={0}..HEAD', github.event.pull_request.base.sha)
+                || '' }}
 
   vulnerabilities:
     name: Reachable vulnerabilities

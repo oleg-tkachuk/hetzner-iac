@@ -24,6 +24,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"embed"
 	"errors"
@@ -37,6 +38,7 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/workloads"
 )
 
@@ -187,7 +189,108 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 		return nil, err
 	}
 
+	// Validated against the Kubernetes version the topology pins, not just
+	// parsed for workload names.
+	//
+	// parseWorkloads answers "does this chart still produce the Deployment we
+	// expect". It says nothing about whether that Deployment's apiVersion
+	// still exists. This repository has already lost a control plane to that
+	// class once: Kubernetes v1.36 removed a kube-apiserver flag the machine
+	// config was passing. A chart emitting a removed API version is the same
+	// failure with a different name, and it is found at apply, halfway
+	// through.
+	if err := validateSchema(ctx, key, output); err != nil {
+		return nil, err
+	}
+
 	return parseWorkloads(output), nil
+}
+
+// kubeconformBinary is looked up rather than assumed so the absence is one
+// clear message instead of an exec error.
+const kubeconformBinary = "kubeconform"
+
+// skippedKinds are the kinds with no schema to validate against, named one by
+// one on purpose.
+//
+//   - CustomResourceDefinition: upstream publishes no CRD schema in the strict
+//     standalone set.
+//   - Alertmanager, Prometheus, PrometheusRule, ServiceMonitor: custom
+//     resources kube-prometheus-stack installs the definitions for in the same
+//     release, so nothing can validate them at render time. Collected by
+//     running kubeconform over every chart and reading what it could not
+//     resolve, rather than one failure per iteration.
+//
+// A new kind here is a deliberate edit, and that is the point: the flag that
+// would make this list unnecessary, -ignore-missing-schemas, also skips a
+// REMOVED api version, which is the failure this whole check exists for.
+var skippedKinds = []string{
+	"CustomResourceDefinition",
+	"Alertmanager",
+	"Prometheus",
+	"PrometheusRule",
+	"ServiceMonitor",
+}
+
+// validateSchema checks rendered manifests against the pinned Kubernetes
+// version's schemas.
+//
+// Only the CustomResourceDefinition kind is skipped, and that distinction is
+// the whole value of this check. The obvious flag, -ignore-missing-schemas,
+// makes it worthless: a removed API has no schema either, so
+// `policy/v1beta1 PodSecurityPolicy` came back "Skipped" and the check passed
+// — measured, which is the only reason it is not still written that way.
+//
+// Skipping just the CRD kind leaves every built-in validated: a removed API
+// version fails, and so does a misspelled field. CRDs have no schema in the
+// strict standalone set upstream publishes, which is why that one is named.
+//
+// Not offline: kubeconform fetches the schemas for the pinned version. That is
+// a network dependency this check adds, and worth knowing before it fails in a
+// place with no egress.
+func validateSchema(ctx context.Context, key string, manifests []byte) error {
+	if _, err := exec.LookPath(kubeconformBinary); err != nil {
+		return fmt.Errorf("kubeconform is not installed (brew bundle, or brew install kubeconform): %w", err)
+	}
+
+	version := pinnedKubernetesVersion()
+
+	// #nosec G204 -- every argument comes from kubeconformArgs, which builds
+	// them from literals in this file plus a version from a package constant.
+	// CommandContext takes a vector, so no shell reads any of it.
+	cmd := exec.CommandContext(ctx, kubeconformBinary, kubeconformArgs(version)...)
+	cmd.Stdin = bytes.NewReader(manifests)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s does not validate against Kubernetes %s:\n%s",
+			key, version, strings.TrimSpace(string(out)))
+	}
+
+	return nil
+}
+
+// kubeconformArgs builds the invocation, separated so a test can assert what
+// is and is not in it.
+func kubeconformArgs(version string) []string {
+	return []string{
+		"-strict",
+		"-kubernetes-version", version,
+		"-skip", strings.Join(skippedKinds, ","),
+		"-summary",
+		"-",
+	}
+}
+
+// pinnedKubernetesVersion is the version the schemas are checked against.
+//
+// The package constant rather than the committed topology file: a relative
+// path resolves differently depending on where `go run` was invoked from, and
+// the two cannot disagree anyway — TestEveryTopologyPresentPinsKubernetes
+// asserts every topology states exactly this value.
+func pinnedKubernetesVersion() string {
+	// kubeconform wants 1.36.4, the constant says v1.36.4.
+	return strings.TrimPrefix(hetzner.DefaultKubernetesVersion, "v")
 }
 
 // renderRaw templates a chart and returns its manifests.

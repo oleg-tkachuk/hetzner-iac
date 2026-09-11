@@ -31,6 +31,10 @@ env:
   # built with go1.27.
   GOLANGCI_VERSION: "v2.13.2"
 
+  # Same reason: a kubeconform release changing which schemas it accepts would
+  # turn CI red with no commit of ours in between.
+  KUBECONFORM_VERSION: "0.8.0"
+
 jobs:
   # Decides whether this change touches anything that needs compiling.
   #
@@ -79,14 +83,15 @@ jobs:
   # scratch. Priming makes the saved cache the useful one.
   prime:
     name: Go build cache
-    # Also needs security, which is the cheap half of the pipeline — nine to
-    # thirty-five seconds. GitHub has no job-level fail-fast: a failing job does
-    # not stop its siblings. Gating the priming job on the scanners means a
-    # secret, a reachable vulnerability or a workflow finding stops the run
-    # before anything compiles, instead of after ten minutes of it.
+    # Push only. On a pull request `cache-mode` resolves to `restore`, so this
+    # job compiled for 277 seconds and wrote nothing — and the four jobs that
+    # waited on it then restored the same cache from main that they would have
+    # restored without it. Measured: 872s wall clock, of which 283s was this
+    # job queueing behind the scanners and 277s was it running.
     #
-    # Everything expensive already depends on prime, so this one edge gates all
-    # of it.
+    # Its second role, gating the expensive half on the cheap scanners, moved
+    # to those jobs depending on `security` directly.
+    if: github.event_name == 'push'
     needs: [changes, security]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -210,6 +215,11 @@ jobs:
             exit 1
           fi
 
+  # The expensive half. Each of these gates on `security` rather than on prime:
+  # GitHub has no job-level fail-fast, so without that edge a secret or a
+  # reachable vulnerability would be reported alongside ten minutes of
+  # compiling rather than instead of it. The scanners are the cheap half —
+  # six to thirty-five seconds each.
   build:
     name: Tests and vet
     # Both events, and this is the one job that runs on a push to main.
@@ -228,7 +238,7 @@ jobs:
     # they read one tree rather than a combination — the layer list, the chart
     # pins, the topology and the commit subjects cannot break by merging.
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    needs: [changes, prime]
+    needs: [changes, security]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -264,7 +274,7 @@ jobs:
   lint:
     name: Go lint
     if: github.event_name == 'pull_request'
-    needs: [changes, prime]
+    needs: [changes, security]
     runs-on: ubuntu-latest
     # Above golangci's own --timeout, or the runner kills the job first and the
     # log says nothing useful.
@@ -286,7 +296,7 @@ jobs:
   charts:
     name: Chart pins
     if: github.event_name == 'pull_request'
-    needs: [prime]
+    needs: [changes, security]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -305,6 +315,15 @@ jobs:
           # would let a Helm release change what CI renders with no commit of
           # ours in between.
           version: v4.3.0
+      # Validates what the charts render against the pinned Kubernetes version,
+      # not just that the expected workloads are present. Pinned, because
+      # `latest` would let a kubeconform release change what CI accepts with no
+      # commit of ours in between.
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin kubeconform
       - name: Chart render check
         run: go run ./tools/charts render
       # Unlike the report below, this one fails. Renovate bumps Version and
@@ -324,7 +343,7 @@ jobs:
   topology:
     name: Cluster topology
     if: github.event_name == 'pull_request'
-    needs: [prime]
+    needs: [changes, security]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
