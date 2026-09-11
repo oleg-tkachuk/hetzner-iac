@@ -1,11 +1,14 @@
 package clusterref_test
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,49 +31,112 @@ func (stackMocks) Call(pulumi.MockCallArgs) (resource.PropertyMap, error) {
 	return resource.PropertyMap{}, nil
 }
 
-func TestResolve_ReadsTheClusterTierOutputs(t *testing.T) {
-	t.Parallel()
-
-	mocks := stackMocks{outputs: resource.PropertyMap{
-		resource.PropertyKey(clusterref.OutputKubeconfig):        resource.NewStringProperty("apiVersion: v1"),
+// current is what a cluster tier applied today publishes: every declared
+// output, the version among them, and the credentials marked secret the way
+// Pulumi marks them on the wire.
+func current() stackMocks {
+	return stackMocks{outputs: resource.PropertyMap{
+		resource.PropertyKey(clusterref.OutputContractVersion):   resource.NewNumberProperty(clusterref.ContractVersion),
+		resource.PropertyKey(clusterref.OutputKubeconfig):        resource.MakeSecret(resource.NewStringProperty("apiVersion: v1")),
+		resource.PropertyKey(clusterref.OutputTalosconfig):       resource.MakeSecret(resource.NewStringProperty("context: dev")),
 		resource.PropertyKey(clusterref.OutputEndpoint):          resource.NewStringProperty("https://203.0.113.200:6443"),
+		resource.PropertyKey(clusterref.OutputAPILoadBalancerIP): resource.NewStringProperty(""),
+		resource.PropertyKey(clusterref.OutputNetworkID):         resource.NewNumberProperty(12637895),
 		resource.PropertyKey(clusterref.OutputPodCIDR):           resource.NewStringProperty("10.244.0.0/16"),
 		resource.PropertyKey(clusterref.OutputServiceCIDR):       resource.NewStringProperty("10.96.0.0/12"),
 		resource.PropertyKey(clusterref.OutputClusterName):       resource.NewStringProperty("platform-prod"),
 		resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty("hel1"),
-		resource.PropertyKey(clusterref.OutputHcloudToken):       resource.NewStringProperty("token-from-the-cluster-tier"),
+		resource.PropertyKey(clusterref.OutputHcloudToken):       resource.MakeSecret(resource.NewStringProperty("token-from-the-cluster-tier")),
 		resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
 	}}
+}
 
-	var (
-		endpoint    string
-		podCIDR     string
-		clusterName string
-		hcloudToken string
-	)
+// resolve runs Resolve against one producer shape and hands the result to fn.
+func resolve(t *testing.T, mocks stackMocks, fn func(*clusterref.Cluster)) error {
+	t.Helper()
 
-	done := make(chan struct{})
-
-	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+	return pulumi.RunErr(func(ctx *pulumi.Context) error {
 		cluster, err := clusterref.Resolve(ctx, "acme/hetzner-cluster/prod")
 		if err != nil {
 			return err
 		}
 
-		pulumi.All(cluster.Endpoint, cluster.PodCIDR, cluster.ClusterName, cluster.HcloudToken).
+		fn(cluster)
+
+		return nil
+	}, pulumi.WithMocks("hetzner-iac", "test", mocks))
+}
+
+// await resolves one output and returns the error it carries.
+//
+// Not ApplyT: an output nothing consumes is never awaited by the engine, so an
+// error raised inside it hangs the program instead of failing it. In a real
+// layer the kubeconfig reaches a provider and the token reaches a Secret,
+// which is what makes the gate fire there; here it takes an explicit await.
+func await(t *testing.T, mocks stackMocks, pick func(*clusterref.Cluster) pulumi.Output) (any, error) {
+	t.Helper()
+
+	var value any
+
+	err := resolveErr(t, mocks, func(ctx *pulumi.Context, cluster *clusterref.Cluster) error {
+		result, awaitErr := internals.UnsafeAwaitOutput(ctx.Context(), pick(cluster))
+		if awaitErr != nil {
+			return awaitErr
+		}
+
+		value = result.Value
+
+		return nil
+	})
+
+	return value, err
+}
+
+func resolveErr(
+	t *testing.T,
+	mocks stackMocks,
+	fn func(*pulumi.Context, *clusterref.Cluster) error,
+) error {
+	t.Helper()
+
+	return pulumi.RunErr(func(ctx *pulumi.Context) error {
+		cluster, err := clusterref.Resolve(ctx, "acme/hetzner-cluster/prod")
+		if err != nil {
+			return err
+		}
+
+		return fn(ctx, cluster)
+	}, pulumi.WithMocks("hetzner-iac", "test", mocks))
+}
+
+func TestResolve_ReadsTheClusterTierOutputs(t *testing.T) {
+	t.Parallel()
+
+	var (
+		endpoint    string
+		podCIDR     string
+		clusterName string
+		token       string
+		count       int
+	)
+
+	done := make(chan struct{})
+
+	err := resolve(t, current(), func(cluster *clusterref.Cluster) {
+		pulumi.All(cluster.Endpoint, cluster.PodCIDR, cluster.ClusterName,
+			cluster.HcloudToken, cluster.ControlPlaneCount).
 			ApplyT(func(values []any) error {
 				endpoint, _ = values[0].(string)
 				podCIDR, _ = values[1].(string)
 				clusterName, _ = values[2].(string)
-				hcloudToken, _ = values[3].(string)
+				token, _ = values[3].(string)
+				count, _ = values[4].(int)
 
 				close(done)
 
 				return nil
 			})
-
-		return nil
-	}, pulumi.WithMocks("hetzner-iac", "test", mocks))
+	})
 
 	require.NoError(t, err)
 	<-done
@@ -78,50 +144,74 @@ func TestResolve_ReadsTheClusterTierOutputs(t *testing.T) {
 	assert.Equal(t, "https://203.0.113.200:6443", endpoint)
 	assert.Equal(t, "10.244.0.0/16", podCIDR)
 	assert.Equal(t, "platform-prod", clusterName)
-	// The token reaches a layer through the same reference as the kubeconfig,
-	// which is what lets 20-cloud-integration hold no copy of its own. The
-	// mock returns it unmarked; the producer's config.GetSecret is what makes
-	// it a secret, and that is not observable from here.
-	assert.Equal(t, "token-from-the-cluster-tier", hcloudToken)
+	assert.Equal(t, "token-from-the-cluster-tier", token)
+	assert.Equal(t, 3, count)
 }
 
-func TestResolve_AMissingTokenIsEmptyRatherThanAnError(t *testing.T) {
+func TestResolve_TheVersionGateKeepsSecretsSecret(t *testing.T) {
 	t.Parallel()
 
-	// A cluster stack applied before the token was exported simply has no such
-	// output. The SDK's GetStringOutput would fail that with "does not exist
-	// on stack"; Resolve deliberately returns empty instead, so the consumer
-	// that needs the token is the one that says what to do about it.
-	mocks := stackMocks{outputs: resource.PropertyMap{
-		resource.PropertyKey(clusterref.OutputKubeconfig): resource.NewStringProperty("apiVersion: v1"),
-	}}
-
-	var (
-		token string
-		done  = make(chan struct{})
-	)
-
-	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
-		cluster, err := clusterref.Resolve(ctx, "acme/hetzner-cluster/prod")
-		if err != nil {
-			return err
+	// Every output is routed through pulumi.All to depend on the version
+	// check, and an All that dropped the secret marker would hand each layer
+	// an unwrapped cluster-admin kubeconfig to store in its own state. Nothing
+	// else in the stack would report that, so it is pinned here.
+	err := resolve(t, current(), func(cluster *clusterref.Cluster) {
+		for name, output := range map[string]pulumi.Output{
+			"kubeconfig":  cluster.Kubeconfig,
+			"hcloudToken": cluster.HcloudToken,
+		} {
+			assert.True(t, pulumi.IsSecret(output), "%s must stay a secret through the gate", name)
 		}
 
-		cluster.HcloudToken.ApplyT(func(value string) string {
-			token = value
-
-			close(done)
-
-			return value
-		})
-
-		return nil
-	}, pulumi.WithMocks("hetzner-iac", "test", mocks))
+		for name, output := range map[string]pulumi.Output{
+			"clusterName":       cluster.ClusterName,
+			"podCidr":           cluster.PodCIDR,
+			"controlPlaneCount": cluster.ControlPlaneCount,
+		} {
+			assert.False(t, pulumi.IsSecret(output), "%s is not a credential and marking it one hides it from diffs", name)
+		}
+	})
 
 	require.NoError(t, err)
-	<-done
+}
 
-	assert.Empty(t, token)
+func TestResolve_AProducerThatPredatesVersioningFailsWithOneCommand(t *testing.T) {
+	t.Parallel()
+
+	// The state every existing stack is in until it is applied again: outputs
+	// present, no version among them. One error, naming the stack and the
+	// command — not one error per output, worded differently each time.
+	mocks := current()
+	delete(mocks.outputs, resource.PropertyKey(clusterref.OutputContractVersion))
+
+	_, err := await(t, mocks, func(c *clusterref.Cluster) pulumi.Output { return c.ClusterName })
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "publishes contract v0")
+	assert.Contains(t, err.Error(), "task cluster:apply")
+	assert.Contains(t, err.Error(), "acme/hetzner-cluster/prod")
+}
+
+func TestResolve_EveryOutputReportsTheStaleProducer(t *testing.T) {
+	t.Parallel()
+
+	// The gate's purpose: whichever output a layer happens to read first, it
+	// gets the version error rather than that output's own absence.
+	mocks := current()
+	mocks.outputs[resource.PropertyKey(clusterref.OutputContractVersion)] =
+		resource.NewNumberProperty(clusterref.ContractVersion - 1)
+
+	for name, read := range map[string]func(*clusterref.Cluster) pulumi.Output{
+		"kubeconfig":        func(c *clusterref.Cluster) pulumi.Output { return c.Kubeconfig },
+		"podCidr":           func(c *clusterref.Cluster) pulumi.Output { return c.PodCIDR },
+		"controlPlaneCount": func(c *clusterref.Cluster) pulumi.Output { return c.ControlPlaneCount },
+		"hcloudToken":       func(c *clusterref.Cluster) pulumi.Output { return c.HcloudToken },
+	} {
+		_, err := await(t, mocks, read)
+
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), "this layer needs v", name)
+	}
 }
 
 func TestResolve_RejectsAnEmptyReference(t *testing.T) {
@@ -145,6 +235,7 @@ func TestOutputNames_AreStable(t *testing.T) {
 	// These strings are the wire contract between the cluster tier and every
 	// layer. Changing one without changing the other half produces a layer
 	// that resolves an empty output and fails at apply, so pin them.
+	assert.Equal(t, "contractVersion", clusterref.OutputContractVersion)
 	assert.Equal(t, "kubeconfig", clusterref.OutputKubeconfig)
 	assert.Equal(t, "talosconfig", clusterref.OutputTalosconfig)
 	assert.Equal(t, "endpoint", clusterref.OutputEndpoint)
@@ -158,80 +249,77 @@ func TestOutputNames_AreStable(t *testing.T) {
 	assert.Equal(t, "controlPlaneCount", clusterref.OutputControlPlaneCount)
 }
 
-func TestResolve_AnAbsentControlPlaneCountIsNilNotZero(t *testing.T) {
+// TestContract_ProducerExportsEveryDeclaredOutput closes the hole that let two
+// halves of this contract drift: a constant could be declared here, read by a
+// layer, and never exported by the cluster tier. That compiles, and fails at
+// apply against a real cluster.
+//
+// Reading the producer's source rather than running it: the program builds
+// servers and reads a topology, and what is being checked is a static fact
+// about which names it exports. The same technique as the renovate regex test.
+func TestContract_ProducerExportsEveryDeclaredOutput(t *testing.T) {
 	t.Parallel()
 
-	// The distinction is the point. Zero is a number a consumer can compute
-	// with, and computing a replica count from an unknown is how a working
-	// component gets scaled to nothing — so absent has to be a different
-	// value, not a smaller one.
-	mocks := stackMocks{outputs: resource.PropertyMap{
-		resource.PropertyKey(clusterref.OutputKubeconfig): resource.NewStringProperty("apiVersion: v1"),
-	}}
-
-	var (
-		count *int
-		done  = make(chan struct{})
-	)
-
-	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
-		cluster, err := clusterref.Resolve(ctx, "acme/hetzner-cluster/prod")
-		if err != nil {
-			return err
-		}
-
-		cluster.ControlPlaneCount.ApplyT(func(value *int) *int {
-			count = value
-
-			close(done)
-
-			return value
-		})
-
-		return nil
-	}, pulumi.WithMocks("hetzner-iac", "test", mocks))
-
+	raw, err := os.ReadFile("../../infra/cluster/main.go")
 	require.NoError(t, err)
-	<-done
 
-	assert.Nil(t, count)
+	producer := string(raw)
+
+	for _, name := range clusterref.Declared {
+		constant := constantFor(t, name)
+
+		assert.Contains(t, producer, "ctx.Export(clusterref."+constant,
+			"the cluster tier exports no %s (clusterref.%s): a layer reading it fails at apply",
+			name, constant)
+	}
 }
 
-func TestResolve_ReadsTheControlPlaneCount(t *testing.T) {
+func TestDeclared_ListsEveryOutputConstant(t *testing.T) {
 	t.Parallel()
 
-	// Pulumi sends JSON numbers as float64, so the conversion is worth pinning
-	// — a type assertion straight to int would leave every count nil.
-	mocks := stackMocks{outputs: resource.PropertyMap{
-		resource.PropertyKey(clusterref.OutputKubeconfig):        resource.NewStringProperty("apiVersion: v1"),
-		resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
-	}}
-
-	var (
-		count *int
-		done  = make(chan struct{})
-	)
-
-	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
-		cluster, err := clusterref.Resolve(ctx, "acme/hetzner-cluster/prod")
-		if err != nil {
-			return err
-		}
-
-		cluster.ControlPlaneCount.ApplyT(func(value *int) *int {
-			count = value
-
-			close(done)
-
-			return value
-		})
-
-		return nil
-	}, pulumi.WithMocks("hetzner-iac", "test", mocks))
-
+	// Declared is what the producer test iterates, so a constant missing from
+	// it is a constant nothing checks.
+	raw, err := os.ReadFile("clusterref.go")
 	require.NoError(t, err)
-	<-done
 
-	require.NotNil(t, count)
-	assert.Equal(t, 3, *count)
+	var constants int
+
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "Output") && strings.Contains(line, "= \"") {
+			constants++
+		}
+	}
+
+	assert.Equal(t, constants, len(clusterref.Declared),
+		"%d Output constants but %d in Declared", constants, len(clusterref.Declared))
+}
+
+// constantFor maps an output's wire name back to its Go constant name, so the
+// producer test can look for the identifier rather than the literal — the
+// producer is required to use the constant, which is the point of having one.
+func constantFor(t *testing.T, name string) string {
+	t.Helper()
+
+	for constant, wire := range map[string]string{
+		"OutputContractVersion":   clusterref.OutputContractVersion,
+		"OutputKubeconfig":        clusterref.OutputKubeconfig,
+		"OutputTalosconfig":       clusterref.OutputTalosconfig,
+		"OutputEndpoint":          clusterref.OutputEndpoint,
+		"OutputAPILoadBalancerIP": clusterref.OutputAPILoadBalancerIP,
+		"OutputNetworkID":         clusterref.OutputNetworkID,
+		"OutputPodCIDR":           clusterref.OutputPodCIDR,
+		"OutputServiceCIDR":       clusterref.OutputServiceCIDR,
+		"OutputClusterName":       clusterref.OutputClusterName,
+		"OutputLocation":          clusterref.OutputLocation,
+		"OutputHcloudToken":       clusterref.OutputHcloudToken,
+		"OutputControlPlaneCount": clusterref.OutputControlPlaneCount,
+	} {
+		if wire == name {
+			return constant
+		}
+	}
+
+	t.Fatalf("no constant known for output %q", name)
+
+	return ""
 }
