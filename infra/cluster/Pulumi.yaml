@@ -58,19 +58,8 @@ backend:
 # Set it per stack instead:
 #
 #   pulumi config set --secret hcloud:token <token>
-config:
-  hetzner-cluster:publicIPv4:
-    description: |
-      Keep a routable IPv4 address on every node. Required unless `pulumi up`
-      runs from inside the private network, because Talos machine
-      configuration is pushed over the Talos API.
-    default: true
-  hetzner-cluster:allowICMP:
-    description: Open ping from the admin CIDRs. Useful when debugging routing.
-    default: false
-  hetzner-cluster:imageSelector:
-    description: |
-      Label selector for the Talos snapshot. Empty derives
-      "os=talos,talos-version=<version>" — the labels `task cluster:image-bake`
-      writes.
-    default: ""
+# No `config:` block. Everything that shapes a cluster is in
+# cluster.<stack>.yaml, which is committed and reviewable; the Hetzner token is
+# the only thing in stack config, and it is there because it must not be in
+# git. `hcloud:token` cannot be declared here anyway — Pulumi refuses a config
+# key namespaced to a provider package.

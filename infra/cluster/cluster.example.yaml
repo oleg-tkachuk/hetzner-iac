@@ -1,19 +1,28 @@
-# Production cluster topology.
+# yaml-language-server: $schema=./cluster.schema.json
 #
-# Committed on purpose: a cluster must be reviewable in a diff before it exists
-# and reproducible from a clone. Parameters that live only in `pulumi config`
-# leave somebody's shell history as the only record of how a cluster was shaped.
+# The template. Copy it to cluster.<stack>.yaml — the file infra/cluster loads
+# — and edit adminCIDRs. This one is committed and the stack files are not:
+# adminCIDRs is an operator's own egress address, and this repository is
+# public.
+#
+#   cp cluster.example.yaml cluster.dev.yaml
+#
+# This IS the per-environment description of a cluster. Everything that shapes
+# one is here and nowhere else: three switches used to live in `pulumi config`,
+# which left somebody's shell history as the only record of them. Stack config
+# now holds exactly one thing, the Hetzner token, because a token must not be
+# in git.
 #
 # Sparse by design — anything omitted keeps the default in pkg/hetzner, so this
-# file never restates a default and a default can change in one place.
-#
-# Secrets are NOT here and must not be. The Hetzner token is set as a Pulumi
-# secret by `task cluster:apply`.
+# file never restates a default and a default can change in one place. The
+# modeline above gives an editor the field names, types and defaults;
+# pkg/hetzner validates the same file at plan time and reports every problem at
+# once, including the ones a schema cannot express.
 apiVersion: hetzner-iac/v1
 kind: Cluster
 
 metadata:
-  name: platform-prod
+  name: platform-dev
 
 placement:
   location: hel1
@@ -33,6 +42,15 @@ network:
   adminCIDRs:
     - 203.0.113.4/32
 
+  # Keep a routable address on every node. Defaults to TRUE, and stated here
+  # because it decides which address Talos and the kubeconfig target: machine
+  # configuration is pushed over the Talos API, so an apply from anywhere but
+  # inside the private network needs one.
+  publicIPv4: true
+
+  # Open ping from adminCIDRs. Off unless something is being debugged.
+  allowICMP: false
+
 talos:
   # Bump this and re-run `task cluster:image-bake`. The image selector keys off
   # the version label, so a bump without a bake fails at plan time with "no
@@ -47,6 +65,11 @@ talos:
   version: v1.13.10
   architecture: x86
 
+  # Override the snapshot selector. Empty derives
+  # "os=talos,talos-version=<version>" — the labels `task cluster:image-bake`
+  # writes — which is what you want unless a snapshot was baked by hand.
+  imageSelector: ""
+
 kubernetes:
   # Pinned, not left to Talos. An empty value would take whatever the
   # configured Talos release ships, so a Talos patch bump could move Kubernetes
@@ -60,9 +83,12 @@ kubernetes:
 
 controlPlane:
   # Three for etcd quorum. One is a development shape: it survives no node
-  # failure and its API endpoint moves if the node is replaced.
+  # failure and its API endpoint moves if the node is replaced — and with no
+  # worker pool below, the whole platform runs on it.
   count: 3
   serverType: cx23
+  # Required once count > 1 and ignored otherwise: a single control plane has
+  # nothing to fail over between, so a load balancer would only cost money.
   apiLoadBalancerType: lb11
 
 workerPools:

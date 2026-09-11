@@ -71,6 +71,8 @@ talosconfig
 # than to the project; lefthook merges the file automatically when present.
 lefthook-local.yml
 
-# Development cluster topology. Kept local: its adminCIDRs holds the
-# operator's real egress address, and this repository is public.
-infra/cluster/cluster.dev.yaml
+# Stack topologies. Kept local: adminCIDRs is the operator's own egress
+# address, and this repository is public. cluster.example.yaml is the committed
+# template — copy it to cluster.<stack>.yaml.
+infra/cluster/cluster.*.yaml
+!infra/cluster/cluster.example.yaml

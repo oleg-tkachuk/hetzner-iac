@@ -1,11 +1,12 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: "3"
 
 silent: true
 
 vars:
   _CL_DIR: '{{.ROOT}}/infra/cluster'
-  _CL_STACK: '{{.stack | default "prod"}}'
-  _CL_TOPOLOGY: '{{.ROOT}}/infra/cluster/cluster.{{.stack | default "prod"}}.yaml'
+  _CL_STACK: '{{.stack | default "dev"}}'
+  _CL_TOPOLOGY: '{{.ROOT}}/infra/cluster/cluster.{{.stack | default "dev"}}.yaml'
 
 tasks:
   # ---------------------------------------------------------------------------
@@ -165,7 +166,7 @@ tasks:
     desc: "Provision or converge the Talos cluster (idempotent)"
     preconditions:
       - sh: test -f "{{._CL_TOPOLOGY}}"
-        msg: "no topology at {{._CL_TOPOLOGY}} — copy cluster.prod.yaml and edit it"
+        msg: "no topology at {{._CL_TOPOLOGY}} — cp infra/cluster/cluster.example.yaml {{._CL_TOPOLOGY}} and edit adminCIDRs"
     cmds:
       - cmd: |
           set -euo pipefail

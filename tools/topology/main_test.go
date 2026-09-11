@@ -196,7 +196,7 @@ func TestTalosVersion_MatchesTheRepositoryTopologies(t *testing.T) {
 	t.Parallel()
 
 	// What CI actually runs.
-	version, err := get("talos-version", filepath.Join("..", "..", "infra", "cluster", "cluster.prod.yaml"))
+	version, err := get("talos-version", filepath.Join("..", "..", "infra", "cluster", "cluster.example.yaml"))
 	require.NoError(t, err)
 	assert.Regexp(t, `^v\d+\.\d+\.\d+$`, version)
 }
@@ -316,25 +316,25 @@ func TestDeclaredConfigIsOptional(t *testing.T) {
 	}
 }
 
-func TestGet_ReadsEveryFieldFromBothCommittedTopologies(t *testing.T) {
+func TestGet_ReadsEveryFieldFromEveryTopologyPresent(t *testing.T) {
 	t.Parallel()
 
 	// The point of this tool over a grep. Three of the four call sites it
-	// replaced were returning an empty string — the Talos version in prod and
-	// the Kubernetes version in both — because the comments above those fields
-	// had grown past the three-line window the grep looked in.
-	root := filepath.Join("..", "..")
+	// replaced were returning an empty string, because the comments above
+	// those fields had grown past the three-line window the grep looked in.
+	//
+	// Globbed rather than named: only cluster.example.yaml is committed, and a
+	// working copy also has the stack topologies it was copied into. Every one
+	// present has to be readable.
+	paths, err := filepath.Glob(filepath.Join("..", "..", "infra", "cluster", "cluster.*.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "cluster.example.yaml is committed and must be here")
 
-	for _, name := range []string{"cluster.prod.yaml", "cluster.dev.yaml"} {
-		path := filepath.Join(root, "infra", "cluster", name)
-		if _, err := os.Stat(path); err != nil {
-			continue // cluster.dev.yaml is gitignored; skip where absent.
-		}
-
+	for _, path := range paths {
 		for _, field := range fieldNames() {
-			value, err := get(field, path)
-			require.NoError(t, err, "%s %s", name, field)
-			assert.NotEmpty(t, value, "%s %s", name, field)
+			value, getErr := get(field, path)
+			require.NoError(t, getErr, "%s %s", path, field)
+			assert.NotEmpty(t, value, "%s %s", path, field)
 		}
 	}
 }
@@ -342,7 +342,7 @@ func TestGet_ReadsEveryFieldFromBothCommittedTopologies(t *testing.T) {
 func TestGet_RefusesAnUnknownField(t *testing.T) {
 	t.Parallel()
 
-	_, err := get("talos_version", filepath.Join("..", "..", "infra", "cluster", "cluster.prod.yaml"))
+	_, err := get("talos_version", filepath.Join("..", "..", "infra", "cluster", "cluster.example.yaml"))
 
 	require.Error(t, err)
 	// The message lists the alternatives, because a typo in a task is

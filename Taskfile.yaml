@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: "3"
 
 silent: true
@@ -18,8 +19,8 @@ vars:
   # how it is shaped comes from infra/cluster/cluster.<stack>.yaml, which is
   # committed.
   #
-  #   task cluster:apply stack=prod
-  stack: '{{.stack | default "prod"}}'
+  #   task cluster:apply stack=dev
+  stack: '{{.stack | default "dev"}}'
 
   # The layers, in dependency order. This list is the only place the order
   # lives: platform:apply-all walks it, and CI derives its preview matrix from

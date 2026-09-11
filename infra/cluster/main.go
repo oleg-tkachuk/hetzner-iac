@@ -8,7 +8,8 @@
 // Bring-up:
 //
 //	cd infra/cluster
-//	pulumi stack init prod
+//	cp cluster.example.yaml cluster.dev.yaml   # then edit adminCIDRs
+//	pulumi stack init dev
 //	pulumi config set --secret hcloud:token <token>
 //	task cluster:image-bake        # once per Talos version
 //	pulumi up
@@ -43,13 +44,16 @@ func main() {
 			return err
 		}
 
-		cfg := config.New(ctx, "hetzner-cluster")
-
+		// Nothing shaping the cluster comes from `pulumi config` any more. The
+		// topology is the whole per-environment description, so a cluster is
+		// reviewable in a diff and reproducible from a clone — three switches
+		// in stack config left somebody's shell as the only record of them.
+		// Stack config keeps the token, because a token must not be in git.
 		cluster, err := hetzner.NewCluster(ctx, topology.Metadata.Name, &hetzner.ClusterArgs{
 			Topology:      topology,
-			ImageSelector: cfg.Get("imageSelector"),
-			PublicIPv4:    cfg.GetBool("publicIPv4"),
-			AllowICMP:     cfg.GetBool("allowICMP"),
+			ImageSelector: topology.Talos.ImageSelector,
+			PublicIPv4:    topology.PublicIPv4Enabled(),
+			AllowICMP:     topology.ICMPAllowed(),
 		})
 		if err != nil {
 			return err
