@@ -205,6 +205,10 @@ func TestTalosVersion_MatchesTheRepositoryTopologies(t *testing.T) {
 type projectFile struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Config      map[string]struct {
+		Default any  `json:"default"`
+		Secret  bool `json:"secret"`
+	} `json:"config"`
 }
 
 // TestProjectDescriptionsFitTheStackTag guards a limit that is invisible until
@@ -228,15 +232,7 @@ func TestProjectDescriptionsFitTheStackTag(t *testing.T) {
 
 	const maxStackTag = 256
 
-	root := filepath.Join("..", "..")
-
-	paths, err := filepath.Glob(filepath.Join(root, "layers", "*", "Pulumi.yaml"))
-	require.NoError(t, err)
-
-	paths = append(paths, filepath.Join(root, "infra", "cluster", "Pulumi.yaml"))
-	require.Len(t, paths, 8, "eight Pulumi projects: seven layers and the cluster tier")
-
-	for _, path := range paths {
+	for _, path := range projectPaths(t) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err, path)
 
@@ -249,6 +245,74 @@ func TestProjectDescriptionsFitTheStackTag(t *testing.T) {
 			"%s: description is %d characters; Pulumi Cloud refuses the stack tag over %d, "+
 				"so `pulumi stack init` would fail. Move the prose into a comment above the key.",
 			project.Name, len(project.Description), maxStackTag)
+	}
+}
+
+// projectPaths returns every Pulumi.yaml in the repository.
+func projectPaths(t *testing.T) []string {
+	t.Helper()
+
+	root := filepath.Join("..", "..")
+
+	paths, err := filepath.Glob(filepath.Join(root, "layers", "*", "Pulumi.yaml"))
+	require.NoError(t, err)
+
+	paths = append(paths, filepath.Join(root, "infra", "cluster", "Pulumi.yaml"))
+	require.Len(t, paths, 8, "eight Pulumi projects: seven layers and the cluster tier")
+
+	return paths
+}
+
+// TestDeclaredConfigIsOptional guards the rule that a key declared in
+// Pulumi.yaml without a `default` is REQUIRED by Pulumi's own stack-config
+// validation — and that validation runs before the program:
+//
+//	error: validating stack config: Stack 'dev' is missing configuration
+//	values 'observability:logsRetention', ...
+//
+// Which means the layer's own message, the one naming the three Object Storage
+// locations or the command that sets a stack reference, is never reached. That
+// is the whole failure: these layers report every problem at once, with a
+// remedy, and a schema that fails first replaces all of it with a list of key
+// names.
+//
+// It cost two `platform:plan-all` runs — 05-object-storage first, then
+// 60-observability behind it — so the guard is a test rather than a comment.
+// An intentionally required key belongs in requiredConfig below, with the
+// reason; the point is that requiring one is a decision, not an omission.
+func TestDeclaredConfigIsOptional(t *testing.T) {
+	t.Parallel()
+
+	// Empty on purpose. Every required-looking key is better reported by the
+	// program: pkg/layer names the command that sets clusterStackRef, and
+	// pkg/objectstorage lists the locations that host buckets.
+	requiredConfig := map[string]bool{}
+
+	for _, path := range projectPaths(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err, path)
+
+		var project projectFile
+		require.NoError(t, yaml.Unmarshal(raw, &project), path)
+
+		for key, spec := range project.Config {
+			if requiredConfig[key] {
+				continue
+			}
+
+			assert.NotNil(t, spec.Default,
+				"%s declares %s with no `default`, which makes Pulumi require it before "+
+					"the program runs. Give it `default: \"\"` and let the program validate, "+
+					"or add it to requiredConfig with the reason.", path, key)
+
+			// A secret with an empty default is worse than a required one: it
+			// arrives set-but-empty, so a presence check passes and the
+			// credential reaching the provider is the empty string.
+			assert.False(t, spec.Secret,
+				"%s declares the secret %s. A secret cannot be made optional with a default — "+
+					"an empty one reads as set. Leave it undeclared and document it in a comment.",
+				path, key)
+		}
 	}
 }
 

@@ -38,6 +38,7 @@ backend:
 
 config:
   cloud-integration:clusterStackRef:
+    default: ""
     description: |
       Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
       This layer reads the kubeconfig from it, which is what lets it be applied
