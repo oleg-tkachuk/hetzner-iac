@@ -1,6 +1,11 @@
 # One awk program, selected with -v op=<name>, for the line-oriented parsing
 # this repository needs.
 #
+# Named for its subject, like every other tool here: every op takes lines on
+# stdin — df output, a git numstat, a layer list, workflow files — and answers
+# a question about them. The directory used to be called `awk`, which named the
+# implementation and said nothing about what it is for.
+#
 # It replaces pipelines. `df --output=avail -BM / | tail -1 | tr -dc '0-9'` is
 # three processes and three chances to return the wrong thing quietly; the
 # `avail-mb` rule below is one. The same argument applies to every `grep | grep
@@ -19,7 +24,7 @@
 # which is the failure mode the pipelines had.
 BEGIN {
     if (op == "") {
-        print "awk/lib.awk: -v op=<name> is required" > "/dev/stderr"
+        print "lines/main.awk: -v op=<name> is required" > "/dev/stderr"
         exit 2
     }
 
@@ -31,7 +36,7 @@ BEGIN {
     known["staged-binaries"] = 1
 
     if (!(op in known)) {
-        print "awk/lib.awk: unknown op " op > "/dev/stderr"
+        print "lines/main.awk: unknown op " op > "/dev/stderr"
         exit 2
     }
 }
@@ -134,7 +139,7 @@ op == "cache-writers" && /^[[:space:]]+cache-mode:.*save/ {
 END {
     if (op == "avail-mb") {
         if (!found) {
-            print "awk/lib.awk: df produced no data row" > "/dev/stderr"
+            print "lines/main.awk: df produced no data row" > "/dev/stderr"
             exit 1
         }
 
