@@ -31,6 +31,8 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/cni"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 
@@ -50,72 +52,117 @@ const (
 	StorageClass = platform.StorageClass
 )
 
-func main() {
-	layer.Run(program)
+// CiliumTimeoutSeconds is longer than the default: Cilium pulls large images
+// onto nodes with nothing cached yet, and every other layer waits on it.
+const CiliumTimeoutSeconds = 900
+
+// Components are what this layer deploys.
+//
+// The Secret is a component rather than something created around the set, and
+// that is the point of the design: it sits BETWEEN Cilium and the two charts
+// that read it. A hook running after the releases — the obvious shape, and the
+// one first proposed — could not express that, and a hook running before them
+// could not express its own dependency on Cilium. Anything with a place in the
+// order has to be in the order.
+var Components = layer.Components{
+	{
+		// The CNI is a choice, not a constant — see pkg/cni. The component
+		// keeps a fixed Name so the two charts that follow it do not have to
+		// know which implementation was picked.
+		Name:           CNIComponent,
+		TimeoutSeconds: CiliumTimeoutSeconds,
+		Create:         createCNI,
+	},
+	{
+		// Both charts read the same Secret. Creating it once here, rather than
+		// letting each chart template its own, keeps one copy of the
+		// credential in the cluster instead of two.
+		Name:   CredentialsSecret,
+		After:  []string{CNIComponent},
+		Create: createCredentials,
+	},
+	{
+		Chart:   "hcloud-ccm",
+		Release: "hcloud-cloud-controller-manager",
+		After:   []string{CNIComponent, CredentialsSecret},
+		Values: func(r *layer.Runner) pulumi.Map {
+			return CCMValues(r.Cluster.PodCIDR)
+		},
+	},
+	{
+		// CSI after the CCM: the driver registers against nodes, and a node
+		// still carrying the uninitialized taint has no provider ID to
+		// register against.
+		Chart: "hcloud-csi",
+		After: []string{CredentialsSecret, "hcloud-ccm"},
+	},
 }
 
-// program is the layer, separated from main so a test can run it against a
-// mock monitor and assert the ordering this stack exists to guarantee.
-func program(r *layer.Runner) error {
-	// Cilium first, and everything else after it. This is the ordering
-	// that used to be two directory names.
-	cilium, err := r.Release(r.Ctx, layer.ReleaseArgs{
-		Chart: "cilium",
-		// Cilium pulls large images onto nodes with nothing cached yet,
-		// and every other layer waits on it.
-		TimeoutSeconds: 900,
-		Values:         CiliumValues(r.Cluster.PodCIDR, r.Cluster.ControlPlaneCount),
-	})
+// CNIComponent is the fixed name of whichever CNI is installed, so the
+// components that follow it name the role rather than the implementation.
+const CNIComponent = "cni"
+
+// createCNI installs the CNI this stack asks for.
+//
+// A Create component rather than a Chart one because the chart key is not
+// known until the config is read, and because the choice has to be checked
+// against what the cluster tier did to kube-proxy before anything is created.
+func createCNI(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
+	name := r.StringOr("cni", cni.Default)
+
+	chosen, err := cni.Select(name, hetzner.KubeProxyDisabled)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	afterCilium := pulumi.DependsOn([]pulumi.Resource{cilium})
+	r.Log.Step("cni", name)
 
-	// Both charts read the same secret. Creating it once here, rather than
-	// letting each chart template its own, keeps one copy of the
-	// credential in the cluster instead of two.
-	credentials, err := corev1.NewSecret(r.Ctx, CredentialsSecret, &corev1.SecretArgs{
+	opts := make([]pulumi.ResourceOption, 0, 1)
+	if len(dependencies) > 0 {
+		opts = append(opts, pulumi.DependsOn(dependencies))
+	}
+
+	return r.Release(r.Ctx, layer.ReleaseArgs{
+		Chart:          chosen.Chart,
+		TimeoutSeconds: CiliumTimeoutSeconds,
+		Values:         CiliumValues(r.Cluster.PodCIDR, r.Cluster.ControlPlaneCount),
+	}, opts...)
+}
+
+// createCredentials makes the Secret both hcloud charts read.
+func createCredentials(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
+	return corev1.NewSecret(r.Ctx, CredentialsSecret, &corev1.SecretArgs{
 		Metadata: &metav1.ObjectMetaArgs{
 			Name:      pulumi.String(CredentialsSecret),
 			Namespace: pulumi.String(SystemNamespace),
 		},
 		StringData: pulumi.StringMap{
 			"token": resolveToken(r),
-			// The route controller programmes pod routes inside this
-			// network. Without it the CCM starts and silently manages no
-			// routes, which surfaces as pods unable to reach pods on
-			// other nodes.
+			// The route controller programmes pod routes inside this network.
+			// Without it the CCM starts and silently manages no routes, which
+			// surfaces as pods unable to reach pods on other nodes.
 			"network": r.Cluster.NetworkID.ApplyT(strconv.Itoa).(pulumi.StringOutput),
 		},
-	}, r.With(afterCilium)...)
-	if err != nil {
-		return err
-	}
+	}, r.With(pulumi.DependsOn(dependencies))...)
+}
 
-	ccm, err := r.Release(r.Ctx, layer.ReleaseArgs{
-		Chart:  "hcloud-ccm",
-		Name:   "hcloud-cloud-controller-manager",
-		Values: CCMValues(r.Cluster.PodCIDR),
-	}, afterCilium, pulumi.DependsOn([]pulumi.Resource{credentials}))
-	if err != nil {
-		return err
-	}
+func main() {
+	layer.Run(func(r *layer.Runner) error {
+		deployed, err := r.Deploy(Components)
+		if err != nil {
+			return err
+		}
 
-	// CSI after the CCM: the driver registers against nodes, and a node
-	// still carrying the uninitialized taint has no provider ID to
-	// register against.
-	if _, err := r.Release(r.Ctx, layer.ReleaseArgs{
-		Chart: "hcloud-csi",
-		Name:  "hcloud-csi",
-	}, pulumi.DependsOn([]pulumi.Resource{credentials, ccm})); err != nil {
-		return err
-	}
+		cilium, ok := deployed.Release(CNIComponent)
+		if !ok {
+			return fmt.Errorf("the cni was not deployed")
+		}
 
-	r.Ctx.Export("cniReady", cilium.Status.Status())
-	r.Ctx.Export("storageClass", pulumi.String(StorageClass))
+		r.Ctx.Export("cniReady", cilium.Status.Status())
+		r.Ctx.Export("storageClass", pulumi.String(StorageClass))
 
-	return nil
+		return nil
+	})
 }
 
 // OperatorReplicasWanted is how many Cilium operator replicas to run wherever

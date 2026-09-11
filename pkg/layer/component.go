@@ -39,17 +39,43 @@ import (
 //
 // A named type rather than a bare []Component so the concept has somewhere to
 // be documented and something to search for. To add a component to a layer,
-// add an entry to that layer's Components and give it a values function; to
-// make it wait for another, name that other component's chart key in After.
-// pkg/layer/layertest.Check then holds it to the invariants — pinned chart, no
-// cycle, workloads declared — without the layer writing a test for each.
+// add an entry to that layer's Components; to make it wait for another, name
+// that other component in After. pkg/layer/layertest.Check then holds the set
+// to its invariants — pinned chart, no cycle, workloads declared — without the
+// layer writing a test for each.
+//
+// Most components are a Helm release, which is what Chart and Values are for.
+// Two in this repository are not — a Secret both hcloud charts read, and the
+// ClusterIssuer cert-manager's CRD makes possible — and those set Create
+// instead.
+//
+// They are components rather than a hook around the set, and that is the whole
+// design decision. A hook that ran after the releases would have fitted the
+// ClusterIssuer and NOT the Secret, which sits between Cilium and the two
+// charts that consume it. Anything with a place in the dependency order has to
+// be IN the order, or the order is not the thing it claims to be.
 type Components []Component
 
-// Component is one deployable piece of a layer.
+// Component is one deployable piece of a layer: a Helm release, or a resource
+// that belongs in the same dependency order as the releases.
 type Component struct {
-	// Chart is a key into pkg/charts. It is also this component's name, the
-	// one other components use in After.
+	// Name is what other components use in After. Empty takes Chart, which is
+	// what a release wants; a Create component has to set it.
+	Name string
+
+	// Chart is a key into pkg/charts. Set it for a Helm release, and leave
+	// Create nil.
 	Chart string
+
+	// Create makes a resource that is not a release, given the resources this
+	// component named in After. Set it for anything that is not a chart, and
+	// leave Chart empty.
+	//
+	// Returning (nil, nil) is how an optional feature declines: the component
+	// stays in the set, so it is still enumerated and still ordered, and
+	// nothing is created. That keeps the set static and readable rather than
+	// assembled behind an `if` where a test cannot see it.
+	Create func(*Runner, []pulumi.Resource) (pulumi.Resource, error)
 
 	// Release overrides the Helm release name. Empty uses the chart key.
 	Release string
@@ -57,7 +83,7 @@ type Component struct {
 	// TimeoutSeconds overrides the default for a chart that is genuinely slow.
 	TimeoutSeconds int
 
-	// After names the chart keys this component must follow. It becomes a
+	// After names the components this one must follow, by Name. It becomes a
 	// DependsOn, so it is a fact the engine holds rather than a convention the
 	// reader has to keep.
 	After []string
@@ -74,51 +100,87 @@ type Component struct {
 	SkipCRDs bool
 }
 
-// Deploy creates every component in dependency order and returns the releases
-// by chart key, so a caller can depend on one from outside the set.
-func (r *Runner) Deploy(components Components) (map[string]*helm.Release, error) {
+// Key is the name other components refer to this one by: Name, or the chart
+// key when Name is empty. Exported because pkg/layer/layertest asserts the
+// order and has to ask the same question.
+func (c Component) Key() string {
+	if c.Name != "" {
+		return c.Name
+	}
+
+	return c.Chart
+}
+
+// Deployed is what Deploy created, by component name. A component that
+// declined to create anything is absent.
+type Deployed map[string]pulumi.Resource
+
+// Release returns a component's Helm release, for a caller that needs the
+// release's own outputs rather than just something to depend on.
+func (d Deployed) Release(name string) (*helm.Release, bool) {
+	release, ok := d[name].(*helm.Release)
+
+	return release, ok
+}
+
+// Deploy creates every component in dependency order.
+func (r *Runner) Deploy(components Components) (Deployed, error) {
 	ordered, err := order(components)
 	if err != nil {
 		return nil, err
 	}
 
-	released := make(map[string]*helm.Release, len(ordered))
+	deployed := make(Deployed, len(ordered))
 
 	for _, component := range ordered {
-		var values pulumi.Map
-		if component.Values != nil {
-			values = component.Values(r)
+		dependencies := resourcesFor(deployed, component.After)
+
+		resource, createErr := r.create(component, dependencies)
+		if createErr != nil {
+			return nil, createErr
 		}
 
-		opts := make([]pulumi.ResourceOption, 0, 1)
-
-		if dependencies := resourcesFor(released, component.After); len(dependencies) > 0 {
-			opts = append(opts, pulumi.DependsOn(dependencies))
+		// A component may decline — an optional feature whose config is
+		// unset. Absent from the map rather than nil in it, so a later
+		// DependsOn cannot be handed a nil resource.
+		if resource != nil {
+			deployed[component.Key()] = resource
 		}
-
-		release, releaseErr := r.Release(r.Ctx, ReleaseArgs{
-			Chart:          component.Chart,
-			Name:           component.Release,
-			Values:         values,
-			TimeoutSeconds: component.TimeoutSeconds,
-			SkipCRDs:       component.SkipCRDs,
-		}, opts...)
-		if releaseErr != nil {
-			return nil, releaseErr
-		}
-
-		released[component.Chart] = release
 	}
 
-	return released, nil
+	return deployed, nil
 }
 
-func resourcesFor(released map[string]*helm.Release, after []string) []pulumi.Resource {
+func (r *Runner) create(component Component, dependencies []pulumi.Resource) (pulumi.Resource, error) {
+	if component.Create != nil {
+		return component.Create(r, dependencies)
+	}
+
+	var values pulumi.Map
+	if component.Values != nil {
+		values = component.Values(r)
+	}
+
+	opts := make([]pulumi.ResourceOption, 0, 1)
+	if len(dependencies) > 0 {
+		opts = append(opts, pulumi.DependsOn(dependencies))
+	}
+
+	return r.Release(r.Ctx, ReleaseArgs{
+		Chart:          component.Chart,
+		Name:           component.Release,
+		Values:         values,
+		TimeoutSeconds: component.TimeoutSeconds,
+		SkipCRDs:       component.SkipCRDs,
+	}, opts...)
+}
+
+func resourcesFor(deployed Deployed, after []string) []pulumi.Resource {
 	out := make([]pulumi.Resource, 0, len(after))
 
 	for _, key := range after {
-		if release, ok := released[key]; ok {
-			out = append(out, release)
+		if resource, ok := deployed[key]; ok {
+			out = append(out, resource)
 		}
 	}
 
@@ -131,24 +193,39 @@ func resourcesFor(released map[string]*helm.Release, after []string) []pulumi.Re
 // so two runs of the same contract produce the same sequence and a diff in the
 // Pulumi preview means something actually changed.
 func order(components Components) (Components, error) {
-	byChart := make(map[string]Component, len(components))
+	byName := make(map[string]Component, len(components))
 	keys := make([]string, 0, len(components))
 
 	for _, component := range components {
-		if component.Chart == "" {
-			return nil, fmt.Errorf("a component has no chart key")
+		// Exactly one of the two, checked rather than assumed: a component
+		// with both would silently deploy the chart and skip Create, and one
+		// with neither would be a name in the order that creates nothing and
+		// looks like it should.
+		switch {
+		case component.Chart == "" && component.Create == nil:
+			return nil, fmt.Errorf("component %q has neither a chart nor a Create function", component.Key())
+		case component.Chart != "" && component.Create != nil:
+			return nil, fmt.Errorf("component %q has both a chart and a Create function", component.Key())
+		case component.Key() == "":
+			return nil, fmt.Errorf("a component built with Create has no Name")
 		}
 
-		if _, seen := byChart[component.Chart]; seen {
-			return nil, fmt.Errorf("chart %q appears twice in the set", component.Chart)
+		key := component.Key()
+
+		if _, seen := byName[key]; seen {
+			return nil, fmt.Errorf("component %q appears twice in the set", key)
 		}
 
-		if _, err := charts.Get(component.Chart); err != nil {
-			return nil, fmt.Errorf("component %q: %w", component.Chart, err)
+		// Only a chart has a pin to check. The registry is what carries the
+		// version, so a key it does not know is a chart with no pin.
+		if component.Chart != "" {
+			if _, err := charts.Get(component.Chart); err != nil {
+				return nil, fmt.Errorf("component %q: %w", key, err)
+			}
 		}
 
-		byChart[component.Chart] = component
-		keys = append(keys, component.Chart)
+		byName[key] = component
+		keys = append(keys, key)
 	}
 
 	sort.Strings(keys)
@@ -170,14 +247,14 @@ func order(components Components) (Components, error) {
 
 		state[key] = 1
 
-		component := byChart[key]
+		component := byName[key]
 
 		dependencies := make([]string, len(component.After))
 		copy(dependencies, component.After)
 		sort.Strings(dependencies)
 
 		for _, dependency := range dependencies {
-			if _, ok := byChart[dependency]; !ok {
+			if _, ok := byName[dependency]; !ok {
 				return fmt.Errorf(
 					"component %q must follow %q, which is not in this set",
 					key, dependency)

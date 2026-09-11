@@ -24,58 +24,66 @@ const IssuerName = "letsencrypt"
 // warnings that look like a misconfiguration.
 const LetsEncryptDirectory = "https://acme-v02.api.letsencrypt.org/directory"
 
+// Components are what this layer deploys.
+//
+// The ClusterIssuer is a component that may decline. Its Create returns
+// (nil, nil) when acmeEmail is unset, which keeps the entry in the set — still
+// enumerated, still ordered — rather than hiding the decision behind an `if`
+// where nothing can see it. A cluster with no public DNS has nothing for
+// Let's Encrypt to validate against, and an issuer that fails every order is
+// noisier than an absent one.
+var Components = layer.Components{
+	{
+		Chart:  "cert-manager",
+		Values: func(*layer.Runner) pulumi.Map { return CertManagerValues() },
+	},
+	{
+		Name:   IssuerName,
+		After:  []string{"cert-manager"},
+		Create: createClusterIssuer,
+	},
+	{
+		Chart:  "external-secrets",
+		Values: func(*layer.Runner) pulumi.Map { return ExternalSecretsValues() },
+	},
+	{
+		Chart:  "metrics-server",
+		Values: func(*layer.Runner) pulumi.Map { return MetricsServerValues() },
+	},
+}
+
+// createClusterIssuer makes the ACME issuer, or nothing and says so.
+func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
+	email := r.Cfg.Get("acmeEmail")
+	if email == "" {
+		// The most confusing thing this layer can do is install cert-manager
+		// and no issuer, leaving every Certificate pending with nothing to
+		// satisfy it. Permanent, so it survives the run.
+		r.Log.Skipped("cluster-issuer", "acmeEmail unset, no ClusterIssuer created")
+
+		return nil, nil
+	}
+
+	r.Log.Step("cluster-issuer", "acmeEmail set, orders go to Let's Encrypt")
+
+	// An untyped CustomResource because the CRD is installed by cert-manager,
+	// which this component follows: a generated, typed SDK would have to come
+	// from CRDs that do not exist at compile time.
+	return apiextensions.NewCustomResource(r.Ctx, IssuerName, &apiextensions.CustomResourceArgs{
+		ApiVersion: pulumi.String("cert-manager.io/v1"),
+		Kind:       pulumi.String("ClusterIssuer"),
+		Metadata:   &metav1.ObjectMetaArgs{Name: pulumi.String(IssuerName)},
+		OtherFields: map[string]any{
+			"spec": IssuerSpec(email),
+		},
+	}, r.With(pulumi.DependsOn(dependencies))...)
+}
+
 func main() {
 	layer.Run(func(r *layer.Runner) error {
-		certManager, err := r.Release(r.Ctx, layer.ReleaseArgs{
-			Chart:  "cert-manager",
-			Values: CertManagerValues(),
-		})
-		if err != nil {
-			return err
-		}
+		_, err := r.Deploy(Components)
 
-		// The ACME issuer is optional: a cluster with no public DNS yet has
-		// nothing for Let's Encrypt to validate against, and an issuer that
-		// fails every order is noisier than an absent one.
-		email := r.Cfg.Get("acmeEmail")
-		if email == "" {
-			// The most confusing thing this layer can do is install
-			// cert-manager and no issuer, leaving every Certificate pending
-			// with nothing to satisfy it. Permanent, so it survives the run.
-			r.Log.Skipped("cluster-issuer", "acmeEmail unset, no ClusterIssuer created")
-		} else {
-			r.Log.Step("cluster-issuer", "acmeEmail set, orders go to Let's Encrypt")
-
-			if _, err := apiextensions.NewCustomResource(r.Ctx, IssuerName, &apiextensions.CustomResourceArgs{
-				ApiVersion: pulumi.String("cert-manager.io/v1"),
-				Kind:       pulumi.String("ClusterIssuer"),
-				Metadata:   &metav1.ObjectMetaArgs{Name: pulumi.String(IssuerName)},
-				OtherFields: map[string]any{
-					"spec": IssuerSpec(email),
-				},
-				// An untyped CustomResource because the CRD is installed by
-				// the release immediately above: a generated, typed SDK would
-				// have to come from CRDs that do not exist at compile time.
-			}, r.With(pulumi.DependsOn([]pulumi.Resource{certManager}))...); err != nil {
-				return err
-			}
-		}
-
-		if _, err := r.Release(r.Ctx, layer.ReleaseArgs{
-			Chart:  "external-secrets",
-			Values: ExternalSecretsValues(),
-		}); err != nil {
-			return err
-		}
-
-		if _, err := r.Release(r.Ctx, layer.ReleaseArgs{
-			Chart:  "metrics-server",
-			Values: MetricsServerValues(),
-		}); err != nil {
-			return err
-		}
-
-		return nil
+		return err
 	})
 }
 

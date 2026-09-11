@@ -46,13 +46,13 @@ func ordersDependenciesFirst(t *testing.T, components layer.Components) {
 
 	position := make(map[string]int, len(ordered))
 	for i, component := range ordered {
-		position[component.Chart] = i
+		position[component.Key()] = i
 	}
 
 	for _, component := range components {
 		for _, dependency := range component.After {
-			assert.Less(t, position[dependency], position[component.Chart],
-				"%s must come after %s", component.Chart, dependency)
+			assert.Less(t, position[dependency], position[component.Key()],
+				"%s must come after %s", component.Key(), dependency)
 		}
 	}
 }
@@ -66,6 +66,13 @@ func declaresWorkloads(t *testing.T, components layer.Components) {
 	t.Helper()
 
 	for _, component := range components {
+		// A component that is not a chart produces no workload a chart
+		// renderer could find: the Secret both hcloud charts read is one, the
+		// ClusterIssuer is another. Nothing to pair them with.
+		if component.Chart == "" {
+			continue
+		}
+
 		chart, err := charts.Get(component.Chart)
 		require.NoError(t, err, component.Chart)
 

@@ -199,6 +199,16 @@ const (
 	kind       = "Cluster"
 )
 
+// KubeProxyDisabled is what this repository writes into the Talos machine
+// configuration, and therefore a constraint on which CNI can be installed: a
+// CNI that does not replace kube-proxy would leave the cluster with no service
+// dataplane at all.
+//
+// A named constant rather than a literal in machineconfig.go because pkg/cni
+// has to be able to check against it — two halves of one decision, in one
+// place, which is the same reason pkg/platform exists.
+const KubeProxyDisabled = true
+
 // Defaults for the two switches. Separate from the block above because a bool
 // default cannot be expressed as "the zero value is fine": DefaultPublicIPv4
 // is true, which is the whole reason those fields are pointers.

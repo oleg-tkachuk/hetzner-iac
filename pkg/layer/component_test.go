@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -105,11 +106,39 @@ func TestOrder_RefusesADuplicateChart(t *testing.T) {
 	assert.Contains(t, err.Error(), "twice")
 }
 
-func TestOrder_RefusesAComponentWithNoChart(t *testing.T) {
+func TestOrder_RefusesAComponentThatDeploysNothing(t *testing.T) {
 	t.Parallel()
 
+	// Neither a chart nor a Create function is a name in the order that
+	// creates nothing and looks like it should.
 	_, err := layer.OrderForTest(layer.Components{{}})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no chart key")
+	assert.Contains(t, err.Error(), "neither a chart nor a Create function")
+}
+
+func TestOrder_RefusesAComponentThatIsBoth(t *testing.T) {
+	t.Parallel()
+
+	// A component with both would deploy the chart and silently skip Create.
+	_, err := layer.OrderForTest(layer.Components{{
+		Chart:  "loki",
+		Create: func(*layer.Runner, []pulumi.Resource) (pulumi.Resource, error) { return nil, nil },
+	}})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "both a chart and a Create function")
+}
+
+func TestOrder_RefusesACreateComponentWithNoName(t *testing.T) {
+	t.Parallel()
+
+	// A Create component has no chart key to fall back on, so nothing else
+	// could name it in After.
+	_, err := layer.OrderForTest(layer.Components{{
+		Create: func(*layer.Runner, []pulumi.Resource) (pulumi.Resource, error) { return nil, nil },
+	}})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has no Name")
 }
