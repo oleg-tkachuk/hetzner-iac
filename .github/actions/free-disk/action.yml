@@ -33,7 +33,7 @@ runs:
         # One awk instead of `tail -1 | tr -dc '0-9'`: three processes became
         # one, and a df that prints no data row now fails saying so instead of
         # yielding an empty string that the arithmetic below would treat as 0.
-        before=$(df --output=avail -BM / | awk -f awk/lib.awk -v op=avail-mb)
+        before=$(df --output=avail -BM / | awk -f tools/awk/lib.awk -v op=avail-mb)
 
         # Each of these is a preinstalled toolchain for a language or platform
         # this repository does not use. Removed rather than pruned: there is
@@ -52,7 +52,7 @@ runs:
         # with a reason. Without that check this line would hide the very
         # problem the action exists to prevent.
 
-        after=$(df --output=avail -BM / | awk -f awk/lib.awk -v op=avail-mb)
+        after=$(df --output=avail -BM / | awk -f tools/awk/lib.awk -v op=avail-mb)
 
         echo "free space: ${before} MB → ${after} MB (+$((after - before)) MB)"
         df -h /
