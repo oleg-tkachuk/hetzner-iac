@@ -23,7 +23,8 @@ brew "hcloud"
 # workloads pkg/workloads declares, offline.
 brew "helm"
 
-# Used by the image-bake task.
+# Two JSON field reads in the status tasks. image-bake used to need it and
+# no longer does — tools/imagebake parses with encoding/json.
 brew "jq"
 
 # --- Required, but read the note --------------------------------------------

@@ -95,17 +95,11 @@ jobs:
             exit 1
           fi
 
-          # `no stack named X` is the failure this guard turns into a sentence.
-          # It arrived as `exit code 6` from eight jobs at once, with nothing
-          # naming the stacks that do exist. jq's stdout is discarded because
-          # it is a boolean, not a diagnostic; stderr is untouched.
-          if ! pulumi --non-interactive stack ls --json \
-             | jq -e --arg s "$STACK" 'any(.[]; .name == $s)' >/dev/null; then
-            echo "::error::no Pulumi stack named '${STACK}' in infra/cluster"
-            echo "stacks that do exist:" >&2
-            pulumi --non-interactive stack ls --json | jq -r '.[].name' >&2
-            exit 1
-          fi
+          # tools/stack names the stacks that do exist. The pipeline this
+          # replaces reported only an exit code — eight jobs said `exit code 6`
+          # at once with nothing saying which stacks were there — and it was
+          # the third copy of the same `pulumi stack ls | jq -e` in the tree.
+          go run ./tools/stack exists infra/cluster "$STACK"
 
           pulumi --non-interactive --stack "$STACK" preview --diff
 

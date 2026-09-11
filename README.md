@@ -85,7 +85,7 @@ floating tags are rejected by validation rather than by convention.
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
 | [talosctl](https://www.talos.dev/) | day-2: upgrades, etcd snapshots |
-| `jq`, `curl` | used by the image-bake task |
+| `jq` | two JSON field reads in the status tasks; image-bake no longer needs it |
 
 On macOS, `brew bundle` installs all of it:
 

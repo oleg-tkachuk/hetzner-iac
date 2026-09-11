@@ -15,104 +15,21 @@ tasks:
 
   image-bake:
     desc: "Bake the Talos snapshot named by the topology into the hcloud project (idempotent)"
-    # The token comes out of the encrypted stack config, not out of the
-    # operator's shell. `pulumi config get` decrypts it with the stack's own
-    # key, so there is exactly one copy of the token, it lives in the
-    # committed Pulumi.<stack>.yaml as ciphertext, and no plaintext file has
-    # to exist anywhere for `hcloud` to work.
-    #
-    # An exported HCLOUD_TOKEN still wins, so a shell that already has one —
-    # CI, or a token for a different project — keeps working unchanged.
-    #
-    # Task resolves `env` before `preconditions`, so this block is the first
-    # thing that runs and the only place the remedy can be printed. A
-    # precondition saying it never gets reached.
-    env:
-      HCLOUD_TOKEN:
-        sh: |
-          set -uo pipefail
-          if [ -n "${HCLOUD_TOKEN:-}" ]; then
-            printf '%s' "${HCLOUD_TOKEN}"
-            exit 0
-          fi
-          # Pulumi's own error goes to stderr untouched — "no stack named" and
-          # "invalid access token" are different problems and say so. Only the
-          # remedy is added.
-          if ! token="$(pulumi --non-interactive -C "{{._CL_DIR}}" -s "{{._CL_STACK}}" config get hcloud:token)"; then
-            printf '%s\n' >&2 \
-              "" \
-              "no Hetzner token for stack {{._CL_STACK}}. Set it once, encrypted, in the stack:" \
-              "" \
-              "  pulumi -C infra/cluster -s {{._CL_STACK}} config set --secret hcloud:token <token>" \
-              "" \
-              "It is then committed as ciphertext in Pulumi.{{._CL_STACK}}.yaml and every" \
-              "task reads it from there. Exporting HCLOUD_TOKEN also works and takes priority."
-            exit 1
-          fi
-          printf '%s' "$token"
     preconditions:
       - sh: command -v hcloud >/dev/null
-        msg: "hcloud CLI not installed — brew install hcloud"
+        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
       - sh: command -v hcloud-upload-image >/dev/null
         msg: "hcloud-upload-image not installed — go install github.com/apricote/hcloud-upload-image@latest"
-      - sh: command -v jq >/dev/null
-        msg: "jq not installed — brew install jq"
       - sh: test -f "{{._CL_TOPOLOGY}}"
-        msg: "no topology at {{._CL_TOPOLOGY}}"
+        msg: "no topology at {{._CL_TOPOLOGY}} — cp infra/cluster/cluster.example.yaml {{._CL_TOPOLOGY}} and edit adminCIDRs"
     cmds:
-      - cmd: |
-          set -euo pipefail
-
-          # Values come from the parser the cluster itself is built from, not
-          # from a grep over the file. The grep this replaced read three lines
-          # after `talos:` and hoped the field was among them — it returned an
-          # empty version for prod, where a comment above the field had grown
-          # past the window, and nothing noticed.
-          #
-          # `get` also refuses to print an empty value, so a missing field
-          # fails here instead of being substituted into the factory URL.
-          version="$(go run {{.ROOT}}/tools/topology get talos-version "{{._CL_TOPOLOGY}}")"
-          arch="$(go run {{.ROOT}}/tools/topology get talos-architecture "{{._CL_TOPOLOGY}}")"
-
-          selector="os=talos,talos-version=${version}"
-
-          # Idempotent: an existing snapshot with these labels is what the
-          # Pulumi lookup resolves, so re-baking would cost money and leave two
-          # candidates behind for `mostRecent` to choose between.
-          # `awk -v op=any-row` rather than `grep -q .`: the same contract
-          # without grep's exit-code ambiguity, where 1 means "no match" and is
-          # indistinguishable from an error once stderr goes anywhere.
-          if hcloud image list --type snapshot --selector "$selector" -o noheader \
-             | awk -f "{{.ROOT}}/tools/awk/lib.awk" -v op=any-row; then
-            echo "snapshot already present for ${selector} — nothing to do"
-            exit 0
-          fi
-
-          case "$arch" in
-            x86) factory_arch=amd64 ;;
-            arm) factory_arch=arm64 ;;
-            *)   echo "ERROR: talos.architecture must be x86 or arm, got ${arch}" >&2; exit 1 ;;
-          esac
-
-          # Talos images come from the Image Factory, not from GitHub releases.
-          # The schematic id is content-addressed, so POSTing the customisation
-          # is deterministic and is the place to add system extensions later —
-          # no hash to keep in sync by hand.
-          schematic_id="$(curl -sfX POST --data-binary '{"customization":{}}' \
-            https://factory.talos.dev/schematics | jq -r .id)"
-          [ -n "$schematic_id" ] && [ "$schematic_id" != "null" ] || {
-            echo "ERROR: could not create an Image Factory schematic" >&2; exit 1; }
-
-          url="https://factory.talos.dev/image/${schematic_id}/${version}/hcloud-${factory_arch}.raw.xz"
-          echo "baking ${version} (${arch}) from ${url}"
-
-          hcloud-upload-image upload \
-            --image-url "$url" \
-            --compression xz \
-            --architecture "$arch" \
-            --labels "$selector"
-
-          echo "snapshot ready — next: task cluster:apply stack={{._CL_STACK}}"
+      # Forty-eight lines of shell used to live here: `curl | jq` for the
+      # Image Factory, `hcloud image list | awk` for idempotence, a `case` for
+      # the architecture, and an `env:` stanza resolving the token — which Task
+      # evaluates BEFORE preconditions, so the precondition holding the remedy
+      # could never print. All of it is tools/imagebake now, where it is
+      # testable and where `jq` and `curl` are not needed at all.
+      - go run {{.ROOT}}/tools/imagebake "{{._CL_TOPOLOGY}}" "{{._CL_STACK}}"
 
   config-check:
     desc: "Validate the machine-config patches against Talos itself — no cluster needed"
@@ -136,23 +53,10 @@ tasks:
   init:
     desc: "Create the Pulumi stack for this environment"
     cmds:
-      - cmd: |
-          set -euo pipefail
-          cd "{{._CL_DIR}}"
-          # Ask whether the stack exists, then do exactly one thing. The
-          # obvious `init || select` is worse than it looks: it sends init's
-          # stderr to /dev/null to keep the "already exists" case quiet, and
-          # so ANY init failure — a rejected stack tag, a bad token, no
-          # network — surfaces only as `select` complaining that the stack
-          # does not exist. That cost a diagnosis: `pulumi stack init` was
-          # refusing a description over 256 characters, and the operator saw
-          # "no stack named 'dev' found".
-          if pulumi --non-interactive stack ls --json \
-             | jq -e --arg s "{{._CL_STACK}}" 'any(.[]; .name == $s)' >/dev/null; then
-            pulumi --non-interactive stack select "{{._CL_STACK}}"
-          else
-            pulumi --non-interactive stack init "{{._CL_STACK}}"
-          fi
+      # tools/stack, because the same decision is made here, in platform:init
+      # and in the preview workflow, and three copies of a `pulumi stack ls
+      # | jq -e` pipeline is three places to get it wrong.
+      - go run {{.ROOT}}/tools/stack ensure "{{._CL_DIR}}" "{{._CL_STACK}}"
 
   plan:
     desc: "Show what applying the cluster would change; change nothing"
