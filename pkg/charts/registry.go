@@ -42,7 +42,8 @@ type Chart struct {
 // the application version it ships so a reader does not have to resolve the
 // chart to know what is running.
 var registry = map[string]Chart{
-	// Layer 10 — CNI. Cilium replaces kube-proxy in eBPF, which is why the
+	// Layer 10 — CNI, and first for a reason the cloud-integration layer
+	// explains. Cilium replaces kube-proxy in eBPF, which is why the
 	// cluster tier disables kube-proxy in the Talos machine config.
 	"cilium": {
 		Name:       "cilium",
@@ -52,7 +53,7 @@ var registry = map[string]Chart{
 		Namespace:  "kube-system",
 	},
 
-	// Layer 15 — cloud integration. The CCM clears the `uninitialized` taint
+	// Layer 20 — cloud integration. The CCM clears the `uninitialized` taint
 	// Talos leaves on every node, so nothing schedules until it runs.
 	"hcloud-ccm": {
 		Name:      "hcloud-cloud-controller-manager",
@@ -67,7 +68,7 @@ var registry = map[string]Chart{
 		Namespace: "kube-system",
 	},
 
-	// Layer 20 — core platform.
+	// Layer 30 — core platform.
 	"cert-manager": {
 		Name:       "cert-manager",
 		Repo:       "https://charts.jetstack.io",
@@ -90,7 +91,7 @@ var registry = map[string]Chart{
 		Namespace:  "kube-system",
 	},
 
-	// Layer 30 — ingress.
+	// Layer 40 — ingress.
 	"ingress-nginx": {
 		Name:       "ingress-nginx",
 		Repo:       "https://kubernetes.github.io/ingress-nginx",
@@ -99,7 +100,7 @@ var registry = map[string]Chart{
 		Namespace:  "ingress-nginx",
 	},
 
-	// Layer 40 — GitOps.
+	// Layer 50 — GitOps.
 	"argo-cd": {
 		Name:       "argo-cd",
 		Repo:       "https://argoproj.github.io/argo-helm",
@@ -108,7 +109,7 @@ var registry = map[string]Chart{
 		Namespace:  "argocd",
 	},
 
-	// Layer 50 — observability. Metrics, logs and traces, with Alloy as the
+	// Layer 60 — observability. Metrics, logs and traces, with Alloy as the
 	// collector: Promtail is deprecated upstream and Alloy is its replacement.
 	"kube-prometheus-stack": {
 		Name:       "kube-prometheus-stack",

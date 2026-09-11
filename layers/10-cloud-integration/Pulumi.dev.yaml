@@ -1,2 +1,0 @@
-config:
-  cloud-integration:clusterStackRef: oleg-tkachuk/hetzner-cluster/dev
