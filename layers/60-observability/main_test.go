@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/observability"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 
@@ -301,4 +302,30 @@ func TestTempoValues_LeavesStorageToTheChart(t *testing.T) {
 
 	assert.NotContains(t, tempo, "storage")
 	assert.Equal(t, pulumi.String("168h"), tempo["retention"])
+}
+
+func TestComponents(t *testing.T) {
+	t.Parallel()
+
+	layertest.Check(t, Components)
+}
+
+func TestComponents_EverythingFollowsPrometheus(t *testing.T) {
+	t.Parallel()
+
+	// Loki, Tempo and Alloy each register a datasource or a ServiceMonitor
+	// against the Prometheus operator, so none of them can be created before
+	// the chart that installs it. This used to be a pulumi.DependsOn built by
+	// hand and passed to three calls; a fourth component added without it
+	// would race, and the symptom is a missing datasource rather than an error.
+	for _, component := range Components {
+		if component.Chart == PrometheusChart {
+			assert.Empty(t, component.After, "%s must not wait for anything", component.Chart)
+
+			continue
+		}
+
+		assert.Contains(t, component.After, PrometheusChart,
+			"%s registers against the Prometheus operator and must follow it", component.Chart)
+	}
 }
