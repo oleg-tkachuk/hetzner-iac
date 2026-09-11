@@ -39,8 +39,19 @@ description: |
 backend:
   url: https://api.pulumi.com
 
+# Every non-secret key carries `default: ""`, which is what makes it optional.
+# A key declared here without a default is REQUIRED by Pulumi's own stack-config
+# validation, and that validation runs before the program does — so
+# `platform:plan-all` failed on this layer with "Stack 'dev' is missing
+# configuration values", and the layer's own message, which names the three
+# locations and explains the prefix, was never reached. Validation belongs to
+# pkg/objectstorage, which reports every problem at once.
+#
+# The two credentials are deliberately left without one: an empty default would
+# read as set-but-empty, and the provider would then sign with nothing.
 config:
   object-storage:location:
+    default: ""
     description: |
       Where the buckets live: fsn1, nbg1 or hel1.
 
@@ -48,24 +59,29 @@ config:
       legitimately run somewhere Object Storage does not, and the layer says so
       rather than failing against a host that does not resolve.
   object-storage:namePrefix:
+    default: ""
     description: |
       Prefix for every bucket name, e.g. platform-prod.
 
       Bucket names share one DNS namespace across all of Hetzner, so they
       collide with other customers' rather than only within this project.
   object-storage:retainNoncurrentDays:
+    default: ""
     description: |
       How long a superseded object version survives in a versioned bucket.
       Defaults to 30.
 
       Not optional in effect: NoncurrentVersionExpiration is the only lifecycle
       rule Hetzner implements, so a versioned bucket without it only grows.
-  object-storage:accessKey:
-    description: |
-      S3 access key, from the Hetzner Console under the project's Object
-      Storage. Set with --secret. Not an hcloud API token.
-    secret: true
-  object-storage:secretKey:
-    description: |
-      S3 secret key, matching accessKey. Set with --secret.
-    secret: true
+# The two S3 credentials are NOT declared above, and that is what makes this
+# layer opt-in. Declaring a key makes Pulumi require it unless it has a
+# default, and a default of "" would arrive as set-but-empty — so the provider
+# would sign with nothing and fail on a signature rather than on a missing
+# credential. Undeclared, an unset credential is absent, the program says so,
+# and a stack that never wanted buckets creates none:
+#
+#   pulumi config set --secret object-storage:accessKey <key>
+#   pulumi config set --secret object-storage:secretKey <key>
+#
+# Both come from the Hetzner Console under the project's Object Storage. They
+# are not an hcloud API token; that token cannot sign an S3 request.
