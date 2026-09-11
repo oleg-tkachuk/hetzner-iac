@@ -85,6 +85,12 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 		return nil, fmt.Errorf("kubernetes provider: %w", err)
 	}
 
+	// Exported so the engine awaits it. The contract check is an output, and
+	// an output nothing consumes is never resolved — the error inside it
+	// would never surface. A stack output is the cheapest thing that is
+	// always awaited and whose value no resource's identity depends on.
+	ctx.Export(clusterref.OutputContractVersion, cluster.ContractCheck)
+
 	return &Runner{
 		Ctx:      ctx,
 		Cluster:  cluster,
