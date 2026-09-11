@@ -138,7 +138,11 @@ jobs:
     # scanners, which gate the release.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Ten, not five. The work here is two seconds of echo and awk; everything
+    # else is setup, and setup is not something this job controls. At five it
+    # timed out on a slow runner at 5m09 — reported as "cancelled", which took
+    # a while to recognise as a timeout.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -147,6 +151,11 @@ jobs:
         with:
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # No cache. This job compiles nothing: it prints the layer list from
+          # the Taskfile and runs awk over the workflows. Restoring the shared
+          # cache expands 789 MB into 4.4 GB for no reader, which is most of
+          # what pushed it past its timeout.
+          cache-mode: "off"
       - run: |
           set -euo pipefail
           declared="$(task platform:layers --yes | sort)"
