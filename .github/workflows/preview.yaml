@@ -31,7 +31,7 @@ env:
 
 jobs:
   target:
-    name: Resolve the target
+    name: Target stack and layers
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -63,7 +63,7 @@ jobs:
         run: echo "stack=$STACK" >>"$GITHUB_OUTPUT"
 
   cluster:
-    name: Preview the cluster tier
+    name: Cluster tier drift
     needs: [target]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -146,7 +146,7 @@ jobs:
           pulumi --non-interactive --stack "$STACK" preview --diff
 
   e2e:
-    name: Verify the running cluster
+    name: Cluster health
     needs: [target, cluster]
     runs-on: ubuntu-latest
     timeout-minutes: 45

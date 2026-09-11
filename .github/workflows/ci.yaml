@@ -1,5 +1,11 @@
 name: CI
 
+# Job names say what is asserted, never which tool asserts it: "Committed
+# secrets", not "gitleaks". The tool shows up in the step and in the log, where
+# a failure is already being read; the check list is read to see what is
+# guarded. Renaming a job renames a required status check, so branch protection
+# has to be updated in the same pass.
+
 on:
   pull_request:
     branches: [main]
@@ -72,7 +78,7 @@ jobs:
   # left a 31 MB cache that every later run restored and then rebuilt from
   # scratch. Priming makes the saved cache the useful one.
   prime:
-    name: Prime the Go cache
+    name: Go build cache
     # Also needs security, which is the cheap half of the pipeline — nine to
     # thirty-five seconds. GitHub has no job-level fail-fast: a failing job does
     # not stop its siblings. Gating the priming job on the scanners means a
@@ -205,7 +211,7 @@ jobs:
           fi
 
   build:
-    name: Build and test
+    name: Tests and vet
     # Both events, and this is the one job that runs on a push to main.
     #
     # Branch protection no longer requires a branch to be current before it
@@ -256,7 +262,7 @@ jobs:
         run: go vet -tags e2e ./test/...
 
   lint:
-    name: golangci-lint
+    name: Go lint
     if: github.event_name == 'pull_request'
     needs: [changes, prime]
     runs-on: ubuntu-latest
