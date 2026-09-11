@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
+
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
@@ -497,7 +499,9 @@ func TestProgram_NothingIsInstalledBeforeCilium(t *testing.T) {
 			return newErr
 		}
 
-		return program(runner)
+		_, deployErr := runner.Deploy(Components)
+
+		return deployErr
 	}, pulumi.WithMocks(testProject, testStack, m)))
 
 	// The credentials Secret and the CCM name Cilium directly. The CSI driver
@@ -506,4 +510,10 @@ func TestProgram_NothingIsInstalledBeforeCilium(t *testing.T) {
 		assert.True(t, m.dependsOnCilium(name),
 			"%s must depend on cilium: without it the engine may create it on a NotReady node", name)
 	}
+}
+
+func TestComponents(t *testing.T) {
+	t.Parallel()
+
+	layertest.Check(t, Components)
 }

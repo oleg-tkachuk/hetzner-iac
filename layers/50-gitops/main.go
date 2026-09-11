@@ -8,6 +8,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -48,16 +50,21 @@ func main() {
 			r.Log.Step("ingress", "domain "+domain)
 		}
 
-		released, err := r.Deploy(Components)
+		deployed, err := r.Deploy(Components)
 		if err != nil {
 			return err
+		}
+
+		argocd, ok := deployed.Release("argo-cd")
+		if !ok {
+			return fmt.Errorf("argo-cd was not deployed")
 		}
 
 		// Export the secret's NAME, not its value: reading the password into
 		// this stack would put a cluster-admin credential into Pulumi state
 		// for no benefit — it is rotated on first login anyway.
 		r.Ctx.Export("adminSecret", pulumi.String(AdminSecret))
-		r.Ctx.Export("gitopsReady", released["argo-cd"].Status.Status())
+		r.Ctx.Export("gitopsReady", argocd.Status.Status())
 
 		return nil
 	})

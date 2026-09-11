@@ -53,7 +53,7 @@ var registry = map[string]Chart{
 		Namespace:  "kube-system",
 	},
 
-	// Layer 20 — cloud integration. The CCM clears the `uninitialized` taint
+	// 10-node-platform, after the CNI. The CCM clears the `uninitialized` taint
 	// Talos leaves on every node, so nothing schedules until it runs.
 	"hcloud-ccm": {
 		Name:      "hcloud-cloud-controller-manager",

@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -130,4 +132,10 @@ func acmeSection(t *testing.T, spec pulumi.Map) pulumi.Map {
 	require.True(t, ok)
 
 	return acme
+}
+
+func TestComponents(t *testing.T) {
+	t.Parallel()
+
+	layertest.Check(t, Components)
 }

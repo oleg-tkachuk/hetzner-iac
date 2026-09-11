@@ -89,7 +89,7 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 				"podSubnets":     []string{args.PodCIDR},
 				"serviceSubnets": []string{args.ServiceCIDR},
 			},
-			"proxy": map[string]any{"disabled": true},
+			"proxy": map[string]any{"disabled": KubeProxyDisabled},
 			"controllerManager": map[string]any{
 				"extraArgs": map[string]string{
 					"cloud-provider": "external",
