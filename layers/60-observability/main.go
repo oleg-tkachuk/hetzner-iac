@@ -282,15 +282,21 @@ func TempoValues() pulumi.Map {
 }
 
 // AlloyValues builds the Alloy values.
+//
+// No `mounts.varlog`. It reads as the obvious way to let a log collector reach
+// container logs, and it is how this was first written — but the collector
+// configured in pkg/observability uses loki.source.kubernetes, which reads
+// logs through the Kubernetes API, and the chart grants it pods/log for
+// exactly that. The mount was never read.
+//
+// It was not harmless. varlog is the only thing in this chart that renders a
+// hostPath, Talos enforces Pod Security baseline everywhere except kube-system,
+// and a DaemonSet that violates baseline gets no pods at all: DESIRED 1,
+// CURRENT 0, and Helm waiting out its full timeout with nothing to show for it.
 func AlloyValues() pulumi.Map {
 	return pulumi.Map{
 		"controller": pulumi.Map{"type": pulumi.String("daemonset")},
 		"alloy": pulumi.Map{
-			"mounts": pulumi.Map{
-				// Container logs live here on Talos as on any other node; the
-				// mount is what lets Alloy read them.
-				"varlog": pulumi.Bool(true),
-			},
 			"configMap": pulumi.Map{
 				"content": pulumi.String(observability.AlloyConfig()),
 			},
