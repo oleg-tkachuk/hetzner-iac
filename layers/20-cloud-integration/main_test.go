@@ -1,9 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
+
+	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
+
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,4 +73,131 @@ func TestSecretRef_PointsAtTheSharedSecret(t *testing.T) {
 
 	assert.Equal(t, pulumi.String("hcloud"), secretKeyRef["name"])
 	assert.Equal(t, pulumi.String("token"), secretKeyRef["key"])
+}
+
+// ---------------------------------------------------------------------------
+// Where the token comes from
+// ---------------------------------------------------------------------------
+
+const (
+	testProject = "cloud-integration"
+	testStack   = "test"
+)
+
+// stackMocks stands in for the cluster tier. exported == "" models a cluster
+// stack applied before the token was exported, which is the state every
+// existing stack is in until it is applied again.
+type stackMocks struct{ exported string }
+
+func (m stackMocks) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
+	if args.TypeToken != "pulumi:pulumi:StackReference" {
+		return args.Name, args.Inputs, nil
+	}
+
+	outputs := resource.PropertyMap{
+		resource.PropertyKey(clusterref.OutputKubeconfig): resource.NewStringProperty("apiVersion: v1"),
+	}
+
+	if m.exported != "" {
+		outputs[resource.PropertyKey(clusterref.OutputHcloudToken)] =
+			resource.NewStringProperty(m.exported)
+	}
+
+	return args.Name, resource.PropertyMap{"outputs": resource.NewObjectProperty(outputs)}, nil
+}
+
+func (stackMocks) Call(pulumi.MockCallArgs) (resource.PropertyMap, error) {
+	return resource.PropertyMap{}, nil
+}
+
+// resolved runs resolveToken against a cluster stack exporting `exported` and
+// a layer config holding `override`, and returns the token the layer would put
+// into the credentials Secret.
+//
+// Config reaches a Pulumi program through PULUMI_CONFIG, and t.Setenv forbids
+// t.Parallel, so these tests run in sequence.
+func resolved(t *testing.T, exported, override string) (string, error) {
+	t.Helper()
+
+	cfg := map[string]string{}
+	if override != "" {
+		cfg[testProject+":hcloudToken"] = override
+	}
+
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	t.Setenv("PULUMI_CONFIG", string(raw))
+
+	var (
+		got  string
+		done = make(chan struct{})
+	)
+
+	err = pulumi.RunErr(func(ctx *pulumi.Context) error {
+		cluster, resolveErr := clusterref.Resolve(ctx, "acme/hetzner-cluster/test")
+		if resolveErr != nil {
+			return resolveErr
+		}
+
+		token := resolveToken(config.New(ctx, testProject), cluster, pulumilog.New(ctx))
+
+		// The token has to reach a resource. An output nothing consumes is
+		// never awaited, so an error raised inside it hangs the program
+		// instead of failing it — which is how this test first behaved.
+		// main() puts the token in exactly this Secret.
+		if _, secretErr := corev1.NewSecret(ctx, CredentialsSecret, &corev1.SecretArgs{
+			StringData: pulumi.StringMap{"token": token},
+		}); secretErr != nil {
+			return secretErr
+		}
+
+		token.ApplyT(func(value string) string {
+			got = value
+
+			close(done)
+
+			return value
+		})
+
+		return nil
+	}, pulumi.WithMocks(testProject, testStack, stackMocks{exported: exported}))
+	if err != nil {
+		// The apply never ran, so `done` stays open — returning here rather
+		// than waiting is what keeps a failing case from hanging the suite.
+		return "", err
+	}
+
+	<-done
+
+	return got, nil
+}
+
+func TestResolveToken_TakesTheClusterTiersToken(t *testing.T) {
+	// The point of the whole arrangement: the token is set once, in the stack
+	// whose provider already holds it, and this layer keeps no copy.
+	got, err := resolved(t, "token-from-the-cluster-tier", "")
+
+	require.NoError(t, err)
+	assert.Equal(t, "token-from-the-cluster-tier", got)
+}
+
+func TestResolveToken_LayerConfigOverridesTheClusterTier(t *testing.T) {
+	// Kept deliberately: an operator may want the CCM and CSI to authenticate
+	// with a token scoped differently from the one that built the cluster.
+	got, err := resolved(t, "token-from-the-cluster-tier", "token-from-this-layer")
+
+	require.NoError(t, err)
+	assert.Equal(t, "token-from-this-layer", got)
+}
+
+func TestResolveToken_NoTokenAnywhereFailsWithTheRemedy(t *testing.T) {
+	// Without this the layer creates a Secret holding an empty token, and the
+	// CCM starts, logs 401 and never clears the uninitialized taint — which
+	// reads as a broken cluster rather than as a missing credential.
+	_, err := resolved(t, "", "")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), clusterref.OutputHcloudToken)
+	assert.Contains(t, err.Error(), "apply the cluster tier again")
+	assert.Contains(t, err.Error(), "config set --secret cloud-integration:hcloudToken")
 }
