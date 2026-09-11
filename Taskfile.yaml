@@ -27,18 +27,11 @@ vars:
   # up previewing directories that no longer exist.
   # The CNI comes before the cloud controller manager, and the reason is a
   # deadlock rather than a preference. A CNI-less node carries
-  # node.kubernetes.io/not-ready:NoSchedule; the hcloud CCM chart renders a
-  # Deployment whose tolerations cover that key only with effect NoExecute, and
-  # a Deployment gets no tolerations added for it. So the CCM cannot be
-  # scheduled until the node is Ready, and the node is not Ready until a CNI
-  # runs. Cilium can: its agent tolerates `operator: Exists` and its operator
-  # tolerates not-ready and uninitialized explicitly.
-  #
-  # It cost a ten-minute apply to learn: the release sat Pending and Helm rolled
-  # it back on `atomic`.
+  # The order layers are applied in. Only 30-core onwards is a preference;
+  # everything 10-node-platform needs to do in sequence is a DependsOn inside
+  # that one stack, where the engine enforces it.
   LAYERS: >-
-    10-cni
-    20-cloud-integration
+    10-node-platform
     30-core
     40-ingress
     50-gitops

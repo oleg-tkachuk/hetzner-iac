@@ -19,8 +19,7 @@ platform onto it in independent, idempotent layers.
 
 ```
 infra/cluster              the only project that talks to the Hetzner API
-  └─ exports kubeconfig ──► layers/10-cni                 Cilium
-                            layers/20-cloud-integration   hcloud CCM + CSI
+  └─ exports kubeconfig ──► layers/10-node-platform       Cilium, hcloud CCM + CSI
                             layers/30-core                cert-manager, ESO, metrics-server
                             layers/40-ingress             ingress-nginx
                             layers/50-gitops              Argo CD
@@ -67,8 +66,10 @@ program runs, so the check cannot drift from the thing it checks.
 
 **The cluster tier stops at "a Kubernetes API that answers".** It installs no
 CNI: Talos would otherwise install Flannel, which would then have to be removed
-before Cilium could take over. Nodes are `NotReady` until `10-cni` runs. That
-is the handover point, not a failure.
+before Cilium could take over. Nodes are `NotReady` until `10-node-platform`
+runs. That is the handover point, not a failure — and it is why that layer also
+owns the cloud controller manager, which cannot be scheduled onto a node no CNI
+has made Ready.
 
 **Every chart version is pinned in one place.** `pkg/charts` is the registry;
 floating tags are rejected by validation rather than by convention.
@@ -193,8 +194,8 @@ changes to its image.
 | `task platform:plan-all` | preview every layer in order |
 | `task platform:apply-all` | apply every layer in dependency order |
 | `task platform:destroy-all` | destroy every layer, in reverse |
-| `task platform:plan layer=10-cni` | preview one layer |
-| `task platform:apply layer=10-cni` | apply one layer |
+| `task platform:plan layer=10-node-platform` | preview one layer |
+| `task platform:apply layer=10-node-platform` | apply one layer |
 | `task platform:destroy layer=60-observability` | destroy one layer |
 | `task platform:outputs layer=50-gitops` | one layer's stack outputs |
 | `task platform:status` | which layers are deployed, and how large |
@@ -270,7 +271,7 @@ Pulumi config:
 | `hetzner-cluster:allowICMP` | `infra/cluster` | open ping from the admin CIDRs |
 | `hetzner-cluster:imageSelector` | `infra/cluster` | override the Talos snapshot selector |
 | `<layer>:clusterStackRef` | every layer | `<org>/hetzner-cluster/<stack>` |
-| `cloud-integration:hcloudToken` | `20-cloud-integration` | optional; overrides the token the cluster stack exports (secret) |
+| `node-platform:hcloudToken` | `10-node-platform` | optional; overrides the token the cluster stack exports (secret) |
 | `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | `40-ingress` | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
@@ -285,9 +286,11 @@ move Kubernetes a whole minor with no diff and no decision. It did: the first
 bring-up landed on v1.36.0, new enough that `kube-apiserver` had removed a flag
 the machine config was passing, and the control plane never started.
 
-The Hetzner token is read by the cloud-integration layer rather than exported
-by the cluster tier: a stack that exports a cloud credential puts it into the
-state of every stack that references it.
+The Hetzner token is exported by the cluster tier and read through the same
+stack reference that carries the kubeconfig, so it is typed once. The objection
+to exporting a credential — that it lands in the state of every referencing
+stack — is already true of the kubeconfig and the talosconfig on that channel,
+both strictly more powerful than an API token.
 
 ### Chart upgrades arrive as pull requests
 
