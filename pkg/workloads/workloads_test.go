@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/workloads"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,13 +57,25 @@ func TestExpected_WorkloadNamespaceMatchesItsChart(t *testing.T) {
 	t.Parallel()
 
 	// The layer installs each release into the namespace the registry names,
-	// so a workload expected somewhere else would never be found.
+	// so a workload expected somewhere else would never be found — the e2e
+	// suite goes looking for an object at an address nothing writes to.
+	//
+	// One exception is legitimate: a subchart the layer deliberately overrides
+	// into a namespace Talos exempts from Pod Security Admission. node-exporter
+	// is that case — it needs hostNetwork, hostPID and hostPath volumes, which
+	// baseline forbids, so it cannot live beside the rest of the release. Any
+	// other namespace is a typo.
 	for _, w := range workloads.Expected {
 		chart, err := charts.Get(w.Chart)
 		require.NoError(t, err)
 
-		assert.Equal(t, chart.Namespace, w.Namespace,
-			"%s is expected in %s but its chart installs into %s", w.Name, w.Namespace, chart.Namespace)
+		if w.Namespace == chart.Namespace {
+			continue
+		}
+
+		assert.Contains(t, hetzner.PodSecurityExemptNamespaces, w.Namespace,
+			"%s is expected in %s, but its chart installs into %s and %s is not a namespace Talos exempts",
+			w.Name, w.Namespace, chart.Namespace, w.Namespace)
 	}
 }
 
