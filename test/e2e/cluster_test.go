@@ -33,7 +33,7 @@ func TestClusterFoundation(t *testing.T) {
 		}).Feature()
 
 	taintsCleared := features.New("the cloud controller manager initialised every node").
-		WithLabel("layer", "10-cloud-integration").
+		WithLabel("layer", "10-node-platform").
 		Assess("no node still carries the uninitialized taint", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// This taint is the mechanism that stops workloads landing on a
 			// node before its addresses and routes exist. A node still
@@ -94,7 +94,7 @@ func TestClusterFoundation(t *testing.T) {
 		}).Feature()
 
 	storageClassPresent := features.New("the CSI driver registered its storage class").
-		WithLabel("layer", "10-cloud-integration").
+		WithLabel("layer", "10-node-platform").
 		Assess("hcloud-volumes exists", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// Every persistent component in the observability layer requests
 			// this class by name. Without it they stay Pending forever, which

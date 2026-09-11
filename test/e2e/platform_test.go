@@ -57,7 +57,7 @@ func TestWorkloads(t *testing.T) {
 
 func TestCNIReplacesKubeProxy(t *testing.T) {
 	noKubeProxy := features.New("kube-proxy is not running alongside Cilium").
-		WithLabel("layer", "20-cni").
+		WithLabel("layer", "10-node-platform").
 		Assess("no kube-proxy DaemonSet", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// Talos was configured with kube-proxy disabled because Cilium
 			// replaces it in eBPF. Both running means two components

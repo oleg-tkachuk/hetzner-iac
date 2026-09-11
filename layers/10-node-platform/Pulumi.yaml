@@ -1,19 +1,26 @@
-name: cni
+name: node-platform
 runtime:
   name: go
   options:
     # Stable build path so repeated previews skip the link step; content
     # hashing still rebuilds when sources change.
-    buildTarget: ../../.cache/pulumi-bin/cni
-# The cluster tier ships with no CNI on purpose, so nodes are NotReady until
-# this layer runs. Talos was configured with kube-proxy disabled, which is why
-# Cilium must be installed with kubeProxyReplacement enabled — the cluster has
-# no service dataplane otherwise.
+    buildTarget: ../../.cache/pulumi-bin/node-platform
+# Everything that turns a booted Hetzner server into a node that can run a
+# pod: Cilium, the cloud controller manager and the CSI driver.
+#
+# One stack rather than two because the ordering between them is a hard fact,
+# not a preference — the CCM cannot be scheduled onto a node no CNI has made
+# Ready. As two stacks that lived in the directory names, and applying the
+# second alone cost a ten-minute rollback. Here it is a DependsOn.
+#
+# Talos was configured with kube-proxy disabled, which is why Cilium must be
+# installed with kubeProxyReplacement enabled — the cluster has no service
+# dataplane otherwise.
 #
 # A comment, not part of `description`: that becomes the pulumi:description
 # stack tag, which Pulumi Cloud caps at 256 characters.
 description: |
-  Container network interface: Cilium, with kube-proxy replaced in eBPF.
+  Cilium, the hcloud cloud controller manager and the CSI driver.
 
 # State backend. Declared here rather than left to `pulumi login`, so the
 # backend is a property of the repository and not of whoever runs it.
@@ -36,9 +43,18 @@ backend:
   url: https://api.pulumi.com
 
 config:
-  cni:clusterStackRef:
+  node-platform:clusterStackRef:
     default: ""
     description: |
       Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
       This layer reads the kubeconfig from it, which is what lets it be applied
       and destroyed without touching the cluster.
+
+# `node-platform:hcloudToken` is deliberately NOT declared above. It is an
+# override for the token the cluster tier exports, and a declared key with no
+# default is required by Pulumi before the program runs — while a default of ""
+# would read as set-but-empty and have the CCM sign with nothing. Set it only
+# when this layer must authenticate as something other than the identity that
+# built the cluster:
+#
+#   pulumi config set --secret node-platform:hcloudToken <token>

@@ -258,7 +258,7 @@ func projectPaths(t *testing.T) []string {
 	require.NoError(t, err)
 
 	paths = append(paths, filepath.Join(root, "infra", "cluster", "Pulumi.yaml"))
-	require.Len(t, paths, 7, "seven Pulumi projects: six layers and the cluster tier")
+	require.Len(t, paths, 6, "six Pulumi projects: five layers and the cluster tier")
 
 	return paths
 }
