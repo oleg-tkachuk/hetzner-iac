@@ -1,0 +1,4 @@
+config:
+  cloud-integration:clusterStackRef: oleg-tkachuk/hetzner-cluster/dev
+  cloud-integration:hcloudToken:
+    secure: AAABAF7Dcjt92TlSigLb7OyP/7hhhrYMr5bofU70zDq4WAekdnOlvv0Zs9wF3ibxgBIuJ7tCU8O9I5dYgfsod/aVJE4YP+1lgoX/y9w7420bzZMFlVVhJQQtcVNCPbhH

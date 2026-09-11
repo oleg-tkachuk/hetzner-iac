@@ -23,7 +23,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
-// StorageClass is what the CSI driver from 10-cloud-integration registers.
+// StorageClass is what the CSI driver from 20-cloud-integration registers.
 const StorageClass = "hcloud-volumes"
 
 // Defaults for the knobs most likely to be tuned per environment.
@@ -421,7 +421,7 @@ func resolveObjectStore(ctx *pulumi.Context, cfg *config.Config) (*objectStore, 
 	}
 
 	// The credentials come from this layer's own configuration rather than
-	// from that stack's outputs, for the reason 10-cloud-integration gives
+	// from that stack's outputs, for the reason 20-cloud-integration gives
 	// about the Hetzner token: a stack that exports a credential puts it into
 	// the state of every stack that references it. Only the bucket name, the
 	// endpoint and the region cross the boundary.

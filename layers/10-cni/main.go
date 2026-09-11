@@ -46,7 +46,7 @@ func main() {
 //     server. KubePrism is a node-local load balancer over the control plane,
 //     so Cilium keeps working while a control-plane node is replaced.
 //   - Native routing depends on the hcloud CCM's route controller, enabled in
-//     10-cloud-integration. With routes but no native routing the packets are
+//     20-cloud-integration. With routes but no native routing the packets are
 //     encapsulated for no reason; with native routing but no routes they are
 //     dropped.
 func CiliumValues(podCIDR pulumi.StringInput) pulumi.Map {

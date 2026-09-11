@@ -21,8 +21,8 @@ platform onto it in independent, idempotent layers.
 layers/05-object-storage   buckets that outlive the cluster — no cluster needed
 
 infra/cluster              the only project that talks to the Hetzner API
-  └─ exports kubeconfig ──► layers/10-cloud-integration   hcloud CCM + CSI
-                            layers/20-cni                 Cilium
+  └─ exports kubeconfig ──► layers/10-cni                 Cilium
+                            layers/20-cloud-integration   hcloud CCM + CSI
                             layers/30-core                cert-manager, ESO, metrics-server
                             layers/40-ingress             ingress-nginx
                             layers/50-gitops              Argo CD
@@ -75,7 +75,7 @@ program runs, so the check cannot drift from the thing it checks.
 
 **The cluster tier stops at "a Kubernetes API that answers".** It installs no
 CNI: Talos would otherwise install Flannel, which would then have to be removed
-before Cilium could take over. Nodes are `NotReady` until `20-cni` runs. That
+before Cilium could take over. Nodes are `NotReady` until `10-cni` runs. That
 is the handover point, not a failure.
 
 **Every chart version is pinned in one place.** `pkg/charts` is the registry;
@@ -129,7 +129,7 @@ task cluster:apply stack=prod
 
 # 5. Point every layer at it, then apply them in order.
 task platform:init stack=prod ref=<org>/hetzner-cluster/prod
-cd layers/10-cloud-integration && \
+cd layers/20-cloud-integration && \
   pulumi config set --secret cloud-integration:hcloudToken "$HCLOUD_TOKEN" && cd -
 task platform:apply-all stack=prod
 
@@ -198,8 +198,8 @@ changes to its image.
 | `task platform:plan-all` | preview every layer in order |
 | `task platform:apply-all` | apply every layer in dependency order |
 | `task platform:destroy-all` | destroy every layer, in reverse |
-| `task platform:plan layer=20-cni` | preview one layer |
-| `task platform:apply layer=20-cni` | apply one layer |
+| `task platform:plan layer=10-cni` | preview one layer |
+| `task platform:apply layer=10-cni` | apply one layer |
 | `task platform:destroy layer=60-observability` | destroy one layer |
 | `task platform:outputs layer=50-gitops` | one layer's stack outputs |
 | `task platform:status` | which layers are deployed, and how large |
@@ -281,7 +281,7 @@ the machine config was passing, and the control plane never started.
 | `object-storage:namePrefix` | `05-object-storage` | prefix for bucket names, which collide across all of Hetzner |
 | `object-storage:retainNoncurrentDays` | `05-object-storage` | default `30`; the only lifecycle rule Hetzner implements |
 | `object-storage:accessKey` / `:secretKey` | `05-object-storage` | S3 credentials from the Console, not an hcloud token (secret) |
-| `cloud-integration:hcloudToken` | `10-cloud-integration` | token for the CCM and CSI (secret) |
+| `cloud-integration:hcloudToken` | `20-cloud-integration` | token for the CCM and CSI (secret) |
 | `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | `40-ingress` | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
