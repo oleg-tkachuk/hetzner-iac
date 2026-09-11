@@ -12,7 +12,7 @@
 # fix the breakage those greps had and still be a hand-rolled YAML reader —
 # wrong on a quoted value, an anchor, or a nested key of the same name.
 #
-# Every op is covered by a test in tools/awklib. An awk program nobody tests is
+# Every op is covered by lib_test.go beside it. An awk program nobody tests is
 # a shell pipeline with extra steps.
 
 # Fail loudly on a missing or unknown op rather than silently printing nothing,
