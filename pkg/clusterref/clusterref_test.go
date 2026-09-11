@@ -38,12 +38,14 @@ func TestResolve_ReadsTheClusterTierOutputs(t *testing.T) {
 		resource.PropertyKey(clusterref.OutputServiceCIDR): resource.NewStringProperty("10.96.0.0/12"),
 		resource.PropertyKey(clusterref.OutputClusterName): resource.NewStringProperty("platform-prod"),
 		resource.PropertyKey(clusterref.OutputLocation):    resource.NewStringProperty("hel1"),
+		resource.PropertyKey(clusterref.OutputHcloudToken): resource.NewStringProperty("token-from-the-cluster-tier"),
 	}}
 
 	var (
 		endpoint    string
 		podCIDR     string
 		clusterName string
+		hcloudToken string
 	)
 
 	done := make(chan struct{})
@@ -54,11 +56,12 @@ func TestResolve_ReadsTheClusterTierOutputs(t *testing.T) {
 			return err
 		}
 
-		pulumi.All(cluster.Endpoint, cluster.PodCIDR, cluster.ClusterName).
+		pulumi.All(cluster.Endpoint, cluster.PodCIDR, cluster.ClusterName, cluster.HcloudToken).
 			ApplyT(func(values []any) error {
 				endpoint, _ = values[0].(string)
 				podCIDR, _ = values[1].(string)
 				clusterName, _ = values[2].(string)
+				hcloudToken, _ = values[3].(string)
 
 				close(done)
 
@@ -74,6 +77,50 @@ func TestResolve_ReadsTheClusterTierOutputs(t *testing.T) {
 	assert.Equal(t, "https://203.0.113.200:6443", endpoint)
 	assert.Equal(t, "10.244.0.0/16", podCIDR)
 	assert.Equal(t, "platform-prod", clusterName)
+	// The token reaches a layer through the same reference as the kubeconfig,
+	// which is what lets 20-cloud-integration hold no copy of its own. The
+	// mock returns it unmarked; the producer's config.GetSecret is what makes
+	// it a secret, and that is not observable from here.
+	assert.Equal(t, "token-from-the-cluster-tier", hcloudToken)
+}
+
+func TestResolve_AMissingTokenIsEmptyRatherThanAnError(t *testing.T) {
+	t.Parallel()
+
+	// A cluster stack applied before the token was exported simply has no such
+	// output. The SDK's GetStringOutput would fail that with "does not exist
+	// on stack"; Resolve deliberately returns empty instead, so the consumer
+	// that needs the token is the one that says what to do about it.
+	mocks := stackMocks{outputs: resource.PropertyMap{
+		resource.PropertyKey(clusterref.OutputKubeconfig): resource.NewStringProperty("apiVersion: v1"),
+	}}
+
+	var (
+		token string
+		done  = make(chan struct{})
+	)
+
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		cluster, err := clusterref.Resolve(ctx, "acme/hetzner-cluster/prod")
+		if err != nil {
+			return err
+		}
+
+		cluster.HcloudToken.ApplyT(func(value string) string {
+			token = value
+
+			close(done)
+
+			return value
+		})
+
+		return nil
+	}, pulumi.WithMocks("hetzner-iac", "test", mocks))
+
+	require.NoError(t, err)
+	<-done
+
+	assert.Empty(t, token)
 }
 
 func TestResolve_RejectsAnEmptyReference(t *testing.T) {
@@ -106,4 +153,5 @@ func TestOutputNames_AreStable(t *testing.T) {
 	assert.Equal(t, "serviceCidr", clusterref.OutputServiceCIDR)
 	assert.Equal(t, "clusterName", clusterref.OutputClusterName)
 	assert.Equal(t, "location", clusterref.OutputLocation)
+	assert.Equal(t, "hcloudToken", clusterref.OutputHcloudToken)
 }
