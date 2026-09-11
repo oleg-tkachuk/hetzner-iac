@@ -48,9 +48,15 @@ talos:
   architecture: x86
 
 kubernetes:
-  # Empty keeps the version that ships with this Talos release, which is the
-  # pairing Talos supports.
-  version: ""
+  # Pinned, not left to Talos. An empty value would take whatever the
+  # configured Talos release ships, so a Talos patch bump could move Kubernetes
+  # a whole minor with no diff and no decision — which is how this cluster
+  # first came up on v1.36.0, new enough that kube-apiserver had dropped a flag
+  # the machine config was passing.
+  #
+  # v1.36 is the minor Talos v1.13.10 defaults to, so this is the supported
+  # pairing. Bump it together with talos.version above, deliberately.
+  version: v1.36.4
 
 controlPlane:
   # Three for etcd quorum. One is a development shape: it survives no node
