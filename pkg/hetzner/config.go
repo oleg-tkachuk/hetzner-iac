@@ -95,8 +95,9 @@ type TalosSpec struct {
 
 // KubernetesSpec pins the Kubernetes version, or leaves it to Talos.
 type KubernetesSpec struct {
-	// Version pins the Kubernetes version. Empty keeps the default that ships
-	// with the configured Talos version, which is the supported pairing.
+	// Version pins the Kubernetes version. Empty takes
+	// DefaultKubernetesVersion, which is also pinned — there is no way to ask
+	// for "whatever Talos ships", for the reason stated there.
 	Version string `json:"version"`
 }
 
@@ -138,6 +139,19 @@ const (
 	DefaultCPServerType  = "cx23"
 	DefaultAPILBType     = "lb11"
 	DefaultWorkerSrvType = "cx33"
+
+	// DefaultKubernetesVersion is pinned rather than left to Talos.
+	//
+	// An empty version used to mean "whatever the configured Talos ships",
+	// which makes a Talos patch bump able to move Kubernetes a whole minor
+	// without a decision or a diff. That is how this cluster ended up on
+	// v1.36.0: new enough that kube-apiserver had already removed a flag the
+	// machine config was passing, and the control plane would not start.
+	//
+	// v1.36 is the minor Talos v1.13.10 defaults to, so this is the supported
+	// pairing; .4 is the newest patch in that line. Bumping Talos means
+	// revisiting this line deliberately — which is the point.
+	DefaultKubernetesVersion = "v1.36.4"
 
 	// PoolAddressStride is how many addresses of the node subnet each worker
 	// pool owns. Pools are placed at fixed, non-overlapping offsets so that
@@ -200,6 +214,7 @@ func (t *Topology) ApplyDefaults() {
 	setIfEmpty(&t.Network.PodCIDR, DefaultPodCIDR)
 	setIfEmpty(&t.Network.ServiceCIDR, DefaultServiceCIDR)
 	setIfEmpty(&t.Talos.Architecture, DefaultArchitecture)
+	setIfEmpty(&t.Kubernetes.Version, DefaultKubernetesVersion)
 	setIfEmpty(&t.ControlPlane.ServerType, DefaultCPServerType)
 
 	if t.ControlPlane.Count == 0 {
@@ -329,7 +344,9 @@ func (t *Topology) validateVersions() []string {
 	}
 
 	if t.Kubernetes.Version != "" && !semverish.MatchString(t.Kubernetes.Version) {
-		problems = append(problems, fmt.Sprintf("kubernetes.version %q must look like v1.35.0, or be empty to take the Talos default", t.Kubernetes.Version))
+		problems = append(problems, fmt.Sprintf(
+			"kubernetes.version %q must look like v1.36.4, or be empty to take the pinned default",
+			t.Kubernetes.Version))
 	}
 
 	if t.Talos.Architecture != "x86" && t.Talos.Architecture != "arm" {

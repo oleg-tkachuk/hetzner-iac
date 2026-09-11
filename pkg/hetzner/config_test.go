@@ -1,6 +1,8 @@
 package hetzner_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -299,4 +301,46 @@ func mustParse(t *testing.T, raw string) *hetzner.Topology {
 	require.NoError(t, err)
 
 	return topology
+}
+
+func TestApplyDefaults_PinsTheKubernetesVersion(t *testing.T) {
+	t.Parallel()
+
+	// An empty version used to mean "whatever the configured Talos ships",
+	// which lets a Talos patch bump move Kubernetes a whole minor with no diff
+	// and no decision. That is how this cluster first came up on v1.36.0 —
+	// new enough that kube-apiserver had removed a flag the machine config was
+	// passing, so the control plane would not start at all.
+	topology := &hetzner.Topology{}
+	topology.ApplyDefaults()
+
+	assert.Equal(t, hetzner.DefaultKubernetesVersion, topology.Kubernetes.Version)
+	assert.NotEmpty(t, topology.Kubernetes.Version,
+		"there must be no way to ask for whatever Talos ships")
+}
+
+func TestApplyDefaults_DoesNotOverrideAnExplicitKubernetesVersion(t *testing.T) {
+	t.Parallel()
+
+	topology := &hetzner.Topology{}
+	topology.Kubernetes.Version = "v1.35.7"
+	topology.ApplyDefaults()
+
+	assert.Equal(t, "v1.35.7", topology.Kubernetes.Version)
+}
+
+func TestBothCommittedTopologiesPinKubernetes(t *testing.T) {
+	t.Parallel()
+
+	// The default above is a floor, not the promise. A committed topology
+	// states its version, so an upgrade is a line in a diff someone reviews.
+	for _, path := range []string{
+		filepath.Join("..", "..", "infra", "cluster", "cluster.prod.yaml"),
+	} {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err, path)
+
+		assert.Contains(t, string(raw), "version: "+hetzner.DefaultKubernetesVersion,
+			"%s should pin Kubernetes explicitly", path)
+	}
 }

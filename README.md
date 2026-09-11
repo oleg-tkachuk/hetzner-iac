@@ -268,6 +268,14 @@ Pulumi config:
 | `hetzner-cluster:publicIPv4` | `infra/cluster` | routable address per node; required unless you apply from inside the private network |
 | `hetzner-cluster:allowICMP` | `infra/cluster` | open ping from the admin CIDRs |
 | `hetzner-cluster:imageSelector` | `infra/cluster` | override the Talos snapshot selector |
+
+Both the Talos and the Kubernetes version are pinned in the topology, and
+neither derives from the other. An empty `kubernetes.version` takes
+`DefaultKubernetesVersion` — also pinned — rather than whatever the configured
+Talos release happens to ship, because that made a Talos patch bump able to
+move Kubernetes a whole minor with no diff and no decision. It did: the first
+bring-up landed on v1.36.0, new enough that `kube-apiserver` had removed a flag
+the machine config was passing, and the control plane never started.
 | `<layer>:clusterStackRef` | every layer except `05-object-storage` | `<org>/hetzner-cluster/<stack>` |
 | `object-storage:location` | `05-object-storage` | `fsn1`, `nbg1` or `hel1` — fewer locations than host servers |
 | `object-storage:namePrefix` | `05-object-storage` | prefix for bucket names, which collide across all of Hetzner |
