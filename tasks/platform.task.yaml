@@ -94,9 +94,10 @@ tasks:
                 pulumi --non-interactive stack init "{{._PL_STACK}}"
               fi
 
-              # Only layers that declare the key get it. 05-object-storage is
-              # the one layer with no cluster in it, so setting a cluster
-              # reference there left a key nothing reads — misleading in
+              # Only layers that declare the key get it. Every layer does
+              # today; the guard stays because a layer with no cluster in it is
+              # a shape this repository has had before, and setting a cluster
+              # reference there leaves a key nothing reads — misleading in
               # `pulumi config`, and a lie about what the layer depends on.
               #
               # A presence test on a unique token, not positional parsing of

@@ -37,7 +37,6 @@ vars:
   # It cost a ten-minute apply to learn: the release sat Pending and Helm rolled
   # it back on `atomic`.
   LAYERS: >-
-    05-object-storage
     10-cni
     20-cloud-integration
     30-core

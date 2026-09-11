@@ -222,7 +222,7 @@ type projectFile struct {
 //	error: could not create stack: validating stack properties: stack tag
 //	"pulumi:description" value is too long (max length 256 characters)
 //
-// Three of the eight projects were over it, written long because the prose
+// Three of the projects were over it, written long because the prose
 // seemed useful. Prose belongs in a YAML comment above the key, which is not
 // sent anywhere. This test is here because two of the remaining descriptions
 // sit within ten characters of the limit, and the next edit would put them
@@ -258,7 +258,7 @@ func projectPaths(t *testing.T) []string {
 	require.NoError(t, err)
 
 	paths = append(paths, filepath.Join(root, "infra", "cluster", "Pulumi.yaml"))
-	require.Len(t, paths, 8, "eight Pulumi projects: seven layers and the cluster tier")
+	require.Len(t, paths, 7, "seven Pulumi projects: six layers and the cluster tier")
 
 	return paths
 }
@@ -276,7 +276,7 @@ func projectPaths(t *testing.T) []string {
 // remedy, and a schema that fails first replaces all of it with a list of key
 // names.
 //
-// It cost two `platform:plan-all` runs — 05-object-storage first, then
+// It cost two `platform:plan-all` runs — the object-storage layer first, then
 // 60-observability behind it — so the guard is a test rather than a comment.
 // An intentionally required key belongs in requiredConfig below, with the
 // reason; the point is that requiring one is a decision, not an omission.
@@ -284,8 +284,8 @@ func TestDeclaredConfigIsOptional(t *testing.T) {
 	t.Parallel()
 
 	// Empty on purpose. Every required-looking key is better reported by the
-	// program: pkg/layer names the command that sets clusterStackRef, and
-	// pkg/objectstorage lists the locations that host buckets.
+	// program: pkg/layer names the command that sets clusterStackRef, and it
+	// reports every problem at once rather than one per run.
 	requiredConfig := map[string]bool{}
 
 	for _, path := range projectPaths(t) {

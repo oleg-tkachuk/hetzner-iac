@@ -3,7 +3,6 @@ module github.com/oleg-tkachuk/hetzner-iac
 go 1.27.1
 
 require (
-	github.com/pulumi/pulumi-aws/sdk/v7 v7.46.0
 	github.com/pulumi/pulumi-hcloud/sdk v1.41.0
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.34.1
 	github.com/pulumi/pulumi/sdk/v3 v3.262.0
