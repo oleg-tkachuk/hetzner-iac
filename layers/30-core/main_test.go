@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
@@ -138,4 +139,50 @@ func TestComponents(t *testing.T) {
 	t.Parallel()
 
 	layertest.Check(t, Components)
+}
+
+func TestComponents_MetricsServerFollowsTheCertApprover(t *testing.T) {
+	t.Parallel()
+
+	// metrics-server scrapes the kubelet over TLS and verifies the
+	// certificate. Talos self-signs that certificate without IP SANs, so
+	// pkg/hetzner turns on rotate-server-certificates and the kubelet asks the
+	// cluster CA instead — but nothing approves those requests on its own.
+	//
+	// Without this ordering metrics-server fails every scrape, never becomes
+	// Ready, and Helm waits out its whole timeout: measured at 611 seconds
+	// before `atomic` rolled the release back and took the layer with it.
+	var found bool
+
+	for _, component := range Components {
+		if component.Chart != "metrics-server" {
+			continue
+		}
+
+		found = true
+
+		assert.Contains(t, component.After, CertApproverComponent,
+			"metrics-server cannot be Ready before the kubelet has a signed serving certificate")
+	}
+
+	assert.True(t, found, "metrics-server is no longer in this layer")
+}
+
+func TestCertApproverManifest_IsVendoredAndPinned(t *testing.T) {
+	t.Parallel()
+
+	// Vendored rather than fetched at apply time, and the image inside pinned:
+	// this manifest grants a controller permission to approve certificate
+	// signing requests, which is not a thing to resolve from a moving
+	// reference.
+	raw, err := os.ReadFile(CertApproverManifest)
+	require.NoError(t, err, "the manifest the component applies must be committed")
+
+	body := string(raw)
+
+	assert.Contains(t, body, "kind: Deployment")
+	assert.Contains(t, body, "kind: ClusterRole")
+	assert.Regexp(t, `image: \S+kubelet-serving-cert-approver:\d+\.\d+\.\d+`, body,
+		"the image must be pinned to an exact version, not a floating tag")
+	assert.Contains(t, body, "v0.12.0", "the provenance comment must name the tag it came from")
 }

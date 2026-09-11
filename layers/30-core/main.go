@@ -13,6 +13,7 @@ import (
 
 	apiextensions "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/yaml"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -47,9 +48,40 @@ var Components = layer.Components{
 		Values: func(*layer.Runner) pulumi.Map { return ExternalSecretsValues() },
 	},
 	{
+		// Approves the CSRs the kubelets raise once pkg/hetzner turns on
+		// rotate-server-certificates. Nothing in Kubernetes approves them by
+		// itself, and until they are approved the kubelet keeps the
+		// self-signed certificate that has no IP SANs.
+		Name:   CertApproverComponent,
+		Create: createCertApprover,
+	},
+	{
+		// After the approver: metrics-server scrapes the kubelet over TLS and
+		// verifies the certificate, so it cannot be Ready until the kubelet
+		// has one the cluster CA signed. Without this ordering it fails every
+		// scrape and Helm waits out its whole timeout — measured at 611s
+		// before rolling back.
 		Chart:  "metrics-server",
+		After:  []string{CertApproverComponent},
 		Values: func(*layer.Runner) pulumi.Map { return MetricsServerValues() },
 	},
+}
+
+// CertApproverComponent is the approver's name in the component set.
+const CertApproverComponent = "kubelet-serving-cert-approver"
+
+// CertApproverManifest is the vendored manifest, pinned by content.
+const CertApproverManifest = "manifests/kubelet-serving-cert-approver.yaml"
+
+// createCertApprover applies the vendored approver manifest.
+//
+// A manifest rather than a chart because upstream publishes no chart — only
+// kustomize bases and two flat installs. ConfigFile reads the committed copy,
+// so there is no fetch at apply time and the diff is reviewable.
+func createCertApprover(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
+	return yaml.NewConfigFile(r.Ctx, CertApproverComponent, &yaml.ConfigFileArgs{
+		File: CertApproverManifest,
+	}, r.With(pulumi.DependsOn(dependencies))...)
 }
 
 // createClusterIssuer makes the ACME issuer, or nothing and says so.
