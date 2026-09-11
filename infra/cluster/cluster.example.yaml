@@ -60,8 +60,11 @@ talos:
   # terraform-provider-talos 0.11.0, which embeds Talos machinery v1.13.0. It
   # is the machinery that GENERATES the machine configuration, so a 1.14 pin
   # would boot 1.14 nodes with a configuration built by a 1.13 generator.
-  # Move this to 1.14 when the provider ships a stable release carrying 1.14
-  # machinery, and re-run `task cluster:config-check`.
+  # Checked on 2026-09-11: Talos v1.14.0 is out, pulumi-talos v0.8.1 is still
+  # the newest, and terraform-provider-talos v0.11.0 — the one it bridges —
+  # requires pkg/machinery v1.13.0. So 1.14 is not a caution, it is blocked.
+  # Move this when a newer pulumi-talos carries 1.14 machinery, then install
+  # the matching talosctl and re-run `task cluster:config-check`.
   version: v1.13.10
   architecture: x86
 
