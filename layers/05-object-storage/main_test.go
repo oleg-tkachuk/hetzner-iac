@@ -228,3 +228,70 @@ func TestProgram_RequiresTheS3Credentials(t *testing.T) {
 		assert.Contains(t, err.Error(), key)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Opt-in
+// ---------------------------------------------------------------------------
+
+func TestProgram_NoCredentialsCreatesNothingAndSucceeds(t *testing.T) {
+	// `task platform:plan-all` walks every layer. A stack that was never given
+	// S3 credentials has to produce no buckets and no error, the way 30-core
+	// produces no ClusterIssuer without acmeEmail — otherwise one unconfigured
+	// optional layer stops the walk, which is how this was found.
+	setConfig(t, map[string]string{
+		"accessKey":  "",
+		"secretKey":  "",
+		"location":   "",
+		"namePrefix": "",
+	})
+
+	m := newMocks()
+	require.NoError(t, run(t, m))
+
+	assert.Empty(t, m.of(bucketType))
+	assert.Empty(t, m.of(providerType))
+}
+
+func TestProgram_OneCredentialIsAMistakeNotAnOptOut(t *testing.T) {
+	// Half-configured means the operator meant to turn this on and stopped.
+	// Skipping silently would leave them reading an empty preview and looking
+	// for the bucket in the Console.
+	for name, override := range map[string]map[string]string{
+		"no secret key": {"secretKey": ""},
+		"no access key": {"accessKey": ""},
+	} {
+		setConfig(t, override)
+
+		err := run(t, newMocks())
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), "S3 credentials are not configured", name)
+	}
+}
+
+func TestRequested_TracksOnlyTheCredentials(t *testing.T) {
+	// The switch is the credentials, not the other keys: those carry
+	// `default: ""` in Pulumi.yaml to stop Pulumi's own validation demanding
+	// them, so they always arrive set and can say nothing about intent.
+	for name, tc := range map[string]struct {
+		overrides map[string]string
+		want      bool
+	}{
+		"both":          {nil, true},
+		"access key":    {map[string]string{"secretKey": ""}, true},
+		"secret key":    {map[string]string{"accessKey": ""}, true},
+		"neither":       {map[string]string{"accessKey": "", "secretKey": ""}, false},
+		"only location": {map[string]string{"accessKey": "", "secretKey": "", "namePrefix": ""}, false},
+	} {
+		setConfig(t, tc.overrides)
+
+		var got bool
+
+		require.NoError(t, pulumi.RunErr(func(ctx *pulumi.Context) error {
+			got = requested(ctx)
+
+			return nil
+		}, pulumi.WithMocks(testProject, testStack, newMocks())), name)
+
+		assert.Equal(t, tc.want, got, name)
+	}
+}
