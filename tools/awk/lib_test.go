@@ -158,3 +158,37 @@ func TestOp_IsRequiredAndChecked(t *testing.T) {
 	assert.Equal(t, 2, code)
 	assert.Contains(t, out, "unknown op")
 }
+
+func TestReverseWords_LastFirst(t *testing.T) {
+	t.Parallel()
+
+	// The layer list arrives as one space-separated string from the Taskfile,
+	// so tokens rather than lines: piping it through `tr` first would be the
+	// pipeline this op exists to remove.
+	out, code := run(t, "reverse-words", "10-node-platform 30-core 40-ingress")
+
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "40-ingress\n30-core\n10-node-platform", strings.TrimSpace(out))
+}
+
+func TestReverseWords_TakesSeveralLinesToo(t *testing.T) {
+	t.Parallel()
+
+	// Same answer whether the list arrives on one line or many, which is what
+	// makes it a drop-in for `tac` and for `tail -r`.
+	out, code := run(t, "reverse-words", "a b\nc\n")
+
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "c\nb\na", strings.TrimSpace(out))
+}
+
+func TestReverseWords_EmptyInputIsEmptyOutput(t *testing.T) {
+	t.Parallel()
+
+	// Not an error: a layer list can legitimately be empty, and the loop that
+	// consumes this then runs zero times.
+	out, code := run(t, "reverse-words", "")
+
+	assert.Equal(t, 0, code)
+	assert.Empty(t, strings.TrimSpace(out))
+}

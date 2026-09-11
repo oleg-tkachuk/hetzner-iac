@@ -53,20 +53,12 @@ tasks:
           set -euo pipefail
           # Reverse: a layer's dependants must go first, or the CNI is removed
           # while workloads still need to talk.
-          # Probe for the reverser rather than running one and swallowing its
-          # error: `tail -r` is BSD, `tac` is GNU, and a machine has one or the
-          # other. Asked this way, a machine with neither fails saying so
-          # instead of silently destroying in forward order.
-          if command -v tac >/dev/null; then
-            reverse=tac
-          elif tail -r </dev/null >/dev/null 2>&1; then
-            reverse="tail -r"
-          else
-            echo "neither tac nor tail -r is available; cannot reverse the layer order" >&2
-            exit 1
-          fi
-          reversed="$(for layer in {{._PL_LAYERS}}; do echo "$layer"; done | $reverse)"
-          for layer in $reversed; do
+          #
+          # One awk op rather than the twelve lines that probed for `tac` and
+          # fell back to `tail -r` — GNU has one, BSD the other, and the probe
+          # existed only because neither is portable. awk is.
+          for layer in $(awk -f "{{.ROOT}}/tools/awk/lib.awk" -v op=reverse-words \
+                         <<<"{{._PL_LAYERS}}"); do
             echo "══ destroy ${layer}"
             ( cd "{{.ROOT}}/layers/${layer}" && \
               pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes )
@@ -86,14 +78,10 @@ tasks:
           for layer in {{._PL_LAYERS}}; do
             ( cd "{{.ROOT}}/layers/${layer}"
               project="$(grep -m1 '^name:' Pulumi.yaml | awk '{print $2}')"
-              # See the comment in cluster:init: `init || select` hides why
-              # init failed and blames the wrong command for it.
-              if pulumi --non-interactive stack ls --json \
-                 | jq -e --arg s "{{._PL_STACK}}" 'any(.[]; .name == $s)' >/dev/null; then
-                pulumi --non-interactive stack select "{{._PL_STACK}}"
-              else
-                pulumi --non-interactive stack init "{{._PL_STACK}}"
-              fi
+              # tools/stack makes the whole decision. `init || select` hides
+              # why init failed and blames the wrong command for it, and the
+              # jq pipeline that replaced it was the third copy of itself.
+              go run "{{.ROOT}}/tools/stack" ensure "{{.ROOT}}/layers/${layer}" "{{._PL_STACK}}"
 
               # Only layers that declare the key get it. Every layer does
               # today; the guard stays because a layer with no cluster in it is
