@@ -25,7 +25,7 @@ talos:
   version: v1.14.0
 controlPlane:
   count: 1
-  serverType: cx22
+  serverType: cx23
 `
 
 func TestIsTopologyFile(t *testing.T) {
@@ -97,7 +97,7 @@ metadata: {name: platform-test}
 placement: {location: hel1}
 network: {adminCIDRs: []}
 talos: {version: v1.14.0}
-controlPlane: {count: 1, serverType: cx22}
+controlPlane: {count: 1, serverType: cx23}
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cluster.prod.yaml"), []byte(open), 0o600))
 
