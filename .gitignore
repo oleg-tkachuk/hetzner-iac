@@ -58,17 +58,24 @@ talosconfig
 # Local etcd snapshots
 .backups/
 
-# `go build ./...` drops a binary named after each main package into the
-# working directory, and those names collide with the tools/ and layers/
-# directory names — a stray build otherwise leaves an executable in the
-# repository root. The layer binaries are the big ones: 52 MB each, and one
-# was committed and pushed before this line existed.
+# Compiled output. `go build -o bin/ ./...` — what `task build` and the CI
+# priming job run — puts every binary here, so the repository root stays clean
+# and this is one line instead of a list.
+bin/
+
+# A bare `go build ./...` still drops a binary named after each main package
+# into the working directory, and those names collide with the tools/, layers/
+# and infra/ directory names. The names below cover that; the pre-commit
+# forbid-binaries hook is what actually guarantees none is committed, because
+# it asks git rather than matching a name.
 #
-# Every tools/ name is listed, not just the ones that have bitten: adding a
-# tool otherwise reintroduces this, which it did twice.
+# TestGitignore_CoversEveryBinaryName derives this list from the tree, because
+# a hand-maintained one went stale three times: twice for a new tool, and once
+# for `infra/cluster`, whose binary is called `cluster`.
 /alloyvalidate
 /awk
 /charts
+/cluster
 /imagebake
 /render
 /stack
