@@ -37,6 +37,7 @@ env:
   # be at least as new as the toolchain it reads.
   GOVULNCHECK_VERSION: "v1.8.0"
   ZIZMOR_VERSION: "1.30.1"
+  ACTIONLINT_VERSION: "v1.7.12"
   TRIVY_VERSION: "0.74.0"
 
 jobs:
@@ -120,3 +121,34 @@ jobs:
       # would be red forever and then ignored. Exceptions live in
       # .github/zizmor.yml, each with the reason it stands.
       - run: pipx run "zizmor==${ZIZMOR_VERSION}" --config .github/zizmor.yml --persona=regular --format=plain .github/workflows/
+
+  # actionlint is the other half of auditing these workflows, and the halves do
+  # not overlap. zizmor covers security — unpinned actions, leaked credentials,
+  # injectable expressions. actionlint covers whether the workflow is correct at
+  # all: the schema, expression syntax, `needs:` naming a job that exists, and
+  # shellcheck over every `run:` block.
+  #
+  # That last part is why it was added. This repository carries a few hundred
+  # lines of shell inside YAML that no Go test and no linter was reading;
+  # verified by introducing an unquoted variable on purpose and watching it
+  # report SC2086.
+  #
+  # Its own job rather than a step beside zizmor, because renaming that job
+  # would rename a required check, and a required check that never reports
+  # again blocks every open pull request.
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: |
+          set -euo pipefail
+          go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
+          "$(go env GOPATH)/bin/actionlint"

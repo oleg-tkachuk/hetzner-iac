@@ -174,18 +174,19 @@ jobs:
       - name: One writer for the Go cache
         run: |
           set -euo pipefail
-          # Matches the literal and the expression form alike — anything that
-          # can evaluate to save. Anchored to the start of the line, or this
-          # step counts the string inside its own source, which it did on the
-          # first attempt.
-          # `|| true` on both: grep exits 1 for "no matches", which is a
-          # result here rather than a failure, and `set -e` would otherwise
-          # kill the step before it can report zero writers. grep does not
-          # write to stderr in that case, so nothing is being swallowed.
-          writers="$(grep -rnE '^[[:space:]]+cache-mode:.*save' .github/workflows/ || true)"
-          count="$(printf '%s' "$writers" | grep -c . || true)"
+          # One awk over the workflows instead of `grep -rnE ... || true`
+          # piped into `grep -c . || true`. It matches and counts in one pass,
+          # and zero matches is an answer rather than an exit code that `set
+          # -e` would treat as failure — so neither `|| true` is needed, and
+          # nothing is being swallowed to make the step survive.
+          #
+          # The pattern is anchored inside awk/lib.awk, so it cannot match the
+          # string in its own source. The shell version did, on its first
+          # attempt.
+          report="$(awk -f awk/lib.awk -v op=cache-writers .github/workflows/*.yaml)"
+          count="${report##*count=}"
           echo "writers:"
-          printf '  %s\n' "${writers:-none}"
+          printf '  %s\n' "$(printf '%s' "$report" | grep -v '^count=' || echo none)"
           if [ "$count" -ne 1 ]; then
             echo "::error::expected exactly one job with cache-mode: save, found $count"
             echo "The key is immutable and the fastest saver wins it. More than one" >&2
