@@ -39,4 +39,4 @@ tasks:
       # Offline: no cluster, no credentials. Catches the failure that `pulumi
       # up` cannot — a chart upgrade that renames a Deployment installs
       # cleanly and only fails hours later, in e2e, against a real cluster.
-      - go run ./tools/render
+      - go run ./tools/charts render
