@@ -1,13 +1,66 @@
-# node-exporter installs into kube-system, not into the release's namespace.
+# Generated from layers/60-observability. Do not edit.
 #
-# It needs hostNetwork, hostPID and hostPath volumes — that is what a node
-# metrics exporter is — and Talos enables Pod Security Admission with
-# `enforce: baseline` for every namespace except kube-system. Rendering with
-# the chart's default would show it in observability, where its pods are never
-# created: the DaemonSet reports DESIRED 1, CURRENT 0, and Helm waits out its
-# whole timeout.
+# Regenerate with: go test ./layers/60-observability/ -update
 #
-# This mirrors layers/60-observability. A test asserts the two agree, because a
-# value stated twice is a value that will eventually be stated two ways.
+# tools/charts renders offline — no Pulumi run, so nothing can resolve a
+# layer's inputs — and reads these files instead. Generated rather than
+# maintained by hand, because the copy kept by hand is the copy that drifts:
+# alloy's file was missing the one key that decided whether its DaemonSet
+# could start, and the render check passed on a chart the cluster then refused.
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+          storageClassName: hcloud-volumes
+grafana:
+  additionalDataSources:
+  - access: proxy
+    name: Loki
+    type: loki
+    url: http://loki-gateway.observability.svc.cluster.local
+  - access: proxy
+    name: Tempo
+    type: tempo
+    url: http://tempo.observability.svc.cluster.local:3200
+  enabled: true
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: hcloud-volumes
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeScheduler:
+  enabled: false
+nodeExporter:
+  enabled: true
+prometheus:
+  prometheusSpec:
+    podMonitorSelectorNilUsesHelmValues: false
+    retention: 30d
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 50Gi
+          storageClassName: hcloud-volumes
 prometheus-node-exporter:
   namespaceOverride: kube-system
