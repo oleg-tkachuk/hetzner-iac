@@ -28,11 +28,49 @@ BEGIN {
     known["any-row"] = 1
     known["cache-writers"] = 1
     known["reverse-words"] = 1
+    known["staged-binaries"] = 1
 
     if (!(op in known)) {
         print "awk/lib.awk: unknown op " op > "/dev/stderr"
         exit 2
     }
+}
+
+# staged-binaries: the paths git considers binary in `git diff --cached
+# --numstat`, and a non-zero exit if there are any.
+#
+# git's own detection rather than `file -b | grep -qE 'ELF|Mach-O'`, which is
+# what this replaced, for three measured reasons:
+#
+#   - That pattern knew two formats. It let a PNG, a gzip, an ar archive and a
+#     wasm module through — checked, all four.
+#   - If `file` produced no output, grep saw an empty input, answered "no
+#     match", and the binary passed silently. A guard whose failure mode is
+#     "allow" is not a guard.
+#   - numstat prints `-` for added and removed lines on anything git calls
+#     binary, whatever the format, with no `file` on the machine at all.
+#
+# Two Go binaries reached the working tree twice in this repository, and a
+# 52 MB one was committed and pushed before any of this existed.
+op == "staged-binaries" && $1 == "-" && $2 == "-" {
+    # `allow` is a colon-separated list of paths that are binary on purpose.
+    # Empty today, because this repository tracks none.
+    if (allowed($3)) next
+
+    binaries[++found] = $3
+    next
+}
+
+# allowed reports whether a path is in the -v allow=<a:b:c> list.
+function allowed(path,    n, i, parts) {
+    if (allow == "") return 0
+
+    n = split(allow, parts, ":")
+
+    for (i = 1; i <= n; i++)
+        if (parts[i] == path) return 1
+
+    return 0
 }
 
 # reverse-words: the whitespace-separated tokens of the input, last first, one
@@ -112,6 +150,21 @@ END {
 
     if (op == "any-row") {
         exit rows > 0 ? 0 : 1
+    }
+
+    if (op == "staged-binaries") {
+        if (found == 0) exit 0
+
+        print "ERROR: git considers these staged files binary:" > "/dev/stderr"
+
+        for (i = 1; i <= found; i++) print "  " binaries[i] > "/dev/stderr"
+
+        print "" > "/dev/stderr"
+        print "A compiled binary is almost always `go build ./...` leaving one in the tree." > "/dev/stderr"
+        print "Remove it and check .gitignore lists every tools/ and layers/ name." > "/dev/stderr"
+        print "If the file genuinely belongs in the repository, allow it in lefthook.yml." > "/dev/stderr"
+
+        exit 1
     }
 
     if (op == "reverse-words") {
