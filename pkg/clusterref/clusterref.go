@@ -113,6 +113,21 @@ type Cluster struct {
 	// A consumer needs it to size anything that cannot put two replicas on one
 	// node — Cilium's operator binds a host port, so it is one.
 	ControlPlaneCount pulumi.IntOutput
+
+	// ContractCheck resolves to the producer's contract version, or fails with
+	// the command that republishes it.
+	//
+	// A separate field rather than something every value is routed through,
+	// and that distinction is the whole lesson of this type. Routing the
+	// values through it put the check into the kubernetes provider's INPUTS,
+	// so the provider's identity changed and Pulumi planned to replace it —
+	// and with it every release and secret in every layer. On a live cluster
+	// that is the CNI, the cloud controller manager and the CSI driver being
+	// destroyed and recreated to improve an error message.
+	//
+	// pkg/layer exports it, which is what makes the engine await it: an output
+	// nothing consumes is never resolved, so the error would never surface.
+	ContractCheck pulumi.IntOutput
 }
 
 // Resolve reads the cluster tier's outputs from another stack.
@@ -130,23 +145,22 @@ func Resolve(ctx *pulumi.Context, ref string) (*Cluster, error) {
 		return nil, fmt.Errorf("stack reference %q: %w", ref, err)
 	}
 
-	// One check for the whole shape. Every output below is gated on it, so
-	// whichever one a layer happens to read first reports the same sentence.
-	version := publishedVersion(stack, ref)
-
 	return &Cluster{
+		// The check is a field, not a wrapper. See ContractCheck.
+		ContractCheck: publishedVersion(stack, ref),
+
 		// The typed accessors keep the secretness of the kubeconfig and the
 		// token intact, which a manual ApplyT(string) round-trip would quietly
 		// drop.
-		Kubeconfig:        gateString(version, stack.GetStringOutput(pulumi.String(OutputKubeconfig))),
-		Endpoint:          gateString(version, stack.GetStringOutput(pulumi.String(OutputEndpoint))),
-		NetworkID:         gateInt(version, stack.GetIntOutput(pulumi.String(OutputNetworkID))),
-		PodCIDR:           gateString(version, stack.GetStringOutput(pulumi.String(OutputPodCIDR))),
-		ServiceCIDR:       gateString(version, stack.GetStringOutput(pulumi.String(OutputServiceCIDR))),
-		ClusterName:       gateString(version, stack.GetStringOutput(pulumi.String(OutputClusterName))),
-		Location:          gateString(version, stack.GetStringOutput(pulumi.String(OutputLocation))),
-		HcloudToken:       gateString(version, stack.GetStringOutput(pulumi.String(OutputHcloudToken))),
-		ControlPlaneCount: gateInt(version, stack.GetIntOutput(pulumi.String(OutputControlPlaneCount))),
+		Kubeconfig:        stack.GetStringOutput(pulumi.String(OutputKubeconfig)),
+		Endpoint:          stack.GetStringOutput(pulumi.String(OutputEndpoint)),
+		NetworkID:         stack.GetIntOutput(pulumi.String(OutputNetworkID)),
+		PodCIDR:           stack.GetStringOutput(pulumi.String(OutputPodCIDR)),
+		ServiceCIDR:       stack.GetStringOutput(pulumi.String(OutputServiceCIDR)),
+		ClusterName:       stack.GetStringOutput(pulumi.String(OutputClusterName)),
+		Location:          stack.GetStringOutput(pulumi.String(OutputLocation)),
+		HcloudToken:       stack.GetStringOutput(pulumi.String(OutputHcloudToken)),
+		ControlPlaneCount: stack.GetIntOutput(pulumi.String(OutputControlPlaneCount)),
 	}, nil
 }
 
@@ -184,27 +198,4 @@ func publishedVersion(stack *pulumi.StackReference, ref string) pulumi.IntOutput
 
 			return published, nil
 		}).(pulumi.IntOutput)
-}
-
-// gateString makes a value depend on the version check, so reading it reports
-// a stale producer instead of whatever that value's own absence looks like.
-//
-// pulumi.All rather than a hand-rolled join because it propagates secretness:
-// a gate that dropped the marker would hand every layer an unwrapped
-// cluster-admin kubeconfig to store in its own state.
-func gateString(version pulumi.IntOutput, value pulumi.StringOutput) pulumi.StringOutput {
-	return pulumi.All(version, value).ApplyT(func(parts []any) string {
-		resolved, _ := parts[1].(string)
-
-		return resolved
-	}).(pulumi.StringOutput)
-}
-
-// gateInt is gateString for a number.
-func gateInt(version pulumi.IntOutput, value pulumi.IntOutput) pulumi.IntOutput {
-	return pulumi.All(version, value).ApplyT(func(parts []any) int {
-		resolved, _ := parts[1].(int)
-
-		return resolved
-	}).(pulumi.IntOutput)
 }
