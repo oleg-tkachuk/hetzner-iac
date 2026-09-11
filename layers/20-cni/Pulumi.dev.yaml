@@ -1,0 +1,2 @@
+config:
+  cni:clusterStackRef: oleg-tkachuk/hetzner-cluster/dev

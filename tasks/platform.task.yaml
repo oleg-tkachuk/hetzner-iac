@@ -93,8 +93,21 @@ tasks:
               else
                 pulumi --non-interactive stack init "{{._PL_STACK}}"
               fi
-              pulumi --non-interactive --stack "{{._PL_STACK}}" config set "${project}:clusterStackRef" "{{.ref}}"
-              echo "${layer}: pointed at {{.ref}}" )
+
+              # Only layers that declare the key get it. 05-object-storage is
+              # the one layer with no cluster in it, so setting a cluster
+              # reference there left a key nothing reads — misleading in
+              # `pulumi config`, and a lie about what the layer depends on.
+              #
+              # A presence test on a unique token, not positional parsing of
+              # YAML: robust to comments and indentation, unlike the grep this
+              # repository already got wrong once in cluster:image-bake.
+              if grep -q 'clusterStackRef' Pulumi.yaml; then
+                pulumi --non-interactive --stack "{{._PL_STACK}}" config set "${project}:clusterStackRef" "{{.ref}}"
+                echo "${layer}: pointed at {{.ref}}"
+              else
+                echo "${layer}: no cluster reference to set"
+              fi )
           done
 
   plan:
