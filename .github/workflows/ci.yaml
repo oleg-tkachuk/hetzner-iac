@@ -314,12 +314,12 @@ jobs:
       # tools/alloy builds out of it.
       - name: App versions match the pinned charts
         run: go run ./tools/charts appversions
-      # Read-only. Reports what is behind upstream without failing the build —
-      # an upgrade is a decision with a changelog to read, and a gate that goes
-      # red on every upstream release is a gate people switch off.
-      - name: Report outdated pins
-        continue-on-error: true
-        run: go run ./tools/charts outdated
+      # There is deliberately no "report what is outdated" step. It had
+      # continue-on-error, so it only ever wrote to a log nobody opens in a
+      # green run, and Renovate's Dependency Dashboard answers the same
+      # question permanently, with changelogs and open pull requests.
+      #
+      # `task charts:outdated` still exists for asking by hand.
 
   topology:
     name: Cluster topology
