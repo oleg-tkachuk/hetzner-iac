@@ -28,12 +28,12 @@ talos:
   version: v1.14.0
 controlPlane:
   count: 3
-  serverType: cx22
+  serverType: cx23
   apiLoadBalancerType: lb11
 workerPools:
   - name: worker
     count: 2
-    serverType: cx32
+    serverType: cx33
 `
 
 func TestParseTopology_Valid(t *testing.T) {
@@ -212,7 +212,7 @@ func TestValidate_Rejects(t *testing.T) {
 			name: "duplicate worker pool names",
 			mutate: func(top *hetzner.Topology) {
 				top.WorkerPools = append(top.WorkerPools, hetzner.WorkerPoolSpec{
-					Name: "worker", Count: 1, ServerType: "cx32",
+					Name: "worker", Count: 1, ServerType: "cx33",
 				})
 			},
 			wantMsg: `duplicates workerPools[0]`,

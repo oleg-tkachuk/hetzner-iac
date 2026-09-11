@@ -22,6 +22,11 @@ import (
 type recorder struct {
 	mu        sync.Mutex
 	resources map[string][]resource.PropertyMap
+
+	// serverTypes is what the getServerTypes lookup reports, name to
+	// architecture. Empty by default, which ValidateServerTypes reads as
+	// "unverified" rather than "none exist".
+	serverTypes map[string]string
 }
 
 func newRecorder() *recorder {
@@ -78,6 +83,19 @@ func (r *recorder) Call(args pulumi.MockCallArgs) (resource.PropertyMap, error) 
 		return resource.PropertyMap{
 			"talosConfig": resource.NewStringProperty("context: test\n"),
 		}, nil
+	case "hcloud:index/getServerTypes:getServerTypes":
+		// Empty unless a test sets it. An empty list means "the lookup told us
+		// nothing", which ValidateServerTypes treats as unverified rather than
+		// as "no type exists" — so every existing test keeps working.
+		types := make([]resource.PropertyValue, 0, len(r.serverTypes))
+		for name, arch := range r.serverTypes {
+			types = append(types, resource.NewObjectProperty(resource.PropertyMap{
+				"name":         resource.NewStringProperty(name),
+				"architecture": resource.NewStringProperty(arch),
+			}))
+		}
+
+		return resource.PropertyMap{"serverTypes": resource.NewArrayProperty(types)}, nil
 	}
 
 	return resource.PropertyMap{}, nil

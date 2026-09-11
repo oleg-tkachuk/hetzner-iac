@@ -136,9 +136,9 @@ const (
 	DefaultPodCIDR       = "10.244.0.0/16"
 	DefaultServiceCIDR   = "10.96.0.0/12"
 	DefaultArchitecture  = "x86"
-	DefaultCPServerType  = "cx22"
+	DefaultCPServerType  = "cx23"
 	DefaultAPILBType     = "lb11"
-	DefaultWorkerSrvType = "cx32"
+	DefaultWorkerSrvType = "cx33"
 
 	// DefaultKubernetesVersion is pinned rather than left to Talos.
 	//

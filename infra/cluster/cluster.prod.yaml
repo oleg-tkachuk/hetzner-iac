@@ -62,10 +62,10 @@ controlPlane:
   # Three for etcd quorum. One is a development shape: it survives no node
   # failure and its API endpoint moves if the node is replaced.
   count: 3
-  serverType: cx22
+  serverType: cx23
   apiLoadBalancerType: lb11
 
 workerPools:
   - name: worker
     count: 3
-    serverType: cx32
+    serverType: cx33
