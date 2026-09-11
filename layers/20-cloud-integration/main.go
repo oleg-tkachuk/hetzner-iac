@@ -22,14 +22,18 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
 
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
 )
 
 const (
@@ -45,11 +49,7 @@ func main() {
 	layer.Run(func(r *layer.Runner) error {
 		cfg := config.New(r.Ctx, "cloud-integration")
 
-		// The token is read here rather than exported by the cluster tier. A
-		// stack that exports a cloud credential puts it into the state of
-		// every stack that references it — and holding a reference safely is
-		// exactly what layers are supposed to be able to do.
-		token := cfg.RequireSecret("hcloudToken")
+		token := resolveToken(cfg, r.Cluster, r.Log)
 
 		// Both charts read the same secret. Creating it once here, rather than
 		// letting each chart template its own, keeps one copy of the
@@ -95,6 +95,47 @@ func main() {
 
 		return nil
 	})
+}
+
+// resolveToken decides where the Hetzner API token comes from.
+//
+// The cluster tier exports it, so this layer normally needs no copy of its
+// own: one token, set once, in the stack whose provider already holds it.
+// This reverses an earlier decision to keep a second copy here — the argument
+// against was that exporting a cloud credential puts it into the state of
+// every stack holding a reference, which is true and already the case: the
+// same channel carries the cluster-admin kubeconfig and the talosconfig, both
+// strictly more powerful than an API token.
+//
+// The config key stays as an override. A cluster stack applied before that
+// export existed has nothing to offer, and an operator may deliberately want
+// a token scoped differently from the one that built the cluster.
+//
+// An empty token from either source fails here rather than reaching the
+// cluster. Left alone it becomes a Secret that authenticates against nothing,
+// and the symptom is a CCM that starts, logs 401 and never clears the
+// uninitialized taint — which reads as a broken cluster rather than as a
+// missing credential.
+func resolveToken(cfg *config.Config, cluster *clusterref.Cluster, log *pulumilog.Logger) pulumi.StringOutput {
+	if cfg.Get("hcloudToken") != "" {
+		log.Done("token", "from this layer's config, overriding the cluster stack")
+
+		return cfg.RequireSecret("hcloudToken")
+	}
+
+	log.Step("token", "from the cluster stack")
+
+	return pulumix.Cast[pulumi.StringOutput](pulumix.ApplyErr(cluster.HcloudToken,
+		func(token string) (string, error) {
+			if token == "" {
+				return "", fmt.Errorf(
+					"the cluster stack exports no %q: apply the cluster tier again to publish it, or set\n"+
+						"  pulumi config set --secret cloud-integration:hcloudToken <token>",
+					clusterref.OutputHcloudToken)
+			}
+
+			return token, nil
+		}))
 }
 
 // CCMValues builds the cloud-controller-manager values.

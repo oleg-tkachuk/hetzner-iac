@@ -20,6 +20,7 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
@@ -73,6 +74,30 @@ func main() {
 		ctx.Export(clusterref.OutputServiceCIDR, cluster.ServiceCIDR)
 		ctx.Export(clusterref.OutputClusterName, pulumi.String(topology.Metadata.Name))
 		ctx.Export(clusterref.OutputLocation, pulumi.String(topology.Placement.Location))
+
+		// The Hetzner token, re-exported for the layers that must call the
+		// Hetzner API themselves — the cloud controller manager and the CSI
+		// driver do. Without this each of them needs its own copy of the same
+		// credential in its own stack config, which is the same secret typed
+		// twice and rotated once.
+		//
+		// It travels the channel that already carries the cluster-admin
+		// kubeconfig and the talosconfig, both strictly more powerful than an
+		// API token, so this widens nothing. GetSecret marks it, and the typed
+		// accessors in pkg/clusterref keep it marked.
+		//
+		// `config.Get` only to test presence: reading it does not print it,
+		// and exporting an empty string would hand every layer a credential
+		// that authenticates against nothing.
+		log := pulumilog.New(ctx)
+
+		if config.Get(ctx, "hcloud:token") == "" {
+			log.Warn("hcloud-token",
+				"not in stack config, so it is not exported: layers needing it must set their own")
+		} else {
+			ctx.Export(clusterref.OutputHcloudToken, config.GetSecret(ctx, "hcloud:token"))
+			log.Done("hcloud-token", "exported for the layers that call the Hetzner API")
+		}
 
 		return nil
 	})

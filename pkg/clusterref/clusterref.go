@@ -27,6 +27,7 @@ const (
 	OutputServiceCIDR       = "serviceCidr"
 	OutputClusterName       = "clusterName"
 	OutputLocation          = "location"
+	OutputHcloudToken       = "hcloudToken"
 )
 
 // Cluster is the resolved view of the cluster tier's outputs.
@@ -41,6 +42,16 @@ type Cluster struct {
 	ServiceCIDR pulumi.StringOutput
 	ClusterName pulumi.StringOutput
 	Location    pulumi.StringOutput
+
+	// HcloudToken is the Hetzner API token the cluster tier was built with,
+	// re-exported so a layer that must call the Hetzner API does not need a
+	// second copy of the same credential in its own config.
+	//
+	// Empty when the cluster stack took its token from the environment rather
+	// than from stack config. A consumer must say so rather than carry on: an
+	// empty token produces pods that start and then fail to authenticate,
+	// which looks nothing like a missing credential.
+	HcloudToken pulumi.StringOutput
 }
 
 // Resolve reads the cluster tier's outputs from another stack.
@@ -69,5 +80,26 @@ func Resolve(ctx *pulumi.Context, ref string) (*Cluster, error) {
 		ServiceCIDR: stack.GetStringOutput(pulumi.String(OutputServiceCIDR)),
 		ClusterName: stack.GetStringOutput(pulumi.String(OutputClusterName)),
 		Location:    stack.GetStringOutput(pulumi.String(OutputLocation)),
+		// Not GetStringOutput: that accessor fails an absent output with
+		// "does not exist on stack", which is true and tells the operator
+		// nothing to do about it. A cluster stack applied before the token was
+		// exported is an ordinary state, so it resolves to empty here and the
+		// consumer that needs the token explains the remedy.
+		HcloudToken: optionalString(stack, OutputHcloudToken),
 	}, nil
+}
+
+// optionalString reads an output that a cluster stack may legitimately not
+// have, resolving an absent one to the empty string.
+func optionalString(stack *pulumi.StackReference, name string) pulumi.StringOutput {
+	return stack.GetOutput(pulumi.String(name)).ApplyT(func(value any) (string, error) {
+		switch typed := value.(type) {
+		case nil:
+			return "", nil
+		case string:
+			return typed, nil
+		default:
+			return "", fmt.Errorf("stack reference output %q: expected a string, got %T", name, value)
+		}
+	}).(pulumi.StringOutput)
 }
