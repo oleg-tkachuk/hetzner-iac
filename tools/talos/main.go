@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -115,10 +116,20 @@ func checkVersion(ctx context.Context, pinned string) error {
 		// The explanation is printed rather than wrapped into the error:
 		// it is guidance for a person, and an error value should stay a
 		// single line so it reads correctly wherever it is logged.
+		// The exact command, because the version and the architecture are both
+		// known here and Homebrew has no formula for an older minor — `brew
+		// install talosctl` is what produces this mismatch in the first place.
 		fmt.Fprintf(os.Stderr,
 			"Talos moves configuration between documents across minor versions, so a\n"+
 				"mismatched binary reports conflicts that will not happen — or misses real\n"+
-				"ones. Install talosctl %s and run this again.\n\n", pinned)
+				"ones. Install the matching one:\n\n"+
+				"  curl -sLo /usr/local/bin/talosctl \\\n"+
+				"    https://github.com/siderolabs/talos/releases/download/%s/talosctl-%s-%s\n"+
+				"  chmod +x /usr/local/bin/talosctl\n\n"+
+				"Homebrew has no formula for an older minor, so `brew install talosctl` is\n"+
+				"what produces this mismatch. The pin moves when pulumi-talos ships a\n"+
+				"newer machinery — see talos.version in the topology.\n\n",
+			pinned, runtime.GOOS, runtime.GOARCH)
 
 		return fmt.Errorf("talosctl is %s but the topology pins Talos %s", local, pinned)
 	}

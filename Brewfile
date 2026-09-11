@@ -41,7 +41,11 @@ brew "jq"
 #   curl -sLo /usr/local/bin/talosctl \
 #     https://github.com/siderolabs/talos/releases/download/v1.13.10/talosctl-darwin-arm64
 #
-# Left here because every other talosctl use is version-tolerant.
+# Left here because every other talosctl use is version-tolerant. The pin is
+# not caution: pulumi-talos v0.8.1 is the newest, and the provider it bridges
+# embeds Talos machinery v1.13.0 — the thing that GENERATES the machine
+# config. `task cluster:config-check` prints the exact curl for the matching
+# version when it refuses.
 brew "talosctl"
 
 # --- Optional: only the tasks that name them ---------------------------------
