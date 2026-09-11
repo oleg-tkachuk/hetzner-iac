@@ -72,6 +72,11 @@ func main() {
 		ctx.Export(clusterref.OutputNetworkID, cluster.NetworkID)
 		ctx.Export(clusterref.OutputPodCIDR, cluster.PodCIDR)
 		ctx.Export(clusterref.OutputServiceCIDR, cluster.ServiceCIDR)
+		// How many control-plane nodes exist, for layers sizing something that
+		// cannot put two replicas on one node. Cilium's operator is one: its
+		// replicas bind a host port, so the second stays Pending for ever on a
+		// single-node cluster.
+		ctx.Export(clusterref.OutputControlPlaneCount, pulumi.Int(topology.ControlPlane.Count))
 		ctx.Export(clusterref.OutputClusterName, pulumi.String(topology.Metadata.Name))
 		ctx.Export(clusterref.OutputLocation, pulumi.String(topology.Placement.Location))
 
