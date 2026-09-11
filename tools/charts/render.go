@@ -32,6 +32,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -203,7 +204,98 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 		return nil, err
 	}
 
+	if err := checkHostAccess(key, namespace, output); err != nil {
+		return nil, err
+	}
+
 	return parseWorkloads(output), nil
+}
+
+// hostAccessMarkers are the pod-spec fields Pod Security Admission's baseline
+// level forbids. Matched on the rendered text rather than by unmarshalling
+// every manifest: the question is only whether a chart asks for host access at
+// all, and a false positive here is a comment away from being explained.
+var hostAccessMarkers = []string{
+	"hostNetwork: true",
+	"hostPID: true",
+	"hostIPC: true",
+	"hostPort:",
+	"hostPath:",
+}
+
+// checkHostAccess refuses a chart that needs host access in a namespace Talos
+// does not exempt from Pod Security Admission.
+//
+// Per document, not per release: one chart can install into two namespaces.
+// kube-prometheus-stack does exactly that now — node-exporter goes to
+// kube-system because it needs host access, and everything else stays in
+// observability under baseline. Checking the release's namespace would flag
+// the whole chart for what one DaemonSet asks.
+//
+// The failure this replaces gave almost nothing to go on: the DaemonSet showed
+// DESIRED 1, CURRENT 0 — not a pending pod, no pod at all — and Helm then
+// waited out its whole timeout while every other workload in the release was
+// Ready. The only evidence was one event on the DaemonSet.
+func checkHostAccess(key, releaseNamespace string, manifests []byte) error {
+	for _, doc := range strings.Split(string(manifests), "\n---") {
+		needs := hostAccessIn(doc)
+		if len(needs) == 0 {
+			continue
+		}
+
+		namespace := documentNamespace(doc, releaseNamespace)
+		if slices.Contains(hetzner.PodSecurityExemptNamespaces, namespace) {
+			continue
+		}
+
+		return fmt.Errorf(
+			"%s asks for host access (%s) in namespace %q, which Talos does not exempt "+
+				"from Pod Security Admission.\nIts pods will not be created at all — the "+
+				"workload reports zero replicas and Helm waits out its timeout.\n"+
+				"Either install it into one of %v, or give it a namespace labelled "+
+				"pod-security.kubernetes.io/enforce=privileged",
+			key, strings.Join(needs, ", "), namespace, hetzner.PodSecurityExemptNamespaces)
+	}
+
+	return nil
+}
+
+// hostAccessIn returns the host-access markers present in one document.
+func hostAccessIn(doc string) []string {
+	var found []string
+
+	for _, marker := range hostAccessMarkers {
+		if strings.Contains(doc, marker) {
+			found = append(found, strings.TrimSuffix(strings.TrimSuffix(marker, ": true"), ":"))
+		}
+	}
+
+	return found
+}
+
+// documentNamespace reads metadata.namespace, falling back to the release's.
+//
+// The first `namespace:` line at two-space indentation, because that is where
+// metadata puts it and a rendered chart is machine-written — this is not a YAML
+// parser and does not need to be. A document whose namespace it cannot find,
+// or that leaves the key empty, falls back to the release namespace, which is
+// what Helm would do.
+func documentNamespace(doc, fallback string) string {
+	for _, line := range strings.Split(doc, "\n") {
+		if !strings.HasPrefix(line, "  namespace:") {
+			continue
+		}
+
+		// An empty value is not a namespace named "": Helm resolves it
+		// against the release, same as an absent key. Returning "" instead
+		// reported `in namespace ""`, which tells the operator nothing about
+		// where the workload was actually going.
+		if name := strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "  namespace:")), `"'`); name != "" {
+			return name
+		}
+	}
+
+	return fallback
 }
 
 // kubeconformBinary is looked up rather than assumed so the absence is one
