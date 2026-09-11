@@ -1,77 +1,23 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# Every rule here is load-bearing. What was removed, and why: the Go template's
+# Windows and plugin patterns (*.exe, *.dll, *.so, *.dylib — this repository
+# builds no plugins and no Windows binaries), the coverage patterns (nothing
+# generates them), *.test (nothing runs `go test -c`), .env (secrets are Pulumi
+# stack config), go.work (no workspace), and three commented-out lines, which
+# are rules that do nothing.
 
-# Test binary, built with `go test -c`
-*.test
-
-# Code coverage profiles and other test artifacts
-*.out
-coverage.*
-*.coverprofile
-profile.cov
-
-# Dependency directories (remove the comment below to include it)
-# vendor/
-
-# Go workspace file
-go.work
-go.work.sum
-
-# env file
-.env
-
-# Editor/IDE
-# .idea/
-# .vscode/
-
-# Internal design docs — kept out of the public repository (temporary)
-docs/
-
-# Pulumi
-Pulumi.*.yaml.bak
-.pulumi/
-
-# Build output. Pulumi's go language host compiles each layer to a stable
-# path under here so repeated previews skip the link step.
-.cache/
-
-# Task. The remote lock is the exception and is committed on purpose: it pins
-# the CONTENT behind the `?ref=vX.Y.Z` tag, so a moved tag stops the build
-# instead of silently changing it. Refresh deliberately with `task --download`.
-.task/*
-!.task/remote/
-.task/remote/*
-!.task/remote/*.checksum
-
-# Cluster credentials produced by `task cluster:kubeconfig` / `cluster:talosconfig`
-kubeconfig
-talosconfig
-*.kubeconfig
-
-# Local etcd snapshots
-.backups/
-
-# Compiled output. `go build -o bin/ ./...` — what `task build` and the CI
-# priming job run — puts every binary here, so the repository root stays clean
-# and this is one line instead of a list.
+# Compiled output. `task build` runs `go build -o bin/ ./...`, so every binary
+# lands here and the repository root stays clean.
 bin/
 
-# A bare `go build ./...` still drops a binary named after each main package
-# into the working directory, and those names collide with the tools/, layers/
-# and infra/ directory names. The names below cover that; the pre-commit
-# forbid-binaries hook is what actually guarantees none is committed, because
-# it asks git rather than matching a name.
+# A bare `go build ./...` still names each binary after its main package and
+# leaves it in the working directory, where those names collide with the
+# tools/, layers/ and infra/ directory names. The pre-commit forbid-binaries
+# hook is the actual guarantee — it asks git what is binary rather than
+# matching a name — and this list only keeps `git status` honest.
 #
-# TestGitignore_CoversEveryBinaryName derives this list from the tree, because
-# a hand-maintained one went stale three times: twice for a new tool, and once
-# for `infra/cluster`, whose binary is called `cluster`.
+# TestGitignore_CoversEveryBinaryName derives it from the tree, because a
+# hand-maintained list went stale three times: twice for a new tool, and once
+# for infra/cluster, whose binary is called `cluster` and was never listed.
 /alloyvalidate
 /awk
 /charts
@@ -83,12 +29,41 @@ bin/
 /topology
 /[0-9][0-9]-*
 
-# Local-only lefthook overrides. Gates that belong to a working copy rather
-# than to the project; lefthook merges the file automatically when present.
-lefthook-local.yml
+# Pulumi. The backup files are the CLI's own; .pulumi/ is its local state when
+# a DIY backend is used instead of Pulumi Cloud.
+Pulumi.*.yaml.bak
+.pulumi/
+
+# Pulumi's go language host compiles each layer to a stable path under here, so
+# repeated previews skip the link step.
+.cache/
+
+# Task. The remote lock is the exception and is committed on purpose: it pins
+# the CONTENT behind the `?ref=vX.Y.Z` tag, so a moved tag stops the build
+# instead of silently changing it. Refresh deliberately with `task --download`.
+.task/*
+!.task/remote/
+.task/remote/*
+!.task/remote/*.checksum
+
+# Cluster credentials, generated on demand by `task cluster:kubeconfig` and
+# `cluster:talosconfig`. Both are cluster-admin.
+kubeconfig
+talosconfig
+*.kubeconfig
+
+# etcd snapshots from `task cluster:etcd-snapshot`.
+.backups/
 
 # Stack topologies. Kept local: adminCIDRs is the operator's own egress
 # address, and this repository is public. cluster.example.yaml is the committed
 # template — copy it to cluster.<stack>.yaml.
 infra/cluster/cluster.*.yaml
 !infra/cluster/cluster.example.yaml
+
+# Internal design docs — kept out of the public repository (temporary).
+docs/
+
+# Local-only lefthook overrides. Gates that belong to a working copy rather
+# than to the project; lefthook merges the file automatically when present.
+lefthook-local.yml
