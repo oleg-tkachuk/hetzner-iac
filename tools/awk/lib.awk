@@ -27,11 +27,34 @@ BEGIN {
     known["count-rows"] = 1
     known["any-row"] = 1
     known["cache-writers"] = 1
+    known["reverse-words"] = 1
 
     if (!(op in known)) {
         print "awk/lib.awk: unknown op " op > "/dev/stderr"
         exit 2
     }
+}
+
+# reverse-words: the whitespace-separated tokens of the input, last first, one
+# per line.
+#
+# Tokens rather than lines, so a list that arrives on one line and a list that
+# arrives on several both work — the layer list is one space-separated string
+# in the Taskfile, and piping it through `tr` first would be the pipeline this
+# op exists to remove. A token containing a space is therefore not expressible,
+# which is true of every layer name by construction.
+#
+# It replaces a `tac` / `tail -r` branch: `tac` is GNU, `tail -r` is BSD, a
+# machine has one or the other, and the shell that picked between them was
+# twelve lines including the error for a machine with neither. awk has neither
+# problem — it is the same program on both.
+#
+# Used for destroying layers, where the order has to be the apply order
+# backwards: ingress cannot go before the CNI it depends on.
+op == "reverse-words" {
+    for (i = 1; i <= NF; i++) words[++count] = $i
+
+    next
 }
 
 # avail-mb: the available megabytes from `df --output=avail -BM <path>`.
@@ -89,5 +112,11 @@ END {
 
     if (op == "any-row") {
         exit rows > 0 ? 0 : 1
+    }
+
+    if (op == "reverse-words") {
+        for (i = count; i >= 1; i--) print words[i]
+
+        exit 0
     }
 }

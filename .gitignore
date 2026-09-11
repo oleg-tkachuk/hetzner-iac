@@ -63,7 +63,16 @@ talosconfig
 # directory names — a stray build otherwise leaves an executable in the
 # repository root. The layer binaries are the big ones: 52 MB each, and one
 # was committed and pushed before this line existed.
+#
+# Every tools/ name is listed, not just the ones that have bitten: adding a
+# tool otherwise reintroduces this, which it did twice.
+/alloyvalidate
+/awk
 /charts
+/imagebake
+/render
+/stack
+/talosvalidate
 /topology
 /[0-9][0-9]-*
 
