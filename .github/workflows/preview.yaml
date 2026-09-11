@@ -26,9 +26,6 @@ concurrency:
   group: preview-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  PULUMI_VERSION: "3.261.0"
-
 jobs:
   target:
     name: Target stack and layers
@@ -68,18 +65,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # The GitHub environment is named after the stack, which is where its two
-    # secrets live. A stack with no environment of the same name gets none:
-    # the guard in each step below says so, because an empty access token
-    # otherwise fails as a login error naming neither.
+    # secrets live. A stack with no environment of the same name gets none, and
+    # setup-pulumi says so — an empty access token otherwise fails as a login
+    # error naming neither the secret nor the environment.
     environment: ${{ needs.target.outputs.stack }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-go
-      - uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d # v7
+      - uses: ./.github/actions/setup-pulumi
         with:
-          pulumi-version: ${{ env.PULUMI_VERSION }}
+          access-token: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          stack: ${{ needs.target.outputs.stack }}
       - name: Preview
         working-directory: infra/cluster
         env:
@@ -88,12 +85,6 @@ jobs:
           STACK: ${{ needs.target.outputs.stack }}
         run: |
           set -euo pipefail
-
-          if [ -z "${PULUMI_ACCESS_TOKEN}" ]; then
-            echo "::error::the ${STACK} environment holds no PULUMI_ACCESS_TOKEN"
-            echo "create it with: gh secret set PULUMI_ACCESS_TOKEN --env ${STACK}" >&2
-            exit 1
-          fi
 
           # tools/stack names the stacks that do exist. The pipeline this
           # replaces reported only an exit code — eight jobs said `exit code 6`
@@ -119,10 +110,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-go
-      - uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d # v7
+      - uses: ./.github/actions/setup-pulumi
         with:
-          pulumi-version: ${{ env.PULUMI_VERSION }}
+          access-token: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          stack: ${{ needs.target.outputs.stack }}
       - name: Preview
         working-directory: layers/${{ matrix.layer }}
         env:
@@ -130,12 +121,6 @@ jobs:
           STACK: ${{ needs.target.outputs.stack }}
         run: |
           set -euo pipefail
-
-          if [ -z "${PULUMI_ACCESS_TOKEN}" ]; then
-            echo "::error::the ${STACK} environment holds no PULUMI_ACCESS_TOKEN"
-            echo "create it with: gh secret set PULUMI_ACCESS_TOKEN --env ${STACK}" >&2
-            exit 1
-          fi
 
           pulumi --non-interactive --stack "$STACK" preview --diff
 
@@ -149,10 +134,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-go
-      - uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d # v7
+      - uses: ./.github/actions/setup-pulumi
         with:
-          pulumi-version: ${{ env.PULUMI_VERSION }}
+          access-token: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          stack: ${{ needs.target.outputs.stack }}
       - name: Fetch the kubeconfig
         working-directory: infra/cluster
         env:
