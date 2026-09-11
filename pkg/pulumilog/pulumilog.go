@@ -19,6 +19,23 @@
 //   - Permanent for anything an operator has to see after the run finished —
 //     above all, a feature that silently did not get created. Those are the
 //     lines that answer "why is there no Ingress" an hour later.
+//
+// # Conventions
+//
+// ◉ is not half of a pair. It names a fact this run is acting on — which chart
+// at which version, which config decision was taken — and Pulumi's own output
+// is what reports the resource finishing. Waiting for a ✔ per release would
+// mean logging from an apply that resolves after the program has returned, so
+// the line would be racy and redundant with what Pulumi already prints. ✔ is
+// for decisions that complete inside the program.
+//
+// An optional feature logs BOTH ways: ○ when it is off and ◉ when it is on.
+// One-sided logging makes silence ambiguous — an operator cannot tell whether
+// the feature was created or the code path moved.
+//
+// The detail names the bare config key, never the namespaced one: the line
+// already opens with the layer, so `○ gitops · ingress · gitops:domain unset`
+// says gitops twice.
 package pulumilog
 
 import (

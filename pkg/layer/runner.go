@@ -33,6 +33,15 @@ type Runner struct {
 	// reader who has seen one layer's output can read the next.
 	Log *pulumilog.Logger
 
+	// Cfg is this layer's stack configuration, namespaced to the project.
+	//
+	// Built with an empty namespace, which Pulumi resolves to the project
+	// name. Every layer used to write `config.New(ctx, "gitops")` — its own
+	// project name as a literal, in a second place, where renaming a project
+	// leaves a layer reading config nobody sets. That is not hypothetical:
+	// merging two layers renamed a project and the literal was missed.
+	Cfg *config.Config
+
 	// Provider is authenticated with the cluster's kubeconfig. Every resource
 	// a layer creates must be created with it — a resource created against the
 	// ambient kubeconfig lands on whatever cluster the operator's shell
@@ -80,6 +89,7 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 		Ctx:      ctx,
 		Cluster:  cluster,
 		Log:      pulumilog.New(ctx),
+		Cfg:      cfg,
 		Provider: provider,
 		Options:  []pulumi.ResourceOption{pulumi.Provider(provider)},
 	}, nil
@@ -109,6 +119,23 @@ func (r *Runner) banner() {
 
 		return name
 	})
+}
+
+// StringOr reads a config value, falling back to a default when it is unset.
+//
+// The pattern it replaces appeared once per tunable, four lines each, and put
+// the default a screen away from the key it belongs to:
+//
+//	retention := cfg.Get("metricsRetention")
+//	if retention == "" {
+//		retention = DefaultRetention
+//	}
+func (r *Runner) StringOr(key, fallback string) string {
+	if value := r.Cfg.Get(key); value != "" {
+		return value
+	}
+
+	return fallback
 }
 
 // With returns the layer's options plus extra ones, without mutating the

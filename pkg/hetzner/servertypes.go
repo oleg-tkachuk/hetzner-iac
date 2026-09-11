@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
+
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -38,9 +40,8 @@ func ValidateServerTypes(ctx *pulumi.Context, topology *Topology) error {
 		// would otherwise work — the API is about to be called anyway, and it
 		// will reject a bad type itself. This check buys an earlier, clearer
 		// failure, not a new way to fail.
-		_ = ctx.Log.Warn(fmt.Sprintf(
-			"could not list server types, so they are unverified until apply: %v", err),
-			&pulumi.LogArgs{Ephemeral: false})
+		pulumilog.New(ctx).Warn("server-types",
+			"could not list them, so they are unverified until apply: %v", err)
 
 		return nil
 	}

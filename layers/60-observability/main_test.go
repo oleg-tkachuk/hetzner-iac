@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/observability"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
@@ -60,7 +61,7 @@ func TestPrometheusValues_PersistsMetrics(t *testing.T) {
 	claim, ok := template["spec"].(pulumi.Map)
 	require.True(t, ok)
 
-	assert.Equal(t, pulumi.String(StorageClass), claim["storageClassName"])
+	assert.Equal(t, pulumi.String(platform.StorageClass), claim["storageClassName"])
 	assert.Equal(t, pulumi.String(DefaultMetricsSize), resourceRequest(t, claim))
 }
 
@@ -95,7 +96,7 @@ func TestEveryPersistentComponentUsesTheCSIStorageClass(t *testing.T) {
 
 	grafanaPersistence, ok := grafana["persistence"].(pulumi.Map)
 	require.True(t, ok)
-	assert.Equal(t, pulumi.String(StorageClass), grafanaPersistence["storageClassName"])
+	assert.Equal(t, pulumi.String(platform.StorageClass), grafanaPersistence["storageClassName"])
 
 	alertmanager, ok := prometheus["alertmanager"].(pulumi.Map)
 	require.True(t, ok)
@@ -104,14 +105,14 @@ func TestEveryPersistentComponentUsesTheCSIStorageClass(t *testing.T) {
 	storage, _ := alertmanagerSpec["storage"].(pulumi.Map)
 	template, _ := storage["volumeClaimTemplate"].(pulumi.Map)
 	claim, _ := template["spec"].(pulumi.Map)
-	assert.Equal(t, pulumi.String(StorageClass), claim["storageClassName"])
+	assert.Equal(t, pulumi.String(platform.StorageClass), claim["storageClassName"])
 
 	loki, _ := LokiValues()["singleBinary"].(pulumi.Map)
 	lokiPersistence, _ := loki["persistence"].(pulumi.Map)
-	assert.Equal(t, pulumi.String(StorageClass), lokiPersistence["storageClass"])
+	assert.Equal(t, pulumi.String(platform.StorageClass), lokiPersistence["storageClass"])
 
 	tempoPersistence, _ := TempoValues()["persistence"].(pulumi.Map)
-	assert.Equal(t, pulumi.String(StorageClass), tempoPersistence["storageClassName"])
+	assert.Equal(t, pulumi.String(platform.StorageClass), tempoPersistence["storageClassName"])
 }
 
 func TestLokiValues_RunsOneTopologyNotTwo(t *testing.T) {

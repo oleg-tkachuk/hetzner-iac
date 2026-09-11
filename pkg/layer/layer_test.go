@@ -275,3 +275,52 @@ func TestRelease_TimeoutOverride(t *testing.T) {
 	assert.EqualValues(t, 600, byName["cilium"]["timeout"].NumberValue())
 	assert.EqualValues(t, 1200, byName["kube-prometheus-stack"]["timeout"].NumberValue())
 }
+
+func TestStringOr_FallsBackOnlyWhenUnset(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	require.NoError(t, run(t, newMocks(), func(r *layer.Runner) error {
+		// Nothing set this key, so the default stands.
+		assert.Equal(t, "30d", r.StringOr("metricsRetention", "30d"))
+
+		return nil
+	}))
+}
+
+func TestStringOr_PrefersTheConfiguredValue(t *testing.T) {
+	raw, err := json.Marshal(map[string]string{
+		testProject + ":clusterStackRef":  "acme/hetzner-cluster/prod",
+		testProject + ":metricsRetention": "90d",
+	})
+	require.NoError(t, err)
+	t.Setenv("PULUMI_CONFIG", string(raw))
+
+	require.NoError(t, run(t, newMocks(), func(r *layer.Runner) error {
+		assert.Equal(t, "90d", r.StringOr("metricsRetention", "30d"))
+
+		return nil
+	}))
+}
+
+func TestCfg_IsNamespacedToTheProjectWithoutNamingIt(t *testing.T) {
+	// The point of holding the config on the Runner. Every layer used to write
+	// `config.New(ctx, "gitops")` — its own project name as a literal, in a
+	// second place. Renaming a project then leaves the layer reading config
+	// nobody sets, which is not hypothetical: merging two layers renamed one
+	// and the literal was missed.
+	//
+	// testProject is the project the mock runs under, so a key written with
+	// that prefix must be visible without the layer ever spelling it.
+	raw, err := json.Marshal(map[string]string{
+		testProject + ":clusterStackRef": "acme/hetzner-cluster/prod",
+		testProject + ":someKey":         "read-without-naming-the-project",
+	})
+	require.NoError(t, err)
+	t.Setenv("PULUMI_CONFIG", string(raw))
+
+	require.NoError(t, run(t, newMocks(), func(r *layer.Runner) error {
+		assert.Equal(t, "read-without-naming-the-project", r.Cfg.Get("someKey"))
+
+		return nil
+	}))
+}
