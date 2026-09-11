@@ -167,6 +167,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 |------|------|
 | `task up` | cluster, then every layer in dependency order |
 | `task plan` | preview the cluster and every layer; change nothing |
+| `task build` | compile every program into `bin/` |
 | `task verify` | everything checkable without a cluster — needs helm, talosctl and docker |
 | `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec |
 | `task e2e` | verify a running cluster; read-only |
