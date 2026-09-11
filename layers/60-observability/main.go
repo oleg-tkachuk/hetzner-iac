@@ -25,11 +25,63 @@ const (
 	DefaultMetricsSize = "50Gi"
 )
 
+// Chart timeouts, named because a bare number in a table says nothing about
+// why that chart is slower than the rest.
+const (
+	// PrometheusTimeoutSeconds — the largest chart here: CRDs, an admission
+	// webhook whose certificate is generated in a hook Job, several images.
+	PrometheusTimeoutSeconds = 1200
+	// LokiTimeoutSeconds — a StatefulSet with a volume to bind.
+	LokiTimeoutSeconds = 900
+)
+
+// PrometheusChart is the component everything else follows: it brings the
+// Prometheus operator and its CRDs, and Loki, Tempo and Alloy all register
+// datasources or ServiceMonitors against them.
+const PrometheusChart = "kube-prometheus-stack"
+
+// Components are what this layer deploys.
+//
+// The ordering is the point. Every component but Prometheus names it in After,
+// so the dependency is a fact the engine holds — previously it was a
+// pulumi.DependsOn built by hand and passed to three calls, where the fourth
+// forgetting it would have produced a race nothing reports until a datasource
+// is missing.
+var Components = layer.Components{
+	{
+		// One chart, because splitting it means owning operator/CRD version
+		// compatibility by hand.
+		Chart:          PrometheusChart,
+		TimeoutSeconds: PrometheusTimeoutSeconds,
+		Values: func(r *layer.Runner) pulumi.Map {
+			return PrometheusValues(
+				r.StringOr("metricsRetention", DefaultRetention),
+				r.StringOr("metricsVolumeSize", DefaultMetricsSize),
+			)
+		},
+	},
+	{
+		Chart:          "loki",
+		TimeoutSeconds: LokiTimeoutSeconds,
+		After:          []string{PrometheusChart},
+		Values:         func(*layer.Runner) pulumi.Map { return LokiValues() },
+	},
+	{
+		Chart:  "tempo",
+		After:  []string{PrometheusChart},
+		Values: func(*layer.Runner) pulumi.Map { return TempoValues() },
+	},
+	{
+		// Alloy collects logs from every node — a DaemonSet, because log
+		// collection is per-node work.
+		Chart:  "alloy",
+		After:  []string{PrometheusChart},
+		Values: func(*layer.Runner) pulumi.Map { return AlloyValues() },
+	},
+}
+
 func main() {
 	layer.Run(func(r *layer.Runner) error {
-		retention := r.StringOr("metricsRetention", DefaultRetention)
-		metricsSize := r.StringOr("metricsVolumeSize", DefaultMetricsSize)
-
 		// The chart's default route ends at a receiver named `null`, so every
 		// alert is grouped, inhibited and then dropped. Nothing else in the
 		// stack says so: Prometheus stores metrics, rules evaluate, alerts
@@ -41,50 +93,9 @@ func main() {
 		r.Log.Warn("alerting",
 			"alertmanager has no receiver: alerts are grouped, inhibited and then dropped")
 
-		// kube-prometheus-stack brings the operator, its CRDs, Prometheus,
-		// Alertmanager, Grafana and the exporters. One chart, because
-		// splitting it means owning operator/CRD version compatibility by
-		// hand.
-		prometheus, err := r.Release(r.Ctx, layer.ReleaseArgs{
-			Chart: "kube-prometheus-stack",
-			// The largest chart here: CRDs, an admission webhook whose
-			// certificate is generated in a hook Job, and several images.
-			TimeoutSeconds: 1200,
-			Values:         PrometheusValues(retention, metricsSize),
-		})
-		if err != nil {
-			return err
-		}
+		_, err := r.Deploy(Components)
 
-		// Everything else registers datasources and ServiceMonitors against
-		// the operator, so it has to exist first.
-		afterPrometheus := pulumi.DependsOn([]pulumi.Resource{prometheus})
-
-		if _, err := r.Release(r.Ctx, layer.ReleaseArgs{
-			Chart:          "loki",
-			TimeoutSeconds: 900,
-			Values:         LokiValues(),
-		}, afterPrometheus); err != nil {
-			return err
-		}
-
-		if _, err := r.Release(r.Ctx, layer.ReleaseArgs{
-			Chart:  "tempo",
-			Values: TempoValues(),
-		}, afterPrometheus); err != nil {
-			return err
-		}
-
-		// Alloy collects logs from every node — a DaemonSet, because log
-		// collection is per-node work.
-		if _, err := r.Release(r.Ctx, layer.ReleaseArgs{
-			Chart:  "alloy",
-			Values: AlloyValues(),
-		}, afterPrometheus); err != nil {
-			return err
-		}
-
-		return nil
+		return err
 	})
 }
 

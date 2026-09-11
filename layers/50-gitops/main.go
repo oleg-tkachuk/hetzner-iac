@@ -21,22 +21,34 @@ const AdminSecret = "argocd-initial-admin-secret" // #nosec G101 -- a secret's n
 // IssuerName must match the ClusterIssuer created by 30-core.
 const IssuerName = "letsencrypt"
 
+// ArgoCDTimeoutSeconds is longer than the default: several images, a Redis and
+// five deployments, and the default is tight on a cold cluster.
+const ArgoCDTimeoutSeconds = 900
+
+// Components are what this layer deploys. One of them, so the table buys
+// ordering nothing needs — what it buys here is the enumeration: layertest
+// asserts the chart is pinned and that pkg/workloads knows what it produces.
+var Components = layer.Components{
+	{
+		Chart:          "argo-cd",
+		TimeoutSeconds: ArgoCDTimeoutSeconds,
+		Values: func(r *layer.Runner) pulumi.Map {
+			return ArgoCDValues(r.Cfg.Get("domain"))
+		},
+	},
+}
+
 func main() {
 	layer.Run(func(r *layer.Runner) error {
-		domain := r.Cfg.Get("domain")
-		if domain == "" {
+		// Logged before the contract runs, because it explains what the values
+		// below will and will not contain.
+		if domain := r.Cfg.Get("domain"); domain == "" {
 			r.Log.Skipped("ingress", "domain unset, reach the UI with kubectl port-forward")
 		} else {
 			r.Log.Step("ingress", "domain "+domain)
 		}
 
-		release, err := r.Release(r.Ctx, layer.ReleaseArgs{
-			Chart: "argo-cd",
-			// Several images, a Redis and five deployments; the default
-			// timeout is tight on a cold cluster.
-			TimeoutSeconds: 900,
-			Values:         ArgoCDValues(domain),
-		})
+		released, err := r.Deploy(Components)
 		if err != nil {
 			return err
 		}
@@ -45,7 +57,7 @@ func main() {
 		// this stack would put a cluster-admin credential into Pulumi state
 		// for no benefit — it is rotated on first login anyway.
 		r.Ctx.Export("adminSecret", pulumi.String(AdminSecret))
-		r.Ctx.Export("gitopsReady", release.Status.Status())
+		r.Ctx.Export("gitopsReady", released["argo-cd"].Status.Status())
 
 		return nil
 	})
