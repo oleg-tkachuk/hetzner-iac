@@ -1,9 +1,10 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: "3"
 
 silent: true
 
 vars:
-  _PL_STACK: '{{.stack | default "prod"}}'
+  _PL_STACK: '{{.stack | default "dev"}}'
   _PL_LAYERS: '{{.LAYERS}}'
 
 tasks:

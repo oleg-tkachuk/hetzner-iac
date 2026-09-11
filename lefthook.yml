@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/evilmartians/lefthook/master/schema.json
 # Git hooks.
 #
 # The shape: cheap, staged-scoped checks on commit; anything slow or repo-wide

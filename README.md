@@ -105,34 +105,35 @@ lefthook install
 # 1. Describe the cluster. Set network.adminCIDRs to the address you will
 #    apply from — Talos configuration is pushed over the Talos API, and a host
 #    outside that list hangs with the port filtered.
-$EDITOR infra/cluster/cluster.prod.yaml
+cp infra/cluster/cluster.example.yaml infra/cluster/cluster.dev.yaml
+$EDITOR infra/cluster/cluster.dev.yaml
 
 # 2. Create the stack and set the Hetzner token. This is the only place the
-#    token is typed: it is stored encrypted in Pulumi.prod.yaml, which is
+#    token is typed: it is stored encrypted in Pulumi.dev.yaml, which is
 #    committed, and every task below decrypts it from there.
-task cluster:init stack=prod
-pulumi -C infra/cluster -s prod config set --secret hcloud:token <token>
+task cluster:init stack=dev
+pulumi -C infra/cluster -s dev config set --secret hcloud:token <token>
 
 # 3. Bake the Talos snapshot. Once per Talos version; idempotent.
-task cluster:image-bake stack=prod
+task cluster:image-bake stack=dev
 
 # 4. Build the cluster.
-task cluster:plan stack=prod      # read the diff first
-task cluster:apply stack=prod
+task cluster:plan stack=dev      # read the diff first
+task cluster:apply stack=dev
 
 # 5. Point every layer at it, then apply them in order. No token here: the
 #    cloud controller manager and the CSI driver read the one set in step 2,
 #    through the same stack reference that carries the kubeconfig.
-task platform:init stack=prod ref=<org>/hetzner-cluster/prod
-task platform:apply-all stack=prod
+task platform:init stack=dev ref=<org>/hetzner-cluster/dev
+task platform:apply-all stack=dev
 
 # 6. Check what you built.
-task cluster:kubeconfig stack=prod
-task cluster:status stack=prod
-task e2e stack=prod
+task cluster:kubeconfig stack=dev
+task cluster:status stack=dev
+task e2e stack=dev
 ```
 
-`task up stack=prod` does steps 4 and 5 in one go, once the stacks exist.
+`task up stack=dev` does steps 4 and 5 in one go, once the stacks exist.
 
 An exported `HCLOUD_TOKEN` still takes priority over the stack config, which
 is how CI passes a token it holds as a GitHub secret.
@@ -140,7 +141,7 @@ is how CI passes a token it holds as a GitHub secret.
 ## Commands
 
 `task` on its own lists everything. Every cluster and layer task takes
-`stack=<name>`, defaulting to `prod` — that is the only deployment parameter,
+`stack=<name>`, defaulting to `dev` — that is the only deployment parameter,
 because where a cluster lives and how it is shaped comes from its committed
 topology file.
 
@@ -158,7 +159,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task plan` | preview the cluster and every layer; change nothing |
 | `task verify` | everything checkable without a cluster — needs helm, talosctl and docker |
 | `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec |
-| `task e2e` | verify a running cluster; read-only, safe against production |
+| `task e2e` | verify a running cluster; read-only |
 | `task fmt` | format and tidy |
 | `task fmt-check` | fail if anything is not gofmt-clean |
 | `task clean` | drop the compiled layer binaries under `.cache` |
@@ -261,15 +262,16 @@ with the code it configures, and cloning the repository grants nothing. Nothing
 here reads a plaintext secrets file, and none should be created.
 
 
-Cluster shape lives in `infra/cluster/cluster.<stack>.yaml`. Everything else is
-Pulumi config:
+Everything that shapes a cluster lives in `infra/cluster/cluster.<stack>.yaml`,
+validated by `cluster.schema.json` as you type it. Stack config holds one
+cluster-tier value, the Hetzner token, because a token must not be in git — the
+three switches that used to sit beside it are in the topology now. The layers
+keep their own config, which is about what they deploy rather than about the
+cluster:
 
 | Key | Where | Meaning |
 |-----|-------|---------|
 | `hcloud:token` | `infra/cluster` | Hetzner API token (secret); `cluster:image-bake` decrypts it from here too |
-| `hetzner-cluster:publicIPv4` | `infra/cluster` | routable address per node; required unless you apply from inside the private network |
-| `hetzner-cluster:allowICMP` | `infra/cluster` | open ping from the admin CIDRs |
-| `hetzner-cluster:imageSelector` | `infra/cluster` | override the Talos snapshot selector |
 | `<layer>:clusterStackRef` | every layer | `<org>/hetzner-cluster/<stack>` |
 | `node-platform:hcloudToken` | `10-node-platform` | optional; overrides the token the cluster stack exports (secret) |
 | `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
@@ -532,7 +534,7 @@ information rather than a contradiction.
 
 ```bash
 task go:test         # unit
-task e2e stack=prod  # against a real cluster; read-only, safe in production
+task e2e stack=dev  # against a real cluster; read-only
 ```
 
 The unit tests pin what Pulumi will *ask for*, including the settings whose

@@ -329,16 +329,21 @@ func TestApplyDefaults_DoesNotOverrideAnExplicitKubernetesVersion(t *testing.T) 
 	assert.Equal(t, "v1.35.7", topology.Kubernetes.Version)
 }
 
-func TestBothCommittedTopologiesPinKubernetes(t *testing.T) {
+func TestEveryTopologyPresentPinsKubernetes(t *testing.T) {
 	t.Parallel()
 
-	// The default above is a floor, not the promise. A committed topology
+	// The default in the package is a floor, not the promise. A topology
 	// states its version, so an upgrade is a line in a diff someone reviews.
-	for _, path := range []string{
-		filepath.Join("..", "..", "infra", "cluster", "cluster.prod.yaml"),
-	} {
-		raw, err := os.ReadFile(path)
-		require.NoError(t, err, path)
+	//
+	// Globbed: only cluster.example.yaml is committed, and a working copy also
+	// has the stack files it was copied into.
+	paths, err := filepath.Glob(filepath.Join("..", "..", "infra", "cluster", "cluster.*.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+
+	for _, path := range paths {
+		raw, readErr := os.ReadFile(path)
+		require.NoError(t, readErr, path)
 
 		assert.Contains(t, string(raw), "version: "+hetzner.DefaultKubernetesVersion,
 			"%s should pin Kubernetes explicitly", path)
