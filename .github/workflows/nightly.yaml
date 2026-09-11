@@ -31,7 +31,7 @@ env:
 
 jobs:
   race:
-    name: Tests with the race detector
+    name: Race detector
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -47,7 +47,7 @@ jobs:
       - run: go test -race -count=1 ./...
 
   gosec:
-    name: gosec
+    name: Insecure patterns
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:

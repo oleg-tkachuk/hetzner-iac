@@ -12,6 +12,13 @@ name: Security
 # jobs in ci.yaml: a security finding appears without anyone touching the code.
 # A CVE published today makes yesterday's green commit vulnerable, and a gate
 # that only runs on push would never say so.
+#
+# Job names say what is asserted, never which tool asserts it: "Committed
+# secrets", not "gitleaks". The tool shows up in the step and in the log, where
+# a failure is already being read; the check list is read to see what is
+# guarded. Renaming a job renames a required status check, so branch protection
+# has to be updated in the same pass.
+
 on:
   workflow_call:
   workflow_dispatch:
@@ -45,7 +52,7 @@ jobs:
   # locally, so the flags live in one place — the shared task library — rather
   # than being restated here and drifting.
   secrets:
-    name: gitleaks
+    name: Committed secrets
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -67,7 +74,7 @@ jobs:
       - run: task security:secrets
 
   vulnerabilities:
-    name: govulncheck
+    name: Reachable vulnerabilities
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -84,7 +91,7 @@ jobs:
       - run: task security:vuln
 
   filesystem:
-    name: trivy
+    name: Dependencies and filesystem
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -107,7 +114,7 @@ jobs:
       - run: task security:trivy
 
   workflows:
-    name: zizmor
+    name: Workflow permissions
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -136,8 +143,8 @@ jobs:
   # Its own job rather than a step beside zizmor, because renaming that job
   # would rename a required check, and a required check that never reports
   # again blocks every open pull request.
-  actionlint:
-    name: actionlint
+  syntax:
+    name: Workflow syntax
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
