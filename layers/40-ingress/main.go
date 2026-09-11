@@ -11,7 +11,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
 // DefaultLoadBalancerType is the smallest Hetzner load balancer. It carries a
@@ -21,12 +20,7 @@ const DefaultLoadBalancerType = "lb11"
 
 func main() {
 	layer.Run(func(r *layer.Runner) error {
-		cfg := config.New(r.Ctx, "ingress")
-
-		loadBalancerType := cfg.Get("loadBalancerType")
-		if loadBalancerType == "" {
-			loadBalancerType = DefaultLoadBalancerType
-		}
+		loadBalancerType := r.StringOr("loadBalancerType", DefaultLoadBalancerType)
 
 		name := r.Cluster.ClusterName.ApplyT(func(cluster string) string {
 			return cluster + "-ingress"

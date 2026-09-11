@@ -11,7 +11,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
 // AdminSecret is where Argo CD writes its initial admin password. This is the
@@ -24,11 +23,11 @@ const IssuerName = "letsencrypt"
 
 func main() {
 	layer.Run(func(r *layer.Runner) error {
-		cfg := config.New(r.Ctx, "gitops")
-
-		domain := cfg.Get("domain")
+		domain := r.Cfg.Get("domain")
 		if domain == "" {
-			r.Log.Skipped("ingress", "gitops:domain unset, reach the UI with kubectl port-forward")
+			r.Log.Skipped("ingress", "domain unset, reach the UI with kubectl port-forward")
+		} else {
+			r.Log.Step("ingress", "domain "+domain)
 		}
 
 		release, err := r.Release(r.Ctx, layer.ReleaseArgs{

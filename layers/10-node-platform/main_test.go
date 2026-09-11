@@ -10,11 +10,9 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
 
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
@@ -336,7 +334,8 @@ func (stackMocks) Call(pulumi.MockCallArgs) (resource.PropertyMap, error) {
 func resolved(t *testing.T, exported, override string) (string, error) {
 	t.Helper()
 
-	cfg := map[string]string{}
+	// layer.New needs the stack reference, the same as the program does.
+	cfg := map[string]string{testProject + ":clusterStackRef": "acme/hetzner-cluster/test"}
 	if override != "" {
 		cfg[testProject+":hcloudToken"] = override
 	}
@@ -351,12 +350,15 @@ func resolved(t *testing.T, exported, override string) (string, error) {
 	)
 
 	err = pulumi.RunErr(func(ctx *pulumi.Context) error {
-		cluster, resolveErr := clusterref.Resolve(ctx, "acme/hetzner-cluster/test")
-		if resolveErr != nil {
-			return resolveErr
+		// Through layer.New rather than assembling the three fields by hand:
+		// resolveToken takes the runner, so the test exercises the same
+		// wiring the program does.
+		runner, newErr := layer.New(ctx)
+		if newErr != nil {
+			return newErr
 		}
 
-		token := resolveToken(config.New(ctx, testProject), cluster, pulumilog.New(ctx))
+		token := resolveToken(runner)
 
 		// The token has to reach a resource. An output nothing consumes is
 		// never awaited, so an error raised inside it hangs the program

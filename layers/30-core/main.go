@@ -14,7 +14,6 @@ import (
 	apiextensions "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
 // IssuerName is the ClusterIssuer other layers reference by annotation.
@@ -27,8 +26,6 @@ const LetsEncryptDirectory = "https://acme-v02.api.letsencrypt.org/directory"
 
 func main() {
 	layer.Run(func(r *layer.Runner) error {
-		cfg := config.New(r.Ctx, "core")
-
 		certManager, err := r.Release(r.Ctx, layer.ReleaseArgs{
 			Chart:  "cert-manager",
 			Values: CertManagerValues(),
@@ -40,15 +37,15 @@ func main() {
 		// The ACME issuer is optional: a cluster with no public DNS yet has
 		// nothing for Let's Encrypt to validate against, and an issuer that
 		// fails every order is noisier than an absent one.
-		email := cfg.Get("acmeEmail")
+		email := r.Cfg.Get("acmeEmail")
 		if email == "" {
 			// The most confusing thing this layer can do is install
 			// cert-manager and no issuer, leaving every Certificate pending
 			// with nothing to satisfy it. Permanent, so it survives the run.
 			r.Log.Skipped("cluster-issuer", "acmeEmail unset, no ClusterIssuer created")
-		}
+		} else {
+			r.Log.Step("cluster-issuer", "acmeEmail set, orders go to Let's Encrypt")
 
-		if email != "" {
 			if _, err := apiextensions.NewCustomResource(r.Ctx, IssuerName, &apiextensions.CustomResourceArgs{
 				ApiVersion: pulumi.String("cert-manager.io/v1"),
 				Kind:       pulumi.String("ClusterIssuer"),

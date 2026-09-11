@@ -32,12 +32,11 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
 )
 
@@ -46,8 +45,9 @@ const (
 	CredentialsSecret = "hcloud"
 	// SystemNamespace is where both charts install.
 	SystemNamespace = "kube-system"
-	// StorageClass is what the CSI driver registers.
-	StorageClass = "hcloud-volumes"
+	// StorageClass is re-exported for convenience; pkg/platform owns the name
+	// because 60-observability's claims have to ask for the same one.
+	StorageClass = platform.StorageClass
 )
 
 func main() {
@@ -57,8 +57,6 @@ func main() {
 // program is the layer, separated from main so a test can run it against a
 // mock monitor and assert the ordering this stack exists to guarantee.
 func program(r *layer.Runner) error {
-	cfg := config.New(r.Ctx, "node-platform")
-
 	// Cilium first, and everything else after it. This is the ordering
 	// that used to be two directory names.
 	cilium, err := r.Release(r.Ctx, layer.ReleaseArgs{
@@ -83,7 +81,7 @@ func program(r *layer.Runner) error {
 			Namespace: pulumi.String(SystemNamespace),
 		},
 		StringData: pulumi.StringMap{
-			"token": resolveToken(cfg, r.Cluster, r.Log),
+			"token": resolveToken(r),
 			// The route controller programmes pod routes inside this
 			// network. Without it the CCM starts and silently manages no
 			// routes, which surfaces as pods unable to reach pods on
@@ -267,21 +265,21 @@ func CiliumValues(podCIDR pulumi.StringInput, controlPlaneCount pulumi.IntInput)
 // and the symptom is a CCM that starts, logs 401 and never clears the
 // uninitialized taint — which reads as a broken cluster rather than as a
 // missing credential.
-func resolveToken(cfg *config.Config, cluster *clusterref.Cluster, log *pulumilog.Logger) pulumi.StringOutput {
-	if cfg.Get("hcloudToken") != "" {
-		log.Done("token", "from this layer's config, overriding the cluster stack")
+func resolveToken(r *layer.Runner) pulumi.StringOutput {
+	if r.Cfg.Get("hcloudToken") != "" {
+		r.Log.Done("token", "from this layer's config, overriding the cluster stack")
 
-		return cfg.RequireSecret("hcloudToken")
+		return r.Cfg.RequireSecret("hcloudToken")
 	}
 
-	log.Step("token", "from the cluster stack")
+	r.Log.Step("token", "from the cluster stack")
 
 	// Empty rather than absent: pkg/clusterref's version gate has established
 	// that the tier publishes this output, and the tier exports it empty when
 	// its own `hcloud:token` is unset — a cluster built from an environment
 	// variable rather than from stack config. That is a real state with two
 	// remedies, not a migration to wait out.
-	return pulumix.Cast[pulumi.StringOutput](pulumix.ApplyErr(cluster.HcloudToken,
+	return pulumix.Cast[pulumi.StringOutput](pulumix.ApplyErr(r.Cluster.HcloudToken,
 		func(token string) (string, error) {
 			if token == "" {
 				return "", fmt.Errorf(
