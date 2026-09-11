@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
+
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -115,4 +117,10 @@ func TestIngressValues_SurvivesANodeFailure(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, pulumi.String("kubernetes.io/hostname"), constraint["topologyKey"],
 		"replicas must be spread across nodes, not just counted")
+}
+
+func TestComponents(t *testing.T) {
+	t.Parallel()
+
+	layertest.Check(t, Components)
 }

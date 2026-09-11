@@ -18,22 +18,30 @@ import (
 // availability.
 const DefaultLoadBalancerType = "lb11"
 
+// Components are what this layer deploys. One of them — what the table buys
+// here is the enumeration: layertest asserts the chart is pinned and that
+// pkg/workloads knows what it produces.
+var Components = layer.Components{
+	{
+		Chart: "ingress-nginx",
+		Values: func(r *layer.Runner) pulumi.Map {
+			// The load balancer's name carries the cluster's, so two clusters
+			// in one project do not collide on it.
+			name := r.Cluster.ClusterName.ApplyT(func(cluster string) string {
+				return cluster + "-ingress"
+			}).(pulumi.StringOutput)
+
+			return IngressValues(name, r.Cluster.Location,
+				r.StringOr("loadBalancerType", DefaultLoadBalancerType))
+		},
+	},
+}
+
 func main() {
 	layer.Run(func(r *layer.Runner) error {
-		loadBalancerType := r.StringOr("loadBalancerType", DefaultLoadBalancerType)
+		_, err := r.Deploy(Components)
 
-		name := r.Cluster.ClusterName.ApplyT(func(cluster string) string {
-			return cluster + "-ingress"
-		}).(pulumi.StringOutput)
-
-		if _, err := r.Release(r.Ctx, layer.ReleaseArgs{
-			Chart:  "ingress-nginx",
-			Values: IngressValues(name, r.Cluster.Location, loadBalancerType),
-		}); err != nil {
-			return err
-		}
-
-		return nil
+		return err
 	})
 }
 
