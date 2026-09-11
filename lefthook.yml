@@ -93,7 +93,7 @@ pre-commit:
 
     - name: forbid-binaries
       tags: [hygiene]
-      run: git diff --cached --numstat | awk -f tools/awk/lib.awk -v op=staged-binaries
+      run: git diff --cached --numstat | awk -f tools/lines/main.awk -v op=staged-binaries
 
     # A secret reaches the remote once and is burned; this is the only cheap
     # moment to catch it. A scan that skips itself when the tool is missing is

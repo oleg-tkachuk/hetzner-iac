@@ -1,11 +1,11 @@
-// Package awk tests lib.awk, the file beside it.
+// Package lines tests main.awk, the file beside it.
 //
 // The shared awk program is the one piece of this repository written in a
 // language with no compiler and no type checker, so it is the piece most in
 // need of a test. An awk program nobody tests is a shell pipeline with extra
 // steps — and pipelines returning the wrong answer quietly is the problem the
 // file was written to solve.
-package awk
+package lines
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// run feeds stdin to lib.awk with the given op and returns its output and
+// run feeds stdin to main.awk with the given op and returns its output and
 // exit code.
 func run(t *testing.T, op, stdin string, files ...string) (string, int) {
 	t.Helper()
@@ -38,7 +38,7 @@ func runAllowing(t *testing.T, op, stdin, allow string) (string, int) {
 func runWith(t *testing.T, op, allow, stdin string, files ...string) (string, int) {
 	t.Helper()
 
-	script := "lib.awk"
+	script := "main.awk"
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
