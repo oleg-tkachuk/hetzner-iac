@@ -1,5 +1,8 @@
-// Command render proves, offline, that the pinned charts still produce the
-// workloads pkg/workloads expects.
+// `render` proves, offline, that the pinned charts still produce the workloads
+// pkg/workloads expects.
+//
+// Part of this tool rather than its own, because its subject is the charts:
+// two commands named after the same noun is the signal they are one.
 //
 // It exists because the alternative is finding out on a real cluster. A chart
 // upgrade that renames a Deployment does not fail `pulumi up` — the release
@@ -47,17 +50,20 @@ import (
 //go:embed values
 var valuesFS embed.FS
 
-func main() {
+// renderAll runs every chart check and reports how many failed.
+func renderAll() error {
 	failures, err := run()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		return err
 	}
 
 	if failures > 0 {
-		fmt.Fprintf(os.Stderr, "\n%d check(s) failed — a chart renamed something, or a value it used to read is now ignored\n", failures)
-		os.Exit(1)
+		return fmt.Errorf(
+			"%d check(s) failed — a chart renamed something, or a value it used to read is now ignored",
+			failures)
 	}
+
+	return nil
 }
 
 func run() (int, error) {

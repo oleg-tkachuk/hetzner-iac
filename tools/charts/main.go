@@ -28,10 +28,12 @@ func main() {
 		err = list()
 	case "outdated":
 		err = outdated()
+	case "render":
+		err = renderAll()
 	case "appversions":
 		err = appversions()
 	default:
-		err = fmt.Errorf("unknown command %q; use list, outdated or appversions", command)
+		err = fmt.Errorf("unknown command %q; use list, outdated, render or appversions", command)
 	}
 
 	if err != nil {
@@ -59,7 +61,7 @@ func list() error {
 // helm datasource only knows chart versions — and AppVersion beside it then
 // becomes a lie: a comment claiming a chart deploys something it does not. For
 // eleven charts that is a misleading document; for alloy it is a real defect,
-// because tools/alloyvalidate builds an image tag out of it and would validate
+// because tools/alloy builds an image tag out of it and would validate
 // a configuration against the wrong Alloy.
 //
 // A gate rather than a rewriter. An automated upgrade should stop for a human

@@ -1,4 +1,4 @@
-// Command talosvalidate checks the machine-config patches against Talos itself.
+// Command talos checks the machine-config patches against Talos itself.
 //
 // The unit tests in pkg/hetzner prove the patches contain what was intended.
 // They cannot prove Talos accepts them — and Talos is strict in ways that are
@@ -147,7 +147,7 @@ func validateTopology(ctx context.Context, path string, topology *hetzner.Topolo
 		return err
 	}
 
-	workDir, err := os.MkdirTemp("", "talosvalidate-")
+	workDir, err := os.MkdirTemp("", "talos-validate-")
 	if err != nil {
 		return fmt.Errorf("temp dir: %w", err)
 	}

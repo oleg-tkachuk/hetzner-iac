@@ -18,14 +18,12 @@ bin/
 # TestGitignore_CoversEveryBinaryName derives it from the tree, because a
 # hand-maintained list went stale three times: twice for a new tool, and once
 # for infra/cluster, whose binary is called `cluster` and was never listed.
-/alloyvalidate
-/awk
+/alloy
 /charts
 /cluster
-/imagebake
-/render
+/image
 /stack
-/talosvalidate
+/talos
 /topology
 /[0-9][0-9]-*
 

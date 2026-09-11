@@ -1,4 +1,4 @@
-// Command imagebake bakes the Talos snapshot the topology names into the
+// Command image bakes the Talos snapshot the topology names into the
 // hcloud project, and is idempotent.
 //
 // It replaces a shell block that had grown to forty-eight lines and five
@@ -62,7 +62,7 @@ var osArgs = os.Args
 
 func run(ctx context.Context) error {
 	if len(osArgs) != 3 {
-		return fmt.Errorf("usage: imagebake <topology.yaml> <stack>")
+		return fmt.Errorf("usage: image <topology.yaml> <stack>")
 	}
 
 	topologyPath, stack := osArgs[1], osArgs[2]

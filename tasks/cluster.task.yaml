@@ -27,9 +27,9 @@ tasks:
       # Image Factory, `hcloud image list | awk` for idempotence, a `case` for
       # the architecture, and an `env:` stanza resolving the token — which Task
       # evaluates BEFORE preconditions, so the precondition holding the remedy
-      # could never print. All of it is tools/imagebake now, where it is
+      # could never print. All of it is tools/image now, where it is
       # testable and where `jq` and `curl` are not needed at all.
-      - go run {{.ROOT}}/tools/imagebake "{{._CL_TOPOLOGY}}" "{{._CL_STACK}}"
+      - go run {{.ROOT}}/tools/image "{{._CL_TOPOLOGY}}" "{{._CL_STACK}}"
 
   config-check:
     desc: "Validate the machine-config patches against Talos itself — no cluster needed"
@@ -44,7 +44,7 @@ tasks:
       # talosctl must match the pinned minor version — the tool refuses
       # otherwise, because a mismatched binary reports conflicts that will not
       # happen.
-      - go run {{.ROOT}}/tools/talosvalidate {{.ROOT}}/infra/cluster
+      - go run {{.ROOT}}/tools/talos {{.ROOT}}/infra/cluster
 
   # ---------------------------------------------------------------------------
   # Bring-up
