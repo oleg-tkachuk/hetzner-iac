@@ -1,8 +1,10 @@
 package main
 
 import (
+	"os"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/observability"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
@@ -328,4 +330,35 @@ func TestComponents_EverythingFollowsPrometheus(t *testing.T) {
 		assert.Contains(t, component.After, PrometheusChart,
 			"%s registers against the Prometheus operator and must follow it", component.Chart)
 	}
+}
+
+func TestPrometheusValues_PutsNodeExporterWhereItCanRun(t *testing.T) {
+	t.Parallel()
+
+	// Talos enables Pod Security Admission with `enforce: baseline` for every
+	// namespace except kube-system, and node-exporter needs hostNetwork,
+	// hostPID and hostPath volumes. In observability its pods are not created
+	// at all — the DaemonSet reports DESIRED 1, CURRENT 0 — and Helm waits out
+	// its whole timeout with every other workload in the release Ready. That
+	// cost two failed deploys before one event on the DaemonSet explained it.
+	exporter, ok := PrometheusValues(DefaultRetention, DefaultMetricsSize)["prometheus-node-exporter"].(pulumi.Map)
+	require.True(t, ok, "the subchart's values must be set, or it lands in the release namespace")
+
+	assert.Equal(t, pulumi.String(NodeExporterNamespace), exporter["namespaceOverride"])
+	assert.Contains(t, hetzner.PodSecurityExemptNamespaces, NodeExporterNamespace,
+		"node-exporter must install where Talos exempts Pod Security Admission")
+}
+
+func TestRenderValues_AgreeWithTheLayer(t *testing.T) {
+	t.Parallel()
+
+	// tools/charts renders with its own values file, so the render check only
+	// sees what that file says. A namespace override stated in the layer and
+	// not there would make the check pass on a chart the cluster then refuses,
+	// which is the failure this whole pair exists to prevent.
+	raw, err := os.ReadFile("../../tools/charts/values/kube-prometheus-stack.yaml")
+	require.NoError(t, err, "the render check needs these values to see the override")
+
+	assert.Contains(t, string(raw), "namespaceOverride: "+NodeExporterNamespace,
+		"tools/charts/values disagrees with this layer about where node-exporter installs")
 }

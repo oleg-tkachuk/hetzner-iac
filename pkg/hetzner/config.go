@@ -199,6 +199,22 @@ const (
 	kind       = "Cluster"
 )
 
+// PodSecurityExemptNamespaces are the namespaces Talos leaves out of Pod
+// Security Admission.
+//
+// Talos enables PSA by default with `enforce: baseline` for every namespace
+// and exempts exactly one — read off a running node, not assumed:
+//
+//	defaults:   {enforce: baseline, audit: restricted, warn: restricted}
+//	exemptions: {namespaces: [kube-system]}
+//
+// A workload that needs host namespaces, hostPath or a hostPort can therefore
+// only run here. That is not a detail: it cost two failed deploys. The
+// node-exporter DaemonSet had DESIRED 1 and CURRENT 0 — no pod was created at
+// all — and the only evidence was one event on the DaemonSet saying
+// "violates PodSecurity baseline:latest".
+var PodSecurityExemptNamespaces = []string{"kube-system"}
+
 // KubeProxyDisabled is what this repository writes into the Talos machine
 // configuration, and therefore a constraint on which CNI can be installed: a
 // CNI that does not replace kube-proxy would leave the cluster with no service

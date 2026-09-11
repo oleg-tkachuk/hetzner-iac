@@ -19,6 +19,11 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
+// NodeExporterNamespace is where the node-exporter DaemonSet installs, and the
+// only part of the kube-prometheus-stack release that does not land in
+// observability. See the comment beside it in PrometheusValues.
+const NodeExporterNamespace = "kube-system"
+
 // Defaults for the knobs most likely to be tuned per environment.
 const (
 	DefaultRetention   = "30d"
@@ -169,7 +174,30 @@ func PrometheusValues(retention, metricsSize string) pulumi.Map {
 				},
 			},
 		},
-		"nodeExporter":          pulumi.Map{"enabled": pulumi.Bool(true)},
+		"nodeExporter": pulumi.Map{"enabled": pulumi.Bool(true)},
+
+		// node-exporter goes to kube-system, and it is the only part of this
+		// release that does.
+		//
+		// It needs hostNetwork, hostPID and hostPath volumes — that is what a
+		// node metrics exporter is — and Talos enables Pod Security Admission
+		// with `enforce: baseline` for every namespace except kube-system. In
+		// observability its pods are not created at all: the DaemonSet reports
+		// DESIRED 1, CURRENT 0, Helm waits out its whole timeout, and the only
+		// evidence is one event saying "violates PodSecurity baseline:latest".
+		// That cost two failed deploys.
+		//
+		// kube-system rather than labelling observability privileged, because
+		// the label would also exempt Grafana, Prometheus, Alertmanager and
+		// kube-state-metrics — four workloads that comply with baseline today.
+		// node-exporter is a node-level agent like Cilium, the CCM and the CSI
+		// driver, all of which already live there.
+		//
+		// Prometheus finds it: serviceMonitorSelectorNilUsesHelmValues is
+		// false, so monitors are discovered in every namespace.
+		"prometheus-node-exporter": pulumi.Map{
+			"namespaceOverride": pulumi.String(NodeExporterNamespace),
+		},
 		"kubeEtcd":              pulumi.Map{"enabled": pulumi.Bool(false)},
 		"kubeScheduler":         pulumi.Map{"enabled": pulumi.Bool(false)},
 		"kubeControllerManager": pulumi.Map{"enabled": pulumi.Bool(false)},
