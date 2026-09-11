@@ -95,11 +95,19 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 					"cloud-provider": "external",
 				},
 			},
-			"apiServer": map[string]any{
-				"extraArgs": map[string]string{
-					"cloud-provider": "external",
-				},
-			},
+			// No cloud-provider on the API server. It never needed one — the
+			// external provider is the kubelet's and the controller manager's
+			// business — and Kubernetes removed the flag, so passing it is
+			// fatal rather than merely redundant:
+			//
+			//	kube-apiserver: Error: unknown flag: --cloud-provider
+			//
+			// The static pod then exits on every restart, the scheduler fails
+			// behind it unable to reach the API through KubePrism, and the
+			// cluster comes up with etcd and kubelet healthy and port 6443
+			// refusing connections. No offline check catches this: talosctl
+			// validates the shape of the config, not whether a flag exists in
+			// the Kubernetes version the config pins.
 			"allowSchedulingOnControlPlanes": args.AllowSchedulingOnControlPlanes,
 		},
 	}
