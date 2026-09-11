@@ -20,8 +20,12 @@ brew "go-task"
 brew "hcloud"
 
 # Chart rendering: `task charts:render-check` proves a chart still produces the
-# workloads pkg/workloads declares, offline.
+# workloads pkg/workloads declares.
 brew "helm"
+
+# Schema validation of what those charts render, against the Kubernetes version
+# the topology pins. It fetches the schemas, so this one needs egress.
+brew "kubeconform"
 
 # Two JSON field reads in the status tasks. image-bake used to need it and
 # no longer does — tools/image parses with encoding/json.

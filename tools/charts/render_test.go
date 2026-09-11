@@ -126,3 +126,46 @@ func TestSortedKeys(t *testing.T) {
 	got := sortedKeys(map[string]bool{"z": true, "a": true, "m": true})
 	assert.Equal(t, []string{"a", "m", "z"}, got)
 }
+
+func TestKubeconformArgs_NeverIgnoresMissingSchemas(t *testing.T) {
+	t.Parallel()
+
+	// The regression that would make the whole check worthless.
+	//
+	// -ignore-missing-schemas reads like the obvious way to let custom
+	// resources through, and it is how this was first written. But a REMOVED
+	// api version has no schema either, so `policy/v1beta1 PodSecurityPolicy`
+	// came back "Skipped" and kubeconform exited 0 — measured, against the
+	// very failure class this check exists for. Kubernetes v1.36 removing a
+	// kube-apiserver flag already cost this repository a control plane.
+	//
+	// Named kinds instead: a chart that starts emitting a new custom resource
+	// fails loudly and somebody adds it on purpose.
+	args := kubeconformArgs("1.36.4")
+
+	assert.NotContains(t, args, "-ignore-missing-schemas",
+		"a removed api version has no schema either, so this flag hides exactly what the check is for")
+	assert.Contains(t, args, "-strict")
+	assert.Contains(t, args, "1.36.4")
+}
+
+func TestSkippedKinds_AreCustomResourcesOnly(t *testing.T) {
+	t.Parallel()
+
+	// Every entry must be something Kubernetes does not define itself, or the
+	// list is quietly hiding a built-in. CustomResourceDefinition is the one
+	// exception and the reason is upstream: the strict standalone schema set
+	// does not publish one.
+	builtins := map[string]bool{
+		"Deployment": true, "StatefulSet": true, "DaemonSet": true,
+		"Service": true, "ConfigMap": true, "Secret": true, "Job": true,
+		"Ingress": true, "PodSecurityPolicy": true, "CronJob": true,
+	}
+
+	for _, kind := range skippedKinds {
+		assert.False(t, builtins[kind],
+			"%s is a built-in kind: skipping it hides a removed api version rather than a missing CRD schema", kind)
+	}
+
+	assert.Contains(t, skippedKinds, "CustomResourceDefinition")
+}
