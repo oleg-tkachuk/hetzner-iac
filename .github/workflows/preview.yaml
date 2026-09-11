@@ -13,7 +13,7 @@ on:
       stack:
         description: Stack to preview
         required: true
-        default: prod
+        default: dev
   # Drift detection. A preview that is not empty means something changed the
   # cluster outside this repository.
   schedule:
@@ -30,11 +30,12 @@ env:
   PULUMI_VERSION: "3.261.0"
 
 jobs:
-  layers:
-    name: Resolve layer matrix
+  target:
+    name: Resolve the target
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      stack: ${{ steps.pick.outputs.stack }}
       layers: ${{ steps.list.outputs.layers }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -52,12 +53,25 @@ jobs:
           set -euo pipefail
           layers=$(task platform:layers --yes | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "layers=$layers" >>"$GITHUB_OUTPUT"
+      # The stack name is decided here and nowhere else. It used to be written
+      # into eight places as `inputs.stack || 'prod'`, and a job-level
+      # `environment:` cannot read the `env` context, so there was no way to
+      # keep one copy without a job to hold it.
+      - id: pick
+        env:
+          STACK: ${{ inputs.stack || 'dev' }}
+        run: echo "stack=$STACK" >>"$GITHUB_OUTPUT"
 
   cluster:
     name: Preview the cluster tier
+    needs: [target]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: ${{ inputs.stack || 'prod' }}
+    # The GitHub environment is named after the stack, which is where its two
+    # secrets live. A stack with no environment of the same name gets none:
+    # the guard in each step below says so, because an empty access token
+    # otherwise fails as a login error naming neither.
+    environment: ${{ needs.target.outputs.stack }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -71,21 +85,42 @@ jobs:
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          STACK: ${{ inputs.stack || 'prod' }}
-        run: pulumi --non-interactive --stack "$STACK" preview --diff
+          STACK: ${{ needs.target.outputs.stack }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${PULUMI_ACCESS_TOKEN}" ]; then
+            echo "::error::the ${STACK} environment holds no PULUMI_ACCESS_TOKEN"
+            echo "create it with: gh secret set PULUMI_ACCESS_TOKEN --env ${STACK}" >&2
+            exit 1
+          fi
+
+          # `no stack named X` is the failure this guard turns into a sentence.
+          # It arrived as `exit code 6` from eight jobs at once, with nothing
+          # naming the stacks that do exist. jq's stdout is discarded because
+          # it is a boolean, not a diagnostic; stderr is untouched.
+          if ! pulumi --non-interactive stack ls --json \
+             | jq -e --arg s "$STACK" 'any(.[]; .name == $s)' >/dev/null; then
+            echo "::error::no Pulumi stack named '${STACK}' in infra/cluster"
+            echo "stacks that do exist:" >&2
+            pulumi --non-interactive stack ls --json | jq -r '.[].name' >&2
+            exit 1
+          fi
+
+          pulumi --non-interactive --stack "$STACK" preview --diff
 
   layer:
     # No `name:` on purpose. A custom name is used verbatim, so a skipped job
     # shows as one check literally called "Preview (${{ matrix.layer }})".
     # Without it GitHub builds the label per layer: "layer (20-cni)".
-    needs: [layers]
+    needs: [target]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: ${{ inputs.stack || 'prod' }}
+    environment: ${{ needs.target.outputs.stack }}
     strategy:
       fail-fast: false
       matrix:
-        layer: ${{ fromJSON(needs.layers.outputs.layers) }}
+        layer: ${{ fromJSON(needs.target.outputs.layers) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -98,15 +133,24 @@ jobs:
         working-directory: layers/${{ matrix.layer }}
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          STACK: ${{ inputs.stack || 'prod' }}
-        run: pulumi --non-interactive --stack "$STACK" preview --diff
+          STACK: ${{ needs.target.outputs.stack }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${PULUMI_ACCESS_TOKEN}" ]; then
+            echo "::error::the ${STACK} environment holds no PULUMI_ACCESS_TOKEN"
+            echo "create it with: gh secret set PULUMI_ACCESS_TOKEN --env ${STACK}" >&2
+            exit 1
+          fi
+
+          pulumi --non-interactive --stack "$STACK" preview --diff
 
   e2e:
     name: Verify the running cluster
-    needs: [cluster]
+    needs: [target, cluster]
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: ${{ inputs.stack || 'prod' }}
+    environment: ${{ needs.target.outputs.stack }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -119,7 +163,7 @@ jobs:
         working-directory: infra/cluster
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          STACK: ${{ inputs.stack || 'prod' }}
+          STACK: ${{ needs.target.outputs.stack }}
         run: |
           set -euo pipefail
           pulumi --non-interactive --stack "$STACK" \
