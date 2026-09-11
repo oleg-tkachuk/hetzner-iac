@@ -166,6 +166,24 @@ func TestAlloyValues_RunsOnEveryNode(t *testing.T) {
 	assert.Equal(t, pulumi.String("daemonset"), controller["type"])
 }
 
+func TestAlloyValues_AskForNoHostMounts(t *testing.T) {
+	t.Parallel()
+
+	// The chart's mounts — varlog and dockercontainers — are the only things
+	// in it that render a hostPath, and a hostPath is what Pod Security
+	// baseline refuses. Talos enforces baseline in every namespace but
+	// kube-system, and a DaemonSet that violates it gets no pods at all:
+	// DESIRED 1, CURRENT 0, and Helm waiting out its whole timeout.
+	//
+	// Nothing needs them: the collector reads logs through the Kubernetes API.
+	// TestAlloyConfig_CollectsThroughTheAPI pins the other half of that.
+	alloy, ok := AlloyValues()["alloy"].(pulumi.Map)
+	require.True(t, ok)
+
+	assert.NotContains(t, alloy, "mounts",
+		"a host mount puts this DaemonSet outside Pod Security baseline, and nothing reads one")
+}
+
 func TestGrafanaValues_RegistersLokiAndTempoDatasources(t *testing.T) {
 	t.Parallel()
 

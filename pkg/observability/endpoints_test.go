@@ -62,6 +62,25 @@ func TestAlloyConfig_ReferencesOnlyDeclaredComponents(t *testing.T) {
 	}
 }
 
+func TestAlloyConfig_CollectsThroughTheAPI(t *testing.T) {
+	t.Parallel()
+
+	// loki.source.kubernetes reads container logs from the Kubernetes API,
+	// which is why the DaemonSet needs no host mount — and a host mount is
+	// what puts it outside the Pod Security baseline Talos enforces
+	// everywhere but kube-system.
+	//
+	// Switching to a file-based source would reinstate that need, so this is
+	// the test that has to fail first: the mount question comes back with it.
+	config := observability.AlloyConfig()
+
+	assert.Contains(t, config, "loki.source.kubernetes")
+	assert.NotContains(t, config, "loki.source.file",
+		"a file source reads the node filesystem, which needs a hostPath the DaemonSet cannot have")
+	assert.NotContains(t, config, "local.file_match",
+		"discovering log files on the node needs a hostPath the DaemonSet cannot have")
+}
+
 func TestAlloyConfig_LabelsLogsWithKubernetesMetadata(t *testing.T) {
 	t.Parallel()
 
