@@ -26,6 +26,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strconv"
 
@@ -129,6 +130,14 @@ func createCNI(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource
 	}, opts...)
 }
 
+// base64Of encodes a value for a Secret's data field. Secretness survives the
+// apply, so a token stays marked as one.
+func base64Of(value pulumi.StringOutput) pulumi.StringOutput {
+	return value.ApplyT(func(raw string) string {
+		return base64.StdEncoding.EncodeToString([]byte(raw))
+	}).(pulumi.StringOutput)
+}
+
 // createCredentials makes the Secret both hcloud charts read.
 func createCredentials(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
 	return corev1.NewSecret(r.Ctx, CredentialsSecret, &corev1.SecretArgs{
@@ -136,12 +145,17 @@ func createCredentials(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.
 			Name:      pulumi.String(CredentialsSecret),
 			Namespace: pulumi.String(SystemNamespace),
 		},
-		StringData: pulumi.StringMap{
-			"token": resolveToken(r),
+		// Data, base64, not StringData. stringData is write-only: Kubernetes
+		// folds it into data, and the provider records data in the state — so
+		// a program setting stringData diffs against its own last apply and
+		// plans to replace the Secret, every time, for ever. This apply is the
+		// last one that replaces it.
+		Data: pulumi.StringMap{
+			"token": base64Of(resolveToken(r)),
 			// The route controller programmes pod routes inside this network.
 			// Without it the CCM starts and silently manages no routes, which
 			// surfaces as pods unable to reach pods on other nodes.
-			"network": r.Cluster.NetworkID.ApplyT(strconv.Itoa).(pulumi.StringOutput),
+			"network": base64Of(r.Cluster.NetworkID.ApplyT(strconv.Itoa).(pulumi.StringOutput)),
 		},
 	}, r.With(pulumi.DependsOn(dependencies))...)
 }

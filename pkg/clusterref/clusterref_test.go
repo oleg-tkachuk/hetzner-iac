@@ -148,13 +148,12 @@ func TestResolve_ReadsTheClusterTierOutputs(t *testing.T) {
 	assert.Equal(t, 3, count)
 }
 
-func TestResolve_TheVersionGateKeepsSecretsSecret(t *testing.T) {
+func TestResolve_KeepsSecretsSecret(t *testing.T) {
 	t.Parallel()
 
-	// Every output is routed through pulumi.All to depend on the version
-	// check, and an All that dropped the secret marker would hand each layer
-	// an unwrapped cluster-admin kubeconfig to store in its own state. Nothing
-	// else in the stack would report that, so it is pinned here.
+	// The typed accessors carry secretness; a manual ApplyT(string) round-trip
+	// would quietly drop it and hand each layer an unwrapped cluster-admin
+	// kubeconfig to store in its own state. Nothing else reports that.
 	err := resolve(t, current(), func(cluster *clusterref.Cluster) {
 		for name, output := range map[string]pulumi.Output{
 			"kubeconfig":  cluster.Kubeconfig,
@@ -184,7 +183,7 @@ func TestResolve_AProducerThatPredatesVersioningFailsWithOneCommand(t *testing.T
 	mocks := current()
 	delete(mocks.outputs, resource.PropertyKey(clusterref.OutputContractVersion))
 
-	_, err := await(t, mocks, func(c *clusterref.Cluster) pulumi.Output { return c.ClusterName })
+	_, err := await(t, mocks, func(c *clusterref.Cluster) pulumi.Output { return c.ContractCheck })
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "publishes contract v0")
@@ -192,25 +191,37 @@ func TestResolve_AProducerThatPredatesVersioningFailsWithOneCommand(t *testing.T
 	assert.Contains(t, err.Error(), "acme/hetzner-cluster/prod")
 }
 
-func TestResolve_EveryOutputReportsTheStaleProducer(t *testing.T) {
+// TestResolve_TheCheckIsNotInAnyValue is the regression this file exists for
+// now.
+//
+// The first version of the check routed every output through it, so the
+// version landed in the kubernetes provider's INPUTS. The provider's identity
+// then changed and Pulumi planned to replace it — and with it every Helm
+// release and every Secret in every layer. On the live cluster that was the
+// CNI, the cloud controller manager and the CSI driver being destroyed and
+// recreated to improve an error message. Measured, not guessed: the plan went
+// from `+-5 to replace` to `4 unchanged` when the wrapper came off.
+func TestResolve_TheCheckIsNotInAnyValue(t *testing.T) {
 	t.Parallel()
 
-	// The gate's purpose: whichever output a layer happens to read first, it
-	// gets the version error rather than that output's own absence.
+	// A stale producer: the check must fail, and every value must still
+	// resolve to what the producer published. A value that failed here would
+	// mean the check is wired into it again.
 	mocks := current()
 	mocks.outputs[resource.PropertyKey(clusterref.OutputContractVersion)] =
 		resource.NewNumberProperty(clusterref.ContractVersion - 1)
+
+	_, err := await(t, mocks, func(c *clusterref.Cluster) pulumi.Output { return c.ContractCheck })
+	require.Error(t, err, "the check itself must report a stale producer")
 
 	for name, read := range map[string]func(*clusterref.Cluster) pulumi.Output{
 		"kubeconfig":        func(c *clusterref.Cluster) pulumi.Output { return c.Kubeconfig },
 		"podCidr":           func(c *clusterref.Cluster) pulumi.Output { return c.PodCIDR },
 		"controlPlaneCount": func(c *clusterref.Cluster) pulumi.Output { return c.ControlPlaneCount },
-		"hcloudToken":       func(c *clusterref.Cluster) pulumi.Output { return c.HcloudToken },
 	} {
-		_, err := await(t, mocks, read)
-
-		require.Error(t, err, name)
-		assert.Contains(t, err.Error(), "this layer needs v", name)
+		_, valueErr := await(t, mocks, read)
+		assert.NoError(t, valueErr,
+			"%s must not depend on the check: that is what replaced the provider", name)
 	}
 }
 
