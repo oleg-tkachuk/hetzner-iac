@@ -5,12 +5,16 @@ runtime:
     # Stable build path so repeated previews skip the link step; content
     # hashing still rebuilds when sources change.
     buildTarget: ../../.cache/pulumi-bin/cloud-integration
+# Runs after the CNI. Talos leaves every node carrying the `uninitialized`
+# taint until a cloud controller manager clears it, so nothing else schedules
+# until this layer is applied — but this layer cannot be scheduled itself until
+# a CNI makes the node Ready. main.go carries the mechanism.
+#
+# A comment, because `description` becomes the pulumi:description stack tag and
+# Pulumi Cloud refuses one over 256 characters. The test in tools/topology
+# caught this paragraph at 362.
 description: |
   Hetzner cloud integration: the cloud controller manager and the CSI driver.
-
-  Runs first. Talos leaves every node carrying the `uninitialized` taint until
-  a cloud controller manager clears it, so nothing else schedules until this
-  layer is applied.
 
 # State backend. Declared here rather than left to `pulumi login`, so the
 # backend is a property of the repository and not of whoever runs it.

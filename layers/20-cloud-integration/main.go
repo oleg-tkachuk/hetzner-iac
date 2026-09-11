@@ -1,14 +1,24 @@
 // Command cloud-integration installs the Hetzner cloud controller manager and
 // the CSI driver.
 //
-// It runs first. Talos sets cloud-provider=external, which leaves every node
-// carrying the node.cloudprovider.kubernetes.io/uninitialized taint until a
-// cloud controller manager clears it — so until this layer is applied, nothing
-// schedules anywhere. That taint is not an obstacle to work around: it is what
-// stops workloads landing on a node before its addresses and routes exist.
+// It runs after the CNI, and cannot run before it. Talos sets
+// cloud-provider=external, which leaves every node carrying the
+// node.cloudprovider.kubernetes.io/uninitialized taint until a cloud
+// controller manager clears it — and that taint is not an obstacle to work
+// around, it is what stops workloads landing on a node before its addresses
+// and routes exist.
 //
-// The CSI driver's pods stay Pending until 20-cni installs the CNI. The CCM is
-// unaffected, because it runs on host networking.
+// But a CNI-less node also carries node.kubernetes.io/not-ready:NoSchedule,
+// and the hcloud CCM chart renders a Deployment whose tolerations cover that
+// key only with effect NoExecute. A Deployment is given no tolerations of its
+// own, and the chart exposes no values hook to add one, so the CCM cannot be
+// scheduled until something else makes the node Ready. Cilium can: its agent
+// tolerates `operator: Exists`, and its operator names both not-ready and
+// uninitialized.
+//
+// So the order is CNI, then this. Applied the other way round the release sits
+// Pending for its whole timeout and Helm rolls it back on `atomic` — which is
+// how this was found, after ten minutes.
 package main
 
 import (
