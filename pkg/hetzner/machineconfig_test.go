@@ -119,12 +119,14 @@ func TestBuildClusterPatch_HandsNodeLifecycleToTheCCM(t *testing.T) {
 	kubeletArgs, _ := kubelet["extraArgs"].(map[string]any)
 	assert.Equal(t, "external", kubeletArgs["cloud-provider"])
 
+	// The controller manager, and only the controller manager. This test used
+	// to assert the API server carried the flag too, which is how the bug
+	// survived review: the test encoded it rather than catching it. See
+	// TestBuildClusterPatch_DoesNotPassCloudProviderToTheAPIServer.
 	cluster, _ := doc["cluster"].(map[string]any)
-	for _, component := range []string{"controllerManager", "apiServer"} {
-		section, _ := cluster[component].(map[string]any)
-		args, _ := section["extraArgs"].(map[string]any)
-		assert.Equal(t, "external", args["cloud-provider"], component)
-	}
+	controllerManager, _ := cluster["controllerManager"].(map[string]any)
+	args, _ := controllerManager["extraArgs"].(map[string]any)
+	assert.Equal(t, "external", args["cloud-provider"])
 }
 
 func TestBuildClusterPatch_PinsKubeletToThePrivateNetwork(t *testing.T) {
@@ -356,4 +358,45 @@ func TestBuildNodePatch_HostileValuesCannotBreakTheDocument(t *testing.T) {
 
 	assert.Equal(t, "evil\nmachine:\n  install:\n    disk: /dev/sda", hostname["hostname"])
 	assert.NotContains(t, hostname, "install")
+}
+
+func TestBuildClusterPatch_DoesNotPassCloudProviderToTheAPIServer(t *testing.T) {
+	t.Parallel()
+
+	// Kubernetes removed --cloud-provider from kube-apiserver, so passing it
+	// is fatal rather than redundant: the static pod exits with "unknown flag"
+	// on every restart, the scheduler fails behind it unable to reach the API
+	// through KubePrism, and the cluster settles with etcd and kubelet healthy
+	// and 6443 refusing connections — which reads like a firewall problem.
+	//
+	// Nothing offline catches this. talosctl validates the shape of the
+	// config, not whether a flag exists in the Kubernetes version it pins.
+	raw, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+		NodeSubnet:  "10.0.1.0/24",
+	})
+	require.NoError(t, err)
+
+	patch := decode(t, raw)
+
+	cluster, ok := patch["cluster"].(map[string]any)
+	require.True(t, ok)
+
+	apiServer, present := cluster["apiServer"]
+	assert.False(t, present,
+		"the API server needs no extraArgs at all; it grew a cloud-provider flag once and that cost a bring-up: %v",
+		apiServer)
+
+	// The two that do take it must keep it: the CCM clears the uninitialized
+	// taint and programmes pod routes, and neither happens without this.
+	kubelet, ok := patch["machine"].(map[string]any)["kubelet"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "external",
+		kubelet["extraArgs"].(map[string]any)["cloud-provider"])
+
+	controllerManager, ok := cluster["controllerManager"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "external",
+		controllerManager["extraArgs"].(map[string]any)["cloud-provider"])
 }
