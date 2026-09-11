@@ -2,6 +2,7 @@ package layer_test
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 
@@ -323,4 +324,76 @@ func TestCfg_IsNamespacedToTheProjectWithoutNamingIt(t *testing.T) {
 
 		return nil
 	}))
+}
+
+// deployMocks records the dependency edges each release was registered with,
+// out of the register RPC rather than out of the order the mock was called in.
+//
+// The distinction matters and was learned the hard way: an earlier test of the
+// same kind recorded call order, passed, and kept passing with the DependsOn
+// deleted, because with an instant mock the calls arrive in program order
+// whether or not anything depends on anything.
+type deployMocks struct {
+	mu   sync.Mutex
+	deps map[string][]string
+}
+
+func newDeployMocks() *deployMocks {
+	return &deployMocks{deps: map[string][]string{}}
+}
+
+func (m *deployMocks) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
+	if args.TypeToken == "pulumi:pulumi:StackReference" {
+		return newMocks().NewResource(args)
+	}
+
+	if args.RegisterRPC != nil {
+		m.mu.Lock()
+		m.deps[args.Name] = append(m.deps[args.Name], args.RegisterRPC.GetDependencies()...)
+		m.mu.Unlock()
+	}
+
+	return args.Name, args.Inputs, nil
+}
+
+func (*deployMocks) Call(pulumi.MockCallArgs) (resource.PropertyMap, error) {
+	return resource.PropertyMap{}, nil
+}
+
+func (m *deployMocks) dependsOn(name, other string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, urn := range m.deps[name] {
+		if strings.Contains(urn, "::"+other) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func TestDeploy_TurnsAfterIntoADependencyTheEngineHolds(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	m := newDeployMocks()
+
+	require.NoError(t, pulumi.RunErr(func(ctx *pulumi.Context) error {
+		runner, err := layer.New(ctx)
+		if err != nil {
+			return err
+		}
+
+		_, err = runner.Deploy(layer.Components{
+			{Chart: "loki", After: []string{"kube-prometheus-stack"}},
+			{Chart: "kube-prometheus-stack"},
+		})
+
+		return err
+	}, pulumi.WithMocks(testProject, testStack, m)))
+
+	assert.True(t, m.dependsOn("loki", "kube-prometheus-stack"),
+		"After must become a DependsOn, not merely an earlier call")
+	assert.False(t, m.dependsOn("kube-prometheus-stack", "loki"),
+		"the dependency must not run backwards")
 }
