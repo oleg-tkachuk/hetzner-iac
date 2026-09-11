@@ -109,28 +109,28 @@ lefthook install
 ## Bring-up
 
 ```bash
-export HCLOUD_TOKEN=...
-
 # 1. Describe the cluster. Set network.adminCIDRs to the address you will
 #    apply from — Talos configuration is pushed over the Talos API, and a host
 #    outside that list hangs with the port filtered.
 $EDITOR infra/cluster/cluster.prod.yaml
 
-# 2. Bake the Talos snapshot. Once per Talos version; idempotent.
-task cluster:image-bake stack=prod
-
-# 3. Create the stack and set the token as a secret.
+# 2. Create the stack and set the Hetzner token. This is the only place the
+#    token is typed: it is stored encrypted in Pulumi.prod.yaml, which is
+#    committed, and every task below decrypts it from there.
 task cluster:init stack=prod
-cd infra/cluster && pulumi config set --secret hcloud:token "$HCLOUD_TOKEN" && cd -
+pulumi -C infra/cluster -s prod config set --secret hcloud:token <token>
+
+# 3. Bake the Talos snapshot. Once per Talos version; idempotent.
+task cluster:image-bake stack=prod
 
 # 4. Build the cluster.
 task cluster:plan stack=prod      # read the diff first
 task cluster:apply stack=prod
 
-# 5. Point every layer at it, then apply them in order.
+# 5. Point every layer at it, then apply them in order. No token here: the
+#    cloud controller manager and the CSI driver read the one set in step 2,
+#    through the same stack reference that carries the kubeconfig.
 task platform:init stack=prod ref=<org>/hetzner-cluster/prod
-cd layers/20-cloud-integration && \
-  pulumi config set --secret cloud-integration:hcloudToken "$HCLOUD_TOKEN" && cd -
 task platform:apply-all stack=prod
 
 # 6. Check what you built.
@@ -140,6 +140,9 @@ task e2e stack=prod
 ```
 
 `task up stack=prod` does steps 4 and 5 in one go, once the stacks exist.
+
+An exported `HCLOUD_TOKEN` still takes priority over the stack config, which
+is how CI passes a token it holds as a GitHub secret.
 
 ## Commands
 
@@ -255,8 +258,14 @@ export PULUMI_CONFIG_PASSPHRASE=...
 ```
 
 A DIY backend encrypts stack secrets with that passphrase; Pulumi Cloud manages
-the key for you. Either way, cloud credentials never enter state — they stay
-with the CLI.
+the key for you.
+
+That is also where the Hetzner token lives. `pulumi config set --secret` writes
+it into `Pulumi.<stack>.yaml` as a `secure:` ciphertext, and those files are
+committed on purpose: the plaintext is recoverable only with the stack's key,
+which the backend holds and the repository does not. So the token is versioned
+with the code it configures, and cloning the repository grants nothing. Nothing
+here reads a plaintext secrets file, and none should be created.
 
 
 Cluster shape lives in `infra/cluster/cluster.<stack>.yaml`. Everything else is
@@ -264,24 +273,16 @@ Pulumi config:
 
 | Key | Where | Meaning |
 |-----|-------|---------|
-| `hcloud:token` | `infra/cluster` | Hetzner API token (secret) |
+| `hcloud:token` | `infra/cluster` | Hetzner API token (secret); `cluster:image-bake` decrypts it from here too |
 | `hetzner-cluster:publicIPv4` | `infra/cluster` | routable address per node; required unless you apply from inside the private network |
 | `hetzner-cluster:allowICMP` | `infra/cluster` | open ping from the admin CIDRs |
 | `hetzner-cluster:imageSelector` | `infra/cluster` | override the Talos snapshot selector |
-
-Both the Talos and the Kubernetes version are pinned in the topology, and
-neither derives from the other. An empty `kubernetes.version` takes
-`DefaultKubernetesVersion` — also pinned — rather than whatever the configured
-Talos release happens to ship, because that made a Talos patch bump able to
-move Kubernetes a whole minor with no diff and no decision. It did: the first
-bring-up landed on v1.36.0, new enough that `kube-apiserver` had removed a flag
-the machine config was passing, and the control plane never started.
 | `<layer>:clusterStackRef` | every layer except `05-object-storage` | `<org>/hetzner-cluster/<stack>` |
 | `object-storage:location` | `05-object-storage` | `fsn1`, `nbg1` or `hel1` — fewer locations than host servers |
 | `object-storage:namePrefix` | `05-object-storage` | prefix for bucket names, which collide across all of Hetzner |
 | `object-storage:retainNoncurrentDays` | `05-object-storage` | default `30`; the only lifecycle rule Hetzner implements |
 | `object-storage:accessKey` / `:secretKey` | `05-object-storage` | S3 credentials from the Console, not an hcloud token (secret) |
-| `cloud-integration:hcloudToken` | `20-cloud-integration` | token for the CCM and CSI (secret) |
+| `cloud-integration:hcloudToken` | `20-cloud-integration` | optional; overrides the token the cluster stack exports (secret) |
 | `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | `40-ingress` | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
@@ -290,6 +291,14 @@ the machine config was passing, and the control plane never started.
 | `observability:objectStorageStackRef` | `60-observability` | optional; set it and Loki and Tempo write to the bucket instead of a volume |
 | `observability:objectStorageAccessKey` / `:secretKey` | `60-observability` | S3 credentials for that bucket, required with the ref above (secret) |
 | `observability:logsRetention` | `60-observability` | default `720h`; what bounds the bucket, which has no size to fill |
+
+Both the Talos and the Kubernetes version are pinned in the topology, and
+neither derives from the other. An empty `kubernetes.version` takes
+`DefaultKubernetesVersion` — also pinned — rather than whatever the configured
+Talos release happens to ship, because that made a Talos patch bump able to
+move Kubernetes a whole minor with no diff and no decision. It did: the first
+bring-up landed on v1.36.0, new enough that `kube-apiserver` had removed a flag
+the machine config was passing, and the control plane never started.
 
 The Hetzner token is read by the cloud-integration layer rather than exported
 by the cluster tier: a stack that exports a cloud credential puts it into the
