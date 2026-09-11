@@ -69,6 +69,23 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 					// uninitialized taint, sets provider IDs and programmes
 					// routes for the pod network.
 					"cloud-provider": "external",
+					// Ask the cluster CA for a serving certificate instead of
+					// self-signing one.
+					//
+					// Talos self-signs the kubelet's serving certificate and
+					// it carries no IP SANs, so anything connecting to
+					// tcp/10250 by address cannot verify it. metrics-server
+					// does exactly that, fails every scrape with "cannot
+					// validate certificate for 10.0.1.2 because it doesn't
+					// contain any IP SANs", never becomes Ready, and Helm
+					// waits out its whole timeout — which is how this was
+					// found, after a 611-second install that rolled back.
+					//
+					// This makes the kubelet issue a CSR that something has to
+					// approve. 30-core deploys the approver, and metrics-server
+					// follows it. The alternative, --kubelet-insecure-tls, is
+					// what both Talos and metrics-server call testing-only.
+					"rotate-server-certificates": "true",
 				},
 				"nodeIP": map[string]any{
 					"validSubnets": []string{args.NodeSubnet},
