@@ -378,37 +378,6 @@ permanently firing alerts to silence.
 wrong rather than merely unhelpful: a Pulumi program's output is captured by
 the CLI over gRPC, so stdout is never a terminal.
 
-### Shell, and where it stops
-
-Values never come out of YAML with a grep. `tools/topology get <field> <file>`
-reads a topology through the parser the cluster is built from, and refuses to
-print an empty value. It replaced four pipelines shaped like
-
-```
-grep -A3 '^talos:' "$file" | grep 'version:' | head -1 | awk '{print $2}'
-```
-
-three of which were returning nothing at the time: the Talos version in
-`cluster.prod.yaml` and the Kubernetes version in both files, because the
-comments above those fields had grown past the three-line window.
-
-What shell keeps is orchestration — changing directory, looping over layers,
-invoking a tool. What it stopped doing is parsing. For the line-oriented
-parsing that remains, [awk/lib.awk](awk/lib.awk) is one program selected with
-`-v op=<name>`, covered by tests in `tools/awklib`, and it replaces pipelines
-rather than joining them: `df | tail -1 | tr -dc '0-9'` became one `avail-mb`,
-and `grep -rnE … || true | grep -c . || true` became one `cache-writers` — with
-neither `|| true`, because zero matches is an answer in awk rather than an exit
-code that `set -e` treats as failure.
-
-An awk program with an indentation state machine could have fixed the YAML
-greps too, and would still have been a hand-rolled YAML reader: wrong on a
-quoted value, an anchor, or a nested key of the same name.
-
-`actionlint` covers the rest, in its own job beside zizmor. The two do not
-overlap — zizmor audits these workflows for security, actionlint checks whether
-they are correct at all, including shellcheck over every `run:` block.
-
 ### Asking the real tool
 
 Four checks run offline against the actual software rather than against this
