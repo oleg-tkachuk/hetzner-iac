@@ -37,11 +37,24 @@ func (m *mocks) NewResource(args pulumi.MockResourceArgs) (string, resource.Prop
 	m.mu.Unlock()
 
 	if args.TypeToken == "pulumi:pulumi:StackReference" {
+		// The whole declared set, version included. A partial one is not a
+		// shape the tier can produce: pkg/clusterref gates every output on
+		// the version, so a mock missing it fails every test here with the
+		// stale-producer message — which is how that gate was verified.
 		return args.Name, resource.PropertyMap{
 			"outputs": resource.NewObjectProperty(resource.PropertyMap{
-				resource.PropertyKey(clusterref.OutputKubeconfig):  resource.NewStringProperty("apiVersion: v1"),
-				resource.PropertyKey(clusterref.OutputClusterName): resource.NewStringProperty("platform-prod"),
-				resource.PropertyKey(clusterref.OutputPodCIDR):     resource.NewStringProperty("10.244.0.0/16"),
+				resource.PropertyKey(clusterref.OutputContractVersion):   resource.NewNumberProperty(clusterref.ContractVersion),
+				resource.PropertyKey(clusterref.OutputKubeconfig):        resource.NewStringProperty("apiVersion: v1"),
+				resource.PropertyKey(clusterref.OutputTalosconfig):       resource.NewStringProperty("context: test"),
+				resource.PropertyKey(clusterref.OutputEndpoint):          resource.NewStringProperty("https://203.0.113.200:6443"),
+				resource.PropertyKey(clusterref.OutputAPILoadBalancerIP): resource.NewStringProperty(""),
+				resource.PropertyKey(clusterref.OutputNetworkID):         resource.NewNumberProperty(12637895),
+				resource.PropertyKey(clusterref.OutputPodCIDR):           resource.NewStringProperty("10.244.0.0/16"),
+				resource.PropertyKey(clusterref.OutputServiceCIDR):       resource.NewStringProperty("10.96.0.0/12"),
+				resource.PropertyKey(clusterref.OutputClusterName):       resource.NewStringProperty("platform-prod"),
+				resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty("hel1"),
+				resource.PropertyKey(clusterref.OutputHcloudToken):       resource.NewStringProperty("token"),
+				resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
 			}),
 		}, nil
 	}

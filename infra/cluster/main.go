@@ -58,6 +58,12 @@ func main() {
 		// Output names come from pkg/clusterref, the same constants every layer
 		// reads them back with. A rename is then a compile error in both
 		// halves rather than a missing key at apply time.
+		//
+		// The version goes first because it is what every other output is
+		// gated on: a layer reading any of them against a stack that predates
+		// this gets one error naming this command, instead of one error per
+		// output describing that output's own absence.
+		ctx.Export(clusterref.OutputContractVersion, pulumi.Int(clusterref.ContractVersion))
 		ctx.Export(clusterref.OutputKubeconfig, cluster.Kubeconfig)
 		// Talosconfig is more powerful than the kubeconfig — it can reset nodes
 		// and read etcd — so it is exported as a secret and used only by day-2
@@ -91,18 +97,26 @@ func main() {
 		// API token, so this widens nothing. GetSecret marks it, and the typed
 		// accessors in pkg/clusterref keep it marked.
 		//
-		// `config.Get` only to test presence: reading it does not print it,
-		// and exporting an empty string would hand every layer a credential
-		// that authenticates against nothing.
+		// Exported unconditionally, empty when it is not in stack config. The
+		// contract is total on purpose: a conditionally exported output makes
+		// its own absence a state every consumer has to handle separately,
+		// which is exactly what the version gate exists to abolish. A consumer
+		// that needs the token reports the empty value with the remedy.
+		//
+		// `config.Get` only to test presence: reading it does not print it.
 		log := pulumilog.New(ctx)
+		token := pulumi.String("").ToStringOutput()
 
 		if config.Get(ctx, "hcloud:token") == "" {
 			log.Warn("hcloud-token",
-				"not in stack config, so it is not exported: layers needing it must set their own")
+				"not in stack config, so it is exported empty: layers needing it must set their own")
 		} else {
-			ctx.Export(clusterref.OutputHcloudToken, config.GetSecret(ctx, "hcloud:token"))
+			token = config.GetSecret(ctx, "hcloud:token")
+
 			log.Done("hcloud-token", "exported for the layers that call the Hetzner API")
 		}
+
+		ctx.Export(clusterref.OutputHcloudToken, token)
 
 		return nil
 	})

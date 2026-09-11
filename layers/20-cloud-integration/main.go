@@ -125,11 +125,18 @@ func resolveToken(cfg *config.Config, cluster *clusterref.Cluster, log *pulumilo
 
 	log.Step("token", "from the cluster stack")
 
+	// Empty rather than absent: pkg/clusterref's version gate has established
+	// that the tier publishes this output, and the tier exports it empty when
+	// its own `hcloud:token` is unset — a cluster built from an environment
+	// variable rather than from stack config. That is a real state with two
+	// remedies, not a migration to wait out.
 	return pulumix.Cast[pulumi.StringOutput](pulumix.ApplyErr(cluster.HcloudToken,
 		func(token string) (string, error) {
 			if token == "" {
 				return "", fmt.Errorf(
-					"the cluster stack exports no %q: apply the cluster tier again to publish it, or set\n"+
+					"the cluster stack exports an empty %q. Either set it there and apply the tier:\n"+
+						"  pulumi -C infra/cluster config set --secret hcloud:token <token>\n"+
+						"or give this layer its own:\n"+
 						"  pulumi config set --secret cloud-integration:hcloudToken <token>",
 					clusterref.OutputHcloudToken)
 			}

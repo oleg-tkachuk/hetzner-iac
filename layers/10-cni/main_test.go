@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
@@ -23,7 +22,7 @@ func TestCiliumValues_ReplacesKubeProxy(t *testing.T) {
 	// Talos was configured with kube-proxy disabled. Without the replacement
 	// the cluster has no service dataplane and every ClusterIP blackholes —
 	// with no error anywhere.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.IntPtr(3))
+	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
 
 	assert.Equal(t, pulumi.Bool(true), values[chartsettings.CiliumKubeProxyReplacement])
 }
@@ -34,7 +33,7 @@ func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
 	// A node-local load balancer over the control plane: Cilium keeps working
 	// while a control-plane node is being replaced. Pointing at a node address
 	// instead would tie the CNI to one control-plane node's life.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.IntPtr(3))
+	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
 
 	assert.Equal(t, pulumi.String("localhost"), values[chartsettings.CiliumK8sServiceHost])
 	assert.Equal(t, pulumi.Int(chartsettings.KubePrismPort), values[chartsettings.CiliumK8sServicePort])
@@ -49,7 +48,7 @@ func TestCiliumValues_UsesNativeRoutingOverThePodCIDR(t *testing.T) {
 	// 10-cloud-integration. The pod CIDR has to be the cluster's actual one:
 	// a wrong value here masquerades traffic that should be routed.
 	podCIDR := pulumi.String("10.244.0.0/16")
-	values := CiliumValues(podCIDR, pulumi.IntPtr(3))
+	values := CiliumValues(podCIDR, pulumi.Int(3))
 
 	assert.Equal(t, pulumi.String("native"), values["routingMode"])
 	assert.Equal(t, podCIDR, values["ipv4NativeRoutingCIDR"])
@@ -61,7 +60,7 @@ func TestCiliumValues_AccommodatesTalosCgroups(t *testing.T) {
 
 	// Talos mounts cgroups itself and runs a read-only root. Letting Cilium
 	// automount produces an agent that crash-loops on start.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.IntPtr(3))
+	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
 
 	cgroup, ok := values["cgroup"].(pulumi.Map)
 	require.True(t, ok)
@@ -79,7 +78,7 @@ func TestCiliumValues_GrantsTheCapabilitiesTalosRequires(t *testing.T) {
 	// Under Talos the agent is not fully privileged, so every capability it
 	// needs has to be named. A missing one shows up as an agent that starts
 	// and then fails to programme eBPF.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.IntPtr(3))
+	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
 
 	securityContext, ok := values["securityContext"].(pulumi.Map)
 	require.True(t, ok)
@@ -105,7 +104,7 @@ func TestCiliumValues_CreatesNoServiceMonitors(t *testing.T) {
 	// ServiceMonitor here would make this layer fail on a cluster where that
 	// layer is not installed, which would break the independence the whole
 	// layout is for.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.IntPtr(3))
+	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
 
 	prometheus, ok := values["prometheus"].(pulumi.Map)
 	require.True(t, ok)
@@ -172,36 +171,18 @@ func TestOperatorReplicas_CapsAtOnePerControlPlaneNode(t *testing.T) {
 		"three":           {3, OperatorReplicasWanted},
 		"more than wants": {9, OperatorReplicasWanted},
 	} {
-		got, err := operatorReplicas(&tc.count)
-		require.NoError(t, err, name)
-		assert.Equal(t, tc.want, got, name)
+		assert.Equal(t, tc.want, operatorReplicas(tc.count), name)
 	}
 }
-
-func TestOperatorReplicas_AnAbsentCountIsAnErrorNotAGuess(t *testing.T) {
+func TestOperatorReplicas_ACountThatCannotBeRealKeepsTheDefault(t *testing.T) {
 	t.Parallel()
 
-	// nil means the cluster tier has not been applied since it began
-	// exporting the count. Treating that as zero — which an int would have
-	// forced — scales a working operator down to nothing over a missing
-	// output. The message names the one command that fixes it.
-	_, err := operatorReplicas(nil)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), clusterref.OutputControlPlaneCount)
-	assert.Contains(t, err.Error(), "task cluster:apply")
-}
-
-func TestOperatorReplicas_RejectsACountThatCannotBeReal(t *testing.T) {
-	t.Parallel()
-
-	// LoadTopology substitutes 1 for a missing count, so zero can only mean
-	// the tier published something wrong. Better to say so than to size
-	// against it.
+	// LoadTopology substitutes 1 for a missing count and pkg/clusterref's
+	// version gate rules out an absent one, so zero can only mean a broken
+	// producer. Sizing against it would scale a working operator to nothing,
+	// so the wanted count stands and the extra replica is the visible symptom.
 	for _, count := range []int{0, -1} {
-		_, err := operatorReplicas(&count)
-		require.Error(t, err, count)
-		assert.Contains(t, err.Error(), "control-plane nodes")
+		assert.Equal(t, OperatorReplicasWanted, operatorReplicas(count), count)
 	}
 }
 
@@ -210,7 +191,7 @@ func TestCiliumValues_SizesTheOperatorFromTheClusterCount(t *testing.T) {
 
 	// operatorReplicas is tested above on plain numbers; this is the wiring —
 	// that its result is what reaches the chart, on the key the chart reads.
-	operator, ok := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.IntPtr(1))["operator"].(pulumi.Map)
+	operator, ok := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(1))["operator"].(pulumi.Map)
 	require.True(t, ok)
 
 	replicas, ok := operator["replicas"].(pulumi.IntOutput)
