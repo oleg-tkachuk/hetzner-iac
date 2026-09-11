@@ -28,6 +28,7 @@ const (
 	OutputClusterName       = "clusterName"
 	OutputLocation          = "location"
 	OutputHcloudToken       = "hcloudToken"
+	OutputControlPlaneCount = "controlPlaneCount"
 )
 
 // Cluster is the resolved view of the cluster tier's outputs.
@@ -52,6 +53,16 @@ type Cluster struct {
 	// empty token produces pods that start and then fail to authenticate,
 	// which looks nothing like a missing credential.
 	HcloudToken pulumi.StringOutput
+
+	// ControlPlaneCount is how many control-plane nodes the topology declares.
+	// A consumer needs it to size anything that cannot put two replicas on one
+	// node.
+	//
+	// A pointer, and nil rather than zero when the cluster stack has not been
+	// applied since it began exporting this. The distinction is the whole
+	// point: zero would be a number a consumer could compute with, and
+	// computing with an unknown is how something gets scaled to nothing.
+	ControlPlaneCount pulumi.IntPtrOutput
 }
 
 // Resolve reads the cluster tier's outputs from another stack.
@@ -86,6 +97,9 @@ func Resolve(ctx *pulumi.Context, ref string) (*Cluster, error) {
 		// exported is an ordinary state, so it resolves to empty here and the
 		// consumer that needs the token explains the remedy.
 		HcloudToken: optionalString(stack, OutputHcloudToken),
+		// Same reason as the token above: absent is an ordinary state for a
+		// stack applied before this output existed, not an error.
+		ControlPlaneCount: optionalInt(stack, OutputControlPlaneCount),
 	}, nil
 }
 
@@ -102,4 +116,26 @@ func optionalString(stack *pulumi.StackReference, name string) pulumi.StringOutp
 			return "", fmt.Errorf("stack reference output %q: expected a string, got %T", name, value)
 		}
 	}).(pulumi.StringOutput)
+}
+
+// optionalInt is optionalString for a number, except that absent resolves to
+// nil rather than to a zero a caller cannot tell apart from a real count.
+//
+// Pulumi sends JSON numbers as float64, which is why the assertion is not
+// to int.
+func optionalInt(stack *pulumi.StackReference, name string) pulumi.IntPtrOutput {
+	return stack.GetOutput(pulumi.String(name)).ApplyT(func(value any) (*int, error) {
+		switch typed := value.(type) {
+		case nil:
+			return nil, nil
+		case float64:
+			count := int(typed)
+
+			return &count, nil
+		case int:
+			return &typed, nil
+		default:
+			return nil, fmt.Errorf("stack reference output %q: expected a number, got %T", name, value)
+		}
+	}).(pulumi.IntPtrOutput)
 }

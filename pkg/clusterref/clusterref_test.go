@@ -32,13 +32,14 @@ func TestResolve_ReadsTheClusterTierOutputs(t *testing.T) {
 	t.Parallel()
 
 	mocks := stackMocks{outputs: resource.PropertyMap{
-		resource.PropertyKey(clusterref.OutputKubeconfig):  resource.NewStringProperty("apiVersion: v1"),
-		resource.PropertyKey(clusterref.OutputEndpoint):    resource.NewStringProperty("https://203.0.113.200:6443"),
-		resource.PropertyKey(clusterref.OutputPodCIDR):     resource.NewStringProperty("10.244.0.0/16"),
-		resource.PropertyKey(clusterref.OutputServiceCIDR): resource.NewStringProperty("10.96.0.0/12"),
-		resource.PropertyKey(clusterref.OutputClusterName): resource.NewStringProperty("platform-prod"),
-		resource.PropertyKey(clusterref.OutputLocation):    resource.NewStringProperty("hel1"),
-		resource.PropertyKey(clusterref.OutputHcloudToken): resource.NewStringProperty("token-from-the-cluster-tier"),
+		resource.PropertyKey(clusterref.OutputKubeconfig):        resource.NewStringProperty("apiVersion: v1"),
+		resource.PropertyKey(clusterref.OutputEndpoint):          resource.NewStringProperty("https://203.0.113.200:6443"),
+		resource.PropertyKey(clusterref.OutputPodCIDR):           resource.NewStringProperty("10.244.0.0/16"),
+		resource.PropertyKey(clusterref.OutputServiceCIDR):       resource.NewStringProperty("10.96.0.0/12"),
+		resource.PropertyKey(clusterref.OutputClusterName):       resource.NewStringProperty("platform-prod"),
+		resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty("hel1"),
+		resource.PropertyKey(clusterref.OutputHcloudToken):       resource.NewStringProperty("token-from-the-cluster-tier"),
+		resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
 	}}
 
 	var (
@@ -154,4 +155,83 @@ func TestOutputNames_AreStable(t *testing.T) {
 	assert.Equal(t, "clusterName", clusterref.OutputClusterName)
 	assert.Equal(t, "location", clusterref.OutputLocation)
 	assert.Equal(t, "hcloudToken", clusterref.OutputHcloudToken)
+	assert.Equal(t, "controlPlaneCount", clusterref.OutputControlPlaneCount)
+}
+
+func TestResolve_AnAbsentControlPlaneCountIsNilNotZero(t *testing.T) {
+	t.Parallel()
+
+	// The distinction is the point. Zero is a number a consumer can compute
+	// with, and computing a replica count from an unknown is how a working
+	// component gets scaled to nothing — so absent has to be a different
+	// value, not a smaller one.
+	mocks := stackMocks{outputs: resource.PropertyMap{
+		resource.PropertyKey(clusterref.OutputKubeconfig): resource.NewStringProperty("apiVersion: v1"),
+	}}
+
+	var (
+		count *int
+		done  = make(chan struct{})
+	)
+
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		cluster, err := clusterref.Resolve(ctx, "acme/hetzner-cluster/prod")
+		if err != nil {
+			return err
+		}
+
+		cluster.ControlPlaneCount.ApplyT(func(value *int) *int {
+			count = value
+
+			close(done)
+
+			return value
+		})
+
+		return nil
+	}, pulumi.WithMocks("hetzner-iac", "test", mocks))
+
+	require.NoError(t, err)
+	<-done
+
+	assert.Nil(t, count)
+}
+
+func TestResolve_ReadsTheControlPlaneCount(t *testing.T) {
+	t.Parallel()
+
+	// Pulumi sends JSON numbers as float64, so the conversion is worth pinning
+	// — a type assertion straight to int would leave every count nil.
+	mocks := stackMocks{outputs: resource.PropertyMap{
+		resource.PropertyKey(clusterref.OutputKubeconfig):        resource.NewStringProperty("apiVersion: v1"),
+		resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
+	}}
+
+	var (
+		count *int
+		done  = make(chan struct{})
+	)
+
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		cluster, err := clusterref.Resolve(ctx, "acme/hetzner-cluster/prod")
+		if err != nil {
+			return err
+		}
+
+		cluster.ControlPlaneCount.ApplyT(func(value *int) *int {
+			count = value
+
+			close(done)
+
+			return value
+		})
+
+		return nil
+	}, pulumi.WithMocks("hetzner-iac", "test", mocks))
+
+	require.NoError(t, err)
+	<-done
+
+	require.NotNil(t, count)
+	assert.Equal(t, 3, *count)
 }
