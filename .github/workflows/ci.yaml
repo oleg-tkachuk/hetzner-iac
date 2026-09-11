@@ -127,11 +127,10 @@ jobs:
   # They drift when a layer is renamed and one of the two is updated.
   layers:
     name: Layer list matches the tree
-    # Pull requests only. A push to main has just been through this exact
-    # tree on the pull request, and branch protection requires the branch to
-    # be current with main before merging, so the rebased result is what was
-    # tested. Re-running it on main adds no information and cost about fifteen
-    # minutes of every merge.
+    # Pull requests only. This check reads one tree — the declared layer list
+    # against the directories — so a merge cannot break it in a way the pull
+    # request did not already see. What a merge CAN break is compilation, and
+    # that is why `build` below runs on main too.
     #
     # What DOES run on main is prime, because a cache written on a pull request
     # is scoped to refs/pull/N/merge and no other branch can read it — only the
@@ -197,7 +196,22 @@ jobs:
 
   build:
     name: Build and test
-    if: github.event_name == 'pull_request'
+    # Both events, and this is the one job that runs on a push to main.
+    #
+    # Branch protection no longer requires a branch to be current before it
+    # merges. That requirement cost a full second run of everything on every
+    # pull request — update the branch, the checks start again — and bought
+    # only the guarantee that the pull request had compiled against the exact
+    # main it landed on.
+    #
+    # This job buys the same guarantee at a quarter of the price. Without
+    # `strict`, the tree on main after a merge is a combination no pull request
+    # ever compiled: one renames a function, another adds a caller, both green
+    # apart and broken together. So the merged tree is compiled and tested
+    # here, once, warm. The rest of the checks stay pull-request-only because
+    # they read one tree rather than a combination — the layer list, the chart
+    # pins, the topology and the commit subjects cannot break by merging.
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: [changes, prime]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -395,14 +409,15 @@ jobs:
   # and states it where the checks themselves are visible.
   release:
     name: Release
-    # NOT `commits`: that job only runs on a pull request, and a skipped
-    # dependency skips its dependents — release would never fire on a push to
-    # main. It is enforced where it belongs, as a required check on the branch.
-    # Only jobs that run on a push to main. The pull-request checks are
-    # skipped there, and a skipped dependency skips its dependents — listing
-    # them would mean the release never fires. The pull request is what gated
-    # this commit; security still gates it here.
-    needs: [prime, security]
+    # Only jobs that also run on a push to main. A skipped dependency skips
+    # its dependents, so listing a pull-request-only job here — `commits`,
+    # `lint`, `charts` — would mean the release never fires at all. Those are
+    # enforced where they belong, as required checks on the branch.
+    #
+    # `build` is in the list because it now runs here too, and it is the one
+    # check that sees the merged tree. Without it a combination that compiles
+    # in neither pull request could be tagged and released.
+    needs: [prime, security, build]
     # Only from a push to main. On a pull request the checks still run; there
     # is simply nothing to release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
