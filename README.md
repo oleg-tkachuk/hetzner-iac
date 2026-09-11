@@ -454,10 +454,22 @@ weaken:
 
 `task scan` still runs the full set locally.
 
-A push to `main` runs almost nothing. The pull request has already been through
-this exact tree, and branch protection requires the branch to be current with
-`main` before merging, so the rebased result is what was tested — re-running it
-would cost fifteen minutes and tell nobody anything.
+A push to `main` runs almost nothing: the priming job, the scanners, `build`,
+and the release.
+
+`build` is there because branch protection does **not** require a branch to be
+current before it merges. That requirement cost a second full run of every
+check on every pull request — update the branch, the checks start again — and
+bought only the guarantee that the pull request had compiled against the exact
+`main` it landed on. Compiling the merged tree once, warm, buys the same thing
+for a quarter of the price. The other checks stay pull-request-only because
+they read one tree rather than a combination: the layer list, the chart pins,
+the topology and the commit subjects cannot break by merging. Compilation can —
+one pull request renames a function, another adds a caller, both green apart.
+
+A merge queue would also solve it and was ruled out after checking: the queue
+runs the checks itself, so a pull request would be tested twice again, once on
+the branch and once in the queue.
 
 Two things do run there. The release, obviously. And the priming job, which is
 less obvious: a cache written on a pull request is scoped to `refs/pull/N/merge`
