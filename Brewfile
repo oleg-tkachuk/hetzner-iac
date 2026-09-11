@@ -24,7 +24,7 @@ brew "hcloud"
 brew "helm"
 
 # Two JSON field reads in the status tasks. image-bake used to need it and
-# no longer does — tools/imagebake parses with encoding/json.
+# no longer does — tools/image parses with encoding/json.
 brew "jq"
 
 # --- Required, but read the note --------------------------------------------

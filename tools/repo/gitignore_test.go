@@ -1,4 +1,10 @@
-package main
+// Package repo holds the checks that belong to the repository rather than to
+// any one tool.
+//
+// Test files only: there is no command here. This one was written inside
+// tools/topology, which parses cluster topologies and has nothing to do with
+// .gitignore — a test in the wrong package is a test nobody looks for.
+package repo
 
 import (
 	"os"
@@ -48,6 +54,14 @@ func TestGitignore_CoversEveryBinaryName(t *testing.T) {
 
 			name := entry.Name()
 
+			// Only a main package produces a binary. tools/awk is an awk
+			// script with Go tests around it, and tools/repo is test files
+			// only — neither leaves anything for git to see, and requiring an
+			// ignore for them was this test's own first bug.
+			if !hasMainPackage(t, filepath.Join(root, parent, name)) {
+				continue
+			}
+
 			// Layers are numbered, and one pattern covers all of them.
 			if parent == "layers" {
 				assert.True(t, ignored["/[0-9][0-9]-*"],
@@ -61,4 +75,31 @@ func TestGitignore_CoversEveryBinaryName(t *testing.T) {
 					"untracked in the repository root", name, parent, name)
 		}
 	}
+}
+
+// hasMainPackage reports whether a directory holds a Go main package, which is
+// the only thing `go build` turns into a binary.
+func hasMainPackage(t *testing.T, dir string) bool {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err, dir)
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		raw, readErr := os.ReadFile(filepath.Join(dir, name))
+		require.NoError(t, readErr)
+
+		for _, line := range strings.Split(string(raw), "\n") {
+			if strings.TrimSpace(line) == "package main" {
+				return true
+			}
+		}
+	}
+
+	return false
 }

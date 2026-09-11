@@ -1,4 +1,4 @@
-// Command alloyvalidate checks the collector configuration against Alloy
+// Command alloy checks the collector configuration against Alloy
 // itself.
 //
 // The unit tests in pkg/observability prove the configuration says what was

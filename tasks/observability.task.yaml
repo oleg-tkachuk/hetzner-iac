@@ -14,4 +14,4 @@ tasks:
       # DaemonSet starts, crash-loops, and logs stop arriving without anything
       # else going red. This catches a syntax error, a reference to an
       # undeclared component, or an unknown component type — offline.
-      - go run {{.ROOT}}/tools/alloyvalidate
+      - go run {{.ROOT}}/tools/alloy

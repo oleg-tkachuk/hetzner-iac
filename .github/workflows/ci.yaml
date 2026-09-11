@@ -306,12 +306,12 @@ jobs:
           # ours in between.
           version: v4.3.0
       - name: Chart render check
-        run: go run ./tools/render
+        run: go run ./tools/charts render
       # Unlike the report below, this one fails. Renovate bumps Version and
       # cannot touch the AppVersion beside it, so its pull requests arrive with
       # an entry claiming a version the chart no longer ships — a misleading
       # comment for most charts, and a real defect for alloy, whose image tag
-      # tools/alloyvalidate builds out of it.
+      # tools/alloy builds out of it.
       - name: App versions match the pinned charts
         run: go run ./tools/charts appversions
       # Read-only. Reports what is behind upstream without failing the build —
@@ -353,12 +353,12 @@ jobs:
           chmod +x "${RUNNER_TEMP}/talosctl"
           echo "${RUNNER_TEMP}" >>"$GITHUB_PATH"
       - name: Talos machine config
-        run: go run ./tools/talosvalidate infra/cluster
+        run: go run ./tools/talos infra/cluster
       # Docker is already on the runner, and Alloy is validated from the image
       # the pinned chart deploys rather than a binary that happens to be
       # installed.
       - name: Alloy collector config
-        run: go run ./tools/alloyvalidate
+        run: go run ./tools/alloy
 
   # Extracted into its own workflow so it can ALSO run on a schedule: a CVE
   # published today makes yesterday's green commit vulnerable, and a gate that
