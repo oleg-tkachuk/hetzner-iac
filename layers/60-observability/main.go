@@ -14,13 +14,10 @@ package main
 import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/observability"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
-
-// StorageClass is what the CSI driver from 20-cloud-integration registers.
-const StorageClass = "hcloud-volumes"
 
 // Defaults for the knobs most likely to be tuned per environment.
 const (
@@ -30,17 +27,8 @@ const (
 
 func main() {
 	layer.Run(func(r *layer.Runner) error {
-		cfg := config.New(r.Ctx, "observability")
-
-		retention := cfg.Get("metricsRetention")
-		if retention == "" {
-			retention = DefaultRetention
-		}
-
-		metricsSize := cfg.Get("metricsVolumeSize")
-		if metricsSize == "" {
-			metricsSize = DefaultMetricsSize
-		}
+		retention := r.StringOr("metricsRetention", DefaultRetention)
+		metricsSize := r.StringOr("metricsVolumeSize", DefaultMetricsSize)
 
 		// The chart's default route ends at a receiver named `null`, so every
 		// alert is grouped, inhibited and then dropped. Nothing else in the
@@ -141,7 +129,7 @@ func PrometheusValues(retention, metricsSize string) pulumi.Map {
 			"enabled": pulumi.Bool(true),
 			"persistence": pulumi.Map{
 				"enabled":          pulumi.Bool(true),
-				"storageClassName": pulumi.String(StorageClass),
+				"storageClassName": pulumi.String(platform.StorageClass),
 				"size":             pulumi.String("10Gi"),
 			},
 			// Loki and Tempo are registered here rather than by their own
@@ -221,7 +209,7 @@ func LokiValues() pulumi.Map {
 			"replicas": pulumi.Int(1),
 			"persistence": pulumi.Map{
 				"enabled":      pulumi.Bool(true),
-				"storageClass": pulumi.String(StorageClass),
+				"storageClass": pulumi.String(platform.StorageClass),
 				"size":         pulumi.String("50Gi"),
 			},
 		},
@@ -245,7 +233,7 @@ func TempoValues() pulumi.Map {
 	return pulumi.Map{
 		"persistence": pulumi.Map{
 			"enabled":          pulumi.Bool(true),
-			"storageClassName": pulumi.String(StorageClass),
+			"storageClassName": pulumi.String(platform.StorageClass),
 			"size":             pulumi.String("20Gi"),
 		},
 		"tempo": pulumi.Map{
@@ -276,7 +264,7 @@ func AlloyValues() pulumi.Map {
 // two components that must both survive a pod move.
 func persistentVolumeSpec(size string) pulumi.Map {
 	return pulumi.Map{
-		"storageClassName": pulumi.String(StorageClass),
+		"storageClassName": pulumi.String(platform.StorageClass),
 		"accessModes":      pulumi.ToStringArray([]string{"ReadWriteOnce"}),
 		"resources": pulumi.Map{
 			"requests": pulumi.Map{"storage": pulumi.String(size)},
