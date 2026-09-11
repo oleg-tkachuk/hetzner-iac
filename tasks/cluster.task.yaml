@@ -14,6 +14,41 @@ tasks:
 
   image-bake:
     desc: "Bake the Talos snapshot named by the topology into the hcloud project (idempotent)"
+    # The token comes out of the encrypted stack config, not out of the
+    # operator's shell. `pulumi config get` decrypts it with the stack's own
+    # key, so there is exactly one copy of the token, it lives in the
+    # committed Pulumi.<stack>.yaml as ciphertext, and no plaintext file has
+    # to exist anywhere for `hcloud` to work.
+    #
+    # An exported HCLOUD_TOKEN still wins, so a shell that already has one —
+    # CI, or a token for a different project — keeps working unchanged.
+    #
+    # Task resolves `env` before `preconditions`, so this block is the first
+    # thing that runs and the only place the remedy can be printed. A
+    # precondition saying it never gets reached.
+    env:
+      HCLOUD_TOKEN:
+        sh: |
+          set -uo pipefail
+          if [ -n "${HCLOUD_TOKEN:-}" ]; then
+            printf '%s' "${HCLOUD_TOKEN}"
+            exit 0
+          fi
+          # Pulumi's own error goes to stderr untouched — "no stack named" and
+          # "invalid access token" are different problems and say so. Only the
+          # remedy is added.
+          if ! token="$(pulumi --non-interactive -C "{{._CL_DIR}}" -s "{{._CL_STACK}}" config get hcloud:token)"; then
+            printf '%s\n' >&2 \
+              "" \
+              "no Hetzner token for stack {{._CL_STACK}}. Set it once, encrypted, in the stack:" \
+              "" \
+              "  pulumi -C infra/cluster -s {{._CL_STACK}} config set --secret hcloud:token <token>" \
+              "" \
+              "It is then committed as ciphertext in Pulumi.{{._CL_STACK}}.yaml and every" \
+              "task reads it from there. Exporting HCLOUD_TOKEN also works and takes priority."
+            exit 1
+          fi
+          printf '%s' "$token"
     preconditions:
       - sh: command -v hcloud >/dev/null
         msg: "hcloud CLI not installed — brew install hcloud"
@@ -21,8 +56,6 @@ tasks:
         msg: "hcloud-upload-image not installed — go install github.com/apricote/hcloud-upload-image@latest"
       - sh: command -v jq >/dev/null
         msg: "jq not installed — brew install jq"
-      - sh: '[ -n "${HCLOUD_TOKEN:-}" ]'
-        msg: "HCLOUD_TOKEN is not exported"
       - sh: test -f "{{._CL_TOPOLOGY}}"
         msg: "no topology at {{._CL_TOPOLOGY}}"
     cmds:
