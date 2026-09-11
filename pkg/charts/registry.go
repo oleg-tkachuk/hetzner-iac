@@ -72,7 +72,7 @@ var registry = map[string]Chart{
 	"cert-manager": {
 		Name:       "cert-manager",
 		Repo:       "https://charts.jetstack.io",
-		Version:    "v1.21.1", // app v1.21.1 — this chart tags with a leading v
+		Version:    "v1.21.2", // app v1.21.1 — this chart tags with a leading v
 		AppVersion: "v1.21.1",
 		Namespace:  "cert-manager",
 	},
