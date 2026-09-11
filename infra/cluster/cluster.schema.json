@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oleg-tkachuk/hetzner-iac/infra/cluster/cluster.schema.json",
+  "title": "Hetzner cluster topology",
+  "description": "The whole per-environment description of one cluster. Loaded by infra/cluster from cluster.<stack>.yaml. Validation here is for the editor; pkg/hetzner validates the same file at plan time and reports every problem at once, including the ones a schema cannot express.",
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "placement",
+    "network",
+    "talos"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "hetzner-iac/v1"
+    },
+    "kind": {
+      "const": "Cluster"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Talos cluster name, server-name prefix and the label every resource carries. A DNS-1123 label, because it has to be all three.",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 47
+        }
+      }
+    },
+    "placement": {
+      "type": "object",
+      "required": [
+        "location"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "description": "Object Storage lives in fewer of these than servers do.",
+          "enum": [
+            "fsn1",
+            "nbg1",
+            "hel1",
+            "ash",
+            "hil",
+            "sin"
+          ]
+        },
+        "networkZone": {
+          "description": "Must contain the location. Derived when omitted; Hetzner rejects a mismatch when the subnet is created, which is late.",
+          "enum": [
+            "eu-central",
+            "us-east",
+            "us-west",
+            "ap-southeast"
+          ]
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "required": [
+        "adminCIDRs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ipRange": {
+          "type": "string",
+          "description": "Private network range. Default 10.0.0.0/16.",
+          "format": "ipv4-cidr"
+        },
+        "nodeSubnet": {
+          "type": "string",
+          "description": "Subnet inside ipRange that nodes address from. Default 10.0.1.0/24."
+        },
+        "podCIDR": {
+          "type": "string",
+          "description": "Pod network. Must not overlap ipRange. Default 10.244.0.0/16."
+        },
+        "serviceCIDR": {
+          "type": "string",
+          "description": "Service network. Default 10.96.0.0/12."
+        },
+        "adminCIDRs": {
+          "type": "array",
+          "description": "The only sources allowed to reach tcp/6443 and tcp/50000. MUST include the host running the apply, which pushes Talos machine configuration over the Talos API. No default: an empty list is refused rather than widened to 0.0.0.0/0.",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9./]+$"
+          }
+        },
+        "publicIPv4": {
+          "type": "boolean",
+          "description": "Keep a routable address on every node, and target it from Talos and the kubeconfig. Default TRUE \u2014 an apply from outside the private network needs one."
+        },
+        "allowICMP": {
+          "type": "boolean",
+          "description": "Open ping from adminCIDRs. Default false."
+        }
+      }
+    },
+    "talos": {
+      "type": "object",
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "Talos version contract. Must match the baked snapshot: the image lookup keys off this, so bumping without re-baking fails at plan time.",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+        },
+        "architecture": {
+          "enum": [
+            "x86",
+            "arm"
+          ],
+          "description": "arm selects the CAX server types. Default x86."
+        },
+        "imageSelector": {
+          "type": "string",
+          "description": "Override the snapshot selector. Empty derives os=talos,talos-version=<version>, the labels cluster:image-bake writes."
+        }
+      }
+    },
+    "kubernetes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "Pinned, not left to Talos: an empty value would let a Talos patch bump move Kubernetes a whole minor with no diff. Default is pinned in pkg/hetzner.",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+        }
+      }
+    },
+    "controlPlane": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "description": "Odd and positive: etcd needs a quorum, and an even count costs more without tolerating more failures. Default 1.",
+          "minimum": 1
+        },
+        "serverType": {
+          "type": "string",
+          "description": "hcloud server type. Default cx23."
+        },
+        "apiLoadBalancerType": {
+          "type": "string",
+          "description": "Fronts kube-apiserver. Required once count > 1, ignored otherwise. Default lb11."
+        }
+      }
+    },
+    "workerPools": {
+      "type": "array",
+      "description": "Groups of identically shaped nodes. Omit entirely to schedule on the control plane.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "count"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "serverType": {
+            "type": "string",
+            "description": "Default cx33."
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "taints": {
+            "type": "array",
+            "description": "key=value:Effect, the standard spelling.",
+            "items": {
+              "type": "string",
+              "pattern": "^[^=:]+=[^:]*:(NoSchedule|PreferNoSchedule|NoExecute)$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

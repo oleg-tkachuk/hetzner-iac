@@ -80,6 +80,20 @@ type NetworkSpec struct {
 	// widened to 0.0.0.0/0 — a cluster whose control plane is open to the
 	// internet should be something somebody typed, not something a default did.
 	AdminCIDRs []string `json:"adminCIDRs"`
+
+	// PublicIPv4 keeps a routable address on every node, and decides which
+	// address Talos and the kubeconfig target. Defaults to true: machine
+	// configuration is pushed over the Talos API, so an apply from anywhere
+	// but inside the private network needs one.
+	//
+	// AllowICMP opens ping from AdminCIDRs. Defaults to false.
+	//
+	// Both are pointers because this file is sparse: an omitted switch is not
+	// the same as a false one. PublicIPv4 defaults to TRUE, so a plain bool
+	// would read an omitted field as false and silently strip every node's
+	// public address — and with it the endpoint the kubeconfig points at.
+	PublicIPv4 *bool `json:"publicIPv4,omitempty"`
+	AllowICMP  *bool `json:"allowICMP,omitempty"`
 }
 
 // TalosSpec pins the Talos version contract and the architecture it was
@@ -91,6 +105,10 @@ type TalosSpec struct {
 	Version string `json:"version"`
 	// Architecture is x86 or arm. arm selects the CAX server types.
 	Architecture string `json:"architecture"`
+	// ImageSelector overrides the label selector used to find the baked Talos
+	// snapshot. Empty derives "os=talos,talos-version=<Version>", which is
+	// what `task cluster:image-bake` writes.
+	ImageSelector string `json:"imageSelector,omitempty"`
 }
 
 // KubernetesSpec pins the Kubernetes version, or leaves it to Talos.
@@ -159,8 +177,34 @@ const (
 	// replace every node in it.
 	PoolAddressStride = 40
 
+	// MaxServerName is hcloud's limit on a server name.
+	MaxServerName = 63
+
+	// NodeNameSuffix is the room NodeName needs beyond the cluster name.
+	// It builds "<cluster>-<pool>-<ordinal>", and the longest pool name this
+	// repository produces on its own is the control-plane role.
+	//
+	// Derived from RoleControlPlane rather than counted by hand: the first
+	// attempt at this constant guessed the suffix, got 48 instead of 47, and
+	// would have let a name through that hcloud then rejects.
+	NodeNameSuffix = len("-") + len(RoleControlPlane) + len("-") + 1
+
+	// MaxClusterNameLength is what remains for metadata.name. Derived rather
+	// than written as 47, so a renamed role or a longer ordinal cannot
+	// silently push node names past hcloud's limit — the arithmetic is the
+	// documentation.
+	MaxClusterNameLength = MaxServerName - NodeNameSuffix
+
 	apiVersion = "hetzner-iac/v1"
 	kind       = "Cluster"
+)
+
+// Defaults for the two switches. Separate from the block above because a bool
+// default cannot be expressed as "the zero value is fine": DefaultPublicIPv4
+// is true, which is the whole reason those fields are pointers.
+var (
+	DefaultPublicIPv4 = true
+	DefaultAllowICMP  = false
 )
 
 // validLocations maps each hcloud location to the network zone that contains
@@ -228,11 +272,32 @@ func (t *Topology) ApplyDefaults() {
 	for i := range t.WorkerPools {
 		setIfEmpty(&t.WorkerPools[i].ServerType, DefaultWorkerSrvType)
 	}
+
+	setBoolIfUnset(&t.Network.PublicIPv4, DefaultPublicIPv4)
+	setBoolIfUnset(&t.Network.AllowICMP, DefaultAllowICMP)
+}
+
+// PublicIPv4Enabled reports whether nodes keep a routable address. Safe on a
+// Topology that never went through ApplyDefaults, where the pointer is nil and
+// the default — true — applies.
+func (t *Topology) PublicIPv4Enabled() bool {
+	return t.Network.PublicIPv4 == nil || *t.Network.PublicIPv4
+}
+
+// ICMPAllowed reports whether ping is open from the admin CIDRs.
+func (t *Topology) ICMPAllowed() bool {
+	return t.Network.AllowICMP != nil && *t.Network.AllowICMP
 }
 
 func setIfEmpty(field *string, value string) {
 	if *field == "" {
 		*field = value
+	}
+}
+
+func setBoolIfUnset(field **bool, value bool) {
+	if *field == nil {
+		*field = &value
 	}
 }
 
@@ -270,10 +335,11 @@ func (t *Topology) validateIdentity() []string {
 	switch {
 	case t.Metadata.Name == "":
 		problems = append(problems, "metadata.name is required")
-	case len(t.Metadata.Name) > 47:
-		// Node names are <cluster>-<pool>-<ordinal>; hcloud server names cap
-		// at 63 characters, and the suffix needs room.
-		problems = append(problems, fmt.Sprintf("metadata.name %q is longer than 47 characters, leaving no room for node-name suffixes", t.Metadata.Name))
+	case len(t.Metadata.Name) > MaxClusterNameLength:
+		problems = append(problems, fmt.Sprintf(
+			"metadata.name %q is longer than %d characters, leaving no room for node-name suffixes "+
+				"within hcloud's %d-character server-name limit",
+			t.Metadata.Name, MaxClusterNameLength, MaxServerName))
 	case !dns1123.MatchString(t.Metadata.Name):
 		problems = append(problems, fmt.Sprintf("metadata.name %q must be lowercase alphanumeric with internal hyphens", t.Metadata.Name))
 	}
