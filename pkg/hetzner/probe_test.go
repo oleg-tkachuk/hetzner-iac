@@ -18,7 +18,7 @@ talos: { version: v1.14.0 }
 workerpools:
   - name: worker
     count: 2
-    serverType: cx32
+    serverType: cx33
 `
 	top, err := hetzner.ParseTopology([]byte(lower))
 	fmt.Printf("lowercase key -> err=%v pools=%+v\n", err, top.WorkerPools)
