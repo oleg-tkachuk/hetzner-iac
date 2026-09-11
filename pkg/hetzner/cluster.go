@@ -66,6 +66,13 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 
 	topology := args.Topology
 
+	// Before anything is registered. A bad server type used to surface on the
+	// eleventh resource, after ten had been created, leaving a half-built
+	// cluster in state for the next run to reconcile.
+	if err := ValidateServerTypes(ctx, topology); err != nil {
+		return nil, err
+	}
+
 	component := &Cluster{}
 	if err := ctx.RegisterComponentResource(typeCluster, name, component, opts...); err != nil {
 		return nil, fmt.Errorf("register %s: %w", typeCluster, err)
