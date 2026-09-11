@@ -63,17 +63,19 @@ pre-commit:
         done
 
     # Compiled artefacts bloat every clone forever and no review can read them.
+    # git's own binary detection, not `file -b | grep ELF|Mach-O`, which is
+    # what this used to be. That pattern knew two formats — a PNG, a gzip, an
+    # ar archive and a wasm module all went through it — and if `file`
+    # produced no output, grep answered "no match" and the binary passed
+    # silently. numstat prints `-` for both counts on anything git calls
+    # binary, whatever the format.
+    #
+    # To allow a file that genuinely belongs here, add its path to the awk
+    # invocation as -v allow=<path>. Nothing needs it today: the repository
+    # tracks no binary files.
     - name: forbid-binaries
       tags: [hygiene]
-      run: |
-        set -euo pipefail
-        for f in {staged_files}; do
-          [ -f "$f" ] || continue
-          if file -b "$f" | grep -qE '(^| )ELF( |$)|(^| )Mach-O( |$)'; then
-            echo "ERROR: compiled binary detected: $f" >&2
-            exit 1
-          fi
-        done
+      run: git diff --cached --numstat | awk -f tools/awk/lib.awk -v op=staged-binaries
 
     # A secret reaches the remote once and is burned; this is the only cheap
     # moment to catch it. A scan that skips itself when the tool is missing is
