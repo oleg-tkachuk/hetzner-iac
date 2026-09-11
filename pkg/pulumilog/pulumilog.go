@@ -7,9 +7,9 @@
 // "became" or "went to".
 //
 //	◉ observability · loki · chart 7.3.0 → observability
-//	✔ object-storage · bucket · platform-prod-state versioned, 30d noncurrent
+//	✔ ingress · load-balancer · lb11 in hel1
 //	○ core · cluster-issuer · acmeEmail unset, none created
-//	▲ observability · retention · logsRetention has no effect without a bucket
+//	▲ observability · alerting · alertmanager has no receiver
 //
 // Two channels, chosen per call rather than per site:
 //

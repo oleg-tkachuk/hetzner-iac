@@ -106,11 +106,11 @@ func TestEveryPersistentComponentUsesTheCSIStorageClass(t *testing.T) {
 	claim, _ := template["spec"].(pulumi.Map)
 	assert.Equal(t, pulumi.String(StorageClass), claim["storageClassName"])
 
-	loki, _ := LokiValues(nil, DefaultLogsRetention)["singleBinary"].(pulumi.Map)
+	loki, _ := LokiValues()["singleBinary"].(pulumi.Map)
 	lokiPersistence, _ := loki["persistence"].(pulumi.Map)
 	assert.Equal(t, pulumi.String(StorageClass), lokiPersistence["storageClass"])
 
-	tempoPersistence, _ := TempoValues(nil)["persistence"].(pulumi.Map)
+	tempoPersistence, _ := TempoValues()["persistence"].(pulumi.Map)
 	assert.Equal(t, pulumi.String(StorageClass), tempoPersistence["storageClassName"])
 }
 
@@ -119,7 +119,7 @@ func TestLokiValues_RunsOneTopologyNotTwo(t *testing.T) {
 
 	// SingleBinary mode plus non-zero read/write/backend replicas deploys both
 	// topologies at once — which starts, and then behaves strangely.
-	values := LokiValues(nil, DefaultLogsRetention)
+	values := LokiValues()
 
 	assert.Equal(t, pulumi.String("SingleBinary"), values["deploymentMode"])
 
@@ -244,24 +244,10 @@ func TestGrafanaDataSources_UseThePinnedEndpoints(t *testing.T) {
 	assert.Equal(t, observability.TempoHTTP, urls["tempo"])
 }
 
-// testStore is a resolved object store with values a test can recognise in
-// rendered output.
-func testStore() *objectStore {
-	return &objectStore{
-		Bucket:    pulumi.String("platform-prod-observability").ToStringOutput(),
-		Endpoint:  pulumi.String("fsn1.your-objectstorage.com").ToStringOutput(),
-		Region:    pulumi.String("fsn1").ToStringOutput(),
-		AccessKey: pulumi.String("AKIAEXAMPLE").ToStringOutput(),
-		SecretKey: pulumi.String("shhh").ToStringOutput(),
-	}
-}
-
-func TestLokiValues_WithoutAStoreStaysOnTheFilesystem(t *testing.T) {
+func TestLokiValues_StaysOnTheFilesystem(t *testing.T) {
 	t.Parallel()
 
-	// The layers are independently appliable, so this one has to work with no
-	// object-storage stack at all — and unchanged from before it existed.
-	loki, ok := LokiValues(nil, DefaultLogsRetention)["loki"].(pulumi.Map)
+	loki, ok := LokiValues()["loki"].(pulumi.Map)
 	require.True(t, ok)
 
 	storage, ok := loki["storage"].(pulumi.Map)
@@ -269,40 +255,10 @@ func TestLokiValues_WithoutAStoreStaysOnTheFilesystem(t *testing.T) {
 	assert.Equal(t, pulumi.String("filesystem"), storage["type"])
 	assert.NotContains(t, storage, "bucketNames")
 
-	// No retention either: the volume bounds itself by filling up, and
+	// No retention: the volume bounds itself by filling up, and
 	// retention_enabled without a bucket would delete logs for no reason.
 	assert.NotContains(t, loki, "compactor")
 	assert.NotContains(t, loki, "limits_config")
-}
-
-func TestLokiValues_WithAStoreWritesToTheBucket(t *testing.T) {
-	t.Parallel()
-
-	store := testStore()
-
-	loki, ok := LokiValues(store, "168h")["loki"].(pulumi.Map)
-	require.True(t, ok)
-
-	storage, ok := loki["storage"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.String("s3"), storage["type"])
-
-	// All three bucket names, because Loki refuses to start with chunks or
-	// ruler unset once the backend is s3.
-	names, ok := storage["bucketNames"].(pulumi.Map)
-	require.True(t, ok)
-
-	for _, key := range []string{"chunks", "ruler", "admin"} {
-		assert.Equal(t, store.Bucket, names[key], key)
-	}
-
-	s3, ok := storage["s3"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, store.Endpoint, s3["endpoint"])
-	assert.Equal(t, store.Region, s3["region"])
-	assert.Equal(t, store.AccessKey, s3["accessKeyId"])
-	assert.Equal(t, store.SecretKey, s3["secretAccessKey"])
-	assert.Equal(t, pulumi.Bool(true), s3["s3ForcePathStyle"])
 }
 
 func TestLokiValues_SchemaAgreesWithStorage(t *testing.T) {
@@ -311,113 +267,37 @@ func TestLokiValues_SchemaAgreesWithStorage(t *testing.T) {
 	// The schema decides where Loki reads chunks, storage decides where it
 	// writes them. Disagreeing produces a Loki that ingests happily and
 	// returns nothing.
-	for name, tc := range map[string]struct {
-		store *objectStore
-		want  pulumi.String
-	}{
-		"filesystem": {nil, pulumi.String("filesystem")},
-		"s3":         {testStore(), pulumi.String("s3")},
-	} {
-		loki, ok := LokiValues(tc.store, DefaultLogsRetention)["loki"].(pulumi.Map)
-		require.True(t, ok, name)
-
-		schema, ok := loki["schemaConfig"].(pulumi.Map)
-		require.True(t, ok, name)
-
-		configs, ok := schema["configs"].(pulumi.Array)
-		require.True(t, ok, name)
-		require.Len(t, configs, 1, name)
-
-		entry, ok := configs[0].(pulumi.Map)
-		require.True(t, ok, name)
-
-		assert.Equal(t, tc.want, entry["object_store"], name)
-
-		storage, ok := loki["storage"].(pulumi.Map)
-		require.True(t, ok, name)
-		assert.Equal(t, entry["object_store"], storage["type"], name)
-	}
-}
-
-func TestLokiValues_BucketRetentionIsSetAndPassedThrough(t *testing.T) {
-	t.Parallel()
-
-	// A bucket has no size to fill, so nothing stops it growing except this.
-	loki, ok := LokiValues(testStore(), "168h")["loki"].(pulumi.Map)
+	loki, ok := LokiValues()["loki"].(pulumi.Map)
 	require.True(t, ok)
 
-	compactor, ok := loki["compactor"].(pulumi.Map)
+	schema, ok := loki["schemaConfig"].(pulumi.Map)
 	require.True(t, ok)
-	assert.Equal(t, pulumi.Bool(true), compactor["retention_enabled"])
-	assert.Equal(t, pulumi.String("s3"), compactor["delete_request_store"])
 
-	limits, ok := loki["limits_config"].(pulumi.Map)
+	configs, ok := schema["configs"].(pulumi.Array)
 	require.True(t, ok)
-	assert.Equal(t, pulumi.String("168h"), limits["retention_period"])
+	require.Len(t, configs, 1)
+
+	entry, ok := configs[0].(pulumi.Map)
+	require.True(t, ok)
+
+	storage, ok := loki["storage"].(pulumi.Map)
+	require.True(t, ok)
+
+	assert.Equal(t, pulumi.String("filesystem"), entry["object_store"])
+	assert.Equal(t, entry["object_store"], storage["type"])
 }
 
-func TestLokiValues_TheVolumeShrinksWhenChunksLeaveIt(t *testing.T) {
-	t.Parallel()
-
-	// Still a volume either way — Loki writes the WAL locally before it
-	// writes a chunk anywhere — but 50Gi of it is only needed for chunks.
-	sizeOf := func(store *objectStore) pulumi.StringInput {
-		single, ok := LokiValues(store, DefaultLogsRetention)["singleBinary"].(pulumi.Map)
-		require.True(t, ok)
-
-		persistence, ok := single["persistence"].(pulumi.Map)
-		require.True(t, ok)
-		assert.Equal(t, pulumi.Bool(true), persistence["enabled"])
-
-		return persistence["size"].(pulumi.StringInput)
-	}
-
-	assert.Equal(t, pulumi.String("50Gi"), sizeOf(nil))
-	assert.Equal(t, pulumi.String("10Gi"), sizeOf(testStore()))
-}
-
-func TestTempoValues_WithoutAStoreLeavesStorageToTheChart(t *testing.T) {
+func TestTempoValues_LeavesStorageToTheChart(t *testing.T) {
 	t.Parallel()
 
 	// The chart's defaults are already the local backend on the volume, so
 	// this sets no storage key at all. Restating a default is a values diff
 	// that renders identically — noise in a review, and one more line to keep
 	// in step with the chart.
-	tempo, ok := TempoValues(nil)["tempo"].(pulumi.Map)
+	//
+	tempo, ok := TempoValues()["tempo"].(pulumi.Map)
 	require.True(t, ok)
 
 	assert.NotContains(t, tempo, "storage")
 	assert.Equal(t, pulumi.String("168h"), tempo["retention"])
-}
-
-func TestTempoValues_WithAStoreWritesToTheBucket(t *testing.T) {
-	t.Parallel()
-
-	store := testStore()
-
-	tempo, ok := TempoValues(store)["tempo"].(pulumi.Map)
-	require.True(t, ok)
-
-	storage, _ := tempo["storage"].(pulumi.Map)
-	trace, ok := storage["trace"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.String("s3"), trace["backend"])
-
-	s3, ok := trace["s3"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, store.Bucket, s3["bucket"])
-	assert.Equal(t, store.Endpoint, s3["endpoint"])
-
-	// Tempo's own names, not the chart's: this map is passed through to its
-	// config verbatim, so accessKeyId here would be silently ignored.
-	assert.Equal(t, store.AccessKey, s3["access_key"])
-	assert.Equal(t, store.SecretKey, s3["secret_key"])
-	assert.Equal(t, pulumi.Bool(true), s3["forcepathstyle"])
-
-	// The WAL path survives the switch. Tempo writes every trace there before
-	// it becomes a block, bucket or no bucket.
-	wal, ok := trace["wal"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.String("/var/tempo/wal"), wal["path"])
 }
