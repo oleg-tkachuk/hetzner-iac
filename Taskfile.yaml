@@ -129,6 +129,18 @@ tasks:
   # Gates. These are what CI runs, so a green local run means a green PR.
   # ---------------------------------------------------------------------------
 
+  build:
+    desc: "Compile every program into bin/"
+    cmds:
+      # -o with a directory puts all thirteen binaries in one place. Without
+      # it `go build ./...` names each after its main package and leaves it in
+      # the working directory, where the names collide with the tools/,
+      # layers/ and infra/ directory names — which is how a 52 MB layer binary
+      # came to be committed once, and how two more reached the tree since.
+      - go build -o {{.ROOT}}/bin/ ./...
+      - cmd: 'echo "built into bin/ — $(ls {{.ROOT}}/bin | wc -l | tr -d " ") programs"'
+        silent: true
+
   verify:
     desc: "Everything checkable without a cluster — needs helm, talosctl and docker"
     cmds:
