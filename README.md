@@ -87,6 +87,16 @@ floating tags are rejected by validation rather than by convention.
 | [talosctl](https://www.talos.dev/) | day-2: upgrades, etcd snapshots |
 | `jq`, `curl` | used by the image-bake task |
 
+On macOS, `brew bundle` installs all of it:
+
+```bash
+brew bundle
+```
+
+Read the `talosctl` note in the `Brewfile` first: Homebrew ships a newer minor
+than the topology pins, and `task cluster:config-check` declines a mismatched
+binary rather than trusting it.
+
 A Hetzner Cloud API token with read+write scope on the project.
 
 Optional, and only for the tasks that name them: `golangci-lint`, `gitleaks`,
