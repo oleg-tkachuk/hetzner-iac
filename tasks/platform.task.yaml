@@ -57,7 +57,7 @@ tasks:
           # One awk op rather than the twelve lines that probed for `tac` and
           # fell back to `tail -r` — GNU has one, BSD the other, and the probe
           # existed only because neither is portable. awk is.
-          for layer in $(awk -f "{{.ROOT}}/tools/awk/lib.awk" -v op=reverse-words \
+          for layer in $(awk -f "{{.ROOT}}/tools/lines/main.awk" -v op=reverse-words \
                          <<<"{{._PL_LAYERS}}"); do
             echo "══ destroy ${layer}"
             ( cd "{{.ROOT}}/layers/${layer}" && \

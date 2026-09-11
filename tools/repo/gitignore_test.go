@@ -54,7 +54,7 @@ func TestGitignore_CoversEveryBinaryName(t *testing.T) {
 
 			name := entry.Name()
 
-			// Only a main package produces a binary. tools/awk is an awk
+			// Only a main package produces a binary. tools/lines is an awk
 			// script with Go tests around it, and tools/repo is test files
 			// only — neither leaves anything for git to see, and requiring an
 			// ignore for them was this test's own first bug.
