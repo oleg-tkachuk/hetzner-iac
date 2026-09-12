@@ -157,6 +157,71 @@ tasks:
           chmod 600 "{{.ROOT}}/kubeconfig"
           echo "wrote kubeconfig — export KUBECONFIG={{.ROOT}}/kubeconfig"
 
+  kubeconfig-merge:
+    desc: "Merge ./kubeconfig into ~/.kube/config so a plain kubectl reaches this cluster"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    deps: [kubeconfig]
+    cmds:
+      # Merging is a convenience, not the mechanism. Every task here still
+      # passes --kubeconfig explicitly, and so does Pulumi: a resource created
+      # against whatever the shell happens to point at lands on whatever
+      # cluster that is. This only makes `kubectl` work without ceremony.
+      #
+      # The non-mutating alternative, for anyone who would rather not have
+      # this cluster reachable by an absent-minded kubectl:
+      #
+      #     export KUBECONFIG=$HOME/.kube/config:{{.ROOT}}/kubeconfig
+      #
+      # kubectl merges at read time, so the contexts appear without a file
+      # being rewritten.
+      - cmd: |
+          set -euo pipefail
+
+          source="{{.ROOT}}/kubeconfig"
+          target="${KUBECONFIG_TARGET:-$HOME/.kube/config}"
+
+          context="$(kubectl --kubeconfig "$source" config current-context)"
+          cluster="$(kubectl --kubeconfig "$source" config view \
+            -o "jsonpath={.contexts[?(@.name=='$context')].context.cluster}")"
+          user="$(kubectl --kubeconfig "$source" config view \
+            -o "jsonpath={.contexts[?(@.name=='$context')].context.user}")"
+          server="$(kubectl --kubeconfig "$source" config view \
+            -o "jsonpath={.clusters[?(@.name=='$cluster')].cluster.server}")"
+
+          if [ ! -f "$target" ]; then
+            mkdir -p "$(dirname "$target")"
+            install -m 600 "$source" "$target"
+            echo "wrote $target — context $context"
+            exit 0
+          fi
+
+          # Refuse a name that already means something else. A merge keeps the
+          # left-hand file's entry, so a collision would silently leave
+          # kubectl pointed at the other cluster under a name that now reads
+          # like this one.
+          existing="$(kubectl --kubeconfig "$target" config view \
+            -o "jsonpath={.clusters[?(@.name=='$cluster')].cluster.server}" 2>/dev/null || true)"
+
+          if [ -n "$existing" ] && [ "$existing" != "$server" ]; then
+            echo "$target already has a cluster named $cluster at $existing," >&2
+            echo "and this stack's is $server. Rename one of them first." >&2
+            exit 1
+          fi
+
+          backup="$target.$(date -u +%Y%m%dT%H%M%SZ).bak"
+          cp "$target" "$backup"
+
+          merged="$(mktemp)"
+          KUBECONFIG="$target:$source" kubectl config view --flatten > "$merged"
+          install -m 600 "$merged" "$target"
+          rm -f "$merged"
+
+          echo "merged into $target (backup: $backup)"
+          echo "  context: $context"
+          echo "  switch:  kubectl config use-context $context"
+
   talosconfig:
     desc: "Write ./talosconfig from the cluster stack"
     preconditions:
