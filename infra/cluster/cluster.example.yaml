@@ -5,6 +5,9 @@
 # adminCIDRs is an operator's own egress address, and this repository is
 # public.
 #
+# The cost of that: CI has no topology, so it cannot preview the cluster tier.
+# Check its drift by hand with `task cluster:plan stack=<stack>`.
+#
 #   cp cluster.example.yaml cluster.dev.yaml
 #
 # This IS the per-environment description of a cluster. Everything that shapes

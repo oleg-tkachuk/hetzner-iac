@@ -1,8 +1,7 @@
 name: Preview
 
 # A real `pulumi preview` needs real credentials and a real cluster stack:
-# every layer resolves the cluster through a StackReference, and the cluster
-# tier resolves a Talos snapshot through the Hetzner API.
+# every layer resolves the cluster through a StackReference.
 #
 # It is therefore NOT part of pull-request CI. A preview faked against an empty
 # local backend passes without checking anything, which is worse than not
@@ -59,45 +58,15 @@ jobs:
           STACK: ${{ inputs.stack || 'dev' }}
         run: echo "stack=$STACK" >>"$GITHUB_OUTPUT"
 
-  cluster:
-    name: Cluster tier drift
-    needs: [target]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # The GitHub environment is named after the stack, which is where its two
-    # secrets live. A stack with no environment of the same name gets none, and
-    # setup-pulumi says so — an empty access token otherwise fails as a login
-    # error naming neither the secret nor the environment.
-    environment: ${{ needs.target.outputs.stack }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-pulumi
-        with:
-          access-token: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          stack: ${{ needs.target.outputs.stack }}
-      - name: Preview
-        working-directory: infra/cluster
-        env:
-          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          STACK: ${{ needs.target.outputs.stack }}
-        run: |
-          set -euo pipefail
-
-          # tools/stack names the stacks that do exist. The pipeline this
-          # replaces reported only an exit code — eight jobs said `exit code 6`
-          # at once with nothing saying which stacks were there — and it was
-          # the third copy of the same `pulumi stack ls | jq -e` in the tree.
-          #
-          # Addressed from the workspace, not as ./tools/stack: this step runs
-          # in infra/cluster, where a relative package path resolves to
-          # infra/cluster/tools/stack and Go reports `directory not found`.
-          # Same shape as {{.ROOT}}/tools/stack in the taskfiles.
-          go run "$GITHUB_WORKSPACE/tools/stack" exists . "$STACK"
-
-          pulumi --non-interactive --stack "$STACK" preview --diff
+  # No cluster-tier job: its topology lives in a gitignored file, because
+  # network.adminCIDRs is the operator's own address and this repository is
+  # going public. A runner has no topology, so the program cannot start.
+  #
+  # Cluster-tier drift is therefore checked by hand, where the file is:
+  #
+  #     task cluster:plan stack=dev
+  #
+  # The layer jobs below still cover everything running on the cluster.
 
   layer:
     # No `name:` on purpose. A custom name is used verbatim, so a skipped job
@@ -131,7 +100,7 @@ jobs:
 
   e2e:
     name: Cluster health
-    needs: [target, cluster]
+    needs: [target]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: ${{ needs.target.outputs.stack }}
