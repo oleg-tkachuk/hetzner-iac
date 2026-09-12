@@ -45,6 +45,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:apply` | provision or converge the cluster |
 | `task cluster:destroy` | delete the servers; asks first |
 | `task cluster:kubeconfig` | write `./kubeconfig` |
+| `task cluster:kubeconfig-merge` | merge that into `~/.kube/config`, so a plain `kubectl` reaches this cluster |
 | `task cluster:talosconfig` | write `./talosconfig` |
 | `task cluster:outputs` | stack outputs, secrets redacted |
 | `task cluster:nodes` | list nodes |
@@ -125,3 +126,30 @@ programmed, the load balancer provisioned, volumes bound. It lives behind the
 It runs from the operator's machine rather than from CI: the firewall opens the
 Kubernetes API to `network.adminCIDRs` only, and a GitHub-hosted runner is not
 in it.
+
+## Reaching the cluster with a plain kubectl
+
+Every task here passes `--kubeconfig` explicitly, and so does Pulumi, so none
+of them depends on what the shell points at — a resource created against the
+ambient config lands on whatever cluster that happens to be. A bare `kubectl`
+is the exception, and there are two ways to give it this cluster.
+
+Without touching any file, which is the safer one:
+
+```bash
+export KUBECONFIG=$HOME/.kube/config:$PWD/kubeconfig
+```
+
+kubectl merges at read time, so both sets of contexts appear.
+
+Or merge it in once:
+
+```bash
+task cluster:kubeconfig-merge stack=dev
+```
+
+That backs the target up with a timestamp first, and refuses outright if a
+cluster of the same name already points somewhere else — a merge keeps the
+left-hand entry, so a collision would quietly leave `kubectl` on the other
+cluster under a name that now reads like this one. It does not switch the
+current context; it prints the command that would.
