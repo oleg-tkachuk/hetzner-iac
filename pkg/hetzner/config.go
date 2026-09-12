@@ -4,7 +4,7 @@
 //
 // Hetzner has no managed Kubernetes, so this package builds the cluster
 // rather than requesting one. It stops at "a Kubernetes API that answers":
-// the CNI is not installed here, it belongs to the 10-cni layer, because a
+// the CNI is not installed here, it belongs to layers/10-node-platform, because a
 // cluster and its CNI have different lifecycles and pinning them together
 // makes a CNI upgrade a cluster change.
 package hetzner
@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -147,13 +147,35 @@ type WorkerPoolSpec struct {
 	Taints []string `json:"taints,omitempty"`
 }
 
+// TaintEffects are the effects Kubernetes defines for a taint, in the order a
+// message should list them.
+//
+// One list rather than a set inside a regular expression and the same three
+// words again in the error beside it.
+var TaintEffects = []string{"NoSchedule", "PreferNoSchedule", "NoExecute"}
+
+// The CPU architectures a topology can ask for.
+//
+// These spellings are the Hetzner API's own: pkg/hetzner/servertypes compares
+// them against the architecture the account's server types report, so a third
+// name here would match nothing and reject every type.
+const (
+	ArchitectureX86 = "x86"
+	ArchitectureARM = "arm"
+)
+
+// Architectures is every accepted value, so the validator and its message
+// cannot name different sets. Both used to spell them out — the pair as
+// literals in the comparison and again as prose in the error.
+var Architectures = []string{ArchitectureX86, ArchitectureARM}
+
 // Defaults applied to any field the committed file leaves empty.
 const (
 	DefaultIPRange       = "10.0.0.0/16"
 	DefaultNodeSubnet    = "10.0.1.0/24"
 	DefaultPodCIDR       = "10.244.0.0/16"
 	DefaultServiceCIDR   = "10.96.0.0/12"
-	DefaultArchitecture  = "x86"
+	DefaultArchitecture  = ArchitectureX86
 	DefaultCPServerType  = "cx23"
 	DefaultAPILBType     = "lb11"
 	DefaultWorkerSrvType = "cx33"
@@ -253,7 +275,9 @@ var (
 	// semverish accepts the vX.Y.Z spelling Talos and Kubernetes both use.
 	semverish = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 	// taintPattern is key=value:Effect. Value may be empty (key=:NoSchedule).
-	taintPattern = regexp.MustCompile(`^[^=:]+=[^:]*:(NoSchedule|PreferNoSchedule|NoExecute)$`)
+	// Built from TaintEffects so the pattern and the message it produces
+	// cannot name different sets.
+	taintPattern = regexp.MustCompile(`^[^=:]+=[^:]*:(` + strings.Join(TaintEffects, "|") + `)$`)
 )
 
 // ErrEmptyAdminCIDRs is returned when the admin CIDR list is missing. It is a
@@ -395,22 +419,43 @@ func (t *Topology) validatePlacement() []string {
 func (t *Topology) validateNetwork() []string {
 	var problems []string
 
-	ipRange, ok := parsePrefix("network.ipRange", t.Network.IPRange, &problems)
-	nodeSubnet, subnetOK := parsePrefix("network.nodeSubnet", t.Network.NodeSubnet, &problems)
+	ipRange, ipRangeOK := parsePrefix("network.ipRange", t.Network.IPRange, &problems)
+	nodeSubnet, nodeSubnetOK := parsePrefix("network.nodeSubnet", t.Network.NodeSubnet, &problems)
 	podCIDR, podOK := parsePrefix("network.podCIDR", t.Network.PodCIDR, &problems)
-	_, _ = parsePrefix("network.serviceCIDR", t.Network.ServiceCIDR, &problems)
+	serviceCIDR, serviceOK := parsePrefix("network.serviceCIDR", t.Network.ServiceCIDR, &problems)
 
-	if ok && subnetOK && !ipRange.Overlaps(nodeSubnet) {
+	if ipRangeOK && nodeSubnetOK && !ipRange.Overlaps(nodeSubnet) {
 		problems = append(problems, fmt.Sprintf("network.nodeSubnet %s is not inside network.ipRange %s",
 			t.Network.NodeSubnet, t.Network.IPRange))
 	}
 
-	if ok && podOK && ipRange.Overlaps(podCIDR) {
-		// The CCM route controller programmes pod routes inside the private
-		// network. Overlapping ranges make node and pod traffic ambiguous and
-		// the symptom is intermittent, not immediate.
-		problems = append(problems, fmt.Sprintf("network.podCIDR %s overlaps network.ipRange %s",
-			t.Network.PodCIDR, t.Network.IPRange))
+	// The three ranges that must stay disjoint. ipRange is the private
+	// network the CCM route controller programmes node routes in, podCIDR is
+	// what the CNI hands to pods, and serviceCIDR is what the API server
+	// hands to Services — an address in two of them means two things, and the
+	// symptom is intermittent rather than immediate.
+	//
+	// A list rather than one `if` per pair, which is how serviceCIDR came to
+	// be parsed and then compared against nothing: with the pairs written out
+	// by hand, the missing one is invisible. nodeSubnet is not here because
+	// it is required to sit inside ipRange, which already stands for it.
+	ranges := []struct {
+		field  string
+		prefix netip.Prefix
+		known  bool
+	}{
+		{"network.ipRange", ipRange, ipRangeOK},
+		{"network.podCIDR", podCIDR, podOK},
+		{"network.serviceCIDR", serviceCIDR, serviceOK},
+	}
+
+	for i, first := range ranges {
+		for _, second := range ranges[i+1:] {
+			if first.known && second.known && first.prefix.Overlaps(second.prefix) {
+				problems = append(problems, fmt.Sprintf("%s %s overlaps %s %s",
+					second.field, second.prefix, first.field, first.prefix))
+			}
+		}
 	}
 
 	if len(t.Network.AdminCIDRs) == 0 {
@@ -441,8 +486,9 @@ func (t *Topology) validateVersions() []string {
 			t.Kubernetes.Version))
 	}
 
-	if t.Talos.Architecture != "x86" && t.Talos.Architecture != "arm" {
-		problems = append(problems, fmt.Sprintf("talos.architecture %q must be x86 or arm", t.Talos.Architecture))
+	if !slices.Contains(Architectures, t.Talos.Architecture) {
+		problems = append(problems, fmt.Sprintf("talos.architecture %q must be %s",
+			t.Talos.Architecture, strings.Join(Architectures, " or ")))
 	}
 
 	return problems
@@ -508,7 +554,7 @@ func (t *Topology) validateWorkerPools() []string {
 
 		for j, taint := range pool.Taints {
 			if !taintPattern.MatchString(taint) {
-				problems = append(problems, fmt.Sprintf("%s.taints[%d] %q must be key=value:Effect where Effect is NoSchedule, PreferNoSchedule or NoExecute",
+				problems = append(problems, fmt.Sprintf("%s.taints[%d] %q must be key=value:Effect where Effect is one of "+strings.Join(TaintEffects, ", "),
 					field, j, taint))
 			}
 		}
@@ -574,7 +620,7 @@ func sortedKeys(m map[string]string) []string {
 		keys = append(keys, k)
 	}
 
-	sort.Strings(keys)
+	slices.Sort(keys)
 
 	return keys
 }
