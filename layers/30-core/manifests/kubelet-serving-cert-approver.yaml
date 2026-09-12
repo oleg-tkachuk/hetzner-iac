@@ -2,6 +2,8 @@
 #
 # Source: github.com/alex1989hu/kubelet-serving-cert-approver
 #         deploy/standalone-install.yaml at tag v0.12.0
+# License: Apache-2.0 — see the LICENSE file in that repository. This copy is
+#          redistributed under it; the rest of this repository is MIT.
 #
 # Vendored rather than fetched from a URL at apply time, for the reason every
 # chart here is pinned to an exact version: a remote reference is a thing that
