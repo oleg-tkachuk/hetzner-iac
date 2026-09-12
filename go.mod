@@ -3,7 +3,7 @@ module github.com/oleg-tkachuk/hetzner-iac
 go 1.27.1
 
 require (
-	github.com/pulumi/pulumi-hcloud/sdk v1.41.0
+	github.com/pulumi/pulumi-hcloud/sdk v1.42.0
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.34.1
 	github.com/pulumi/pulumi/sdk/v3 v3.262.0
 	github.com/pulumiverse/pulumi-talos/sdk v0.8.1
@@ -151,8 +151,8 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.50.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260908043556-f8649ddbbfe6 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260908043556-f8649ddbbfe6 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260911204522-f61a6ca850bd // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260911204522-f61a6ca850bd // indirect
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
