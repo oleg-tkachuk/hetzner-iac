@@ -82,6 +82,32 @@ interpreting.
 Turn it on with the flows in front of you: `task cluster:hubble` prints what
 the cluster is doing now.
 
+## What the cluster encrypts, and what it does not
+
+Kubernetes Secrets are encrypted at rest without this repository doing
+anything: the Talos secrets bundle the Pulumi provider generates carries a
+secretbox key, and Talos wires it into the API server's
+`--encryption-provider-config`. That covers the `secrets` resource and nothing
+else.
+
+The volumes themselves are encrypted by two `VolumeConfig` documents in the
+cluster patch — STATE, which holds the machine config and the node's
+certificates, and EPHEMERAL, which holds `/var` and so etcd's data directory.
+Without them a restored snapshot or a volume attached to another machine is
+readable, which is a far cheaper attack than reaching the running node.
+
+The key provider is `nodeID`, derived from the node's UUID. It is deliberately
+not protection against someone who can already run commands on the node —
+Talos offers `tpm` for that, which needs SecureBoot and a TPM a Hetzner Cloud
+instance does not have, and `kms`, which needs a key server this repository
+does not run. `static` would put the passphrase in the machine config beside
+the data it protects.
+
+Talos has no in-place encryption: enabling this on a node that already exists
+means wiping STATE, which is where its configuration lives. On a cluster that
+is already running, the path is `task cluster:destroy` and a fresh
+`cluster:apply`, then the layers.
+
 ## Every chart version is pinned in one place
 
 `pkg/charts` is the registry; floating tags are rejected by validation rather

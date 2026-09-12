@@ -18,6 +18,32 @@ import (
 // struct cannot be broken that way, and it can be unit-tested without a
 // cluster.
 
+// Disk encryption, as VolumeConfig documents.
+//
+// STATE holds the machine config and the node's secrets and certificates;
+// EPHEMERAL holds /var, which is etcd's data directory and every container's
+// writable layer. Unencrypted, both are readable by anyone who can attach the
+// volume or restore a snapshot of it — which on a cloud provider is a
+// different and much cheaper attack than reaching the running node.
+//
+// Kubernetes Secrets are already encrypted inside etcd by the secretbox key
+// the Talos secrets bundle generates, and that is a narrower thing than this:
+// it covers the `secrets` resource and nothing else. ConfigMaps, CRD contents
+// and the machine config itself are plaintext on the volume without this.
+const (
+	// VolumeSTATE and VolumeEPHEMERAL are the system volumes Talos names.
+	// Spelled once: a VolumeConfig naming a volume that does not exist is
+	// accepted and encrypts nothing.
+	VolumeSTATE     = "STATE"
+	VolumeEPHEMERAL = "EPHEMERAL"
+
+	// EncryptionProvider is the only provider Talos offers for these.
+	EncryptionProvider = "luks2"
+
+	// EncryptionKeySlot is the LUKS slot the key goes in. One key, one slot.
+	EncryptionKeySlot = 0
+)
+
 // ClusterPatchArgs describes the patch shared by every node in the cluster.
 type ClusterPatchArgs struct {
 	// PodCIDR and ServiceCIDR must match what the CNI is later configured
@@ -129,7 +155,59 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 		},
 	}
 
-	return marshalPatch(patch)
+	rendered, err := marshalPatch(patch)
+	if err != nil {
+		return "", err
+	}
+
+	encryption, err := buildVolumeEncryption()
+	if err != nil {
+		return "", err
+	}
+
+	return rendered + encryption, nil
+}
+
+// buildVolumeEncryption renders a VolumeConfig document per encrypted system
+// volume.
+//
+// Separate documents rather than `machine.systemDiskEncryption`, which is the
+// v1alpha1 spelling of the same thing: v1.13 documents these as VolumeConfig,
+// and mixing the two forms for one volume is a conflict rather than a
+// duplicate.
+//
+// `nodeID` as the key: it derives from the node's UUID, so a restored snapshot
+// or a volume attached to another machine cannot be read. That is the threat
+// worth buying here. It is NOT protection from someone who can already run
+// commands on the node — for that Talos wants `tpm`, which needs SecureBoot
+// and a TPM that a Hetzner Cloud instance does not have, or `kms`, which needs
+// a key server this repository does not run.
+func buildVolumeEncryption() (string, error) {
+	out := ""
+
+	for _, volume := range []string{VolumeSTATE, VolumeEPHEMERAL} {
+		document, err := marshalPatch(map[string]any{
+			"apiVersion": "v1alpha1",
+			"kind":       "VolumeConfig",
+			"name":       volume,
+			"encryption": map[string]any{
+				"provider": EncryptionProvider,
+				"keys": []map[string]any{
+					{
+						"nodeID": map[string]any{},
+						"slot":   EncryptionKeySlot,
+					},
+				},
+			},
+		})
+		if err != nil {
+			return "", err
+		}
+
+		out += "---\n" + document
+	}
+
+	return out, nil
 }
 
 // NodePatchArgs describes the per-node patch.

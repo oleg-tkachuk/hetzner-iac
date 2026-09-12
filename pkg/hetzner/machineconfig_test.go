@@ -400,3 +400,91 @@ func TestBuildClusterPatch_DoesNotPassCloudProviderToTheAPIServer(t *testing.T) 
 	assert.Equal(t, "external",
 		controllerManager["extraArgs"].(map[string]any)["cloud-provider"])
 }
+
+// volumeConfigs decodes the VolumeConfig documents of a cluster patch, keyed
+// by the volume they name.
+func volumeConfigs(t *testing.T, patch string) map[string]map[string]any {
+	t.Helper()
+
+	out := map[string]map[string]any{}
+
+	for _, document := range documents(t, patch) {
+		var parsed map[string]any
+		require.NoError(t, yaml.Unmarshal([]byte(document), &parsed))
+
+		if parsed["kind"] != "VolumeConfig" {
+			continue
+		}
+
+		name, ok := parsed["name"].(string)
+		require.True(t, ok, "a VolumeConfig with no name encrypts nothing")
+
+		out[name] = parsed
+	}
+
+	return out
+}
+
+func TestBuildClusterPatch_EncryptsBothSystemVolumes(t *testing.T) {
+	t.Parallel()
+
+	// STATE holds the machine config and the node's secrets; EPHEMERAL holds
+	// /var, which is etcd's data directory. Encrypting one and not the other
+	// is a cluster whose secrets are still readable from a snapshot, so both
+	// are named here rather than trusted to a loop somebody may shorten.
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+		NodeSubnet:  "10.0.1.0/24",
+	})
+	require.NoError(t, err)
+
+	found := volumeConfigs(t, patch)
+
+	for _, volume := range []string{hetzner.VolumeSTATE, hetzner.VolumeEPHEMERAL} {
+		document, ok := found[volume]
+		require.True(t, ok, "no VolumeConfig for %s", volume)
+
+		assert.Equal(t, "v1alpha1", document["apiVersion"], volume)
+
+		encryption, ok := document["encryption"].(map[string]any)
+		require.True(t, ok, "%s has no encryption stanza", volume)
+		assert.Equal(t, hetzner.EncryptionProvider, encryption["provider"], volume)
+
+		keys, ok := encryption["keys"].([]any)
+		require.True(t, ok, "%s has no keys", volume)
+		require.Len(t, keys, 1, "%s: one key, one slot", volume)
+
+		key, ok := keys[0].(map[string]any)
+		require.True(t, ok)
+
+		// nodeID derives the key from the node's UUID, which is what makes a
+		// restored snapshot unreadable. A `static` key would put the
+		// passphrase in the machine config beside the data it protects.
+		assert.Contains(t, key, "nodeID", volume)
+		assert.NotContains(t, key, "static", volume)
+		assert.Equal(t, float64(hetzner.EncryptionKeySlot), key["slot"], volume)
+	}
+
+	assert.Len(t, found, 2, "only the two system volumes are configured here")
+}
+
+func TestBuildClusterPatch_DoesNotMixTheLegacyEncryptionForm(t *testing.T) {
+	t.Parallel()
+
+	// `machine.systemDiskEncryption` is the v1alpha1 spelling of the same
+	// setting. Talos v1.13 documents VolumeConfig instead, and carrying both
+	// for one volume is a conflict rather than a harmless duplicate — so the
+	// machine config document must stay silent about encryption.
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+		NodeSubnet:  "10.0.1.0/24",
+	})
+	require.NoError(t, err)
+
+	machine, ok := decode(t, patch)["machine"].(map[string]any)
+	require.True(t, ok)
+
+	assert.NotContains(t, machine, "systemDiskEncryption")
+}
