@@ -19,8 +19,8 @@ description: |
 # history, and manages the secrets encryption key, none of which a DIY backend
 # does for you.
 #
-# To keep state in your own S3 bucket instead — one vendor, data in the EU —
-# point this url at it. That also changes how stack secrets are encrypted,
+# To keep state in your own S3 bucket instead — one vendor, one bill — point
+# this url at it. That also changes how stack secrets are encrypted,
 # which changes whether Pulumi.<stack>.yaml may be committed: see
 # docs/configuration.md, "Keeping state in your own S3 bucket".
 backend:
