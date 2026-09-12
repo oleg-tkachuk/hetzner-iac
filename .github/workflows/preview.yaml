@@ -90,7 +90,12 @@ jobs:
           # replaces reported only an exit code — eight jobs said `exit code 6`
           # at once with nothing saying which stacks were there — and it was
           # the third copy of the same `pulumi stack ls | jq -e` in the tree.
-          go run ./tools/stack exists infra/cluster "$STACK"
+          #
+          # Addressed from the workspace, not as ./tools/stack: this step runs
+          # in infra/cluster, where a relative package path resolves to
+          # infra/cluster/tools/stack and Go reports `directory not found`.
+          # Same shape as {{.ROOT}}/tools/stack in the taskfiles.
+          go run "$GITHUB_WORKSPACE/tools/stack" exists . "$STACK"
 
           pulumi --non-interactive --stack "$STACK" preview --diff
 
