@@ -159,11 +159,29 @@ tasks:
   # Named scan rather than security: `security` is already the include's
   # namespace, and two meanings for one word at the command line is a coin flip.
   scan:
-    desc: "Every scanner CI runs — needs gitleaks, gosec and trivy installed"
+    desc: "Every scanner CI runs — needs gitleaks, gosec, trivy and checkov installed"
     cmds:
       # The same tasks .github/workflows/security.yaml calls, so a green run
       # here is a green run there.
       - task: security:all
+      - task: checkov
+
+  checkov:
+    desc: "checkov — hardening rules over the manifests and workflows this repository ships"
+    preconditions:
+      - sh: command -v checkov >/dev/null || command -v pipx >/dev/null
+        msg: "checkov is not installed — pipx install checkov, or brew install checkov"
+    cmds:
+      # Flags live in .checkov.yaml, not here, so a local run and the CI job
+      # assert the same thing. pipx as the fallback because checkov is a
+      # Python tool and CI installs it that way.
+      - cmd: |
+          set -euo pipefail
+          if command -v checkov >/dev/null; then
+            checkov --config-file "{{.ROOT}}/.checkov.yaml"
+          else
+            pipx run "checkov==${CHECKOV_VERSION:-3.3.17}" --config-file "{{.ROOT}}/.checkov.yaml"
+          fi
 
   fmt-check:
     desc: "Fail if any Go file is not gofmt-clean"

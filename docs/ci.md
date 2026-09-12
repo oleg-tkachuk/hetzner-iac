@@ -41,9 +41,16 @@ Each job installs its tool and then calls the same task an operator runs
 locally, so the flags live in one place rather than being restated in YAML.
 `task scan` is the whole set.
 
-Accepted findings live in `.trivyignore.yaml`, each with the reason it stands.
-Entries are removed as soon as a fix lands — a stale ignore masks the finding
-coming back.
+Accepted findings live in `.trivyignore.yaml` and `.checkov.yaml`, each with
+the reason it stands. Entries are removed as soon as a fix lands — a stale
+ignore masks the finding coming back.
+
+**checkov** is the fourth, and it covers what the other three do not: 480-odd
+hardening rules read against the Kubernetes manifests as Kubernetes, and
+against the workflows as a build pipeline. trivy reports IaC misconfiguration
+too, but report-only — its findings are dense — while zizmor and actionlint
+read the workflows for security and for correctness rather than for hardening.
+It runs on every pull request, pinned, in under three seconds.
 
 Note that govulncheck and trivy disagree by design: govulncheck reports only
 what this code can actually reach, trivy reports everything present in the
