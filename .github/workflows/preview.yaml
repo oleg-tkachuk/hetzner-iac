@@ -98,32 +98,15 @@ jobs:
 
           pulumi --non-interactive --stack "$STACK" preview --diff
 
-  e2e:
-    name: Cluster health
-    needs: [target]
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    environment: ${{ needs.target.outputs.stack }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-pulumi
-        with:
-          access-token: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          stack: ${{ needs.target.outputs.stack }}
-      - name: Fetch the kubeconfig
-        working-directory: infra/cluster
-        env:
-          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          STACK: ${{ needs.target.outputs.stack }}
-        run: |
-          set -euo pipefail
-          pulumi --non-interactive --stack "$STACK" \
-            stack output kubeconfig --show-secrets > "${RUNNER_TEMP}/kubeconfig"
-          chmod 600 "${RUNNER_TEMP}/kubeconfig"
-      # Read-only apart from nothing: the suite creates no workloads, so it is
-      # safe to run against the cluster that is actually serving traffic —
-      # which is the only cluster whose health is worth reporting.
-      - name: e2e
-        run: go test -tags e2e -count=1 -v -timeout 40m ./test/e2e/... --kubeconfig "${RUNNER_TEMP}/kubeconfig"
+  # No cluster-health job either, and for the same reason as the tier above:
+  # the Hetzner firewall opens tcp/6443 to network.adminCIDRs only, and a
+  # GitHub-hosted runner is not in it. Its published ranges are 6980 CIDRs of
+  # shared Azure that rotate, so allowing them would put everyone who can run
+  # a workflow inside the perimeter.
+  #
+  # The suite is read-only and runs against the live cluster from where the
+  # firewall already allows it:
+  #
+  #     task e2e
+  #
+  # Automating it needs a runner with an address inside the perimeter.
