@@ -30,6 +30,7 @@ env:
   # golangci-lint is lower than the targeted Go version (1.27.1)". 2.13.2 is
   # built with go1.27.
   GOLANGCI_VERSION: "v2.13.2"
+  GOSEC_VERSION: "v2.29.0"
 
   # Same reason: a kubeconform release changing which schemas it accepts would
   # turn CI red with no commit of ours in between.
@@ -292,6 +293,45 @@ jobs:
           # is a convenience. In CI it would rewrite a read-only checkout and
           # hide the findings it repaired.
           args: --timeout=15m --fix=false
+
+  gosec:
+    name: Insecure patterns
+    # Whole-repo, which is the half golangci-lint cannot cover: it runs gosec
+    # too, but under `--new-from-merge-base`, so a finding already on main is
+    # invisible to it for ever. The two also disagree on rules — a plain G204,
+    # a subprocess built from a variable, is reported here and not there, which
+    # is what the #nosec G204 in tools/stack is for.
+    #
+    # Here rather than in security.yaml because that workflow is scheduled for
+    # findings that appear without anyone touching the code. gosec's are a pure
+    # function of the code at a pinned version.
+    #
+    # Free on the wall clock, measured rather than assumed: 4m15s, beside a
+    # `Tests and vet` that takes thirteen minutes. It was nightly on the belief
+    # that it cost fifteen — locally it is 2m42s from a cold build cache and 7s
+    # from a warm one.
+    if: github.event_name == 'pull_request'
+    needs: [changes, security]
+    runs-on: ubuntu-latest
+    # Well above the measurement and far below the 40 minutes it had nightly: a
+    # runner that once took 21 minutes over this was killed with nothing to
+    # read, and a tighter bound would at least have said when.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - if: needs.changes.outputs.code == 'true'
+        run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+      # Suppressions are written as #nosec, which both this and the gosec
+      # inside golangci-lint honour — //nolint:gosec would satisfy the lint job
+      # and fail this one.
+      - if: needs.changes.outputs.code == 'true'
+        run: task security:gosec
 
   charts:
     name: Chart pins
