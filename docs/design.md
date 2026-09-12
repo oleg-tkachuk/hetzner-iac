@@ -56,6 +56,29 @@ connection timeout rather than a rejected apply. The allow policies therefore
 set `enableDefaultDeny: {ingress: false, egress: false}`, which makes them
 genuinely additive, and the deny is the one resource the flag gates.
 
+With the allow policies applied and the deny still off, Cilium reports
+something that reads like the opposite:
+
+    $ cilium-dbg endpoint list
+    ENDPOINT   POLICY (ingress)   POLICY (egress)
+               ENFORCEMENT        ENFORCEMENT
+    30         Enabled            Enabled
+
+That is not the deny. `ENFORCEMENT` says the datapath now consults the
+endpoint's policy map, which it does as soon as any policy selects the
+endpoint; what the map contains is the question, and it contains a wildcard:
+
+    $ cilium-dbg bpf policy get 30
+    Allow    Ingress   ANY             ANY   24340727 bytes
+    Allow    Egress    ANY             ANY     569433 bytes
+    Allow    Ingress   reserved:host   ANY      62587 bytes
+
+The first two lines are `enableDefaultDeny: false` doing its job. A default
+deny is precisely the absence of those wildcards, so their presence — not the
+word Enabled — is what says nothing is being dropped. `hubble observe
+--verdict DROPPED` answers the same question from the other end, and needs no
+interpreting.
+
 Turn it on with the flows in front of you: `task cluster:hubble` prints what
 the cluster is doing now.
 
