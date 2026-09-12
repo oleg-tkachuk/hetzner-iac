@@ -34,10 +34,12 @@ spec:
         - name: cilium-run
 `)
 
-	found := parseWorkloads(manifest)
+	found := parseWorkloads(manifest, "kube-system")
 
-	assert.True(t, found["Deployment/cilium-operator"])
-	assert.True(t, found["DaemonSet/cilium"])
+	assert.True(t, found["Deployment/kube-system/cilium-operator"])
+	// No namespace of its own, so it takes the release's — which is what
+	// Helm does with it.
+	assert.True(t, found["DaemonSet/kube-system/cilium"])
 	assert.Len(t, found, 2, "container and volume names must not be mistaken for workloads")
 }
 
@@ -61,14 +63,14 @@ metadata:
   name: ciliumnetworkpolicies.cilium.io
 `)
 
-	assert.Empty(t, parseWorkloads(manifest))
+	assert.Empty(t, parseWorkloads(manifest, "kube-system"))
 }
 
-func TestParseWorkloads_TakesOnlyTheFirstNameAfterAKind(t *testing.T) {
+func TestParseWorkloads_TakesOnlyTheObjectsOwnName(t *testing.T) {
 	t.Parallel()
 
 	// The pattern that would break a naive scanner: a workload whose pod
-	// template carries names at the same indentation further down.
+	// template carries names further down.
 	manifest := []byte(`kind: StatefulSet
 metadata:
   name: loki
@@ -79,17 +81,17 @@ spec:
       name: should-not-be-picked-up
 `)
 
-	found := parseWorkloads(manifest)
+	found := parseWorkloads(manifest, "observability")
 
 	require.Len(t, found, 1)
-	assert.True(t, found["StatefulSet/loki"])
+	assert.True(t, found["StatefulSet/observability/loki"])
 }
 
 func TestParseWorkloads_Empty(t *testing.T) {
 	t.Parallel()
 
-	assert.Empty(t, parseWorkloads(nil))
-	assert.Empty(t, parseWorkloads([]byte("")))
+	assert.Empty(t, parseWorkloads(nil, "kube-system"))
+	assert.Empty(t, parseWorkloads([]byte(""), "kube-system"))
 }
 
 func TestWriteValues(t *testing.T) {
@@ -317,4 +319,51 @@ func TestDocumentNamespace(t *testing.T) {
 			assert.Equal(t, test.want, documentNamespace(test.doc, "observability"))
 		})
 	}
+}
+
+func TestParseWorkloads_TellsNamespacesApart(t *testing.T) {
+	t.Parallel()
+
+	// The whole node-exporter incident was a namespace: the DaemonSet was
+	// rendered into observability, where Pod Security refuses it, and the
+	// check printed `ok kube-system/...` because it compared only kind and
+	// name. A gate that reports a namespace it never looked at is worse than
+	// one that says nothing.
+	manifest := []byte(`---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: observability
+spec:
+`)
+
+	found := parseWorkloads(manifest, "observability")
+
+	assert.True(t, found["DaemonSet/observability/node-exporter"])
+	assert.False(t, found["DaemonSet/kube-system/node-exporter"],
+		"a workload rendered into the wrong namespace must not match")
+}
+
+func TestParseWorkloads_IgnoresAKindThatIsNotTheDocuments(t *testing.T) {
+	t.Parallel()
+
+	// An autoscaler names the workload it scales, and a RoleBinding names its
+	// subjects. Reading either as the document's own kind attributes a
+	// workload to whatever refers to it — the object counted would be one
+	// nothing renders.
+	manifest := []byte(`---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+  namespace: default
+spec:
+  scaleTargetRef:
+    kind: Deployment
+    name: web
+`)
+
+	assert.Empty(t, parseWorkloads(manifest, "default"),
+		"only a top-level kind describes the document")
 }
