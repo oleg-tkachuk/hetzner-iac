@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -248,6 +249,9 @@ func TestProjectDescriptionsFitTheStackTag(t *testing.T) {
 	}
 }
 
+// layerList matches the whitespace-separated layer list the taskfiles walk.
+var layerList = regexp.MustCompile(`(?s)LAYERS: >-\n((?:    [^\n]+\n)+)`)
+
 // projectPaths returns every Pulumi.yaml in the repository.
 func projectPaths(t *testing.T) []string {
 	t.Helper()
@@ -258,7 +262,18 @@ func projectPaths(t *testing.T) []string {
 	require.NoError(t, err)
 
 	paths = append(paths, filepath.Join(root, "infra", "cluster", "Pulumi.yaml"))
-	require.Len(t, paths, 6, "six Pulumi projects: five layers and the cluster tier")
+
+	// Counted against the layer list rather than a number written here: a new
+	// layer used to fail this test for existing, which says nothing about the
+	// thing being guarded — that the glob still finds the projects at all.
+	layers, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	declared := layerList.FindStringSubmatch(string(layers))
+	require.NotNil(t, declared, "no LAYERS list in the root taskfile")
+
+	require.Len(t, paths, len(strings.Fields(declared[1]))+1,
+		"one Pulumi project per layer, plus the cluster tier")
 
 	return paths
 }
