@@ -2,7 +2,7 @@
 //
 // The load balancer is not created here. ingress-nginx asks for a Service of
 // type LoadBalancer and the hcloud cloud controller manager from
-// 20-cloud-integration turns that into a real one — which is why this layer
+// layers/10-node-platform turns that into a real one — which is why this layer
 // depends on that layer rather than on the Hetzner API.
 package main
 

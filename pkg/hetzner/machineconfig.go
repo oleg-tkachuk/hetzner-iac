@@ -42,7 +42,7 @@ type ClusterPatchArgs struct {
 //
 //   - The CNI is set to "none". Talos would otherwise install Flannel, which
 //     would then have to be removed before Cilium could take over. The
-//     10-cni layer owns the CNI, so the cluster ships without one and nodes
+//     layers/10-node-platform owns the CNI, so the cluster ships without one and
 //     stay NotReady until that layer runs. That is the intended state, not a
 //     failure.
 //   - kube-proxy is disabled. Cilium replaces it in eBPF; running both means

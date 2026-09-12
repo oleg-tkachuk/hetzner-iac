@@ -68,7 +68,7 @@ func TestBuildClusterPatch_LeavesTheCNIToItsOwnLayer(t *testing.T) {
 	t.Parallel()
 
 	// Talos installs Flannel unless told otherwise. Shipping with a CNI the
-	// 10-cni layer would then have to remove is worse than shipping without
+	// layers/10-node-platform would then have to remove is worse than shipping
 	// one: nodes stay NotReady until that layer runs, which is visible and
 	// intended, rather than two CNIs briefly fighting.
 	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
