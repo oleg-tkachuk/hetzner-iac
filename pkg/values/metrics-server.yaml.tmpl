@@ -1,0 +1,19 @@
+# metrics-server.
+
+args:
+  # Talos nodes are addressed on the private network and their kubelet
+  # certificates carry the internal address. The chart's default preference
+  # order tries the hostname first, which does not resolve here — so
+  # metrics-server starts, every scrape fails, and the horizontal pod
+  # autoscaler is silently blind.
+  #
+  # task charts:render-check asserts this reaches the rendered arguments.
+  - {{ .AddressTypes }}
+
+# Two replicas so a node failure does not take metrics — and with them the
+# autoscaler — down.
+replicas: {{ .Replicas }}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

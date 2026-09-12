@@ -29,6 +29,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"strings"
 	"text/template"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -72,6 +73,26 @@ func Source(chart string) (string, error) {
 	return string(raw), nil
 }
 
+// helpers are the template functions a values file may use.
+//
+// Only indent, and only because one chart takes a whole configuration file as
+// a values string: Alloy's collector config is multi-line, and YAML needs it
+// indented under the key that holds it.
+var helpers = template.FuncMap{
+	"indent": func(spaces int, text string) string {
+		pad := strings.Repeat(" ", spaces)
+
+		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+		for i, line := range lines {
+			if line != "" {
+				lines[i] = pad + line
+			}
+		}
+
+		return strings.Join(lines, "\n")
+	},
+}
+
 // Render produces one chart's values YAML.
 func Render(chart string, data any) (string, error) {
 	text, err := Source(chart)
@@ -79,7 +100,7 @@ func Render(chart string, data any) (string, error) {
 		return "", err
 	}
 
-	parsed, err := template.New(chart).Option("missingkey=error").Parse(text)
+	parsed, err := template.New(chart).Funcs(helpers).Option("missingkey=error").Parse(text)
 	if err != nil {
 		return "", fmt.Errorf("values template %q: %w", chart, err)
 	}

@@ -1,7 +1,6 @@
 package values_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
@@ -50,51 +49,38 @@ func TestRender_RefusesAFieldTheDataDoesNotHave(t *testing.T) {
 	require.Error(t, err, "a template rendered against the wrong data must fail")
 }
 
-func TestTemplates_AreValidYAMLOnceRendered(t *testing.T) {
+func TestTemplates_RenderValidYAMLFromProbeData(t *testing.T) {
 	t.Parallel()
 
-	// Rendered with the zero value of nothing in particular: what is being
-	// checked is the structure, and a template that only parses as YAML when
-	// a value happens to be non-empty is a template that breaks on an empty
-	// config key.
+	// Every template, rendered the way `task charts:render-check` renders it.
+	// A template that only parses as YAML when a value happens to be non-empty
+	// is a template that breaks on an empty config key — and one whose action
+	// supplies an indented block, as Alloy's collector config does, cannot be
+	// checked any other way.
 	names, err := values.Names()
 	require.NoError(t, err)
 
 	for _, name := range names {
-		text, err := values.Source(name)
+		probe, err := values.Probe(name)
+		require.NoError(t, err, "every template needs probe data, or the render check cannot render it")
+
+		text, err := values.Render(name, probe)
 		require.NoError(t, err)
 
-		// Strip the actions rather than execute them: this test is about the
-		// surrounding YAML, and each layer's own test renders with real data.
 		var out map[string]any
-		assert.NoError(t, yaml.Unmarshal([]byte(blankActions(text)), &out), "%s is not yaml", name)
+		assert.NoError(t, yaml.Unmarshal([]byte(text), &out), "%s does not render valid yaml", name)
+		assert.NotEmpty(t, out, "%s renders nothing", name)
 	}
 }
 
-// blankActions replaces every {{ ... }} with a placeholder scalar.
-func blankActions(text string) string {
-	var out strings.Builder
+func TestProbe_RefusesAnUnknownChart(t *testing.T) {
+	t.Parallel()
 
-	for {
-		start := strings.Index(text, "{{")
-		if start < 0 {
-			out.WriteString(text)
-
-			return out.String()
-		}
-
-		end := strings.Index(text[start:], "}}")
-		if end < 0 {
-			out.WriteString(text)
-
-			return out.String()
-		}
-
-		out.WriteString(text[:start])
-		out.WriteString("placeholder")
-
-		text = text[start+end+len("}}"):]
-	}
+	// nil would render a template whose every field resolves to nothing —
+	// a values file of empty strings, and a check that passes on it.
+	_, err := values.Probe("no-such-chart")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no probe data")
 }
 
 func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {

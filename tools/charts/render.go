@@ -25,12 +25,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -38,18 +36,9 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/workloads"
 )
-
-// values/ holds the minimum each chart needs to render the topology this
-// platform actually deploys. Charts whose default topology already matches
-// have no file here.
-//
-// --set was not enough: Loki needs a nested schemaConfig list, which the flag
-// form cannot express, and the chart refuses to render without it.
-//
-//go:embed values
-var valuesFS embed.FS
 
 // renderAll runs every chart check and reports how many failed.
 func renderAll() error {
@@ -406,19 +395,49 @@ func pinnedKubernetesVersion() string {
 	return strings.TrimPrefix(hetzner.DefaultKubernetesVersion, "v")
 }
 
-// renderRaw templates a chart and returns its manifests.
-func renderRaw(ctx context.Context, chart charts.Chart, release, namespace, key string, sets ...string) ([]byte, error) {
+// clusterAPIVersions are the API versions a chart may branch on, told to
+// helm because an offline render cannot ask a cluster.
+//
+// `helm template` populates .Capabilities.APIVersions from a small built-in
+// list, and --kube-version only sets .Capabilities.KubeVersion — so a chart
+// testing `.Capabilities.APIVersions.Has "policy/v1/PodDisruptionBudget"`
+// takes its fallback branch and emits policy/v1beta1, removed in Kubernetes
+// 1.25. That is what this check found the first time it rendered Traefik with
+// the layer's own values: a PodDisruptionBudget the pinned cluster would
+// reject, produced only by rendering offline.
+//
+// Each entry is an api this platform's Kubernetes serves. Adding one is
+// telling the render the truth about the cluster, not relaxing a check.
+var clusterAPIVersions = []string{
+	"policy/v1/PodDisruptionBudget",
+}
+
+// helmArgs is the invocation, separated so a test can assert what the render
+// tells helm about the cluster without running it.
+func helmArgs(chart charts.Chart, release, namespace string, sets []string) []string {
 	args := []string{
 		"template", release, chart.Name,
 		"--repo", chart.Repo,
 		"--version", chart.Version,
 		"--namespace", namespace,
 		"--skip-tests",
+		"--kube-version", pinnedKubernetesVersion(),
+	}
+
+	for _, api := range clusterAPIVersions {
+		args = append(args, "--api-versions", api)
 	}
 
 	for _, set := range sets {
 		args = append(args, "--set", set)
 	}
+
+	return args
+}
+
+// renderRaw templates a chart and returns its manifests.
+func renderRaw(ctx context.Context, chart charts.Chart, release, namespace, key string, sets ...string) ([]byte, error) {
+	args := helmArgs(chart, release, namespace, sets)
 
 	valuesFile, err := writeValues(key)
 	if err != nil {
@@ -525,10 +544,19 @@ func sortedKeys(m map[string]bool) []string {
 // one, and returns its path. An empty path means the chart renders correctly
 // with its defaults.
 func writeValues(key string) (string, error) {
-	content, err := valuesFS.ReadFile(filepath.Join("values", key+".yaml"))
+	probe, err := values.Probe(key)
 	if err != nil {
-		return "", nil //nolint:nilerr // no file simply means no overrides
+		// A chart with no probe data renders on the chart's own defaults,
+		// which is right for the charts this platform does not configure.
+		return "", nil //nolint:nilerr // no template simply means no overrides
 	}
+
+	rendered, err := values.Render(key, probe)
+	if err != nil {
+		return "", err
+	}
+
+	content := []byte(rendered)
 
 	file, err := os.CreateTemp("", key+"-values-*.yaml")
 	if err != nil {

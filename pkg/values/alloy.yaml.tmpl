@@ -1,0 +1,21 @@
+# Alloy, the collector.
+#
+# No `mounts.varlog`. It reads as the obvious way to let a log collector reach
+# container logs, and it is how this was first written — but the collector
+# configured in pkg/observability uses loki.source.kubernetes, which reads logs
+# through the Kubernetes API, and the chart grants it pods/log for exactly
+# that. The mount was never read.
+#
+# It was not harmless: varlog is the only thing in this chart that renders a
+# hostPath, Talos enforces Pod Security baseline everywhere but kube-system,
+# and a DaemonSet that violates baseline gets no pods at all.
+
+controller:
+  # Log collection is per-node work, so a DaemonSet rather than the chart's
+  # default Deployment.
+  type: daemonset
+
+alloy:
+  configMap:
+    content: |
+{{ indent 6 .Config }}

@@ -4,36 +4,73 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
+
+// testDomain is a name the Ingress branch can render against.
+const testDomain = "argocd.example.test"
+
+// render is the values YAML this layer would hand Helm, parsed.
+func render(t *testing.T, domain string) map[string]any {
+	t.Helper()
+
+	text, err := values.Render("argo-cd", ArgoCDData(domain))
+	require.NoError(t, err)
+
+	var out map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(text), &out), "argo-cd must render valid yaml")
+
+	return out
+}
+
+func nested(t *testing.T, in map[string]any, keys ...string) map[string]any {
+	t.Helper()
+
+	for _, key := range keys {
+		next, ok := in[key].(map[string]any)
+		require.True(t, ok, "no map at %q", key)
+
+		in = next
+	}
+
+	return in
+}
 
 func TestArgoCDValues_NoIngressWithoutADomain(t *testing.T) {
 	t.Parallel()
 
 	// Before DNS exists, the right shape is no Ingress at all: the UI is
-	// reachable with port-forward and nothing is published by accident.
-	server, ok := ArgoCDValues("")["server"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.NotContains(t, server, "ingress")
+	// reachable with port-forward and nothing is published by accident. The
+	// template's conditional is what does it, so this is also what catches a
+	// block that renders unconditionally.
+	assert.NotContains(t, nested(t, render(t, ""), "server"), "ingress")
 }
 
 func TestArgoCDValues_IngressWhenADomainIsGiven(t *testing.T) {
 	t.Parallel()
 
-	server, ok := ArgoCDValues("argocd.example.test")["server"].(pulumi.Map)
-	require.True(t, ok)
+	ingress := nested(t, render(t, testDomain), "server", "ingress")
 
-	ingress, ok := server["ingress"].(pulumi.Map)
-	require.True(t, ok)
+	assert.Equal(t, true, ingress["enabled"])
+	assert.Equal(t, testDomain, ingress["hostname"])
+	assert.Equal(t, true, ingress["tls"])
+}
 
-	assert.Equal(t, pulumi.Bool(true), ingress["enabled"])
-	assert.Equal(t, pulumi.String("argocd.example.test"), ingress["hostname"])
-	assert.Equal(t, pulumi.String("nginx"), ingress["ingressClassName"])
-	assert.Equal(t, pulumi.Bool(true), ingress["tls"])
+func TestArgoCDValues_AsksForTheClassTheIngressLayerRegisters(t *testing.T) {
+	t.Parallel()
+
+	// This was the literal "nginx" and stopped being true the moment Traefik
+	// replaced ingress-nginx. An Ingress naming a class no controller owns is
+	// accepted by the API server and then ignored: the resource exists, looks
+	// right, and routes nothing.
+	ingress := nested(t, render(t, testDomain), "server", "ingress")
+
+	assert.Equal(t, platform.IngressClass, ingress["ingressClassName"])
 }
 
 func TestArgoCDValues_RequestsCertificatesFromTheClusterIssuer(t *testing.T) {
@@ -41,13 +78,9 @@ func TestArgoCDValues_RequestsCertificatesFromTheClusterIssuer(t *testing.T) {
 
 	// The annotation must name the ClusterIssuer created by 30-core; a
 	// different name leaves the Ingress with no certificate and no error.
-	server, _ := ArgoCDValues("argocd.example.test")["server"].(pulumi.Map)
-	ingress, _ := server["ingress"].(pulumi.Map)
+	annotations := nested(t, render(t, testDomain), "server", "ingress", "annotations")
 
-	annotations, ok := ingress["annotations"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.String("letsencrypt"), annotations["cert-manager.io/cluster-issuer"])
+	assert.Equal(t, IssuerName, annotations["cert-manager.io/cluster-issuer"])
 	assert.Equal(t, "letsencrypt", IssuerName,
 		"must match the ClusterIssuer name in 30-core")
 }
@@ -57,53 +90,37 @@ func TestArgoCDValues_TerminatesTLSAtTheIngressOnly(t *testing.T) {
 
 	// TLS on both sides produces a redirect loop. The two settings below are a
 	// pair — changing one alone is what causes it.
-	values := ArgoCDValues("argocd.example.test")
+	rendered := render(t, testDomain)
 
-	server, _ := values["server"].(pulumi.Map)
-
-	args, ok := server["extraArgs"].(pulumi.StringArray)
+	args, ok := nested(t, rendered, "server")["extraArgs"].([]any)
 	require.True(t, ok)
-	require.Len(t, args, 1)
-	assert.Equal(t, pulumi.String("--insecure"), args[0])
+	assert.Equal(t, []any{"--insecure"}, args)
 
-	configs, ok := values["configs"].(pulumi.Map)
-	require.True(t, ok)
-
-	params, ok := configs["params"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.Bool(true), params["server.insecure"])
+	assert.Equal(t, true, nested(t, rendered, "configs", "params")["server.insecure"])
 }
 
 func TestArgoCDValues_APIAndRepoServerSurviveANodeFailure(t *testing.T) {
 	t.Parallel()
 
-	values := ArgoCDValues("")
+	// The application controller is deliberately not among them: sharding it
+	// needs configuration that only pays off with many applications.
+	rendered := render(t, "")
 
-	server, _ := values["server"].(pulumi.Map)
-	assert.Equal(t, pulumi.Int(2), server["replicas"])
-
-	repoServer, ok := values["repoServer"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.Int(2), repoServer["replicas"])
+	assert.Equal(t, float64(StatelessReplicas), nested(t, rendered, "server")["replicas"])
+	assert.Equal(t, float64(StatelessReplicas), nested(t, rendered, "repoServer")["replicas"])
+	assert.Equal(t, float64(1), nested(t, rendered, "controller")["replicas"])
 }
 
 func TestArgoCDValues_CreatesNoServiceMonitors(t *testing.T) {
 	t.Parallel()
 
-	// 60-observability owns the Prometheus operator CRDs.
-	values := ArgoCDValues("")
+	// layers/60-observability owns the Prometheus operator CRDs. One here
+	// would make this layer fail on a cluster where that layer is absent.
+	rendered := render(t, "")
 
 	for _, component := range []string{"controller", "repoServer", "server"} {
-		section, ok := values[component].(pulumi.Map)
-		require.True(t, ok, component)
-
-		metrics, ok := section["metrics"].(pulumi.Map)
-		require.True(t, ok, component)
-
-		monitor, ok := metrics["serviceMonitor"].(pulumi.Map)
-		require.True(t, ok, component)
-
-		assert.Equal(t, pulumi.Bool(false), monitor["enabled"], component)
+		assert.Equal(t, false,
+			nested(t, rendered, component, "metrics", "serviceMonitor")["enabled"], component)
 	}
 }
 

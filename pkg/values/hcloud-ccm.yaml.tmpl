@@ -1,0 +1,23 @@
+# Hetzner cloud controller manager.
+#
+# It clears Talos's `uninitialized` taint, sets provider IDs, and programmes a
+# route per node — which is what lets Cilium route natively.
+
+networking:
+  enabled: true
+  clusterCIDR: {{ .PodCIDR }}
+
+# Both values come from the Secret this layer creates before the chart, not
+# from these values: a token in a values file is a token in the release's
+# stored manifest.
+env:
+  HCLOUD_TOKEN:
+    valueFrom:
+      secretKeyRef:
+        name: {{ .SecretName }}
+        key: token
+  HCLOUD_NETWORK:
+    valueFrom:
+      secretKeyRef:
+        name: {{ .SecretName }}
+        key: network

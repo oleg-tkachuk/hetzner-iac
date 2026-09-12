@@ -1,0 +1,61 @@
+# Argo CD.
+#
+# Today it reconciles nothing: the cluster has no AppProject of its own and no
+# root Application. See the backlog — the blocker is which repository holds the
+# workloads, not the work.
+
+global:
+  domain: {{ .Domain }}
+
+# The application controller is the component that actually reconciles. It is
+# deliberately single-replica: sharding it needs configuration that only pays
+# off with many applications.
+controller:
+  replicas: 1
+  metrics:
+    enabled: true
+    # Owned by layers/60-observability, which installs the operator CRDs.
+    serviceMonitor:
+      enabled: false
+
+repoServer:
+  replicas: {{ .Replicas }}
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+
+server:
+  replicas: {{ .Replicas }}
+  # TLS terminates at the ingress, so the API server speaks plaintext behind
+  # it. Running TLS on both sides produces a redirect loop that is tedious to
+  # diagnose.
+  extraArgs:
+    - --insecure
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+{{- if .Domain }}
+  ingress:
+    enabled: true
+    # The class layers/40-ingress registers. An Ingress naming a class no
+    # controller owns is accepted and then ignored.
+    ingressClassName: {{ .IngressClass }}
+    hostname: {{ .Domain }}
+    annotations:
+      cert-manager.io/cluster-issuer: {{ .Issuer }}
+    tls: true
+{{- end }}
+
+applicationSet:
+  replicas: {{ .Replicas }}
+
+# Redis HA needs three nodes and buys availability for a cache that is rebuilt
+# on start.
+redis-ha:
+  enabled: false
+
+configs:
+  params:
+    server.insecure: true

@@ -1,0 +1,50 @@
+# Loki, single binary.
+#
+# SingleBinary rather than the distributed topology: the read/write/backend
+# split is about scaling query and ingest paths independently, which one
+# cluster's logs do not need.
+#
+# The filesystem backend on a volume, which is also what bounds retention —
+# Loki's compactor only enforces a retention period against object storage, so
+# on a volume the bound is the volume filling up.
+
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        # Must agree with storage.type above: the schema decides where Loki
+        # looks for chunks, and storage decides where it writes them.
+        # Disagreeing means writing to one and reading the other.
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClass: {{ .StorageClass }}
+    size: {{ .Size }}
+
+# The distributed components must be off in SingleBinary mode. Leaving them on
+# deploys both topologies at once.
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false

@@ -15,6 +15,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/observability"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -29,6 +30,20 @@ const (
 	DefaultRetention   = "30d"
 	DefaultMetricsSize = "50Gi"
 )
+
+// Volume sizes for the components whose data is not the point of the cluster.
+// Metrics are the tunable one, above; these three are sized to be forgotten
+// about, and named so a reader does not have to guess what a bare "5Gi" is.
+const (
+	AlertmanagerVolumeSize = "5Gi"
+	GrafanaVolumeSize      = "10Gi"
+	LokiVolumeSize         = "50Gi"
+	TempoVolumeSize        = "20Gi"
+)
+
+// TempoRetention is how long a trace is kept. Shorter than metrics on purpose:
+// traces are for a question being asked now.
+const TempoRetention = "168h"
 
 // Chart timeouts, named because a bare number in a table says nothing about
 // why that chart is slower than the rest.
@@ -58,30 +73,30 @@ var Components = layer.Components{
 		// compatibility by hand.
 		Chart:          PrometheusChart,
 		TimeoutSeconds: PrometheusTimeoutSeconds,
-		Values: func(r *layer.Runner) pulumi.Map {
-			return PrometheusValues(
+		ValuesYAML: func(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
+			return static(PrometheusChart, PrometheusData(
 				r.StringOr("metricsRetention", DefaultRetention),
 				r.StringOr("metricsVolumeSize", DefaultMetricsSize),
-			)
+			))(r)
 		},
 	},
 	{
 		Chart:          "loki",
 		TimeoutSeconds: LokiTimeoutSeconds,
 		After:          []string{PrometheusChart},
-		Values:         func(*layer.Runner) pulumi.Map { return LokiValues() },
+		ValuesYAML:     static("loki", LokiData()),
 	},
 	{
-		Chart:  "tempo",
-		After:  []string{PrometheusChart},
-		Values: func(*layer.Runner) pulumi.Map { return TempoValues() },
+		Chart:      "tempo",
+		After:      []string{PrometheusChart},
+		ValuesYAML: static("tempo", TempoData()),
 	},
 	{
 		// Alloy collects logs from every node — a DaemonSet, because log
 		// collection is per-node work.
-		Chart:  "alloy",
-		After:  []string{PrometheusChart},
-		Values: func(*layer.Runner) pulumi.Map { return AlloyValues() },
+		Chart:      "alloy",
+		After:      []string{PrometheusChart},
+		ValuesYAML: static("alloy", AlloyData()),
 	},
 }
 
@@ -104,215 +119,65 @@ func main() {
 	})
 }
 
-// PrometheusValues builds the kube-prometheus-stack values.
+// The values themselves are pkg/values/*.yaml.tmpl. What is left here is the
+// data each template is executed against, and the reasons for the numbers in
+// it.
 //
-// Four scrape targets are disabled, and all four for the same reason: under
-// Talos, etcd, the scheduler and the controller manager listen on localhost
-// only, and kube-proxy does not run at all because Cilium replaced it. Leaving
-// them enabled produces permanently failing scrape targets and alerts that
-// fire forever, which is how an alerting stack gets ignored.
-func PrometheusValues(retention, metricsSize string) pulumi.Map {
-	return pulumi.Map{
-		"prometheus": pulumi.Map{
-			"prometheusSpec": pulumi.Map{
-				"retention": pulumi.String(retention),
-				// Persist metrics. The default is an emptyDir, which loses
-				// every series when the pod moves — and a pod moving is the
-				// normal case, not the exception.
-				"storageSpec": pulumi.Map{
-					"volumeClaimTemplate": pulumi.Map{
-						"spec": persistentVolumeSpec(metricsSize),
-					},
-				},
-				// Discover monitors from every namespace rather than only
-				// those carrying this release's labels, which is what lets
-				// other layers be scraped without this layer knowing them.
-				"serviceMonitorSelectorNilUsesHelmValues": pulumi.Bool(false),
-				"podMonitorSelectorNilUsesHelmValues":     pulumi.Bool(false),
-				"ruleSelectorNilUsesHelmValues":           pulumi.Bool(false),
-			},
-		},
-		"alertmanager": pulumi.Map{
-			"alertmanagerSpec": pulumi.Map{
-				"storage": pulumi.Map{
-					"volumeClaimTemplate": pulumi.Map{
-						"spec": persistentVolumeSpec("5Gi"),
-					},
-				},
-			},
-		},
-		"grafana": pulumi.Map{
-			"enabled": pulumi.Bool(true),
-			"persistence": pulumi.Map{
-				"enabled":          pulumi.Bool(true),
-				"storageClassName": pulumi.String(platform.StorageClass),
-				"size":             pulumi.String("10Gi"),
-			},
-			// Loki and Tempo are registered here rather than by their own
-			// charts, so Grafana has one datasource list instead of three
-			// charts racing to write it.
-			"additionalDataSources": pulumi.Array{
-				pulumi.Map{
-					"name":   pulumi.String("Loki"),
-					"type":   pulumi.String("loki"),
-					"url":    pulumi.String(observability.LokiGateway),
-					"access": pulumi.String("proxy"),
-				},
-				pulumi.Map{
-					"name":   pulumi.String("Tempo"),
-					"type":   pulumi.String("tempo"),
-					"url":    pulumi.String(observability.TempoHTTP),
-					"access": pulumi.String("proxy"),
-				},
-			},
-			"sidecar": pulumi.Map{
-				// Pick up dashboards from ConfigMaps in any namespace, so a
-				// workload ships its own dashboard without this layer changing.
-				"dashboards": pulumi.Map{
-					"enabled":         pulumi.Bool(true),
-					"searchNamespace": pulumi.String("ALL"),
-				},
-			},
-		},
-		"nodeExporter": pulumi.Map{"enabled": pulumi.Bool(true)},
+// Four scrape targets are disabled in the Prometheus template, and all four
+// for the same reason: under Talos, etcd, the scheduler and the controller
+// manager listen on localhost only, and kube-proxy does not run at all
+// because Cilium replaced it. Leaving them enabled produces permanently
+// failing targets and alerts that fire for ever.
 
-		// node-exporter goes to kube-system, and it is the only part of this
-		// release that does.
-		//
-		// It needs hostNetwork, hostPID and hostPath volumes — that is what a
-		// node metrics exporter is — and Talos enables Pod Security Admission
-		// with `enforce: baseline` for every namespace except kube-system. In
-		// observability its pods are not created at all: the DaemonSet reports
-		// DESIRED 1, CURRENT 0, Helm waits out its whole timeout, and the only
-		// evidence is one event saying "violates PodSecurity baseline:latest".
-		// That cost two failed deploys.
-		//
-		// kube-system rather than labelling observability privileged, because
-		// the label would also exempt Grafana, Prometheus, Alertmanager and
-		// kube-state-metrics — four workloads that comply with baseline today.
-		// node-exporter is a node-level agent like Cilium, the CCM and the CSI
-		// driver, all of which already live there.
-		//
-		// Prometheus finds it: serviceMonitorSelectorNilUsesHelmValues is
-		// false, so monitors are discovered in every namespace.
-		"prometheus-node-exporter": pulumi.Map{
-			"namespaceOverride": pulumi.String(NodeExporterNamespace),
-		},
-		"kubeEtcd":              pulumi.Map{"enabled": pulumi.Bool(false)},
-		"kubeScheduler":         pulumi.Map{"enabled": pulumi.Bool(false)},
-		"kubeControllerManager": pulumi.Map{"enabled": pulumi.Bool(false)},
-		"kubeProxy":             pulumi.Map{"enabled": pulumi.Bool(false)},
+// PrometheusData is what kube-prometheus-stack renders with.
+func PrometheusData(retention, metricsSize string) values.Prometheus {
+	return values.Prometheus{
+		Retention:        retention,
+		MetricsSize:      metricsSize,
+		AlertmanagerSize: AlertmanagerVolumeSize,
+		GrafanaSize:      GrafanaVolumeSize,
+		StorageClass:     platform.StorageClass,
+		LokiURL:          observability.LokiGateway,
+		TempoURL:         observability.TempoHTTP,
+		// node-exporter needs host access, and kube-system is the one
+		// namespace Talos exempts from Pod Security Admission.
+		NodeExporterNamespace: NodeExporterNamespace,
 	}
 }
 
-// LokiValues builds the Loki values.
-//
-// SingleBinary rather than the distributed topology: the read/write/backend
-// split is about scaling query and ingest paths independently, which one
-// cluster's logs do not need.
-//
-// The filesystem backend on a 50Gi volume, which is also what bounds
-// retention — Loki's compactor only enforces a retention period against
-// object storage, so on a volume the bound is the volume filling up.
-func LokiValues() pulumi.Map {
-	storage := pulumi.Map{"type": pulumi.String("filesystem")}
+// LokiData is what the loki template renders with.
+func LokiData() values.Loki {
+	return values.Loki{StorageClass: platform.StorageClass, Size: LokiVolumeSize}
+}
 
-	loki := pulumi.Map{
-		"auth_enabled": pulumi.Bool(false),
-		"commonConfig": pulumi.Map{"replication_factor": pulumi.Int(1)},
-	}
-
-	loki["storage"] = storage
-	loki["schemaConfig"] = pulumi.Map{
-		"configs": pulumi.Array{
-			pulumi.Map{
-				"from":  pulumi.String("2024-04-01"),
-				"store": pulumi.String("tsdb"),
-				// Must agree with storage.type above: the schema decides where
-				// Loki looks for chunks, and storage decides where it writes
-				// them. Disagreeing means writing to one and reading the other.
-				"object_store": pulumi.String("filesystem"),
-				"schema":       pulumi.String("v13"),
-				"index": pulumi.Map{
-					"prefix": pulumi.String("index_"),
-					"period": pulumi.String("24h"),
-				},
-			},
-		},
-	}
-
-	return pulumi.Map{
-		"deploymentMode": pulumi.String("SingleBinary"),
-		"loki":           loki,
-		"singleBinary": pulumi.Map{
-			"replicas": pulumi.Int(1),
-			"persistence": pulumi.Map{
-				"enabled":      pulumi.Bool(true),
-				"storageClass": pulumi.String(platform.StorageClass),
-				"size":         pulumi.String("50Gi"),
-			},
-		},
-		// The distributed components must be off in SingleBinary mode.
-		// Leaving them on deploys both topologies at once.
-		"read":         pulumi.Map{"replicas": pulumi.Int(0)},
-		"write":        pulumi.Map{"replicas": pulumi.Int(0)},
-		"backend":      pulumi.Map{"replicas": pulumi.Int(0)},
-		"chunksCache":  pulumi.Map{"enabled": pulumi.Bool(false)},
-		"resultsCache": pulumi.Map{"enabled": pulumi.Bool(false)},
+// TempoData is what the tempo template renders with.
+func TempoData() values.Tempo {
+	return values.Tempo{
+		StorageClass: platform.StorageClass,
+		Size:         TempoVolumeSize,
+		Retention:    TempoRetention,
 	}
 }
 
-// TempoValues builds the Tempo values.
-//
-// No storage key at all: the chart's defaults are already the local backend on
-// the volume, and restating them changes the values without changing a byte of
-// what renders. Tempo needs the volume regardless — a trace is written to the
-// WAL before it becomes a block.
-func TempoValues() pulumi.Map {
-	return pulumi.Map{
-		"persistence": pulumi.Map{
-			"enabled":          pulumi.Bool(true),
-			"storageClassName": pulumi.String(platform.StorageClass),
-			"size":             pulumi.String("20Gi"),
-		},
-		"tempo": pulumi.Map{
-			"retention": pulumi.String("168h"),
-		},
-	}
+// AlloyData is what the alloy template renders with.
+func AlloyData() values.Alloy {
+	return values.Alloy{Config: observability.AlloyConfig()}
 }
 
-// AlloyValues builds the Alloy values.
+// static renders a template whose values need nothing resolved.
 //
-// No `mounts.varlog`. It reads as the obvious way to let a log collector reach
-// container logs, and it is how this was first written — but the collector
-// configured in pkg/observability uses loki.source.kubernetes, which reads
-// logs through the Kubernetes API, and the chart grants it pods/log for
-// exactly that. The mount was never read.
-//
-// It was not harmless. varlog is the only thing in this chart that renders a
-// hostPath, Talos enforces Pod Security baseline everywhere except kube-system,
-// and a DaemonSet that violates baseline gets no pods at all: DESIRED 1,
-// CURRENT 0, and Helm waiting out its full timeout with nothing to show for it.
-func AlloyValues() pulumi.Map {
-	return pulumi.Map{
-		"controller": pulumi.Map{"type": pulumi.String("daemonset")},
-		"alloy": pulumi.Map{
-			"configMap": pulumi.Map{
-				"content": pulumi.String(observability.AlloyConfig()),
-			},
-		},
-	}
-}
+// The render can only fail on a template this repository ships, which is a
+// programming error a test catches — so the failure is reported through the
+// run rather than returned to a caller that could not act on it.
+func static(chart string, data any) func(*layer.Runner) pulumi.AssetOrArchiveArrayInput {
+	return func(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
+		rendered, err := values.Static(chart, data)
+		if err != nil {
+			r.Log.Warn(chart, "values template failed to render: %v", err)
 
-// persistentVolumeSpec is the claim template shape both Prometheus and
-// Alertmanager use. Sharing it means the storage class cannot drift between
-// two components that must both survive a pod move.
-func persistentVolumeSpec(size string) pulumi.Map {
-	return pulumi.Map{
-		"storageClassName": pulumi.String(platform.StorageClass),
-		"accessModes":      pulumi.ToStringArray([]string{"ReadWriteOnce"}),
-		"resources": pulumi.Map{
-			"requests": pulumi.Map{"storage": pulumi.String(size)},
-		},
+			return nil
+		}
+
+		return rendered
 	}
 }

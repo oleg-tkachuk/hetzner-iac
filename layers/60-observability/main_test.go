@@ -1,18 +1,82 @@
 package main
 
 import (
-	"os"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/observability"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
+
+// render is the values YAML a chart's template produces, parsed.
+//
+// Through the template rather than around it: the rendered file is what
+// reaches Helm, so a test reading a Go struct would check something the chart
+// never sees.
+func render(t *testing.T, chart string, data any) map[string]any {
+	t.Helper()
+
+	text, err := values.Render(chart, data)
+	require.NoError(t, err)
+
+	var out map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(text), &out), "%s must render valid yaml", chart)
+
+	return out
+}
+
+func nested(t *testing.T, in map[string]any, keys ...string) map[string]any {
+	t.Helper()
+
+	for _, key := range keys {
+		next, ok := in[key].(map[string]any)
+		require.True(t, ok, "no map at %q", key)
+
+		in = next
+	}
+
+	return in
+}
+
+func prometheus(t *testing.T) map[string]any {
+	t.Helper()
+
+	return render(t, PrometheusChart, PrometheusData(DefaultRetention, DefaultMetricsSize))
+}
+
+func loki(t *testing.T) map[string]any {
+	t.Helper()
+
+	return render(t, "loki", LokiData())
+}
+
+func tempo(t *testing.T) map[string]any {
+	t.Helper()
+
+	return render(t, "tempo", TempoData())
+}
+
+func alloy(t *testing.T) map[string]any {
+	t.Helper()
+
+	return render(t, "alloy", AlloyData())
+}
+
+// claimSize is the storage a volume claim template asks for.
+func claimSize(t *testing.T, claim map[string]any) string {
+	t.Helper()
+
+	size, ok := nested(t, claim, "resources", "requests")["storage"].(string)
+	require.True(t, ok)
+
+	return size
+}
 
 func TestPrometheusValues_DisablesTheTargetsTalosDoesNotExpose(t *testing.T) {
 	t.Parallel()
@@ -20,20 +84,16 @@ func TestPrometheusValues_DisablesTheTargetsTalosDoesNotExpose(t *testing.T) {
 	// etcd, the scheduler and the controller manager listen on localhost only
 	// under Talos, and kube-proxy does not run because Cilium replaced it.
 	// Leaving these enabled produces permanently failing scrape targets and
-	// alerts that fire forever — which is how an alerting stack gets ignored.
-	values := PrometheusValues(DefaultRetention, DefaultMetricsSize)
+	// alerts that fire for ever — which is how an alerting stack gets ignored.
+	rendered := prometheus(t)
 
 	for _, target := range []string{"kubeEtcd", "kubeScheduler", "kubeControllerManager", "kubeProxy"} {
-		section, ok := values[target].(pulumi.Map)
-		require.True(t, ok, target)
-		assert.Equal(t, pulumi.Bool(false), section["enabled"], target)
+		assert.Equal(t, false, nested(t, rendered, target)["enabled"], target)
 	}
 
 	// The node exporter does work under Talos and is the main source of node
 	// metrics, so it must stay on.
-	nodeExporter, ok := values["nodeExporter"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.Bool(true), nodeExporter["enabled"])
+	assert.Equal(t, true, nested(t, rendered, "nodeExporter")["enabled"])
 }
 
 func TestPrometheusValues_DiscoversMonitorsFromEveryNamespace(t *testing.T) {
@@ -41,11 +101,11 @@ func TestPrometheusValues_DiscoversMonitorsFromEveryNamespace(t *testing.T) {
 
 	// Without this, Prometheus only picks up monitors labelled with its own
 	// release, so nothing another layer creates is ever scraped.
-	spec := prometheusSpec(t)
+	spec := nested(t, prometheus(t), "prometheus", "prometheusSpec")
 
-	assert.Equal(t, pulumi.Bool(false), spec["serviceMonitorSelectorNilUsesHelmValues"])
-	assert.Equal(t, pulumi.Bool(false), spec["podMonitorSelectorNilUsesHelmValues"])
-	assert.Equal(t, pulumi.Bool(false), spec["ruleSelectorNilUsesHelmValues"])
+	assert.Equal(t, false, spec["serviceMonitorSelectorNilUsesHelmValues"])
+	assert.Equal(t, false, spec["podMonitorSelectorNilUsesHelmValues"])
+	assert.Equal(t, false, spec["ruleSelectorNilUsesHelmValues"])
 }
 
 func TestPrometheusValues_PersistsMetrics(t *testing.T) {
@@ -53,38 +113,23 @@ func TestPrometheusValues_PersistsMetrics(t *testing.T) {
 
 	// The chart default is an emptyDir, which loses every series when the pod
 	// moves — and a pod moving is the normal case.
-	spec := prometheusSpec(t)
+	claim := nested(t, prometheus(t),
+		"prometheus", "prometheusSpec", "storageSpec", "volumeClaimTemplate", "spec")
 
-	storage, ok := spec["storageSpec"].(pulumi.Map)
-	require.True(t, ok)
-
-	template, ok := storage["volumeClaimTemplate"].(pulumi.Map)
-	require.True(t, ok)
-
-	claim, ok := template["spec"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.String(platform.StorageClass), claim["storageClassName"])
-	assert.Equal(t, pulumi.String(DefaultMetricsSize), resourceRequest(t, claim))
+	assert.Equal(t, platform.StorageClass, claim["storageClassName"])
+	assert.Equal(t, DefaultMetricsSize, claimSize(t, claim))
 }
 
 func TestPrometheusValues_RetentionAndSizeArePassedThrough(t *testing.T) {
 	t.Parallel()
 
-	values := PrometheusValues("90d", "200Gi")
+	// The two knobs a stack is expected to tune.
+	rendered := render(t, PrometheusChart, PrometheusData("90d", "200Gi"))
+	spec := nested(t, rendered, "prometheus", "prometheusSpec")
 
-	prometheus, ok := values["prometheus"].(pulumi.Map)
-	require.True(t, ok)
-
-	spec, ok := prometheus["prometheusSpec"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.String("90d"), spec["retention"])
-
-	storage, _ := spec["storageSpec"].(pulumi.Map)
-	template, _ := storage["volumeClaimTemplate"].(pulumi.Map)
-	claim, _ := template["spec"].(pulumi.Map)
-	assert.Equal(t, pulumi.String("200Gi"), resourceRequest(t, claim))
+	assert.Equal(t, "90d", spec["retention"])
+	assert.Equal(t, "200Gi",
+		claimSize(t, nested(t, spec, "storageSpec", "volumeClaimTemplate", "spec")))
 }
 
 func TestEveryPersistentComponentUsesTheCSIStorageClass(t *testing.T) {
@@ -92,46 +137,83 @@ func TestEveryPersistentComponentUsesTheCSIStorageClass(t *testing.T) {
 
 	// A component that silently falls back to the default storage class ends
 	// up on a volume nobody provisioned, and stays Pending.
-	prometheus := PrometheusValues(DefaultRetention, DefaultMetricsSize)
+	rendered := prometheus(t)
 
-	grafana, ok := prometheus["grafana"].(pulumi.Map)
-	require.True(t, ok)
+	assert.Equal(t, platform.StorageClass,
+		nested(t, rendered, "grafana", "persistence")["storageClassName"])
 
-	grafanaPersistence, ok := grafana["persistence"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.String(platform.StorageClass), grafanaPersistence["storageClassName"])
+	assert.Equal(t, platform.StorageClass,
+		nested(t, rendered, "alertmanager", "alertmanagerSpec", "storage",
+			"volumeClaimTemplate", "spec")["storageClassName"])
 
-	alertmanager, ok := prometheus["alertmanager"].(pulumi.Map)
-	require.True(t, ok)
+	// Loki spells the key differently from everything else — storageClass,
+	// not storageClassName — which is exactly the sort of thing to pin.
+	assert.Equal(t, platform.StorageClass,
+		nested(t, loki(t), "singleBinary", "persistence")["storageClass"])
 
-	alertmanagerSpec, _ := alertmanager["alertmanagerSpec"].(pulumi.Map)
-	storage, _ := alertmanagerSpec["storage"].(pulumi.Map)
-	template, _ := storage["volumeClaimTemplate"].(pulumi.Map)
-	claim, _ := template["spec"].(pulumi.Map)
-	assert.Equal(t, pulumi.String(platform.StorageClass), claim["storageClassName"])
-
-	loki, _ := LokiValues()["singleBinary"].(pulumi.Map)
-	lokiPersistence, _ := loki["persistence"].(pulumi.Map)
-	assert.Equal(t, pulumi.String(platform.StorageClass), lokiPersistence["storageClass"])
-
-	tempoPersistence, _ := TempoValues()["persistence"].(pulumi.Map)
-	assert.Equal(t, pulumi.String(platform.StorageClass), tempoPersistence["storageClassName"])
+	assert.Equal(t, platform.StorageClass,
+		nested(t, tempo(t), "persistence")["storageClassName"])
 }
 
 func TestLokiValues_RunsOneTopologyNotTwo(t *testing.T) {
 	t.Parallel()
 
-	// SingleBinary mode plus non-zero read/write/backend replicas deploys both
-	// topologies at once — which starts, and then behaves strangely.
-	values := LokiValues()
+	// SingleBinary mode plus non-zero read/write/backend replicas deploys
+	// both topologies at once — which starts, and then behaves strangely.
+	rendered := loki(t)
 
-	assert.Equal(t, pulumi.String("SingleBinary"), values["deploymentMode"])
+	assert.Equal(t, "SingleBinary", rendered["deploymentMode"])
 
 	for _, component := range []string{"read", "write", "backend"} {
-		section, ok := values[component].(pulumi.Map)
-		require.True(t, ok, component)
-		assert.Equal(t, pulumi.Int(0), section["replicas"], component)
+		assert.Equal(t, float64(0), nested(t, rendered, component)["replicas"], component)
 	}
+}
+
+func TestLokiValues_StaysOnTheFilesystem(t *testing.T) {
+	t.Parallel()
+
+	section := nested(t, loki(t), "loki")
+	storage := nested(t, section, "storage")
+
+	assert.Equal(t, "filesystem", storage["type"])
+	assert.NotContains(t, storage, "bucketNames")
+
+	// No retention: the volume bounds itself by filling up, and
+	// retention_enabled without a bucket would delete logs for no reason.
+	assert.NotContains(t, section, "compactor")
+	assert.NotContains(t, section, "limits_config")
+}
+
+func TestLokiValues_SchemaAgreesWithStorage(t *testing.T) {
+	t.Parallel()
+
+	// The schema decides where Loki reads chunks, storage decides where it
+	// writes them. Disagreeing produces a Loki that ingests happily and
+	// returns nothing.
+	section := nested(t, loki(t), "loki")
+
+	configs, ok := nested(t, section, "schemaConfig")["configs"].([]any)
+	require.True(t, ok)
+	require.Len(t, configs, 1)
+
+	entry, ok := configs[0].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, "filesystem", entry["object_store"])
+	assert.Equal(t, nested(t, section, "storage")["type"], entry["object_store"])
+}
+
+func TestTempoValues_LeavesStorageToTheChart(t *testing.T) {
+	t.Parallel()
+
+	// The chart's defaults are already the local backend on the volume, so
+	// this sets no storage key at all. Restating a default is a values diff
+	// that renders identically — noise in a review, and one more line to keep
+	// in step with the chart.
+	section := nested(t, tempo(t), "tempo")
+
+	assert.NotContains(t, section, "storage")
+	assert.Equal(t, TempoRetention, section["retention"])
 }
 
 func TestAlloyValues_ShipsLogsToTheLokiGateway(t *testing.T) {
@@ -140,19 +222,15 @@ func TestAlloyValues_ShipsLogsToTheLokiGateway(t *testing.T) {
 	// The write endpoint has to match the Service the Loki chart creates in
 	// SingleBinary mode. A wrong host here means logs are collected and
 	// silently dropped.
-	values := AlloyValues()
-
-	alloy, ok := values["alloy"].(pulumi.Map)
+	//
+	// The config is a multi-line string indented into a values key, so this
+	// also asserts the template's indentation survived: a misindented block
+	// would make the whole file invalid, which render would have caught.
+	content, ok := nested(t, alloy(t), "alloy", "configMap")["content"].(string)
 	require.True(t, ok)
 
-	configMap, ok := alloy["configMap"].(pulumi.Map)
-	require.True(t, ok)
-
-	content, ok := configMap["content"].(pulumi.String)
-	require.True(t, ok)
-
-	assert.Contains(t, string(content), observability.LokiGateway)
-	assert.Contains(t, string(content), "/loki/api/v1/push")
+	assert.Contains(t, content, observability.LokiGateway)
+	assert.Contains(t, content, "/loki/api/v1/push")
 }
 
 func TestAlloyValues_RunsOnEveryNode(t *testing.T) {
@@ -160,10 +238,7 @@ func TestAlloyValues_RunsOnEveryNode(t *testing.T) {
 
 	// Log collection is per-node work; a Deployment would collect from
 	// whichever node it happened to land on.
-	controller, ok := AlloyValues()["controller"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.String("daemonset"), controller["type"])
+	assert.Equal(t, "daemonset", nested(t, alloy(t), "controller")["type"])
 }
 
 func TestAlloyValues_AskForNoHostMounts(t *testing.T) {
@@ -177,151 +252,53 @@ func TestAlloyValues_AskForNoHostMounts(t *testing.T) {
 	//
 	// Nothing needs them: the collector reads logs through the Kubernetes API.
 	// TestAlloyConfig_CollectsThroughTheAPI pins the other half of that.
-	alloy, ok := AlloyValues()["alloy"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.NotContains(t, alloy, "mounts",
+	assert.NotContains(t, nested(t, alloy(t), "alloy"), "mounts",
 		"a host mount puts this DaemonSet outside Pod Security baseline, and nothing reads one")
 }
 
-func TestGrafanaValues_RegistersLokiAndTempoDatasources(t *testing.T) {
+func TestGrafanaValues_RegisterLokiAndTempoAtThePinnedEndpoints(t *testing.T) {
 	t.Parallel()
 
 	// Registered here rather than by their own charts, so three charts do not
 	// race to write one datasource list.
-	grafana, ok := PrometheusValues(DefaultRetention, DefaultMetricsSize)["grafana"].(pulumi.Map)
-	require.True(t, ok)
-
-	sources, ok := grafana["additionalDataSources"].(pulumi.Array)
+	sources, ok := nested(t, prometheus(t), "grafana")["additionalDataSources"].([]any)
 	require.True(t, ok)
 	require.Len(t, sources, 2)
-
-	types := map[string]bool{}
-
-	for _, source := range sources {
-		fields, ok := source.(pulumi.Map)
-		require.True(t, ok)
-
-		sourceType, ok := fields["type"].(pulumi.String)
-		require.True(t, ok)
-
-		types[string(sourceType)] = true
-	}
-
-	assert.Equal(t, map[string]bool{"loki": true, "tempo": true}, types)
-}
-
-func prometheusSpec(t *testing.T) pulumi.Map {
-	t.Helper()
-
-	prometheus, ok := PrometheusValues(DefaultRetention, DefaultMetricsSize)["prometheus"].(pulumi.Map)
-	require.True(t, ok)
-
-	spec, ok := prometheus["prometheusSpec"].(pulumi.Map)
-	require.True(t, ok)
-
-	return spec
-}
-
-func resourceRequest(t *testing.T, claim pulumi.Map) pulumi.String {
-	t.Helper()
-
-	resources, ok := claim["resources"].(pulumi.Map)
-	require.True(t, ok)
-
-	requests, ok := resources["requests"].(pulumi.Map)
-	require.True(t, ok)
-
-	size, ok := requests["storage"].(pulumi.String)
-	require.True(t, ok)
-
-	return size
-}
-
-func TestGrafanaDataSources_UseThePinnedEndpoints(t *testing.T) {
-	t.Parallel()
-
-	grafana, ok := PrometheusValues(DefaultRetention, DefaultMetricsSize)["grafana"].(pulumi.Map)
-	require.True(t, ok)
-
-	sources, ok := grafana["additionalDataSources"].(pulumi.Array)
-	require.True(t, ok)
 
 	urls := map[string]string{}
 
 	for _, source := range sources {
-		fields, ok := source.(pulumi.Map)
+		fields, ok := source.(map[string]any)
 		require.True(t, ok)
 
-		sourceType, ok := fields["type"].(pulumi.String)
+		sourceType, ok := fields["type"].(string)
 		require.True(t, ok)
 
-		url, ok := fields["url"].(pulumi.String)
+		url, ok := fields["url"].(string)
 		require.True(t, ok)
 
-		urls[string(sourceType)] = string(url)
+		urls[sourceType] = url
 	}
 
 	assert.Equal(t, observability.LokiGateway, urls["loki"])
 	assert.Equal(t, observability.TempoHTTP, urls["tempo"])
 }
 
-func TestLokiValues_StaysOnTheFilesystem(t *testing.T) {
+func TestPrometheusValues_PutNodeExporterWhereItCanRun(t *testing.T) {
 	t.Parallel()
 
-	loki, ok := LokiValues()["loki"].(pulumi.Map)
-	require.True(t, ok)
+	// Talos enables Pod Security Admission with `enforce: baseline` for every
+	// namespace except kube-system, and node-exporter needs hostNetwork,
+	// hostPID and hostPath volumes. In observability its pods are not created
+	// at all — the DaemonSet reports DESIRED 1, CURRENT 0 — and Helm waits out
+	// its whole timeout with every other workload in the release Ready. That
+	// cost two failed deploys before one event on the DaemonSet explained it.
+	exporter := nested(t, prometheus(t), "prometheus-node-exporter")
 
-	storage, ok := loki["storage"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.String("filesystem"), storage["type"])
-	assert.NotContains(t, storage, "bucketNames")
-
-	// No retention: the volume bounds itself by filling up, and
-	// retention_enabled without a bucket would delete logs for no reason.
-	assert.NotContains(t, loki, "compactor")
-	assert.NotContains(t, loki, "limits_config")
-}
-
-func TestLokiValues_SchemaAgreesWithStorage(t *testing.T) {
-	t.Parallel()
-
-	// The schema decides where Loki reads chunks, storage decides where it
-	// writes them. Disagreeing produces a Loki that ingests happily and
-	// returns nothing.
-	loki, ok := LokiValues()["loki"].(pulumi.Map)
-	require.True(t, ok)
-
-	schema, ok := loki["schemaConfig"].(pulumi.Map)
-	require.True(t, ok)
-
-	configs, ok := schema["configs"].(pulumi.Array)
-	require.True(t, ok)
-	require.Len(t, configs, 1)
-
-	entry, ok := configs[0].(pulumi.Map)
-	require.True(t, ok)
-
-	storage, ok := loki["storage"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.String("filesystem"), entry["object_store"])
-	assert.Equal(t, entry["object_store"], storage["type"])
-}
-
-func TestTempoValues_LeavesStorageToTheChart(t *testing.T) {
-	t.Parallel()
-
-	// The chart's defaults are already the local backend on the volume, so
-	// this sets no storage key at all. Restating a default is a values diff
-	// that renders identically — noise in a review, and one more line to keep
-	// in step with the chart.
-	//
-	tempo, ok := TempoValues()["tempo"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.NotContains(t, tempo, "storage")
-	assert.Equal(t, pulumi.String("168h"), tempo["retention"])
+	assert.Equal(t, NodeExporterNamespace, exporter["namespaceOverride"],
+		"the subchart must be overridden, or it lands in the release namespace")
+	assert.Contains(t, hetzner.PodSecurityExemptNamespaces, NodeExporterNamespace,
+		"node-exporter must install where Talos exempts Pod Security Admission")
 }
 
 func TestComponents(t *testing.T) {
@@ -348,35 +325,4 @@ func TestComponents_EverythingFollowsPrometheus(t *testing.T) {
 		assert.Contains(t, component.After, PrometheusChart,
 			"%s registers against the Prometheus operator and must follow it", component.Chart)
 	}
-}
-
-func TestPrometheusValues_PutsNodeExporterWhereItCanRun(t *testing.T) {
-	t.Parallel()
-
-	// Talos enables Pod Security Admission with `enforce: baseline` for every
-	// namespace except kube-system, and node-exporter needs hostNetwork,
-	// hostPID and hostPath volumes. In observability its pods are not created
-	// at all — the DaemonSet reports DESIRED 1, CURRENT 0 — and Helm waits out
-	// its whole timeout with every other workload in the release Ready. That
-	// cost two failed deploys before one event on the DaemonSet explained it.
-	exporter, ok := PrometheusValues(DefaultRetention, DefaultMetricsSize)["prometheus-node-exporter"].(pulumi.Map)
-	require.True(t, ok, "the subchart's values must be set, or it lands in the release namespace")
-
-	assert.Equal(t, pulumi.String(NodeExporterNamespace), exporter["namespaceOverride"])
-	assert.Contains(t, hetzner.PodSecurityExemptNamespaces, NodeExporterNamespace,
-		"node-exporter must install where Talos exempts Pod Security Admission")
-}
-
-func TestRenderValues_AgreeWithTheLayer(t *testing.T) {
-	t.Parallel()
-
-	// tools/charts renders with its own values file, so the render check only
-	// sees what that file says. A namespace override stated in the layer and
-	// not there would make the check pass on a chart the cluster then refuses,
-	// which is the failure this whole pair exists to prevent.
-	raw, err := os.ReadFile("../../tools/charts/values/kube-prometheus-stack.yaml")
-	require.NoError(t, err, "the render check needs these values to see the override")
-
-	assert.Contains(t, string(raw), "namespaceOverride: "+NodeExporterNamespace,
-		"tools/charts/values disagrees with this layer about where node-exporter installs")
 }

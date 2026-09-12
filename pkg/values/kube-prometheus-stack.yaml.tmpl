@@ -1,0 +1,93 @@
+# kube-prometheus-stack: Prometheus, Alertmanager, Grafana, kube-state-metrics
+# and node-exporter.
+#
+# Four scrape targets are disabled below, all for the same reason: under Talos,
+# etcd, the scheduler and the controller manager listen on localhost only, and
+# kube-proxy does not run at all because Cilium replaced it. Leaving them
+# enabled produces permanently failing targets and alerts that fire for ever,
+# which is how an alerting stack comes to be ignored.
+
+prometheus:
+  prometheusSpec:
+    retention: {{ .Retention }}
+    # Persist metrics. The default is an emptyDir, which loses every series
+    # when the pod moves — and a pod moving is the normal case.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: {{ .StorageClass }}
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: {{ .MetricsSize }}
+    # Discover monitors from every namespace rather than only those carrying
+    # this release's labels, which is what lets other layers be scraped
+    # without this layer knowing about them.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: {{ .StorageClass }}
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: {{ .AlertmanagerSize }}
+
+grafana:
+  enabled: true
+  persistence:
+    enabled: true
+    storageClassName: {{ .StorageClass }}
+    size: {{ .GrafanaSize }}
+  # Loki and Tempo are registered here rather than by their own charts, so
+  # Grafana has one datasource list instead of three charts racing to write it.
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: {{ .LokiURL }}
+    - name: Tempo
+      type: tempo
+      access: proxy
+      url: {{ .TempoURL }}
+  sidecar:
+    dashboards:
+      # Pick up dashboards from ConfigMaps in any namespace, so a workload
+      # ships its own dashboard without this layer changing.
+      enabled: true
+      searchNamespace: ALL
+
+nodeExporter:
+  enabled: true
+
+# node-exporter goes to kube-system, and it is the only part of this release
+# that does.
+#
+# It needs hostNetwork, hostPID and hostPath volumes — that is what a node
+# metrics exporter is — and Talos enables Pod Security Admission with
+# `enforce: baseline` for every namespace except kube-system. In observability
+# its pods are not created at all: the DaemonSet reports DESIRED 1, CURRENT 0,
+# Helm waits out its whole timeout, and the only evidence is one event saying
+# "violates PodSecurity baseline:latest". That cost two failed deploys.
+#
+# kube-system rather than labelling observability privileged, because the label
+# would also exempt Grafana, Prometheus, Alertmanager and kube-state-metrics —
+# four workloads that comply with baseline today.
+prometheus-node-exporter:
+  namespaceOverride: {{ .NodeExporterNamespace }}
+
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false

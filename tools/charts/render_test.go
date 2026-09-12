@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -115,8 +117,8 @@ func TestWriteValues_NoFileMeansNoOverrides(t *testing.T) {
 	t.Parallel()
 
 	// A chart whose defaults already match renders with no values file, and
-	// that is not an error.
-	path, err := writeValues("cilium")
+	// that is not an error. hcloud-csi is one: nothing here configures it.
+	path, err := writeValues("hcloud-csi")
 	require.NoError(t, err)
 	assert.Empty(t, path)
 }
@@ -366,4 +368,27 @@ spec:
 
 	assert.Empty(t, parseWorkloads(manifest, "default"),
 		"only a top-level kind describes the document")
+}
+
+func TestHelmArgs_TellHelmWhatTheClusterServes(t *testing.T) {
+	t.Parallel()
+
+	// An offline render cannot ask a cluster which APIs it has, and helm only
+	// populates .Capabilities.APIVersions from a small built-in list. A chart
+	// testing `.Capabilities.APIVersions.Has "policy/v1/PodDisruptionBudget"`
+	// then takes its fallback branch and emits policy/v1beta1 — removed in
+	// Kubernetes 1.25, so the pinned cluster would reject it.
+	//
+	// Measured, not hypothetical: that is exactly what Traefik rendered the
+	// first time this check saw the layer's own values.
+	chart, err := charts.Get("traefik")
+	require.NoError(t, err)
+
+	args := helmArgs(chart, "traefik", "traefik", nil)
+
+	assert.Contains(t, args, "--api-versions")
+	assert.Contains(t, args, "policy/v1/PodDisruptionBudget")
+	assert.Contains(t, args, "--kube-version")
+	assert.Contains(t, args, pinnedKubernetesVersion(),
+		"the render must use the Kubernetes version the topology pins")
 }
