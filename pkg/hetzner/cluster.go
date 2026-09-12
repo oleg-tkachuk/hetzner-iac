@@ -16,7 +16,7 @@ import (
 // credentials to reach them.
 //
 // It stops at "a Kubernetes API that answers". No CNI is installed — the
-// 10-cni layer owns that — so nodes stay NotReady until it runs. That is the
+// layers/10-node-platform owns that — so nodes stay NotReady until it runs. That
 // intended handover point, not an incomplete cluster.
 type Cluster struct {
 	pulumi.ResourceState

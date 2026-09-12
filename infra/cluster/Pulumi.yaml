@@ -15,7 +15,7 @@ runtime:
 # Runs before every layer under layers/ and exports the kubeconfig they
 # consume through a StackReference. Nothing here is managed — Hetzner has no
 # managed Kubernetes, so this project builds the cluster. It stops at "a
-# Kubernetes API that answers": the CNI comes from layers/10-cni.
+# Kubernetes API that answers": the CNI comes from layers/10-node-platform.
 #
 # Kept as a comment rather than folded into `description` below, which becomes
 # the `pulumi:description` stack tag and is refused by Pulumi Cloud over 256
