@@ -39,6 +39,26 @@ have to be removed before Cilium could take over. Nodes are `NotReady` until
 it is why that layer also owns the cloud controller manager, which cannot be
 scheduled onto a node no CNI has made Ready.
 
+## The default deny is opt-in
+
+`layers/20-network-policy` sits immediately after the CNI because Cilium is
+what enforces its resources — the CRDs do not exist until the chart is
+installed. What it carries is a `CiliumClusterwideNetworkPolicy` per flow the
+cluster cannot lose (host to pod, pod to DNS, pod to the API server through
+KubePrism, scraping, the few pod-to-pod paths the platform actually uses) and
+one default deny, separately.
+
+`network-policy:enabled` is `false` by default, and that is not timidity. In
+Cilium, *any* policy that selects an endpoint puts that endpoint into
+default-deny for the direction the policy mentions — so there is no such thing
+as an allow rule that changes nothing, and a missing rule is a silent
+connection timeout rather than a rejected apply. The allow policies therefore
+set `enableDefaultDeny: {ingress: false, egress: false}`, which makes them
+genuinely additive, and the deny is the one resource the flag gates.
+
+Turn it on with the flows in front of you: `task cluster:hubble` prints what
+the cluster is doing now.
+
 ## Every chart version is pinned in one place
 
 `pkg/charts` is the registry; floating tags are rejected by validation rather
