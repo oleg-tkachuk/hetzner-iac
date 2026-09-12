@@ -63,7 +63,7 @@ CI passes a token it holds as a GitHub secret.
 
 ## Keeping state in your own S3 bucket
 
-One vendor, data in the EU, and no Pulumi account. Pulumi calls this a DIY
+One vendor, one bill, and no Pulumi account. Pulumi calls this a DIY
 backend: it stores state under a `.pulumi` directory in the bucket, and
 backing it up and coordinating access across a team becomes yours to do.
 
