@@ -199,6 +199,11 @@ tasks:
             --kubeconfig "{{.ROOT}}/kubeconfig"
 
   clean:
-    desc: "Remove build output — the compiled layer binaries under .cache"
+    desc: "Remove build output — bin/ and the layer binaries Pulumi compiles into .cache"
     cmds:
-      - rm -rf .cache/pulumi-bin
+      # Both output directories, because there are two: `task build` writes
+      # bin/ and Pulumi's language host writes .cache/pulumi-bin, one
+      # buildTarget per project. Removing only the second left 988 MB of
+      # binaries behind, which is how a full disk turned into
+      # `link: mapping output file failed: no space left on device`.
+      - rm -rf {{.ROOT}}/bin {{.ROOT}}/.cache/pulumi-bin
