@@ -54,7 +54,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:apply` | provision or converge the cluster |
 | `task cluster:destroy` | delete the servers; asks first |
 | `task cluster:kubeconfig` | write `./kubeconfig` |
-| `task cluster:kubeconfig-merge` | merge that into `~/.kube/config`, so a plain `kubectl` reaches this cluster |
+| `task cluster:kubeconfig-add` | add this cluster to `~/.kube/config`, so a plain `kubectl` reaches it |
 | `task cluster:talosconfig` | write `./talosconfig` |
 | `task cluster:outputs` | stack outputs, secrets redacted |
 | `task cluster:nodes` | list nodes |
@@ -151,14 +151,23 @@ export KUBECONFIG=$HOME/.kube/config:$PWD/kubeconfig
 
 kubectl merges at read time, so both sets of contexts appear.
 
-Or merge it in once:
+Or add it once:
 
 ```bash
-task cluster:kubeconfig-merge stack=dev
+task cluster:kubeconfig-add stack=dev
 ```
 
-That backs the target up with a timestamp first, and refuses outright if a
-cluster of the same name already points somewhere else — a merge keeps the
-left-hand entry, so a collision would quietly leave `kubectl` on the other
-cluster under a name that now reads like this one. It does not switch the
-current context; it prints the command that would.
+Three entries through `kubectl config set-*`, not a merged file. The obvious
+`kubectl config view --flatten` is wrong here: it rewrites the whole target
+and inlines every other cluster's `certificate-authority` file into the
+document — measured on a config holding an unrelated cluster, whose
+`certificate-authority: /path/ca.crt` came back as `certificate-authority-data`.
+That is somebody else's entry changed in order to add ours.
+
+The certificate data is passed as base64 with `--set-raw-bytes=false`, which
+is what keeps a cluster-admin key off the disk: the `--embed-certs` route
+needs the key written to a temporary file first.
+
+It backs the target up with a timestamp, refuses outright if a cluster of that
+name already points somewhere else, and does not switch the current context —
+it prints the command that would.

@@ -157,68 +157,87 @@ tasks:
           chmod 600 "{{.ROOT}}/kubeconfig"
           echo "wrote kubeconfig — export KUBECONFIG={{.ROOT}}/kubeconfig"
 
-  kubeconfig-merge:
-    desc: "Merge ./kubeconfig into ~/.kube/config so a plain kubectl reaches this cluster"
+  kubeconfig-add:
+    desc: "Add this cluster to ~/.kube/config, so a plain kubectl reaches it"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
     deps: [kubeconfig]
     cmds:
-      # Merging is a convenience, not the mechanism. Every task here still
-      # passes --kubeconfig explicitly, and so does Pulumi: a resource created
-      # against whatever the shell happens to point at lands on whatever
-      # cluster that is. This only makes `kubectl` work without ceremony.
+      # Three entries added through kubectl, not a merged file.
       #
-      # The non-mutating alternative, for anyone who would rather not have
-      # this cluster reachable by an absent-minded kubectl:
+      # `kubectl config view --flatten` was the obvious way and it is wrong
+      # here: it rewrites the WHOLE target, and inlines every other cluster's
+      # certificate-authority file into the document. Measured on a config
+      # holding an unrelated cluster — its `certificate-authority: /path/ca.crt`
+      # came back as `certificate-authority-data: …`. That is somebody else's
+      # entry changed to add ours.
+      #
+      # set-cluster/set-credentials/set-context touch only the three names
+      # they are given, so an unrelated entry keeps its file reference.
+      #
+      # The certificate data is passed as base64 with --set-raw-bytes=false,
+      # which is what keeps a cluster-admin key off the disk: the alternative,
+      # --embed-certs with --client-key, needs the key written to a temporary
+      # file first.
+      #
+      # Adding nothing at all is still an option, and the safer one:
       #
       #     export KUBECONFIG=$HOME/.kube/config:{{.ROOT}}/kubeconfig
       #
-      # kubectl merges at read time, so the contexts appear without a file
-      # being rewritten.
+      # kubectl merges at read time, so both sets of contexts appear and no
+      # file is touched.
       - cmd: |
           set -euo pipefail
 
           source="{{.ROOT}}/kubeconfig"
           target="${KUBECONFIG_TARGET:-$HOME/.kube/config}"
 
+          read_source() {
+            kubectl --kubeconfig "$source" config view --raw -o "jsonpath=$1"
+          }
+
           context="$(kubectl --kubeconfig "$source" config current-context)"
-          cluster="$(kubectl --kubeconfig "$source" config view \
-            -o "jsonpath={.contexts[?(@.name=='$context')].context.cluster}")"
-          user="$(kubectl --kubeconfig "$source" config view \
-            -o "jsonpath={.contexts[?(@.name=='$context')].context.user}")"
-          server="$(kubectl --kubeconfig "$source" config view \
-            -o "jsonpath={.clusters[?(@.name=='$cluster')].cluster.server}")"
+          cluster="$(read_source "{.contexts[?(@.name=='$context')].context.cluster}")"
+          user="$(read_source "{.contexts[?(@.name=='$context')].context.user}")"
+          server="$(read_source "{.clusters[?(@.name=='$cluster')].cluster.server}")"
+          authority="$(read_source "{.clusters[?(@.name=='$cluster')].cluster.certificate-authority-data}")"
+          certificate="$(read_source "{.users[?(@.name=='$user')].user.client-certificate-data}")"
+          key="$(read_source "{.users[?(@.name=='$user')].user.client-key-data}")"
 
-          if [ ! -f "$target" ]; then
+          # Refuse a name that already means another cluster. set-cluster
+          # overwrites the entry it is given, so without this the operator's
+          # own `platform-dev` would become this one silently.
+          if [ -f "$target" ]; then
+            existing="$(kubectl --kubeconfig "$target" config view \
+              -o "jsonpath={.clusters[?(@.name=='$cluster')].cluster.server}" 2>/dev/null || true)"
+
+            if [ -n "$existing" ] && [ "$existing" != "$server" ]; then
+              echo "$target already has a cluster named $cluster at $existing," >&2
+              echo "and this stack's is $server. Rename one of them first." >&2
+              exit 1
+            fi
+
+            # kubectl re-serialises the whole document, so any comments in it
+            # are lost either way. current-context survives.
+            cp "$target" "$target.$(date -u +%Y%m%dT%H%M%SZ).bak"
+          else
             mkdir -p "$(dirname "$target")"
-            install -m 600 "$source" "$target"
-            echo "wrote $target — context $context"
-            exit 0
           fi
 
-          # Refuse a name that already means something else. A merge keeps the
-          # left-hand file's entry, so a collision would silently leave
-          # kubectl pointed at the other cluster under a name that now reads
-          # like this one.
-          existing="$(kubectl --kubeconfig "$target" config view \
-            -o "jsonpath={.clusters[?(@.name=='$cluster')].cluster.server}" 2>/dev/null || true)"
+          add() { kubectl --kubeconfig "$target" config "$@" >/dev/null; }
 
-          if [ -n "$existing" ] && [ "$existing" != "$server" ]; then
-            echo "$target already has a cluster named $cluster at $existing," >&2
-            echo "and this stack's is $server. Rename one of them first." >&2
-            exit 1
-          fi
+          add set-cluster "$cluster" --server="$server"
+          add set "clusters.$cluster.certificate-authority-data" "$authority" --set-raw-bytes=false
+          add set "users.$user.client-certificate-data" "$certificate" --set-raw-bytes=false
+          add set "users.$user.client-key-data" "$key" --set-raw-bytes=false
+          add set-context "$context" --cluster="$cluster" --user="$user"
 
-          backup="$target.$(date -u +%Y%m%dT%H%M%SZ).bak"
-          cp "$target" "$backup"
+          chmod 600 "$target"
 
-          merged="$(mktemp)"
-          KUBECONFIG="$target:$source" kubectl config view --flatten > "$merged"
-          install -m 600 "$merged" "$target"
-          rm -f "$merged"
-
-          echo "merged into $target (backup: $backup)"
+          # Not switched to, deliberately. Repointing the operator's shell is
+          # the hazard every --kubeconfig in this repository exists to avoid.
+          echo "added to $target"
           echo "  context: $context"
           echo "  switch:  kubectl config use-context $context"
 
