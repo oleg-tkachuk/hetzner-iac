@@ -88,13 +88,18 @@ type Component struct {
 	// reader has to keep.
 	After []string
 
-	// Values builds the chart values. A function rather than a map because
-	// values are the part that genuinely differs: they read stack config and
-	// the cluster tier's outputs, both of which exist only at run time.
+	// Values builds the chart values as Pulumi inputs. Kept for a component
+	// that genuinely needs to thread an unresolved output into a map;
+	// everything in this repository uses ValuesYAML instead.
 	//
 	// Nil means the chart's own defaults, which is what a values-free
 	// component wants — restating a default is a diff that renders identically.
 	Values func(*Runner) pulumi.Map
+
+	// ValuesYAML renders this chart's template from pkg/values. A function
+	// rather than a string because the values read stack config and the
+	// cluster tier's outputs, both of which exist only at run time.
+	ValuesYAML func(*Runner) pulumi.AssetOrArchiveArrayInput
 
 	// SkipCRDs leaves custom resource definitions alone.
 	SkipCRDs bool
@@ -161,10 +166,16 @@ func (r *Runner) create(component Component, dependencies []pulumi.Resource) (pu
 		values = component.Values(r)
 	}
 
+	var rendered pulumi.AssetOrArchiveArrayInput
+	if component.ValuesYAML != nil {
+		rendered = component.ValuesYAML(r)
+	}
+
 	return r.Release(ReleaseArgs{
 		Chart:          component.Chart,
 		Name:           component.Release,
 		Values:         values,
+		ValuesYAML:     rendered,
 		TimeoutSeconds: component.TimeoutSeconds,
 		SkipCRDs:       component.SkipCRDs,
 	}, DependsOn(dependencies)...)
