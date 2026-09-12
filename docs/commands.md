@@ -61,6 +61,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:status` | nodes, then anything not Running |
 | `task cluster:hubble` | print recent pod flows through Hubble; `last=<n>` to widen |
 | `task cluster:config-check` | Talos accepts the machine-config patches |
+| `task cluster:encryption-check` | the system volumes are really encrypted, not just configured to be |
 | `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
 | `task cluster:upgrade-talos` | upgrade Talos, one node at a time |
 | `task cluster:upgrade-k8s` | upgrade Kubernetes in place |

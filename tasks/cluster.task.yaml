@@ -19,6 +19,12 @@ vars:
   # Seconds to wait for the forward. The relay answers in about one.
   _CL_HUBBLE_WAIT: "15"
 
+  # The system volumes that carry secrets, and what a probe calls an encrypted
+  # one. Named because encryption-check compares against them: a typo here
+  # reports "not found" rather than silently passing.
+  _CL_ENCRYPTED_VOLUMES: "STATE EPHEMERAL"
+  _CL_LUKS: luks
+
 # The tasks below with a `deps:` carry no stack guard of their own: Task runs
 # dependencies before a task's own preconditions, so the dependency's guard
 # fires first and names itself. A second guard there would be unreachable.
@@ -342,6 +348,60 @@ tasks:
           done
 
           hubble --server "$server" observe --last "{{.last}}"
+
+  encryption-check:
+    desc: "Are the system volumes actually encrypted? Talos skips encryption on a formatted partition, silently"
+    deps: [talosconfig]
+    cmds:
+      # The check exists because the failure is silent in the worst way: Talos
+      # encrypts STATE and EPHEMERAL only when the partition is empty and has
+      # no filesystem, so applying the VolumeConfig to a node that already
+      # exists is accepted, reports nothing, and leaves the disk in plaintext.
+      # The machine config then says encrypted and the volume is not.
+      #
+      # `name` is what the blockdevice probe recognised. On an encrypted volume
+      # that is the LUKS container; on a plaintext one it is the filesystem
+      # itself, which is what this cluster shows today:
+      #
+      #   {"label":"STATE","name":"xfs"}      <- plaintext
+      #   {"label":"STATE","name":"luks"}     <- encrypted
+      - cmd: |
+          set -euo pipefail
+          export TALOSCONFIG="{{.ROOT}}/talosconfig"
+
+          plaintext=0
+
+          printf '%-12s %-10s %s\n' VOLUME PROBED STATE
+
+          for label in {{._CL_ENCRYPTED_VOLUMES}}; do
+            # No -n: the talosconfig this task just wrote names its own
+            # endpoint, the same way cluster:etcd-snapshot relies on it.
+            # Parsing `talosctl config info` for an address would be a second
+            # source for something the file already answers.
+            probed="$(talosctl get discoveredvolumes -o json \
+              | jq -r --arg l "$label" 'select(.spec.partition_label==$l) | .spec.name')"
+
+            case "$probed" in
+              "{{._CL_LUKS}}") state=encrypted ;;
+              "")              state="not found"; plaintext=1 ;;
+              *)               state=PLAINTEXT;   plaintext=1 ;;
+            esac
+
+            printf '%-12s %-10s %s\n' "$label" "${probed:--}" "$state"
+          done
+
+          if [ "$plaintext" -ne 0 ]; then
+            echo                                                                  >&2
+            echo "A system volume is not encrypted. Talos has no in-place"         >&2
+            echo "encryption, so a node built before the VolumeConfig keeps its"   >&2
+            echo "plaintext partitions however often the config is re-applied."    >&2
+            echo "The fix is a node built with it:"                               >&2
+            echo                                                                  >&2
+            echo "    task cluster:destroy stack={{.stack}}"                      >&2
+            echo "    task cluster:apply   stack={{.stack}}"                      >&2
+            echo "    task platform:apply-all stack={{.stack}}"                   >&2
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # Day 2
