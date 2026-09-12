@@ -215,7 +215,11 @@ tasks:
               # legitimately has no count, but so does an expired token — and
               # reporting both as "-" turns a broken login into a tidy table
               # saying nothing is deployed.
-              if out="$(pulumi --non-interactive --stack "{{._PL_STACK}}" stack --json 2>&1)"; then
+              # `--output json`, not `--json`: the CLI has no such flag on this
+              # command and rejected it, so every row read "?" with an error
+              # above it. The table was honest about not knowing; the flag was
+              # simply wrong.
+              if out="$(pulumi --non-interactive --stack "{{._PL_STACK}}" stack --output json 2>&1)"; then
                 printf '%s' "$out" | jq -r '.resources | length'
               else
                 case "$out" in
