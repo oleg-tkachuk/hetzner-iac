@@ -20,6 +20,17 @@ name: Security
 
 on:
   workflow_call:
+    inputs:
+      go-code:
+        description: >
+          Whether the caller's change can affect a Go analysis. The
+          govulncheck job below is the slowest gate in CI — four minutes, of
+          which three and a half are restoring the build cache it needs — and
+          its answer is a function of the module and the advisory database,
+          neither of which a documentation-only change touches.
+        type: boolean
+        required: false
+        default: true
   workflow_dispatch:
   schedule:
     # Monday morning, before the week's work lands on top of whatever the
@@ -94,6 +105,12 @@ jobs:
 
   vulnerabilities:
     name: Reachable vulnerabilities
+    # `!= false` rather than the plain input, and the difference matters: on a
+    # schedule or a manual run there is no workflow_call, so `inputs` is empty
+    # and the input reads as null. Plain truthiness would skip the very run
+    # this workflow exists for — the one where the advisory database moved and
+    # the code did not.
+    if: inputs.go-code != false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
