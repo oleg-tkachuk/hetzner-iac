@@ -23,7 +23,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"embed"
@@ -33,7 +32,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -91,7 +89,13 @@ func run() (int, error) {
 			continue // every workload of this chart is operator-created
 		}
 
-		found, err := renderChart(ctx, chart, expected[0].Release, expected[0].Namespace, key)
+		// The namespace comes from the registry, which is what the layer
+		// installs the release into. Taking it from the first expected
+		// workload made the render depend on the order of a table:
+		// kube-prometheus-stack puts node-exporter in kube-system and
+		// everything else in observability, so whichever entry came first
+		// decided what `helm template -n` was given.
+		found, err := renderChart(ctx, chart, expected[0].Release, chart.Namespace, key)
 		if err != nil {
 			return 0, fmt.Errorf("render %s: %w", key, err)
 		}
@@ -99,7 +103,7 @@ func run() (int, error) {
 		for _, want := range expected {
 			label := fmt.Sprintf("%s %s/%s", want.Kind, want.Namespace, want.Name)
 
-			if found[string(want.Kind)+"/"+want.Name] {
+			if found[string(want.Kind)+"/"+want.Namespace+"/"+want.Name] {
 				fmt.Printf("ok    %-14s %s\n", key, label)
 
 				continue
@@ -183,7 +187,7 @@ func rendered(key string) []workloads.Workload {
 }
 
 // renderChart templates a chart and returns the workload objects it produced,
-// keyed "Kind/name".
+// keyed "Kind/namespace/name".
 func renderChart(ctx context.Context, chart charts.Chart, release, namespace, key string) (map[string]bool, error) {
 	output, err := renderRaw(ctx, chart, release, namespace, key)
 	if err != nil {
@@ -208,7 +212,7 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 		return nil, err
 	}
 
-	return parseWorkloads(output), nil
+	return parseWorkloads(output, namespace), nil
 }
 
 // hostAccessMarkers are the pod-spec fields Pod Security Admission's baseline
@@ -281,21 +285,38 @@ func hostAccessIn(doc string) []string {
 // or that leaves the key empty, falls back to the release namespace, which is
 // what Helm would do.
 func documentNamespace(doc, fallback string) string {
-	for _, line := range strings.Split(doc, "\n") {
-		if !strings.HasPrefix(line, "  namespace:") {
-			continue
-		}
-
-		// An empty value is not a namespace named "": Helm resolves it
-		// against the release, same as an absent key. Returning "" instead
-		// reported `in namespace ""`, which tells the operator nothing about
-		// where the workload was actually going.
-		if name := strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "  namespace:")), `"'`); name != "" {
-			return name
-		}
+	// An empty value is not a namespace named "": Helm resolves it against
+	// the release, same as an absent key. Returning "" instead reported
+	// `in namespace ""`, which tells the operator nothing about where the
+	// workload was actually going.
+	if namespace := documentField(doc, "namespace"); namespace != "" {
+		return namespace
 	}
 
 	return fallback
+}
+
+// documentField reads one metadata field of a rendered document.
+//
+// The first matching line at two-space indentation, because that is where
+// metadata puts it and a rendered chart is machine-written — this is not a
+// YAML parser and does not need to be. Deeper indentation belongs to a
+// container, a volume or a selector, not to the object.
+func documentField(doc, field string) string {
+	prefix := "  " + field + ":"
+
+	for _, line := range strings.Split(doc, "\n") {
+		raw, found := strings.CutPrefix(line, prefix)
+		if !found {
+			continue
+		}
+
+		if value := strings.Trim(strings.TrimSpace(raw), `"'`); value != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 // kubeconformBinary is looked up rather than assumed so the absence is one
@@ -426,37 +447,67 @@ func renderRaw(ctx context.Context, chart charts.Chart, release, namespace, key 
 	return output, nil
 }
 
-// parseWorkloads pulls "Kind/name" out of rendered YAML.
+// parseWorkloads pulls "Kind/namespace/name" out of rendered YAML.
 //
-// A line-scanner rather than a YAML parse: the output is a multi-document
-// stream containing CRDs whose schemas are large, and only the first
-// `name:` after a workload `kind:` is needed.
-func parseWorkloads(output []byte) map[string]bool {
+// Per document rather than a running `kind` across lines, because the
+// namespace belongs to a document and a line scanner cannot say which
+// document it is inside. It used to key on kind and name alone, which made
+// the namespace in its own output a claim it had never checked: a workload
+// rendered into the wrong namespace matched, and the `ok` line printed the
+// namespace that was expected rather than the one the chart produced. That is
+// exactly what the node-exporter deploys hit twice.
+//
+// Text rather than a YAML parse: the stream contains CRDs whose schemas are
+// large, and three fields are needed from each document.
+func parseWorkloads(output []byte, releaseNamespace string) map[string]bool {
 	found := map[string]bool{}
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-	scanner.Buffer(make([]byte, 0, 1<<20), 1<<24)
 
-	kind := ""
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		switch strings.TrimSpace(line) {
-		case "kind: Deployment", "kind: StatefulSet", "kind: DaemonSet":
-			kind = strings.TrimPrefix(strings.TrimSpace(line), "kind: ")
-
+	for _, doc := range strings.Split(string(output), "\n---") {
+		kind := documentKind(doc)
+		if kind == "" {
 			continue
 		}
 
-		// Only a top-level metadata name counts; a name nested deeper belongs
-		// to a container or a volume.
-		if kind != "" && strings.HasPrefix(line, "  name: ") {
-			found[kind+"/"+strings.TrimSpace(strings.TrimPrefix(line, "  name:"))] = true
-			kind = ""
+		name := documentField(doc, "name")
+		if name == "" {
+			continue
 		}
+
+		found[kind+"/"+documentNamespace(doc, releaseNamespace)+"/"+name] = true
 	}
 
 	return found
+}
+
+// workloadKinds are the kinds this check tracks, spelled as Kubernetes spells
+// them. Nothing here runs as a Job: Helm hook Jobs exist but finish, so they
+// are not something to assert is healthy.
+var workloadKinds = []string{
+	string(workloads.Deployment),
+	string(workloads.StatefulSet),
+	string(workloads.DaemonSet),
+}
+
+// documentKind returns the document's own kind, or "" when it is not a
+// workload.
+//
+// At the start of a line, with no indentation: a `kind:` deeper in the
+// document belongs to something else — a RoleRef, a subject, an autoscaler's
+// scaleTargetRef — and reading one as the document's kind attributes a
+// workload to whatever names it.
+func documentKind(doc string) string {
+	for _, line := range strings.Split(doc, "\n") {
+		name, found := strings.CutPrefix(line, "kind: ")
+		if !found {
+			continue
+		}
+
+		if kind := strings.TrimSpace(name); slices.Contains(workloadKinds, kind) {
+			return kind
+		}
+	}
+
+	return ""
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -465,7 +516,7 @@ func sortedKeys(m map[string]bool) []string {
 		out = append(out, k)
 	}
 
-	sort.Strings(out)
+	slices.Sort(out)
 
 	return out
 }

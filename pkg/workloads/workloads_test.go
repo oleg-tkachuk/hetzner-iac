@@ -136,3 +136,24 @@ func TestCharts_CoversEveryLayer(t *testing.T) {
 		assert.NotEmpty(t, workloads.ForChart(chart), "chart %q has no expected workloads", chart)
 	}
 }
+
+func TestExpected_EveryChartsWorkloadsAgreeOnTheRelease(t *testing.T) {
+	t.Parallel()
+
+	// The render check templates each chart once, with one release name taken
+	// from the chart's first entry. Two entries disagreeing would render
+	// against one name and compare against another, so the names it looked
+	// for could not appear.
+	release := map[string]string{}
+
+	for _, w := range workloads.Expected {
+		if previous, seen := release[w.Chart]; seen {
+			assert.Equal(t, previous, w.Release,
+				"chart %q is expected under two release names", w.Chart)
+
+			continue
+		}
+
+		release[w.Chart] = w.Release
+	}
+}
