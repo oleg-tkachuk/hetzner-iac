@@ -389,6 +389,10 @@ jobs:
         with:
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # No cache. checkov is a Python tool and this job compiles nothing,
+          # so the 4.4 GB build cache has no reader here — it was 313 seconds
+          # of the job's 355, the single slowest step in the whole workflow.
+          cache-mode: "off"
       - run: pipx install "checkov==${CHECKOV_VERSION}"
       # The same task an operator runs, so the flags live in .checkov.yaml
       # rather than being restated here.
