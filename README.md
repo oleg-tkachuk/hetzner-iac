@@ -28,9 +28,14 @@ infra/cluster              the only project that talks to the Hetzner API
 
 ## Quick start
 
-You need a Hetzner Cloud API token with read+write scope, and the tools in
-[Prerequisites](#prerequisites). Everything below creates **billable** Hetzner
-resources; `task cluster:destroy` and `task platform:destroy-all` remove them.
+You need three things: a Hetzner Cloud API token with read+write scope, a
+[Pulumi Cloud](https://app.pulumi.com/signup) account for state — free for an
+individual, and `pulumi login` is how you get one on this machine — and the
+tools in [Prerequisites](#prerequisites). State can live in your own S3 bucket
+instead: [docs/configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
+
+Everything below creates **billable** Hetzner resources; `task cluster:destroy`
+and `task platform:destroy-all` remove them.
 
 ```bash
 # 1. Describe the cluster. Set network.adminCIDRs to the address you apply
@@ -72,7 +77,7 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 
 | Tool | Why |
 |------|-----|
-| [Pulumi](https://www.pulumi.com/docs/install/) 3.261+ | runs everything here |
+| [Pulumi](https://www.pulumi.com/docs/install/) 3.261+ | runs everything here; `pulumi login` before the first task |
 | [Go](https://go.dev/dl/) 1.27+ | the programs are Go |
 | [Task](https://taskfile.dev/installation/) 3.53+ | the entry points; remote Taskfiles need 3.53 |
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
