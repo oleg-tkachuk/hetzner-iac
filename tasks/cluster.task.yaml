@@ -5,8 +5,12 @@ silent: true
 
 vars:
   _CL_DIR: '{{.ROOT}}/infra/cluster'
-  _CL_STACK: '{{.stack | default "dev"}}'
-  _CL_TOPOLOGY: '{{.ROOT}}/infra/cluster/cluster.{{.stack | default "dev"}}.yaml'
+  _CL_STACK: '{{.stack}}'
+  _CL_TOPOLOGY: '{{.ROOT}}/infra/cluster/cluster.{{.stack}}.yaml'
+
+# The tasks below with a `deps:` carry no stack guard of their own: Task runs
+# dependencies before a task's own preconditions, so the dependency's guard
+# fires first and names itself. A second guard there would be unreachable.
 
 tasks:
   # ---------------------------------------------------------------------------
@@ -16,6 +20,8 @@ tasks:
   image-bake:
     desc: "Bake the Talos snapshot named by the topology into the hcloud project (idempotent)"
     preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
       - sh: command -v hcloud >/dev/null
         msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
       - sh: command -v hcloud-upload-image >/dev/null
@@ -34,6 +40,8 @@ tasks:
   config-check:
     desc: "Validate the machine-config patches against Talos itself — no cluster needed"
     preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
       - sh: command -v talosctl >/dev/null
         msg: "talosctl not installed — https://www.talos.dev/"
     cmds:
@@ -52,6 +60,9 @@ tasks:
 
   init:
     desc: "Create the Pulumi stack for this environment"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       # tools/stack, because the same decision is made here, in platform:init
       # and in the preview workflow, and three copies of a `pulumi stack ls
@@ -60,6 +71,9 @@ tasks:
 
   token:
     desc: "Store the Hetzner API token in this stack, encrypted"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     deps: [init]
     cmds:
       # No `token=` variable, deliberately. Passing a credential as a task
@@ -82,6 +96,9 @@ tasks:
 
   plan:
     desc: "Show what applying the cluster would change; change nothing"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -91,6 +108,8 @@ tasks:
   apply:
     desc: "Provision or converge the Talos cluster (idempotent)"
     preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
       - sh: test -f "{{._CL_TOPOLOGY}}"
         msg: "no topology at {{._CL_TOPOLOGY}} — cp infra/cluster/cluster.example.yaml {{._CL_TOPOLOGY}} and edit adminCIDRs"
     cmds:
@@ -101,6 +120,9 @@ tasks:
 
   destroy:
     desc: "Destroy the cluster. Asks first, because this deletes the servers."
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     prompt: "Destroy the {{._CL_STACK}} CLUSTER and every server in it?"
     cmds:
       - cmd: |
@@ -114,6 +136,9 @@ tasks:
 
   outputs:
     desc: "Show the cluster stack outputs (secrets stay redacted)"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
           cd "{{._CL_DIR}}"
@@ -121,6 +146,9 @@ tasks:
 
   kubeconfig:
     desc: "Write ./kubeconfig from the cluster stack"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -131,6 +159,9 @@ tasks:
 
   talosconfig:
     desc: "Write ./talosconfig from the cluster stack"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -190,6 +221,9 @@ tasks:
 
   upgrade-talos:
     desc: "Upgrade Talos on every node. Bump talos.version in the topology first, then re-bake."
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     deps: [talosconfig]
     prompt: "Upgrade Talos on every node of {{._CL_STACK}}?"
     cmds:
@@ -207,6 +241,9 @@ tasks:
 
   upgrade-k8s:
     desc: "Upgrade Kubernetes in place. Set kubernetes.version in the topology first."
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     deps: [talosconfig]
     prompt: "Upgrade Kubernetes on {{._CL_STACK}}?"
     cmds:

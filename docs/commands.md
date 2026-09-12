@@ -1,9 +1,18 @@
 # Command reference
 
 `task` on its own lists everything. Every cluster and layer task takes
-`stack=<name>`, defaulting to `dev` — that is the only deployment parameter,
-because where a cluster lives and how it is shaped comes from its committed
-topology file.
+`stack=<name>`, and there is no default. A task that assumed one is a task
+that can be aimed at the wrong environment by forgetting a word, so running
+one without it prints the usage instead:
+
+    $ task platform:plan-all
+    task: platform:plan-all needs a stack, and there is no default.
+
+        task platform:plan-all stack=dev
+
+It is the only deployment parameter: where a cluster lives and how it is
+shaped comes from its committed topology file. `task platform:plan` and its
+siblings also need `layer=`, and `task platform:init` needs `ref=`.
 
 Tasks from the shared library
 ([oleg-tkachuk/taskfiles](https://github.com/oleg-tkachuk/taskfiles), pinned)

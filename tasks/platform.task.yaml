@@ -4,7 +4,7 @@ version: "3"
 silent: true
 
 vars:
-  _PL_STACK: '{{.stack | default "dev"}}'
+  _PL_STACK: '{{.stack}}'
   _PL_LAYERS: '{{.LAYERS}}'
 
 tasks:
@@ -20,6 +20,9 @@ tasks:
 
   plan-all:
     desc: "Preview every layer in order; change nothing"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -31,6 +34,9 @@ tasks:
 
   apply-all:
     desc: "Apply every layer in dependency order (idempotent)"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -47,6 +53,9 @@ tasks:
 
   destroy-all:
     desc: "Destroy every layer, in reverse order"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     prompt: "Destroy every platform layer on {{._PL_STACK}}?"
     cmds:
       - cmd: |
@@ -70,8 +79,11 @@ tasks:
 
   init:
     desc: "Create the stack for every layer and point it at the cluster (ref=<org>/hetzner-cluster/<stack>)"
-    requires:
-      vars: [ref]
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: '[ -n "{{.ref}}" ]'
+        msg: "{{._REF_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -102,8 +114,11 @@ tasks:
 
   plan:
     desc: "Preview one layer — task platform:plan layer=10-node-platform"
-    requires:
-      vars: [layer]
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: '[ -n "{{.layer}}" ]'
+        msg: "{{._LAYER_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -112,8 +127,11 @@ tasks:
 
   apply:
     desc: "Apply one layer — task platform:apply layer=10-node-platform"
-    requires:
-      vars: [layer]
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: '[ -n "{{.layer}}" ]'
+        msg: "{{._LAYER_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -122,8 +140,11 @@ tasks:
 
   destroy:
     desc: "Destroy one layer — task platform:destroy layer=60-observability"
-    requires:
-      vars: [layer]
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: '[ -n "{{.layer}}" ]'
+        msg: "{{._LAYER_USAGE}}"
     prompt: "Destroy layer {{.layer}} on {{._PL_STACK}}?"
     cmds:
       - cmd: |
@@ -133,8 +154,11 @@ tasks:
 
   outputs:
     desc: "Show one layer's stack outputs — task platform:outputs layer=50-gitops"
-    requires:
-      vars: [layer]
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: '[ -n "{{.layer}}" ]'
+        msg: "{{._LAYER_USAGE}}"
     cmds:
       - cmd: |
           cd "{{.ROOT}}/layers/{{.layer}}"
@@ -142,6 +166,9 @@ tasks:
 
   status:
     desc: "Which layers are deployed, and how many resources each holds"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail

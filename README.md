@@ -98,8 +98,10 @@ skipping itself silently. Git hooks are opt-in per clone with
 ## Commands
 
 `task` on its own lists everything. Every cluster and layer task takes
-`stack=<name>`, defaulting to `dev` — the only deployment parameter, because
-where a cluster lives and how it is shaped comes from its committed topology.
+`stack=<name>`, and there is no default — a task that assumed one is a task
+that can be aimed at the wrong environment by forgetting a word. It is the
+only deployment parameter: where a cluster lives and how it is shaped comes
+from its committed topology.
 
 | Task | Does |
 |------|------|
