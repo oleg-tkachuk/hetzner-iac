@@ -81,7 +81,7 @@ const CertApproverManifest = "manifests/kubelet-serving-cert-approver.yaml"
 func createCertApprover(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
 	return yaml.NewConfigFile(r.Ctx, CertApproverComponent, &yaml.ConfigFileArgs{
 		File: CertApproverManifest,
-	}, r.With(pulumi.DependsOn(dependencies))...)
+	}, r.With(layer.DependsOn(dependencies)...)...)
 }
 
 // createClusterIssuer makes the ACME issuer, or nothing and says so.
@@ -108,7 +108,7 @@ func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulum
 		OtherFields: map[string]any{
 			"spec": IssuerSpec(email),
 		},
-	}, r.With(pulumi.DependsOn(dependencies))...)
+	}, r.With(layer.DependsOn(dependencies)...)...)
 }
 
 func main() {
