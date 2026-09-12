@@ -20,7 +20,30 @@ vars:
   # committed.
   #
   #   task cluster:apply stack=dev
-  stack: '{{.stack | default "dev"}}'
+  # Required, and with no default on purpose. A default is how a command
+  # aimed at one environment silently hits another: `platform:destroy-all`
+  # with a forgotten stack= meant dev, and the once that is wrong is the once
+  # it matters. Every message below names the task that was actually run.
+  _STACK_USAGE: |
+    {{.TASK}} needs a stack, and there is no default.
+
+        task {{.TASK}} stack=dev
+
+    The stack names both the Pulumi stack and
+    infra/cluster/cluster.<stack>.yaml, which is where everything about that
+    cluster is described.
+  _LAYER_USAGE: |
+    {{.TASK}} needs a layer.
+
+        task {{.TASK}} stack=dev layer=10-node-platform
+
+    `task platform:layers` lists them in the order they are applied.
+  _REF_USAGE: |
+    {{.TASK}} needs the cluster tier's stack reference.
+
+        task {{.TASK}} stack=dev ref=<org>/hetzner-cluster/dev
+
+    Every layer reads the kubeconfig through it; `pulumi whoami` gives the org.
 
   # The layers, in dependency order. This list is the only place the order
   # lives: platform:apply-all walks it, and CI derives its preview matrix from
@@ -115,12 +138,18 @@ tasks:
 
   up:
     desc: "Bring up everything from nothing: cluster, then every layer in order"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - task: cluster:apply
       - task: platform:apply-all
 
   plan:
     desc: "Preview the cluster and every layer without changing anything"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - task: cluster:plan
       - task: platform:plan-all
@@ -203,11 +232,14 @@ tasks:
 
   e2e:
     desc: "Verify a real cluster — read-only, safe against production"
+    # No stack guard: the suite reads ./kubeconfig and never names a stack.
+    # Requiring one would make this fail for somebody who already has the
+    # file, which is the only thing it actually needs.
     cmds:
       - cmd: |
           set -euo pipefail
           [ -f "{{.ROOT}}/kubeconfig" ] || {
-            echo "no ./kubeconfig — run: task cluster:kubeconfig stack={{.stack}}" >&2
+            echo "no ./kubeconfig — run: task cluster:kubeconfig stack=<name>" >&2
             exit 1
           }
           # The suite verifies the cluster this repository built, so it runs
