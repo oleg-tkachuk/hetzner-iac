@@ -1,6 +1,14 @@
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: "3"
 
+# The layers as a YAML list, for the enum below.
+#
+# A second form of the list in Taskfile.yaml's LAYERS, and unavoidable:
+# requires.enum is static schema, so a template in it is read as a map and the
+# file stops parsing — measured. One copy here, aliased rather than repeated
+# per task, held equal to LAYERS by TestLayerEnum_MatchesTheLayerList.
+x-layers: &layers [10-node-platform, 30-core, 40-ingress, 50-gitops, 60-observability]
+
 silent: true
 
 vars:
@@ -113,12 +121,14 @@ tasks:
           done
 
   plan:
-    desc: "Preview one layer — task platform:plan layer=10-node-platform"
+    desc: "Preview one layer — task platform:plan stack=dev layer=10-node-platform"
+    requires:
+      vars:
+        - name: layer
+          enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-      - sh: '[ -n "{{.layer}}" ]'
-        msg: "{{._LAYER_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -126,12 +136,14 @@ tasks:
           pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff
 
   apply:
-    desc: "Apply one layer — task platform:apply layer=10-node-platform"
+    desc: "Apply one layer — task platform:apply stack=dev layer=10-node-platform"
+    requires:
+      vars:
+        - name: layer
+          enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-      - sh: '[ -n "{{.layer}}" ]'
-        msg: "{{._LAYER_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -139,12 +151,14 @@ tasks:
           pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes
 
   destroy:
-    desc: "Destroy one layer — task platform:destroy layer=60-observability"
+    desc: "Destroy one layer — task platform:destroy stack=dev layer=60-observability"
+    requires:
+      vars:
+        - name: layer
+          enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-      - sh: '[ -n "{{.layer}}" ]'
-        msg: "{{._LAYER_USAGE}}"
     prompt: "Destroy layer {{.layer}} on {{._PL_STACK}}?"
     cmds:
       - cmd: |
@@ -153,12 +167,14 @@ tasks:
           pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes
 
   outputs:
-    desc: "Show one layer's stack outputs — task platform:outputs layer=50-gitops"
+    desc: "Show one layer's stack outputs — task platform:outputs stack=dev layer=50-gitops"
+    requires:
+      vars:
+        - name: layer
+          enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-      - sh: '[ -n "{{.layer}}" ]'
-        msg: "{{._LAYER_USAGE}}"
     cmds:
       - cmd: |
           cd "{{.ROOT}}/layers/{{.layer}}"

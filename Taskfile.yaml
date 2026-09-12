@@ -32,12 +32,6 @@ vars:
     The stack names both the Pulumi stack and
     infra/cluster/cluster.<stack>.yaml, which is where everything about that
     cluster is described.
-  _LAYER_USAGE: |
-    {{.TASK}} needs a layer.
-
-        task {{.TASK}} stack=dev layer=10-node-platform
-
-    `task platform:layers` lists them in the order they are applied.
   _REF_USAGE: |
     {{.TASK}} needs the cluster tier's stack reference.
 

@@ -152,3 +152,74 @@ func tasksIn(text string) map[string]string {
 
 	return tasks
 }
+
+// layerEnum matches the anchor that feeds every per-layer task's enum.
+var layerEnum = regexp.MustCompile(`x-layers: &layers \[([^\]]+)\]`)
+
+// layerList matches the whitespace-separated list the apply loop walks.
+var layerList = regexp.MustCompile(`(?s)LAYERS: >-\n((?:    [^\n]+\n)+)`)
+
+// TestLayerEnum_MatchesTheLayerList holds the two forms of the layer list
+// equal.
+//
+// There are two because `requires.enum` is static schema: a template in it is
+// read as a YAML map and the file stops parsing, so the enum cannot be built
+// from LAYERS. One is a YAML list for the enum, the other the
+// whitespace-separated string the apply loop walks — and a new layer added to
+// only one of them fails the enum for a layer that exists, or lets a typo
+// through for one that does not.
+func TestLayerEnum_MatchesTheLayerList(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	platform, err := os.ReadFile(filepath.Join(root, "tasks", "platform.task.yaml"))
+	require.NoError(t, err)
+
+	rootfile, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	enum := layerEnum.FindStringSubmatch(string(platform))
+	require.NotNil(t, enum, "no x-layers anchor: the per-layer tasks have nothing to validate against")
+
+	list := layerList.FindStringSubmatch(string(rootfile))
+	require.NotNil(t, list, "no LAYERS list in the root taskfile")
+
+	assert.Equal(t, strings.Fields(list[1]), splitEnum(enum[1]),
+		"the layer enum and LAYERS disagree — one of them is missing a layer, or naming one that is gone")
+}
+
+// TestPerLayerTasks_ValidateAgainstTheAnchor stops a task from carrying its own
+// copy of the list, which would drift without anything noticing.
+func TestPerLayerTasks_ValidateAgainstTheAnchor(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "platform.task.yaml"))
+	require.NoError(t, err)
+
+	var checked int
+
+	for name, body := range tasksIn(string(raw)) {
+		if !strings.Contains(body, "name: layer") {
+			continue
+		}
+
+		checked++
+
+		assert.Contains(t, body, "enum: *layers",
+			"%s validates the layer against something other than the shared anchor", name)
+	}
+
+	assert.Equal(t, 4, checked, "four tasks take a layer; the count changed")
+}
+
+// splitEnum reads the items out of a YAML flow sequence.
+func splitEnum(items string) []string {
+	var out []string
+
+	for _, item := range strings.Split(items, ",") {
+		out = append(out, strings.TrimSpace(item))
+	}
+
+	return out
+}

@@ -11,8 +11,17 @@ one without it prints the usage instead:
         task platform:plan-all stack=dev
 
 It is the only deployment parameter: where a cluster lives and how it is
-shaped comes from its committed topology file. `task platform:plan` and its
-siblings also need `layer=`, and `task platform:init` needs `ref=`.
+shaped comes from its committed topology file.
+
+`task platform:plan` and its siblings also need `layer=`, and that one is
+checked against the list of layers rather than merely for being present — so
+a typo is caught before anything runs:
+
+    $ task platform:plan stack=dev layer=30-cor
+    task: ... layer has an invalid value : '30-cor'
+      (allowed values : [10-node-platform 30-core 40-ingress 50-gitops 60-observability])
+
+`task platform:init` needs `ref=`.
 
 Tasks from the shared library
 ([oleg-tkachuk/taskfiles](https://github.com/oleg-tkachuk/taskfiles), pinned)
