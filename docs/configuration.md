@@ -61,22 +61,53 @@ be created.
 An exported `HCLOUD_TOKEN` takes priority over the stack config, which is how
 CI passes a token it holds as a GitHub secret.
 
-## Keeping state at Hetzner instead
+## Keeping state in your own S3 bucket
 
-One vendor, data in the EU. Override the URL — it is the only change needed:
+One vendor, data in the EU, and no Pulumi account. Pulumi calls this a DIY
+backend: it stores state under a `.pulumi` directory in the bucket, and
+backing it up and coordinating access across a team becomes yours to do.
+
+Hetzner Object Storage is S3-compatible, so the form is the one Pulumi
+documents for any S3-compatible server — `endpoint`, `s3ForcePathStyle` and,
+for a plain-HTTP server such as a local Minio, `disableSSL`:
 
 ```bash
-export PULUMI_BACKEND_URL='s3://<bucket>?endpoint=fsn1.your-objectstorage.com&s3ForcePathStyle=true&region=fsn1'
+# Credentials and region reach the AWS SDK through its own environment, not
+# through the URL: the bucket's Object Storage keys, and a region the SDK
+# will not proceed without.
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
+export AWS_REGION=fsn1
+
+pulumi login 's3://<bucket>?endpoint=fsn1.your-objectstorage.com&s3ForcePathStyle=true'
+```
+
+`PULUMI_BACKEND_URL` holds the same URL if you would rather not log in, and
+every `Pulumi.yaml` here declares `backend:` so the choice is a property of
+the repository rather than of whoever last ran `pulumi login` — point that at
+the bucket to make it the default for everyone.
+
+The bucket has to exist first: a bucket managed by the state it holds cannot
+create itself. Enable versioning on it. State is the one file whose loss
+cannot be recovered from the cloud it describes, and a half-written checkpoint
+is indistinguishable from a correct one until the next apply.
+
+### One rule changes with it
+
+A DIY backend has no key-management service behind it, so stack secrets are
+encrypted with a passphrase you supply:
+
+```bash
 export PULUMI_CONFIG_PASSPHRASE=...
 ```
 
-The bucket has to exist first: a bucket managed by the state it holds cannot
-create itself.
+That makes the `secure:` ciphertext in `Pulumi.<stack>.yaml` offline-
+attackable — anyone with the file can grind the passphrase. **Do not commit
+those files on a DIY backend in a public repository.** Add them to
+`.gitignore` and keep the secrets somewhere else.
 
-One consequence changes a rule above. A self-managed backend encrypts stack
-secrets with that passphrase rather than with a key a service holds, so the
-`secure:` ciphertext in `Pulumi.<stack>.yaml` becomes offline-attackable —
-**do not commit those files on a self-managed backend in a public repository.**
-Pulumi Cloud manages the key, which is what makes committing them safe here.
+Committing them is safe *here* only because Pulumi Cloud holds the key. If you
+would rather keep the files committed and the state in your own bucket, use a
+cloud KMS as the secrets provider instead of a passphrase — the CLI documents
+`awskms://`, `azurekeyvault://` and `gcpkms://` for
+`pulumi stack init --secrets-provider`, and those work with any backend.
