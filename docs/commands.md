@@ -19,7 +19,7 @@ a typo is caught before anything runs:
 
     $ task platform:plan stack=dev layer=30-cor
     task: ... layer has an invalid value : '30-cor'
-      (allowed values : [10-node-platform 30-core 40-ingress 50-gitops 60-observability])
+      (allowed values : [10-node-platform 20-network-policy 30-core 40-ingress 50-gitops 60-observability])
 
 `task platform:init` needs `ref=`.
 
@@ -59,6 +59,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:outputs` | stack outputs, secrets redacted |
 | `task cluster:nodes` | list nodes |
 | `task cluster:status` | nodes, then anything not Running |
+| `task cluster:hubble` | print recent pod flows through Hubble; `last=<n>` to widen |
 | `task cluster:config-check` | Talos accepts the machine-config patches |
 | `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
 | `task cluster:upgrade-talos` | upgrade Talos, one node at a time |
