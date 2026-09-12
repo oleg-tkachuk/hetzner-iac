@@ -65,7 +65,7 @@ var Expected = []Workload{
 	{Chart: "metrics-server", Release: "metrics-server", Namespace: "kube-system", Kind: Deployment, Name: "metrics-server"},
 
 	// Layer 40 — ingress.
-	{Chart: "ingress-nginx", Release: "ingress-nginx", Namespace: "ingress-nginx", Kind: Deployment, Name: "ingress-nginx-controller"},
+	{Chart: "traefik", Release: "traefik", Namespace: "traefik", Kind: Deployment, Name: "traefik"},
 
 	// Layer 50 — GitOps.
 	{Chart: "argo-cd", Release: "argo-cd", Namespace: "argocd", Kind: Deployment, Name: "argo-cd-argocd-server"},

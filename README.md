@@ -21,7 +21,7 @@ platform onto it in independent, idempotent layers.
 infra/cluster              the only project that talks to the Hetzner API
   └─ exports kubeconfig ──► layers/10-node-platform       Cilium, hcloud CCM + CSI
                             layers/30-core                cert-manager, ESO, metrics-server
-                            layers/40-ingress             ingress-nginx
+                            layers/40-ingress             Traefik      
                             layers/50-gitops              Argo CD
                             layers/60-observability       Prometheus, Grafana, Loki, Tempo, Alloy
 ```

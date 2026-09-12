@@ -12,47 +12,94 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func values(t *testing.T) (controller, service, annotations, controllerConfig pulumi.Map) {
+// testNodeSubnet is what the cluster tier publishes as nodeSubnet.
+const testNodeSubnet = "10.0.1.0/24"
+
+func values(t *testing.T) pulumi.Map {
 	t.Helper()
 
-	all := IngressValues(pulumi.String("platform-prod-ingress"), pulumi.String("hel1"), DefaultLoadBalancerType)
+	return IngressValues(
+		pulumi.String("platform-prod-ingress"),
+		pulumi.String("hel1"),
+		pulumi.String(testNodeSubnet),
+		DefaultLoadBalancerType,
+	)
+}
 
-	controller, ok := all["controller"].(pulumi.Map)
-	require.True(t, ok)
+func nested(t *testing.T, in pulumi.Map, keys ...string) pulumi.Map {
+	t.Helper()
 
-	service, ok = controller["service"].(pulumi.Map)
-	require.True(t, ok)
+	for _, key := range keys {
+		next, ok := in[key].(pulumi.Map)
+		require.True(t, ok, "no map at %q", key)
 
-	annotations, ok = service["annotations"].(pulumi.Map)
-	require.True(t, ok)
+		in = next
+	}
 
-	controllerConfig, ok = controller["config"].(pulumi.Map)
-	require.True(t, ok)
+	return in
+}
 
-	return controller, service, annotations, controllerConfig
+func annotations(t *testing.T) pulumi.Map {
+	t.Helper()
+
+	return nested(t, values(t), "service", "annotations")
 }
 
 func TestIngressValues_ProxyProtocolIsSetOnBothSides(t *testing.T) {
 	t.Parallel()
 
 	// The annotation tells the load balancer to send the PROXY header; the
-	// controller config tells nginx to expect it. Enabling one alone makes
-	// every request fail to parse — which is why this is worth a test rather
-	// than a comment.
-	_, _, annotations, controllerConfig := values(t)
+	// entry point has to be told which addresses may send one. Enabling one
+	// side alone fails every request, which is why this is a test rather than
+	// a comment.
+	assert.Equal(t, pulumi.String("true"),
+		annotations(t)["load-balancer.hetzner.cloud/uses-proxyprotocol"])
 
-	assert.Equal(t, pulumi.String("true"), annotations["load-balancer.hetzner.cloud/uses-proxyprotocol"])
-	assert.Equal(t, pulumi.String("true"), controllerConfig[chartsettings.IngressUseProxyProtocol])
+	for _, entryPoint := range []string{
+		chartsettings.TraefikEntryPointWeb,
+		chartsettings.TraefikEntryPointTLS,
+	} {
+		trusted := nested(t, values(t),
+			chartsettings.TraefikPorts, entryPoint, chartsettings.TraefikProxyProtocol)
+
+		assert.Equal(t, pulumi.StringArray{pulumi.String(testNodeSubnet)},
+			trusted[chartsettings.TraefikTrustedIPs],
+			"entry point %q trusts nobody, so it rejects the header on every connection", entryPoint)
+	}
+}
+
+func TestIngressValues_TrustsOnlyTheNodeSubnet(t *testing.T) {
+	t.Parallel()
+
+	// The trust list decides who may claim to be someone else. It comes from
+	// the cluster tier, so it is the range the nodes are actually in — a
+	// wider one would accept a spoofed PROXY header from any pod.
+	trusted := nested(t, values(t),
+		chartsettings.TraefikPorts, chartsettings.TraefikEntryPointWeb,
+		chartsettings.TraefikProxyProtocol)
+
+	list, ok := trusted[chartsettings.TraefikTrustedIPs].(pulumi.StringArray)
+	require.True(t, ok)
+	require.Len(t, list, 1, "one range, the one the tier published")
 }
 
 func TestIngressValues_DoesNotTrustForwardedHeaders(t *testing.T) {
 	t.Parallel()
 
 	// With PROXY protocol carrying the real client address, also trusting
-	// X-Forwarded-For would accept a spoofed one.
-	_, _, _, controllerConfig := values(t)
+	// X-Forwarded-For would accept a spoofed one. Traefik's default is to
+	// trust nobody, so the assertion is that nothing here turns it on —
+	// setting the default explicitly would render identically and this test
+	// would not notice a later change that did.
+	for _, entryPoint := range []string{
+		chartsettings.TraefikEntryPointWeb,
+		chartsettings.TraefikEntryPointTLS,
+	} {
+		port := nested(t, values(t), chartsettings.TraefikPorts, entryPoint)
 
-	assert.Equal(t, pulumi.String("false"), controllerConfig[chartsettings.IngressUseForwardedHeaders])
+		assert.NotContains(t, port, "forwardedHeaders",
+			"entry point %q trusts a forwarded header, which PROXY protocol makes spoofable", entryPoint)
+	}
 }
 
 func TestIngressValues_ReachesNodesOverThePrivateNetwork(t *testing.T) {
@@ -60,20 +107,19 @@ func TestIngressValues_ReachesNodesOverThePrivateNetwork(t *testing.T) {
 
 	// Public targets would route traffic out of and back into Hetzner's
 	// network, and would need firewall rules that otherwise do not exist.
-	_, _, annotations, _ := values(t)
-
-	assert.Equal(t, pulumi.String("true"), annotations["load-balancer.hetzner.cloud/use-private-ip"])
+	assert.Equal(t, pulumi.String("true"),
+		annotations(t)["load-balancer.hetzner.cloud/use-private-ip"])
 }
 
 func TestIngressValues_AsksForALoadBalancerService(t *testing.T) {
 	t.Parallel()
 
-	// The Service type is the whole integration: the CCM only creates a load
-	// balancer for a Service of type LoadBalancer.
-	_, service, _, _ := values(t)
+	// The chart's service type is LoadBalancer by default, and the CCM only
+	// creates a load balancer for that type — so what this asserts is the
+	// part the layer sets: the traffic policy that keeps the client address.
+	spec := nested(t, values(t), "service", "spec")
 
-	assert.Equal(t, pulumi.String("LoadBalancer"), service["type"])
-	assert.Equal(t, pulumi.String("Local"), service["externalTrafficPolicy"])
+	assert.Equal(t, pulumi.String("Local"), spec["externalTrafficPolicy"])
 }
 
 func TestIngressValues_PlacementFollowsTheCluster(t *testing.T) {
@@ -81,35 +127,34 @@ func TestIngressValues_PlacementFollowsTheCluster(t *testing.T) {
 
 	// A load balancer in a different location than the nodes cannot use
 	// private-network targets.
-	_, _, annotations, _ := values(t)
+	got := annotations(t)
 
-	assert.Equal(t, pulumi.String("hel1"), annotations["load-balancer.hetzner.cloud/location"])
-	assert.Equal(t, pulumi.String("platform-prod-ingress"), annotations["load-balancer.hetzner.cloud/name"])
-	assert.Equal(t, pulumi.String(DefaultLoadBalancerType), annotations["load-balancer.hetzner.cloud/type"])
+	assert.Equal(t, pulumi.String("hel1"), got["load-balancer.hetzner.cloud/location"])
+	assert.Equal(t, pulumi.String("platform-prod-ingress"), got["load-balancer.hetzner.cloud/name"])
+	assert.Equal(t, pulumi.String(DefaultLoadBalancerType), got["load-balancer.hetzner.cloud/type"])
 }
 
-func TestIngressValues_RefusesSnippetAnnotations(t *testing.T) {
+func TestIngressValues_LeavesTheDashboardOff(t *testing.T) {
 	t.Parallel()
 
-	// Snippet annotations let any namespace inject nginx configuration, which
-	// is an escalation path out of a tenant namespace.
-	controller, _, _, _ := values(t)
-
-	assert.Equal(t, pulumi.Bool(false), controller["allowSnippetAnnotations"])
+	// Traefik's API serves the dashboard without authentication when
+	// `api.insecure` is on. Nothing here turns it on, and this test is what
+	// would notice if something did.
+	assert.NotContains(t, values(t), "api")
 }
 
 func TestIngressValues_SurvivesANodeFailure(t *testing.T) {
 	t.Parallel()
 
-	controller, _, _, _ := values(t)
+	all := values(t)
 
-	assert.Equal(t, pulumi.Int(2), controller["replicaCount"])
+	assert.Equal(t, pulumi.Int(ControllerReplicas),
+		nested(t, all, "deployment")["replicas"])
 
-	budget, ok := controller["podDisruptionBudget"].(pulumi.Map)
-	require.True(t, ok)
+	budget := nested(t, all, "podDisruptionBudget")
 	assert.Equal(t, pulumi.Bool(true), budget["enabled"])
 
-	spread, ok := controller["topologySpreadConstraints"].(pulumi.Array)
+	spread, ok := all["topologySpreadConstraints"].(pulumi.Array)
 	require.True(t, ok)
 	require.Len(t, spread, 1)
 
@@ -117,6 +162,12 @@ func TestIngressValues_SurvivesANodeFailure(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, pulumi.String("kubernetes.io/hostname"), constraint["topologyKey"],
 		"replicas must be spread across nodes, not just counted")
+
+	// The selector has to be a label the chart stamps on the pods. A
+	// constraint whose selector matches nothing is accepted by Kubernetes and
+	// does nothing at all.
+	labels := nested(t, constraint, "labelSelector", "matchLabels")
+	assert.Equal(t, pulumi.String("traefik"), labels["app.kubernetes.io/name"])
 }
 
 func TestComponents(t *testing.T) {

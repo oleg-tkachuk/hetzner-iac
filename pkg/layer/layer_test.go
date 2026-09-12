@@ -186,7 +186,7 @@ func TestRelease_IsAtomicAndWaitsForHookJobs(t *testing.T) {
 	m := newMocks()
 
 	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
-		_, err := runner.Release(layer.ReleaseArgs{Chart: "ingress-nginx"})
+		_, err := runner.Release(layer.ReleaseArgs{Chart: "cert-manager"})
 
 		return err
 	}))
@@ -196,9 +196,10 @@ func TestRelease_IsAtomicAndWaitsForHookJobs(t *testing.T) {
 	// Atomic: a failed upgrade rolls back instead of leaving half a release
 	// for the next run to inherit — which is what makes re-running converge.
 	assert.True(t, release["atomic"].BoolValue())
-	// WaitForJobs: ingress-nginx generates its admission-webhook certificate
-	// in a hook Job. Without waiting, the release reports ready while the
-	// webhook still has no certificate.
+	// WaitForJobs: cert-manager runs startupapicheck in a hook Job, and
+	// kube-prometheus-stack generates its webhook certificate in one.
+	// Without waiting, the release reports ready while the webhook still has
+	// no certificate.
 	assert.True(t, release["waitForJobs"].BoolValue())
 	// Helm keeps release history forever by default, which on a repeatedly
 	// reconciled platform becomes thousands of secrets.
