@@ -44,12 +44,19 @@ State lives in **Pulumi Cloud**, declared as `backend:` in every `Pulumi.yaml`
 so it is a property of the repository rather than of whoever last ran
 `pulumi login`.
 
-`pulumi config set --secret` writes the Hetzner token into
-`Pulumi.<stack>.yaml` as a `secure:` ciphertext, and those files are committed
-on purpose: the plaintext is recoverable only with the stack's key, which the
-backend holds and the repository does not. So the token is versioned with the
-code it configures, and cloning the repository grants nothing. Nothing here
-reads a plaintext secrets file, and none should be created.
+`task cluster:token` writes the Hetzner token into `Pulumi.<stack>.yaml` as a
+`secure:` ciphertext. It takes no `token=` argument on purpose: a credential
+passed as one lands in the shell history and in the process arguments, where
+`ps` shows it to every other user on the machine. Pulumi prompts for a value
+that is not on the command line and hides the input, and reads standard input
+when something is piped — so `pass hetzner/token | task cluster:token` works
+without the value ever reaching argv.
+
+Those files are committed on purpose: the plaintext is recoverable only with
+the stack's key, which the backend holds and the repository does not. So the
+token is versioned with the code it configures, and cloning the repository
+grants nothing. Nothing here reads a plaintext secrets file, and none should
+be created.
 
 An exported `HCLOUD_TOKEN` takes priority over the stack config, which is how
 CI passes a token it holds as a GitHub secret.

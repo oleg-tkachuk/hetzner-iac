@@ -58,6 +58,28 @@ tasks:
       # | jq -e` pipeline is three places to get it wrong.
       - go run {{.ROOT}}/tools/stack ensure "{{._CL_DIR}}" "{{._CL_STACK}}"
 
+  token:
+    desc: "Store the Hetzner API token in this stack, encrypted"
+    deps: [init]
+    cmds:
+      # No `token=` variable, deliberately. Passing a credential as a task
+      # argument writes it into the shell history and into the process
+      # arguments, where `ps` shows it to every other user on the machine.
+      #
+      # Pulumi prompts for a value that is not on the command line and hides
+      # the input, and it reads standard input when something is piped — so
+      # both the interactive and the scripted path keep the token out of argv:
+      #
+      #   task cluster:token stack=dev                 # prompts, hidden
+      #   pass hetzner/token | task cluster:token      # from a secret manager
+      #
+      # Interactive by necessity: --non-interactive would refuse to prompt.
+      - cmd: |
+          set -euo pipefail
+          cd "{{._CL_DIR}}"
+          pulumi --stack "{{._CL_STACK}}" config set --secret hcloud:token
+          echo "stored hcloud:token — encrypted in Pulumi.{{._CL_STACK}}.yaml, safe to commit"
+
   plan:
     desc: "Show what applying the cluster would change; change nothing"
     cmds:

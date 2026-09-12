@@ -31,6 +31,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 |------|------|
 | `task cluster:image-bake` | bake the Talos snapshot named by the topology; idempotent |
 | `task cluster:init` | create the Pulumi stack for this environment |
+| `task cluster:token` | store the Hetzner token in the stack, encrypted; prompts, or reads stdin |
 | `task cluster:plan` | show what applying would change |
 | `task cluster:apply` | provision or converge the cluster |
 | `task cluster:destroy` | delete the servers; asks first |
