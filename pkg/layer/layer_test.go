@@ -50,6 +50,7 @@ func (m *mocks) NewResource(args pulumi.MockResourceArgs) (string, resource.Prop
 				resource.PropertyKey(clusterref.OutputEndpoint):          resource.NewStringProperty("https://203.0.113.200:6443"),
 				resource.PropertyKey(clusterref.OutputAPILoadBalancerIP): resource.NewStringProperty(""),
 				resource.PropertyKey(clusterref.OutputNetworkID):         resource.NewNumberProperty(12637895),
+				resource.PropertyKey(clusterref.OutputNodeSubnet):        resource.NewStringProperty("10.0.1.0/24"),
 				resource.PropertyKey(clusterref.OutputPodCIDR):           resource.NewStringProperty("10.244.0.0/16"),
 				resource.PropertyKey(clusterref.OutputServiceCIDR):       resource.NewStringProperty("10.96.0.0/12"),
 				resource.PropertyKey(clusterref.OutputClusterName):       resource.NewStringProperty("platform-prod"),
