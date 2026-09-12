@@ -78,7 +78,14 @@ tasks:
       # tools/stack, because the same decision is made here, in platform:init
       # and in the preview workflow, and three copies of a `pulumi stack ls
       # | jq -e` pipeline is three places to get it wrong.
-      - go run {{.ROOT}}/tools/stack ensure "{{._CL_DIR}}" "{{._CL_STACK}}"
+      #
+      # It prints one word — created, or existing. The line is composed here
+      # because this task is a dependency of several others, and what those
+      # runs want in their output is the stack's name, not a path.
+      - cmd: |
+          set -euo pipefail
+          state="$(go run {{.ROOT}}/tools/stack ensure "{{._CL_DIR}}" "{{._CL_STACK}}")"
+          echo "cluster stack {{._CL_STACK}}: ${state}"
 
   token:
     desc: "Store the Hetzner API token in this stack, encrypted"
