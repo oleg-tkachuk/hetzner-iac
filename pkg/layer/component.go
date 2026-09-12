@@ -2,7 +2,7 @@ package layer
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
 
@@ -161,18 +161,32 @@ func (r *Runner) create(component Component, dependencies []pulumi.Resource) (pu
 		values = component.Values(r)
 	}
 
-	opts := make([]pulumi.ResourceOption, 0, 1)
-	if len(dependencies) > 0 {
-		opts = append(opts, pulumi.DependsOn(dependencies))
-	}
-
-	return r.Release(r.Ctx, ReleaseArgs{
+	return r.Release(ReleaseArgs{
 		Chart:          component.Chart,
 		Name:           component.Release,
 		Values:         values,
 		TimeoutSeconds: component.TimeoutSeconds,
 		SkipCRDs:       component.SkipCRDs,
-	}, opts...)
+	}, DependsOn(dependencies)...)
+}
+
+// DependsOn turns a Create component's dependencies into resource options.
+//
+// Nothing when there are none, which is the point: `pulumi.DependsOn(nil)` is
+// an option that says nothing, and the three places that needed this had
+// three different answers to that — one guarded the call with a length check,
+// one passed the empty option anyway, and one built the slice by hand. A
+// component that declines to create anything is absent from Deployed, so an
+// empty list is the ordinary case rather than an edge one.
+//
+// Exported because a layer's own Create function is handed the same slice and
+// has to do the same thing with it.
+func DependsOn(dependencies []pulumi.Resource) []pulumi.ResourceOption {
+	if len(dependencies) == 0 {
+		return nil
+	}
+
+	return []pulumi.ResourceOption{pulumi.DependsOn(dependencies)}
 }
 
 func resourcesFor(deployed Deployed, after []string) []pulumi.Resource {
@@ -186,6 +200,19 @@ func resourcesFor(deployed Deployed, after []string) []pulumi.Resource {
 
 	return out
 }
+
+// visitState is where the topological sort has got to with one component.
+//
+// Named rather than the bare 0/1/2 this used to carry with a comment
+// explaining them: a key found mid-visit is what closes a cycle, and that is
+// the one case a reader has to get right.
+type visitState int
+
+const (
+	unvisited visitState = iota
+	visiting
+	visitDone
+)
 
 // order returns the components sorted so that every After comes first.
 //
@@ -228,30 +255,31 @@ func order(components Components) (Components, error) {
 		keys = append(keys, key)
 	}
 
-	sort.Strings(keys)
+	slices.Sort(keys)
 
 	var (
 		ordered Components
-		state   = make(map[string]int, len(keys))
+		state   = make(map[string]visitState, len(keys))
 		visit   func(string, []string) error
 	)
 
-	// 1 is "being visited", 2 is "done". A key found at 1 closes a cycle.
 	visit = func(key string, path []string) error {
 		switch state[key] {
-		case 2:
+		case visitDone:
 			return nil
-		case 1:
+		case visiting:
 			return fmt.Errorf("components form a dependency cycle: %v", append(path, key))
+		case unvisited:
 		}
 
-		state[key] = 1
+		state[key] = visiting
 
 		component := byName[key]
 
-		dependencies := make([]string, len(component.After))
-		copy(dependencies, component.After)
-		sort.Strings(dependencies)
+		// A sorted copy: the component's own After must not be reordered,
+		// because a Components table is package-level data that outlives one
+		// ordering pass.
+		dependencies := slices.Sorted(slices.Values(component.After))
 
 		for _, dependency := range dependencies {
 			if _, ok := byName[dependency]; !ok {
@@ -265,7 +293,7 @@ func order(components Components) (Components, error) {
 			}
 		}
 
-		state[key] = 2
+		state[key] = visitDone
 
 		ordered = append(ordered, component)
 

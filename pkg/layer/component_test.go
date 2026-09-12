@@ -142,3 +142,14 @@ func TestOrder_RefusesACreateComponentWithNoName(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "has no Name")
 }
+
+func TestDependsOn(t *testing.T) {
+	t.Parallel()
+
+	// No dependencies must produce no option at all. `pulumi.DependsOn(nil)`
+	// is an option that says nothing, and handing one to every resource made
+	// the three callers disagree about whether to guard the call.
+	assert.Nil(t, layer.DependsOn(nil))
+	assert.Nil(t, layer.DependsOn([]pulumi.Resource{}))
+	assert.Len(t, layer.DependsOn([]pulumi.Resource{nil}), 1)
+}
