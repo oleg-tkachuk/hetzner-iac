@@ -44,7 +44,13 @@ import (
 // Bump it in the same commit that adds, removes or repurposes an output.
 // TestDeclared_ListsEveryOutputConstant pins the set, so a change to it fails
 // until this is deliberate.
-const ContractVersion = 1
+//
+// v2 added nodeSubnet. Traefik accepts a PROXY protocol header only from
+// addresses it is told to trust, and the Hetzner load balancer reaches the
+// nodes over the private network — so the ingress layer needs the subnet the
+// nodes sit in, and deriving it from a default would be a second copy of a
+// value the topology already decides.
+const ContractVersion = 2
 
 // Output names exported by the cluster tier. Renaming one is a breaking change
 // to every layer, which is why they are constants rather than literals.
@@ -55,6 +61,7 @@ const (
 	OutputEndpoint          = "endpoint"
 	OutputAPILoadBalancerIP = "apiLoadBalancerIp"
 	OutputNetworkID         = "networkId"
+	OutputNodeSubnet        = "nodeSubnet"
 	OutputPodCIDR           = "podCidr"
 	OutputServiceCIDR       = "serviceCidr"
 	OutputClusterName       = "clusterName"
@@ -74,6 +81,7 @@ var Declared = []string{
 	OutputEndpoint,
 	OutputAPILoadBalancerIP,
 	OutputNetworkID,
+	OutputNodeSubnet,
 	OutputPodCIDR,
 	OutputServiceCIDR,
 	OutputClusterName,
@@ -91,9 +99,16 @@ type Cluster struct {
 	// Kubeconfig is cluster-admin. It stays a secret output all the way
 	// through: a layer that logs it, or exports it again unwrapped, leaks it
 	// into that layer's state.
-	Kubeconfig  pulumi.StringOutput
-	Endpoint    pulumi.StringOutput
-	NetworkID   pulumi.IntOutput
+	Kubeconfig pulumi.StringOutput
+	Endpoint   pulumi.StringOutput
+	NetworkID  pulumi.IntOutput
+
+	// NodeSubnet is the private range the nodes are addressed in. A consumer
+	// needs it to decide which source addresses to trust: the load balancer
+	// reaches the nodes from inside this range, and Traefik rejects a PROXY
+	// header from anywhere it is not told about.
+	NodeSubnet pulumi.StringOutput
+
 	PodCIDR     pulumi.StringOutput
 	ServiceCIDR pulumi.StringOutput
 	ClusterName pulumi.StringOutput
@@ -155,6 +170,7 @@ func Resolve(ctx *pulumi.Context, ref string) (*Cluster, error) {
 		Kubeconfig:        stack.GetStringOutput(pulumi.String(OutputKubeconfig)),
 		Endpoint:          stack.GetStringOutput(pulumi.String(OutputEndpoint)),
 		NetworkID:         stack.GetIntOutput(pulumi.String(OutputNetworkID)),
+		NodeSubnet:        stack.GetStringOutput(pulumi.String(OutputNodeSubnet)),
 		PodCIDR:           stack.GetStringOutput(pulumi.String(OutputPodCIDR)),
 		ServiceCIDR:       stack.GetStringOutput(pulumi.String(OutputServiceCIDR)),
 		ClusterName:       stack.GetStringOutput(pulumi.String(OutputClusterName)),

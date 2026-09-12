@@ -252,6 +252,7 @@ func TestOutputNames_AreStable(t *testing.T) {
 	assert.Equal(t, "endpoint", clusterref.OutputEndpoint)
 	assert.Equal(t, "apiLoadBalancerIp", clusterref.OutputAPILoadBalancerIP)
 	assert.Equal(t, "networkId", clusterref.OutputNetworkID)
+	assert.Equal(t, "nodeSubnet", clusterref.OutputNodeSubnet)
 	assert.Equal(t, "podCidr", clusterref.OutputPodCIDR)
 	assert.Equal(t, "serviceCidr", clusterref.OutputServiceCIDR)
 	assert.Equal(t, "clusterName", clusterref.OutputClusterName)
@@ -318,6 +319,7 @@ func constantFor(t *testing.T, name string) string {
 		"OutputEndpoint":          clusterref.OutputEndpoint,
 		"OutputAPILoadBalancerIP": clusterref.OutputAPILoadBalancerIP,
 		"OutputNetworkID":         clusterref.OutputNetworkID,
+		"OutputNodeSubnet":        clusterref.OutputNodeSubnet,
 		"OutputPodCIDR":           clusterref.OutputPodCIDR,
 		"OutputServiceCIDR":       clusterref.OutputServiceCIDR,
 		"OutputClusterName":       clusterref.OutputClusterName,
