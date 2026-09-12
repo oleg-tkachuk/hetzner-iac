@@ -39,9 +39,10 @@ resources; `task cluster:destroy` and `task platform:destroy-all` remove them.
 cp infra/cluster/cluster.example.yaml infra/cluster/cluster.dev.yaml
 $EDITOR infra/cluster/cluster.dev.yaml
 
-# 2. Create the stack and set the token. This is the only place it is typed.
-task cluster:init stack=dev
-pulumi -C infra/cluster -s dev config set --secret hcloud:token <token>
+# 2. Create the stack and store the token. This is the only place it is
+#    typed; the task prompts and hides the input, so it never reaches the
+#    shell history. `pass hetzner/token | task cluster:token` also works.
+task cluster:token stack=dev
 
 # 3. Bake the Talos snapshot. Once per Talos version; idempotent.
 task cluster:image-bake stack=dev
