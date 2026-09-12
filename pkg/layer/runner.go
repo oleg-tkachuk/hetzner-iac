@@ -8,7 +8,7 @@
 //
 // Independence has a cost worth naming: ordering between layers is the
 // operator's responsibility, not Pulumi's. `task platform:apply` applies them
-// in order; applying 40-gitops against a cluster with no CNI will simply wait
+// in order; applying layers/50-gitops against a cluster with no CNI will simply
 // and then fail. That is the trade for being able to touch one layer without
 // planning the other four.
 package layer
@@ -71,14 +71,39 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 
 	provider, err := kubernetes.NewProvider(ctx, "k8s", &kubernetes.ProviderArgs{
 		Kubeconfig: cluster.Kubeconfig,
+		// What makes this provider's identity explicit instead of guessed.
+		//
+		// Without it the provider decides for itself whether a configuration
+		// change is an update or a replacement, and it gets that wrong in the
+		// expensive direction: this repository has already seen a plan to
+		// replace the provider — and with it every release and every secret
+		// in every layer — because one output threaded into the kubeconfig
+		// changed. With clusterIdentifier set, the provider is replaced only
+		// when this value changes, and everything else is an update.
+		//
+		// The cluster name rather than the endpoint, which also identifies a
+		// cluster but is not stable: scaling to three control planes puts an
+		// API load balancer in front of the same cluster, and replacing the
+		// whole platform for a new address would be the very mistake this
+		// setting exists to prevent. The name is this repository's own notion
+		// of cluster identity — it prefixes every node and scopes the
+		// firewall's label selector.
+		ClusterIdentifier: cluster.ClusterName,
 		// Server-side apply. It is what makes a re-run converge on a resource
 		// another controller also writes to — the field-manager conflict is
 		// reported rather than silently overwritten, which is the behaviour
 		// that makes these layers safe to apply repeatedly next to Argo CD.
 		EnableServerSideApply: pulumi.Bool(true),
-		// Refuse to act on a cluster that does not match the kubeconfig this
-		// stack resolved. Without it, a stale kubeconfig quietly targets
-		// whatever cluster now answers at that address.
+		// An unreachable cluster fails the operation instead of dropping
+		// every resource from state. The provider's own wording: set to true
+		// it "will delete resources associated with an unreachable Kubernetes
+		// cluster from Pulumi state" — so on a transient outage the next
+		// apply would believe nothing is installed and install it all again.
+		//
+		// This is the default; it is written out because the opposite reads
+		// like a cleanup convenience and is not one. It says nothing about
+		// cluster identity — that is `clusterIdentifier`, which this provider
+		// does not set.
 		DeleteUnreachable: pulumi.Bool(false),
 	})
 	if err != nil {

@@ -128,6 +128,16 @@ func TestNew_BuildsAProviderFromTheClusterKubeconfig(t *testing.T) {
 	// Server-side apply is what makes a re-run converge on a resource another
 	// controller also writes to, instead of silently overwriting it.
 	assert.True(t, providers[0]["enableServerSideApply"].BoolValue())
+
+	// The provider's identity, stated rather than guessed. Without it the
+	// provider decides for itself whether a configuration change is an update
+	// or a replacement, and a replacement takes every release and every
+	// secret in the layer with it.
+	assert.Equal(t, "platform-prod", providers[0]["clusterIdentifier"].StringValue(),
+		"the provider must be identified by the cluster it targets")
+
+	// An unreachable cluster must fail the operation, not empty the state.
+	assert.False(t, providers[0]["deleteUnreachable"].BoolValue())
 }
 
 func TestWith_DoesNotMutateTheSharedOptions(t *testing.T) {
@@ -154,7 +164,7 @@ func TestRelease_UsesThePinnedVersionFromTheRegistry(t *testing.T) {
 	m := newMocks()
 
 	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
-		_, err := runner.Release(runner.Ctx, layer.ReleaseArgs{Chart: "cilium"})
+		_, err := runner.Release(layer.ReleaseArgs{Chart: "cilium"})
 
 		return err
 	}))
@@ -175,7 +185,7 @@ func TestRelease_IsAtomicAndWaitsForHookJobs(t *testing.T) {
 	m := newMocks()
 
 	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
-		_, err := runner.Release(runner.Ctx, layer.ReleaseArgs{Chart: "ingress-nginx"})
+		_, err := runner.Release(layer.ReleaseArgs{Chart: "ingress-nginx"})
 
 		return err
 	}))
@@ -200,7 +210,7 @@ func TestRelease_RejectsAnUnpinnedChart(t *testing.T) {
 	// A layer can only name a registry key, so there is no spelling of
 	// Release that installs a chart nobody pinned.
 	err := run(t, newMocks(), func(runner *layer.Runner) error {
-		_, err := runner.Release(runner.Ctx, layer.ReleaseArgs{Chart: "not-registered"})
+		_, err := runner.Release(layer.ReleaseArgs{Chart: "not-registered"})
 
 		return err
 	})
@@ -215,7 +225,7 @@ func TestRelease_NameAndNamespaceOverrides(t *testing.T) {
 	m := newMocks()
 
 	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
-		_, err := runner.Release(runner.Ctx, layer.ReleaseArgs{
+		_, err := runner.Release(layer.ReleaseArgs{
 			Chart:     "loki",
 			Name:      "loki-primary",
 			Namespace: "logging",
@@ -238,7 +248,7 @@ func TestRelease_DefaultsTheReleaseNameToTheRegistryKey(t *testing.T) {
 	m := newMocks()
 
 	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
-		_, err := runner.Release(runner.Ctx, layer.ReleaseArgs{Chart: "argo-cd"})
+		_, err := runner.Release(layer.ReleaseArgs{Chart: "argo-cd"})
 
 		return err
 	}))
@@ -253,11 +263,11 @@ func TestRelease_TimeoutOverride(t *testing.T) {
 	m := newMocks()
 
 	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
-		if _, err := runner.Release(runner.Ctx, layer.ReleaseArgs{Chart: "cilium"}); err != nil {
+		if _, err := runner.Release(layer.ReleaseArgs{Chart: "cilium"}); err != nil {
 			return err
 		}
 
-		_, err := runner.Release(runner.Ctx, layer.ReleaseArgs{
+		_, err := runner.Release(layer.ReleaseArgs{
 			Chart:          "kube-prometheus-stack",
 			TimeoutSeconds: 1200,
 		})
