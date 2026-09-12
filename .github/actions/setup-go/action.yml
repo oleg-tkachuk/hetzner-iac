@@ -18,6 +18,14 @@ description: >
   So the roles are explicit here: `save` belongs to the priming job alone, and
   every other job takes `restore`.
 
+outputs:
+  cache-present:
+    description: >
+      "true" when the exact cache key already exists, so the caller can skip
+      work whose only purpose is to fill it. Set only for cache-mode: save —
+      a reader has nothing to decide.
+    value: ${{ steps.probe.outputs.cache-hit }}
+
 inputs:
   cache-mode:
     description: >
@@ -43,19 +51,10 @@ inputs:
 runs:
   using: composite
   steps:
-    # First, before the toolchain and before the cache is restored into it: a
-    # job that restores a 4.4 GB build cache onto a runner with 13.7 GB free
-    # needs the room to exist before anything asks for it.
-    #
-    # Only for the jobs that restore it, though. The space is needed BECAUSE
-    # of the cache, and `rm -rf` over five preinstalled toolchains is not the
-    # 24 seconds this action's description claims — measured across one run's
-    # ten jobs it ranged from 38 to 175 seconds, and the worst of those was
-    # checkov, which is a Python tool holding no cache at all. A job with
-    # cache-mode off keeps the runner's own 13.7 GB, which is what every
-    # non-Go tool here ran inside before this repository had a shared cache.
-    - if: inputs.cache-mode != 'off'
-      uses: ./.github/actions/free-disk
+    # The toolchain first, because the cache key names its version and the
+    # paths it caches are `go env` answers. It is 11 seconds and needs no room
+    # made for it: the failures below were a 2 GB cache expanding into a cold
+    # build, not a 200 MB toolchain.
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
       with:
         go-version-file: go.mod
@@ -70,6 +69,37 @@ runs:
         echo "mod=$(go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
         echo "build=$(go env GOCACHE)"  >>"$GITHUB_OUTPUT"
         echo "version=$(go env GOVERSION)" >>"$GITHUB_OUTPUT"
+
+    # Does the key this job would write already exist?
+    #
+    # lookup-only, and deliberately without restore-keys: a prefix match means
+    # a different go.sum, which is a key that genuinely needs filling. Only an
+    # exact hit means there is nothing to do — and in that case the cache
+    # action would refuse the save anyway ("Cache hit occurred on the primary
+    # key, not saving cache"), after spending 103 seconds restoring 2 GB and
+    # 113 compiling to produce it. Measured on the push that merged #73: 319
+    # seconds to write nothing.
+    - id: probe
+      if: inputs.cache-mode == 'save'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        lookup-only: true
+        path: |
+          ${{ steps.go-paths.outputs.mod }}
+          ${{ steps.go-paths.outputs.build }}
+        key: go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+
+    # Room for the cache, and only for the jobs that hold one.
+    #
+    # The space is needed BECAUSE of the cache, and `rm -rf` over five
+    # preinstalled toolchains is not the 24 seconds the action's description
+    # claimed — measured across one run's ten jobs it ranged from 38 to 175
+    # seconds, and the worst of those was checkov, a Python tool holding no
+    # cache at all. A job with cache-mode off keeps the runner's own 13.7 GB,
+    # which is what every non-Go tool here ran inside before this repository
+    # had a shared cache.
+    - if: inputs.cache-mode != 'off' && steps.probe.outputs.cache-hit != 'true'
+      uses: ./.github/actions/free-disk
 
     # The reader. actions/cache/restore never writes, so no consumer can take
     # the key from the priming job.
@@ -86,7 +116,14 @@ runs:
           go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
 
     # The writer. actions/cache restores and then saves at the end of the job.
-    - if: inputs.cache-mode == 'save'
+    #
+    # Skipped when the probe found the key, so nothing is restored to produce
+    # a save that would be refused. Note what this cannot become: the save
+    # only ever runs on a miss, and the caller's build is gated on the same
+    # answer — so there is no path where a cache is written without the build
+    # that fills it, which is the poisoning this arrangement was built to
+    # prevent.
+    - if: inputs.cache-mode == 'save' && steps.probe.outputs.cache-hit != 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
