@@ -126,9 +126,48 @@ information for the whole transitive graph, and processes `-concurrency` of
 them at once — defaulting to the core count, so fourteen large graphs at once
 on a developer machine. `GOSEC_FLAGS: -concurrency=4` in the Taskfile caps it.
 
-A docs-only change still reports every check: the jobs run and skip their
-expensive step, rather than being skipped themselves. A required check that
-never reports leaves the pull request waiting forever.
+**Setup, once the compile was no longer the cost.** With the cache working,
+what a run spent its time on was getting ready to work. Measured across the
+ten jobs of one pull-request run:
+
+- `free-disk`, which `rm -rf`s five preinstalled toolchains from inside
+  `setup-go`, took 38 to 175 seconds per job — up to fifteen minutes of runner
+  time per pull request, for a description that claimed 24 seconds. Both disk
+  failures it was written for were a job filling the runner with the shared
+  cache, so it runs only where that cache is restored.
+- Restoring the cache took 184 to 331 seconds. gitleaks scanned for two
+  seconds behind three hundred of it, trivy for fifteen, checkov — a Python
+  tool — for sixteen. Those jobs take `cache-mode: off`.
+- govulncheck was the one scanner with a real claim on the cache, since it
+  compiles the module. Measured with both arms in a single run: 234 seconds
+  with the cache, 70 without. It saves 26 seconds of work and costs 191 of
+  restore, so it takes `cache-mode: off` too.
+
+## What a change does not run
+
+`Changed paths` classifies the diff, and the jobs it gates carry a job-level
+`if:`. On a documentation-only pull request they never start a runner.
+
+That is safe because a job skipped by `if:` reports, with a `skipping`
+conclusion branch protection accepts as success — `Go build cache` has been
+doing exactly that on every pull request, being push-only. What leaves a
+required check unreported, and a branch waiting forever, is a workflow-level
+`paths:` filter. There is none here.
+
+The filter names what is **inert** — markdown, `docs/`, `LICENSE`,
+`.gitignore`, issue templates, images — rather than what is code. It was an
+inclusion list once, naming `.go`, `go.mod` and `.golangci.yaml`, and that is
+the wrong direction: the test suite asserts against `Taskfile.yaml`, the
+per-layer taskfiles, every layer's manifests and `Pulumi.yaml`, the committed
+topology and these workflows, so a change to any of them skipped the tests
+written to guard it. Excluding documentation cannot fail that way — a kind of
+file nobody has classified yet is relevant by default.
+
+Three tests in [tools/repo](../tools/repo) hold it: the classifier against a
+table of paths, and both directions of "every gate names an output that
+exists". A gate reading an output that does not exist — a rename, a typo —
+evaluates to the empty string and skips the job, which reports as skipped,
+which branch protection accepts. Nothing else would notice.
 
 # Chart upgrades arrive as pull requests
 
