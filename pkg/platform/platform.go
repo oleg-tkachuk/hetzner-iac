@@ -15,3 +15,12 @@ package platform
 // Pending, and the workload above it stays Pending with it — with no event on
 // the Deployment saying why.
 const StorageClass = "hcloud-volumes"
+
+// IngressClass is the class layers/40-ingress registers, and the one an
+// Ingress elsewhere has to ask for by name.
+//
+// It was the literal "nginx" in the gitops layer, which stopped being true
+// the moment Traefik replaced ingress-nginx: an Ingress naming a class no
+// controller owns is accepted by the API server and then ignored, so the
+// resource exists, looks right, and routes nothing.
+const IngressClass = "traefik"

@@ -36,6 +36,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
@@ -86,8 +87,8 @@ var Components = layer.Components{
 		Chart:   "hcloud-ccm",
 		Release: "hcloud-cloud-controller-manager",
 		After:   []string{CNIComponent, CredentialsSecret},
-		Values: func(r *layer.Runner) pulumi.Map {
-			return CCMValues(r.Cluster.PodCIDR)
+		ValuesYAML: func(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
+			return values.Asset("hcloud-ccm", CCMData(r.Cluster.PodCIDR))
 		},
 	},
 	{
@@ -98,6 +99,12 @@ var Components = layer.Components{
 		After: []string{CredentialsSecret, "hcloud-ccm"},
 	},
 }
+
+// KubePrismHost is where Cilium reaches the API server: KubePrism listens on
+// the node itself, so the CNI does not depend on one control-plane node's
+// life. The port is chartsettings.KubePrismPort, shared with the machine
+// config that enables it.
+const KubePrismHost = "localhost"
 
 // CNIComponent is the fixed name of whichever CNI is installed, so the
 // components that follow it name the role rather than the implementation.
@@ -121,7 +128,7 @@ func createCNI(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource
 	return r.Release(layer.ReleaseArgs{
 		Chart:          chosen.Chart,
 		TimeoutSeconds: CiliumTimeoutSeconds,
-		Values:         CiliumValues(r.Cluster.PodCIDR, r.Cluster.ControlPlaneCount),
+		ValuesYAML:     values.Asset(chosen.Chart, CiliumData(r.Cluster.PodCIDR, r.Cluster.ControlPlaneCount)),
 	}, layer.DependsOn(dependencies)...)
 }
 
@@ -197,7 +204,7 @@ func operatorReplicas(controlPlaneCount int) int {
 	return min(controlPlaneCount, OperatorReplicasWanted)
 }
 
-// CiliumValues builds the chart values.
+// The cilium values live in pkg/values/cilium.yaml.tmpl.
 //
 // It is a named function rather than an inline literal so the settings that
 // are coupled to decisions made in the cluster tier can be asserted in a test.
@@ -214,92 +221,20 @@ func operatorReplicas(controlPlaneCount int) int {
 //     this layer. With routes but no native routing the packets are
 //     encapsulated for no reason; with native routing but no routes they are
 //     dropped.
-func CiliumValues(podCIDR pulumi.StringInput, controlPlaneCount pulumi.IntInput) pulumi.Map {
-	return pulumi.Map{
-		"ipam": pulumi.Map{
-			// Addresses come from the Kubernetes node spec, which the CCM
-			// populates — one source of truth for pod CIDRs rather than
-			// Cilium keeping its own.
-			"mode": pulumi.String("kubernetes"),
-		},
-
-		// These three keys are constants rather than literals: Helm accepts an
-		// unknown key silently, so a typo here leaves the chart's default in
-		// place and the cluster starts with no service dataplane at all.
-		// task charts:render-check asserts their EFFECT on the rendered chart,
-		// reading the same constants.
-		chartsettings.CiliumKubeProxyReplacement: pulumi.Bool(true),
-		chartsettings.CiliumK8sServiceHost:       pulumi.String("localhost"),
-		chartsettings.CiliumK8sServicePort:       pulumi.Int(chartsettings.KubePrismPort),
-
-		// Native routing rather than an overlay: the CCM programmes a route
-		// per node inside the private network, so pod traffic needs no
-		// encapsulation. One fewer header, and readable packet captures.
-		"routingMode":           pulumi.String("native"),
-		"ipv4NativeRoutingCIDR": podCIDR,
-		"autoDirectNodeRoutes":  pulumi.Bool(true),
-		"endpointRoutes":        pulumi.Map{"enabled": pulumi.Bool(true)},
-		"bpf":                   pulumi.Map{"masquerade": pulumi.Bool(true)},
-		"enableIPv4Masquerade":  pulumi.Bool(true),
-		"enableIPv6Masquerade":  pulumi.Bool(false),
-		"ipv6":                  pulumi.Map{"enabled": pulumi.Bool(false)},
-		"loadBalancer":          pulumi.Map{"algorithm": pulumi.String("maglev")},
-		"externalIPs":           pulumi.Map{"enabled": pulumi.Bool(true)},
-		"nodePort":              pulumi.Map{"enabled": pulumi.Bool(true)},
-		"hostPort":              pulumi.Map{"enabled": pulumi.Bool(true)},
-		"socketLB":              pulumi.Map{"hostNamespaceOnly": pulumi.Bool(true)},
-
-		// Talos mounts the cgroup filesystem itself and runs a read-only
-		// root, so Cilium must not try to mount it and must be granted the
-		// capabilities it would otherwise take by running fully privileged.
-		"cgroup": pulumi.Map{
-			"autoMount": pulumi.Map{"enabled": pulumi.Bool(false)},
-			"hostRoot":  pulumi.String("/sys/fs/cgroup"),
-		},
-		"securityContext": pulumi.Map{
-			"capabilities": pulumi.Map{
-				"ciliumAgent": pulumi.ToStringArray([]string{
-					"CHOWN", "KILL", "NET_ADMIN", "NET_RAW", "IPC_LOCK",
-					"SYS_ADMIN", "SYS_RESOURCE", "DAC_OVERRIDE", "FOWNER",
-					"SETGID", "SETUID",
-				}),
-				"cleanCiliumState": pulumi.ToStringArray([]string{
-					"NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE",
-				}),
-			},
-		},
-
-		// Two operator replicas so reconciliation of Cilium's own custom
-		// resources survives a node failure — but only where two can run. See
-		// operatorReplicas.
-		"operator": pulumi.Map{
-			"replicas": controlPlaneCount.ToIntOutput().ApplyT(operatorReplicas),
-			"prometheus": pulumi.Map{
-				"enabled": pulumi.Bool(true),
-				// ServiceMonitors belong to the observability layer, which
-				// owns the Prometheus operator CRDs. Creating one here would
-				// make this layer fail on a cluster where that layer is not
-				// installed — and the layers are meant to be independent.
-				"serviceMonitor": pulumi.Map{"enabled": pulumi.Bool(false)},
-			},
-		},
-		"prometheus": pulumi.Map{
-			"enabled":        pulumi.Bool(true),
-			"serviceMonitor": pulumi.Map{"enabled": pulumi.Bool(false)},
-		},
-
-		"hubble": pulumi.Map{
-			"enabled": pulumi.Bool(true),
-			"relay":   pulumi.Map{"enabled": pulumi.Bool(true)},
-			"ui":      pulumi.Map{"enabled": pulumi.Bool(true)},
-			"metrics": pulumi.Map{
-				"enabled": pulumi.ToStringArray([]string{
-					"dns", "drop", "tcp", "flow", "port-distribution", "icmp",
-				}),
-				"serviceMonitor": pulumi.Map{"enabled": pulumi.Bool(false)},
-			},
-		},
-	}
+//
+// CiliumData resolves what the cilium template needs.
+//
+// Separated from the component so a test can render the template without a
+// Pulumi run.
+func CiliumData(podCIDR pulumi.StringInput, controlPlaneCount pulumi.IntInput) pulumi.Output {
+	return pulumi.All(podCIDR, controlPlaneCount).ApplyT(func(resolved []any) any {
+		return values.Cilium{
+			PodCIDR:          resolved[0].(string),
+			APIHost:          KubePrismHost,
+			APIPort:          chartsettings.KubePrismPort,
+			OperatorReplicas: operatorReplicas(resolved[1].(int)),
+		}
+	})
 }
 
 // resolveToken decides where the Hetzner API token comes from.
@@ -350,31 +285,9 @@ func resolveToken(r *layer.Runner) pulumi.StringOutput {
 		}))
 }
 
-// CCMValues builds the cloud-controller-manager values.
-func CCMValues(podCIDR pulumi.StringInput) pulumi.Map {
-	return pulumi.Map{
-		"networking": pulumi.Map{
-			// Route controller on: the CCM writes a route per node into the
-			// private network, which is what lets Cilium use native routing
-			// instead of an overlay.
-			"enabled":     pulumi.Bool(true),
-			"clusterCIDR": podCIDR,
-		},
-		"env": pulumi.Map{
-			"HCLOUD_TOKEN":   SecretRef("token"),
-			"HCLOUD_NETWORK": SecretRef("network"),
-		},
-	}
-}
-
-// SecretRef renders the env-var-from-secret shape both charts expect.
-func SecretRef(key string) pulumi.Map {
-	return pulumi.Map{
-		"valueFrom": pulumi.Map{
-			"secretKeyRef": pulumi.Map{
-				"name": pulumi.String(CredentialsSecret),
-				"key":  pulumi.String(key),
-			},
-		},
-	}
+// CCMData resolves what the cloud-controller-manager template needs.
+func CCMData(podCIDR pulumi.StringInput) pulumi.Output {
+	return podCIDR.ToStringOutput().ApplyT(func(cidr string) any {
+		return values.CCM{PodCIDR: cidr, SecretName: CredentialsSecret}
+	})
 }
