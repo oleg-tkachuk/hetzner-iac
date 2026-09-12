@@ -105,3 +105,35 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 			"the traefik template no longer spells %q the way the render check asserts it", key)
 	}
 }
+
+func TestArgoCD_AnUnsetDomainStaysAnEmptyString(t *testing.T) {
+	t.Parallel()
+
+	// The regression this exists for, and it cost seventeen minutes of a
+	// deploy before the release rolled back.
+	//
+	// `domain: {{ .Domain }}` renders as YAML null when the domain is unset,
+	// and this chart interpolates null straight into argocd-cm — measured
+	// against the chart itself:
+	//
+	//     domain: ""   ->  url: https://
+	//     domain:      ->  url: https://%!s(<nil>)
+	//
+	// The server then runs with a nonsense URL, never becomes available, and
+	// Helm waits out its whole timeout with the cause nowhere in the output.
+	rendered, err := values.Render("argo-cd", values.ArgoCD{
+		Domain: "", IngressClass: "traefik", Issuer: "letsencrypt", Replicas: 2,
+	})
+	require.NoError(t, err)
+
+	var out map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(rendered), &out))
+
+	global, ok := out["global"].(map[string]any)
+	require.True(t, ok)
+
+	domain, present := global["domain"]
+	require.True(t, present, "global.domain must be set, not absent")
+	assert.Equal(t, "", domain,
+		"an unset domain must reach the chart as an empty string, never as null")
+}
