@@ -7,7 +7,7 @@ package main
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -141,9 +141,7 @@ func LatestStable(versions []string) (Version, bool) {
 		return Version{}, false
 	}
 
-	sort.Slice(stable, func(i, j int) bool {
-		return stable[i].Compare(stable[j]) < 0
-	})
-
-	return stable[len(stable)-1], true
+	// The maximum, rather than a sort and the last element: this asks for one
+	// version and the order of the rest is not used for anything.
+	return slices.MaxFunc(stable, Version.Compare), true
 }
