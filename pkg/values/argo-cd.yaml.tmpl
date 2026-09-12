@@ -5,7 +5,16 @@
 # workloads, not the work.
 
 global:
-  domain: {{ .Domain }}
+  # Quoted, so an unset domain stays an empty string. Unquoted it renders as
+  # YAML null, and this chart interpolates that straight into argocd-cm:
+  #
+  #     domain: ""   ->  url: https://
+  #     domain:      ->  url: https://%!s(<nil>)
+  #
+  # The server then runs with a nonsense URL in its configuration, never
+  # becomes available, and Helm rolls the release back after its whole
+  # timeout — seventeen minutes, with the cause nowhere in the output.
+  domain: {{ printf "%q" .Domain }}
 
 # The application controller is the component that actually reconciles. It is
 # deliberately single-replica: sharding it needs configuration that only pays
