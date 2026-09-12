@@ -46,21 +46,60 @@ func TestTasks_ThatNeedAStackSaySoWhenItIsMissing(t *testing.T) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
-		for name, body := range tasksIn(string(raw)) {
+		tasks := tasksIn(string(raw))
+
+		for name, body := range tasks {
 			if !needsStack(body) {
 				continue
 			}
 
 			checked++
 
-			assert.True(t,
-				strings.Contains(body, stackGuard) || strings.Contains(body, "deps:"),
-				"%s in %s reads the stack but nothing says so when it is missing",
+			if strings.Contains(body, stackGuard) {
+				continue
+			}
+
+			// No guard of its own is allowed only when a dependency carries
+			// one: Task runs dependencies before a task's own preconditions,
+			// so the dependency's guard fires first and a second one here
+			// would be unreachable.
+			//
+			// Resolved rather than assumed. Exempting anything with a `deps:`
+			// would let a task depend on an unguarded one and reach Pulumi
+			// with an empty --stack.
+			deps := dependenciesOf(body)
+			require.NotEmpty(t, deps,
+				"%s in %s reads the stack, has no guard, and depends on nothing that could carry one",
 				name, filepath.Base(path))
+
+			for _, dep := range deps {
+				assert.Contains(t, tasks[dep], stackGuard,
+					"%s in %s relies on %s for its stack guard, and %s has none",
+					name, filepath.Base(path), dep, dep)
+			}
 		}
 	}
 
 	assert.Positive(t, checked, "no task reads a stack — this test is checking nothing")
+}
+
+// dependencies matches the inline list form this repository uses.
+var dependencies = regexp.MustCompile(`deps: \[([^\]]+)\]`)
+
+// dependenciesOf names the tasks a body declares as dependencies.
+func dependenciesOf(body string) []string {
+	match := dependencies.FindStringSubmatch(body)
+	if match == nil {
+		return nil
+	}
+
+	var out []string
+
+	for _, dep := range strings.Split(match[1], ",") {
+		out = append(out, strings.TrimSpace(dep))
+	}
+
+	return out
 }
 
 // needsStack reports whether a task body reads the stack in any of its
