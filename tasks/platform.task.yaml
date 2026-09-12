@@ -14,6 +14,9 @@ silent: true
 vars:
   _PL_STACK: '{{.stack}}'
   _PL_LAYERS: '{{.LAYERS}}'
+  # init's row format, at the same layer-name width status prints, so the two
+  # tables line up. A name past the width pushes its own row and no other.
+  _PL_ROW: '%-24s %-9s %s'
 
 tasks:
   layers:
@@ -93,15 +96,27 @@ tasks:
       - sh: '[ -n "{{.ref}}" ]'
         msg: "{{._REF_USAGE}}"
     cmds:
+      # One row per layer, in the same shape platform:status prints. It used to
+      # be two sentences per layer — an absolute path, and the cluster
+      # reference repeated six times — which is twelve lines saying two
+      # things: which stacks are new, and that they all point at the same
+      # cluster. Both are said once here.
       - cmd: |
           set -euo pipefail
+
+          echo "stack {{._PL_STACK}} → cluster {{.ref}}"
+          echo
+          printf '{{._PL_ROW}}\n' LAYER STACK "CLUSTER REF"
+
           for layer in {{._PL_LAYERS}}; do
             ( cd "{{.ROOT}}/layers/${layer}"
               project="$(grep -m1 '^name:' Pulumi.yaml | awk '{print $2}')"
-              # tools/stack makes the whole decision. `init || select` hides
-              # why init failed and blames the wrong command for it, and the
-              # jq pipeline that replaced it was the third copy of itself.
-              go run "{{.ROOT}}/tools/stack" ensure "{{.ROOT}}/layers/${layer}" "{{._PL_STACK}}"
+
+              # tools/stack makes the whole decision, and prints one word for
+              # what it did. `init || select` hides why init failed and blames
+              # the wrong command for it, and the jq pipeline that replaced it
+              # was the third copy of itself.
+              state="$(go run "{{.ROOT}}/tools/stack" ensure "{{.ROOT}}/layers/${layer}" "{{._PL_STACK}}")"
 
               # Only layers that declare the key get it. Every layer does
               # today; the guard stays because a layer with no cluster in it is
@@ -114,11 +129,16 @@ tasks:
               # repository already got wrong once in cluster:image-bake.
               if grep -q 'clusterStackRef' Pulumi.yaml; then
                 pulumi --non-interactive --stack "{{._PL_STACK}}" config set "${project}:clusterStackRef" "{{.ref}}"
-                echo "${layer}: pointed at {{.ref}}"
+                reference=set
               else
-                echo "${layer}: no cluster reference to set"
-              fi )
+                reference="not declared"
+              fi
+
+              printf '{{._PL_ROW}}\n' "$layer" "$state" "$reference" )
           done
+
+          echo
+          echo "next: task platform:plan-all stack={{._PL_STACK}}"
 
   plan:
     desc: "Preview one layer — task platform:plan stack=dev layer=10-node-platform"
