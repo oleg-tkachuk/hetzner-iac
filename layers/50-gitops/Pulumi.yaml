@@ -19,16 +19,10 @@ description: |
 # history, and manages the secrets encryption key, none of which a DIY backend
 # does for you.
 #
-# To keep state at Hetzner instead — one vendor, data in the EU — override the
-# URL and nothing else changes:
-#
-#   export PULUMI_BACKEND_URL='s3://<bucket>?endpoint=fsn1.your-objectstorage.com&s3ForcePathStyle=true&region=fsn1'
-#   export AWS_ACCESS_KEY_ID=...      # the Object Storage credentials
-#   export AWS_SECRET_ACCESS_KEY=...
-#   export PULUMI_CONFIG_PASSPHRASE=... # a DIY backend encrypts secrets with this
-#
-# The bucket has to exist first: a bucket managed by the state it holds cannot
-# create itself.
+# To keep state in your own S3 bucket instead — one vendor, data in the EU —
+# point this url at it. That also changes how stack secrets are encrypted,
+# which changes whether Pulumi.<stack>.yaml may be committed: see
+# docs/configuration.md, "Keeping state in your own S3 bucket".
 backend:
   url: https://api.pulumi.com
 
