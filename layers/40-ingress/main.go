@@ -30,30 +30,6 @@ const ControllerReplicas = 2
 // after.
 const Chart = "traefik"
 
-// Ingress is what pkg/values/traefik.yaml.tmpl is executed against.
-//
-// A struct rather than a map so a field the template names and the data does
-// not have fails the render, instead of quietly leaving an empty string in a
-// values file.
-type Ingress struct {
-	// Replicas is the controller count.
-	Replicas int
-
-	// Name and Location are what the cloud controller manager builds the load
-	// balancer from.
-	Name     string
-	Location string
-
-	// LoadBalancerType is the Hetzner type, from stack config.
-	LoadBalancerType string
-
-	// NodeSubnet is the range Traefik trusts a PROXY protocol header from. It
-	// comes from the cluster tier rather than a constant here: the load
-	// balancer reaches the nodes privately, so the header arrives from inside
-	// the range the topology assigns.
-	NodeSubnet string
-}
-
 // Components are what this layer deploys. One of them — what the table buys
 // here is the enumeration: layertest asserts the chart is pinned and that
 // pkg/workloads knows what it produces.
@@ -79,7 +55,7 @@ func renderValues(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
 func IngressData(clusterName, location, nodeSubnet pulumi.StringInput, loadBalancerType string) pulumi.Output {
 	return pulumi.All(clusterName, location, nodeSubnet).
 		ApplyT(func(resolved []any) any {
-			return Ingress{
+			return values.Traefik{
 				Replicas: ControllerReplicas,
 				// The load balancer's name carries the cluster's, so two
 				// clusters in one project do not collide on it.

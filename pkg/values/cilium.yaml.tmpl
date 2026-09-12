@@ -1,0 +1,104 @@
+# Cilium, the CNI and the service dataplane.
+#
+# The cluster tier writes `proxy: {disabled: true}` into the Talos machine
+# config, so kubeProxyReplacement below is not an optimisation: without it the
+# cluster has no service dataplane at all and every ClusterIP blackholes.
+
+ipam:
+  # Addresses come from the Kubernetes node spec, which the CCM populates —
+  # one source of truth for pod CIDRs rather than Cilium keeping its own.
+  mode: kubernetes
+
+# These three are the settings whose misspelling fails silently: Helm accepts
+# an unknown key, the chart keeps its default, and the cluster starts wrong
+# with nothing said. task charts:render-check asserts their effect on the
+# rendered chart, and a test asserts they are still spelled this way.
+kubeProxyReplacement: true
+k8sServiceHost: {{ .APIHost }}
+k8sServicePort: {{ .APIPort }}
+
+# Native routing rather than an overlay: the CCM programmes a route per node
+# inside the private network, so pod traffic needs no encapsulation. One fewer
+# header, and readable packet captures.
+routingMode: native
+ipv4NativeRoutingCIDR: {{ .PodCIDR }}
+autoDirectNodeRoutes: true
+endpointRoutes:
+  enabled: true
+bpf:
+  masquerade: true
+enableIPv4Masquerade: true
+enableIPv6Masquerade: false
+ipv6:
+  enabled: false
+loadBalancer:
+  algorithm: maglev
+externalIPs:
+  enabled: true
+nodePort:
+  enabled: true
+hostPort:
+  enabled: true
+socketLB:
+  hostNamespaceOnly: true
+
+# Talos mounts the cgroup filesystem itself and runs a read-only root, so
+# Cilium must not try to mount it, and must be granted the capabilities it
+# would otherwise take by running fully privileged.
+cgroup:
+  autoMount:
+    enabled: false
+  hostRoot: /sys/fs/cgroup
+securityContext:
+  capabilities:
+    ciliumAgent:
+      - CHOWN
+      - KILL
+      - NET_ADMIN
+      - NET_RAW
+      - IPC_LOCK
+      - SYS_ADMIN
+      - SYS_RESOURCE
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    cleanCiliumState:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_RESOURCE
+
+operator:
+  # Two replicas so reconciliation of Cilium's own custom resources survives a
+  # node failure — but only where two can run: each binds a host port, so on a
+  # single-node cluster the second stays Pending for ever.
+  replicas: {{ .OperatorReplicas }}
+  prometheus:
+    enabled: true
+    # ServiceMonitors belong to layers/60-observability, which owns the
+    # Prometheus operator CRDs. One here would make this layer fail on a
+    # cluster where that layer is not installed.
+    serviceMonitor:
+      enabled: false
+
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+  metrics:
+    enabled:
+      - dns
+      - drop
+      - tcp
+      - flow
+      - port-distribution
+      - icmp
+    serviceMonitor:
+      enabled: false

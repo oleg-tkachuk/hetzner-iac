@@ -1,0 +1,17 @@
+# cert-manager.
+
+crds:
+  # CRDs come with the release. Managing them separately is right when several
+  # things install cert-manager; this cluster has one.
+  enabled: true
+  # Leave them behind on uninstall. Removing the CRDs deletes every
+  # Certificate and Issuer in the cluster — a far larger action than
+  # uninstalling a chart, and not one an uninstall should imply.
+  keep: true
+
+prometheus:
+  enabled: true
+  # Owned by layers/60-observability, which installs the operator CRDs. A
+  # ServiceMonitor here would be a resource whose kind does not exist yet.
+  servicemonitor:
+    enabled: false

@@ -5,20 +5,22 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 // These assertions pin the settings that couple this layer to decisions made
@@ -26,15 +28,62 @@ import (
 // a cluster that comes up and then misbehaves, which is the expensive kind of
 // mistake to find.
 
+// ciliumValues is the values YAML this layer would hand Helm, parsed.
+//
+// Through the template rather than around it: the rendered file is what
+// reaches the chart, so a test reading a Go map would check something Helm
+// never sees.
+func ciliumValues(t *testing.T, controlPlaneCount int) map[string]any {
+	t.Helper()
+
+	return render(t, "cilium", CiliumData(
+		pulumi.String(testPodCIDR), pulumi.Int(controlPlaneCount)))
+}
+
+func ccmValues(t *testing.T) map[string]any {
+	t.Helper()
+
+	return render(t, "hcloud-ccm", CCMData(pulumi.String(testPodCIDR)))
+}
+
+func render(t *testing.T, chart string, data pulumi.Output) map[string]any {
+	t.Helper()
+
+	resolvedData, err := internals.UnsafeAwaitOutput(t.Context(), data)
+	require.NoError(t, err)
+
+	text, err := values.Render(chart, resolvedData.Value)
+	require.NoError(t, err)
+
+	var out map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(text), &out), "%s must render valid yaml", chart)
+
+	return out
+}
+
+func nestedMap(t *testing.T, in map[string]any, keys ...string) map[string]any {
+	t.Helper()
+
+	for _, key := range keys {
+		next, ok := in[key].(map[string]any)
+		require.True(t, ok, "no map at %q", key)
+
+		in = next
+	}
+
+	return in
+}
+
+// testPodCIDR is what the cluster tier publishes as podCidr.
+const testPodCIDR = "10.244.0.0/16"
+
 func TestCiliumValues_ReplacesKubeProxy(t *testing.T) {
 	t.Parallel()
 
 	// Talos was configured with kube-proxy disabled. Without the replacement
 	// the cluster has no service dataplane and every ClusterIP blackholes —
 	// with no error anywhere.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
-
-	assert.Equal(t, pulumi.Bool(true), values[chartsettings.CiliumKubeProxyReplacement])
+	assert.Equal(t, true, ciliumValues(t, 3)[chartsettings.CiliumKubeProxyReplacement])
 }
 
 func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
@@ -43,10 +92,10 @@ func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
 	// A node-local load balancer over the control plane: Cilium keeps working
 	// while a control-plane node is being replaced. Pointing at a node address
 	// instead would tie the CNI to one control-plane node's life.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
+	rendered := ciliumValues(t, 3)
 
-	assert.Equal(t, pulumi.String("localhost"), values[chartsettings.CiliumK8sServiceHost])
-	assert.Equal(t, pulumi.Int(chartsettings.KubePrismPort), values[chartsettings.CiliumK8sServicePort])
+	assert.Equal(t, KubePrismHost, rendered[chartsettings.CiliumK8sServiceHost])
+	assert.Equal(t, float64(chartsettings.KubePrismPort), rendered[chartsettings.CiliumK8sServicePort])
 	assert.Equal(t, 7445, chartsettings.KubePrismPort,
 		"KubePrism port must match the machine config written by the cluster tier")
 }
@@ -54,15 +103,14 @@ func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
 func TestCiliumValues_UsesNativeRoutingOverThePodCIDR(t *testing.T) {
 	t.Parallel()
 
-	// Native routing depends on the CCM's route controller from
-	// 10-cloud-integration. The pod CIDR has to be the cluster's actual one:
-	// a wrong value here masquerades traffic that should be routed.
-	podCIDR := pulumi.String("10.244.0.0/16")
-	values := CiliumValues(podCIDR, pulumi.Int(3))
+	// Native routing depends on the CCM's route controller from this layer.
+	// The pod CIDR has to be the cluster's actual one: a wrong value here
+	// masquerades traffic that should be routed.
+	rendered := ciliumValues(t, 3)
 
-	assert.Equal(t, pulumi.String("native"), values["routingMode"])
-	assert.Equal(t, podCIDR, values["ipv4NativeRoutingCIDR"])
-	assert.Equal(t, pulumi.Bool(true), values["autoDirectNodeRoutes"])
+	assert.Equal(t, "native", rendered["routingMode"])
+	assert.Equal(t, testPodCIDR, rendered["ipv4NativeRoutingCIDR"])
+	assert.Equal(t, true, rendered["autoDirectNodeRoutes"])
 }
 
 func TestCiliumValues_AccommodatesTalosCgroups(t *testing.T) {
@@ -70,16 +118,10 @@ func TestCiliumValues_AccommodatesTalosCgroups(t *testing.T) {
 
 	// Talos mounts cgroups itself and runs a read-only root. Letting Cilium
 	// automount produces an agent that crash-loops on start.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
+	cgroup := nestedMap(t, ciliumValues(t, 3), "cgroup")
 
-	cgroup, ok := values["cgroup"].(pulumi.Map)
-	require.True(t, ok)
-
-	autoMount, ok := cgroup["autoMount"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.Bool(false), autoMount["enabled"])
-	assert.Equal(t, pulumi.String("/sys/fs/cgroup"), cgroup["hostRoot"])
+	assert.Equal(t, false, nestedMap(t, cgroup, "autoMount")["enabled"])
+	assert.Equal(t, "/sys/fs/cgroup", cgroup["hostRoot"])
 }
 
 func TestCiliumValues_GrantsTheCapabilitiesTalosRequires(t *testing.T) {
@@ -88,18 +130,11 @@ func TestCiliumValues_GrantsTheCapabilitiesTalosRequires(t *testing.T) {
 	// Under Talos the agent is not fully privileged, so every capability it
 	// needs has to be named. A missing one shows up as an agent that starts
 	// and then fails to programme eBPF.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
+	capabilities := nestedMap(t, ciliumValues(t, 3), "securityContext", "capabilities")
 
-	securityContext, ok := values["securityContext"].(pulumi.Map)
+	granted, ok := capabilities["ciliumAgent"].([]any)
 	require.True(t, ok)
 
-	capabilities, ok := securityContext["capabilities"].(pulumi.Map)
-	require.True(t, ok)
-
-	agent, ok := capabilities["ciliumAgent"].(pulumi.StringArrayInput)
-	require.True(t, ok)
-
-	granted := resolveStrings(t, agent)
 	for _, capability := range []string{
 		"NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_RESOURCE", "IPC_LOCK",
 	} {
@@ -110,61 +145,22 @@ func TestCiliumValues_GrantsTheCapabilitiesTalosRequires(t *testing.T) {
 func TestCiliumValues_CreatesNoServiceMonitors(t *testing.T) {
 	t.Parallel()
 
-	// The Prometheus operator CRDs belong to 60-observability. A
+	// The Prometheus operator CRDs belong to layers/60-observability. A
 	// ServiceMonitor here would make this layer fail on a cluster where that
 	// layer is not installed, which would break the independence the whole
 	// layout is for.
-	values := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(3))
+	rendered := ciliumValues(t, 3)
 
-	prometheus, ok := values["prometheus"].(pulumi.Map)
-	require.True(t, ok)
-
-	prometheusMonitor, ok := prometheus["serviceMonitor"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.Bool(false), prometheusMonitor["enabled"])
-
-	// Hubble nests its monitor under metrics rather than at the top level —
-	// which is exactly the kind of shape a test should pin, because setting
-	// the wrong key silently leaves the monitor enabled.
-	hubble, ok := values["hubble"].(pulumi.Map)
-	require.True(t, ok)
-
-	hubbleMetrics, ok := hubble["metrics"].(pulumi.Map)
-	require.True(t, ok)
-
-	hubbleMonitor, ok := hubbleMetrics["serviceMonitor"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.Bool(false), hubbleMonitor["enabled"])
-
-	operator, ok := values["operator"].(pulumi.Map)
-	require.True(t, ok)
-
-	operatorPrometheus, ok := operator["prometheus"].(pulumi.Map)
-	require.True(t, ok)
-
-	monitor, ok := operatorPrometheus["serviceMonitor"].(pulumi.Map)
-	require.True(t, ok)
-	assert.Equal(t, pulumi.Bool(false), monitor["enabled"])
-}
-
-// resolveStrings pulls the plain values out of a StringArrayInput built from
-// literals, which is all these values ever are.
-func resolveStrings(t *testing.T, input pulumi.StringArrayInput) []string {
-	t.Helper()
-
-	array, ok := input.(pulumi.StringArray)
-	require.True(t, ok, "expected a literal StringArray")
-
-	out := make([]string, 0, len(array))
-
-	for _, item := range array {
-		value, ok := item.(pulumi.String)
-		require.True(t, ok)
-
-		out = append(out, string(value))
+	// Three places, and the nesting differs in each — which is exactly the
+	// shape a test should pin, because setting the wrong key silently leaves
+	// the monitor enabled.
+	for _, path := range [][]string{
+		{"prometheus", "serviceMonitor"},
+		{"hubble", "metrics", "serviceMonitor"},
+		{"operator", "prometheus", "serviceMonitor"},
+	} {
+		assert.Equal(t, false, nestedMap(t, rendered, path...)["enabled"], path)
 	}
-
-	return out
 }
 
 func TestOperatorReplicas_CapsAtOnePerControlPlaneNode(t *testing.T) {
@@ -200,27 +196,14 @@ func TestCiliumValues_SizesTheOperatorFromTheClusterCount(t *testing.T) {
 	t.Parallel()
 
 	// operatorReplicas is tested above on plain numbers; this is the wiring —
-	// that its result is what reaches the chart, on the key the chart reads.
-	operator, ok := CiliumValues(pulumi.String("10.244.0.0/16"), pulumi.Int(1))["operator"].(pulumi.Map)
-	require.True(t, ok)
+	// that its result reaches the chart, on the key the chart reads. The count
+	// comes from another stack, so what is asserted is the rendered value for
+	// a given published count.
+	assert.Equal(t, float64(1), nestedMap(t, ciliumValues(t, 1), "operator")["replicas"],
+		"one control-plane node, one operator replica")
 
-	replicas, ok := operator["replicas"].(pulumi.IntOutput)
-	require.True(t, ok, "replicas must stay an output: the count comes from another stack")
-
-	got := make(chan int, 1)
-
-	replicas.ApplyT(func(value int) int {
-		got <- value
-
-		return value
-	})
-
-	select {
-	case value := <-got:
-		assert.Equal(t, 1, value, "one control-plane node, one operator replica")
-	case <-time.After(10 * time.Second):
-		t.Fatal("replicas never resolved")
-	}
+	assert.Equal(t, float64(OperatorReplicasWanted),
+		nestedMap(t, ciliumValues(t, 3), "operator")["replicas"])
 }
 
 func TestCCMValues_EnablesTheRouteController(t *testing.T) {
@@ -230,56 +213,30 @@ func TestCCMValues_EnablesTheRouteController(t *testing.T) {
 	// writing a route per node. With the route controller off, the CCM starts
 	// cleanly and manages no routes — and pods cannot reach pods on other
 	// nodes, with nothing in either component's logs saying why.
-	podCIDR := pulumi.String("10.244.0.0/16")
+	networking := nestedMap(t, ccmValues(t), "networking")
 
-	networking, ok := CCMValues(podCIDR)["networking"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.Bool(true), networking["enabled"])
-	assert.Equal(t, podCIDR, networking["clusterCIDR"])
+	assert.Equal(t, true, networking["enabled"])
+	assert.Equal(t, testPodCIDR, networking["clusterCIDR"])
 }
 
-func TestCCMValues_ReadsBothCredentialKeys(t *testing.T) {
+func TestCCMValues_ReadsBothCredentialsFromTheSharedSecret(t *testing.T) {
 	t.Parallel()
 
 	// The network id is as necessary as the token: without it the route
-	// controller has no network to write routes into.
-	env, ok := CCMValues(pulumi.String("10.244.0.0/16"))["env"].(pulumi.Map)
-	require.True(t, ok)
+	// controller has no network to write routes into. And the name has to be
+	// the Secret this layer creates — a mismatch produces pods that start and
+	// then fail to authenticate against the Hetzner API.
+	env := nestedMap(t, ccmValues(t), "env")
 
 	for name, key := range map[string]string{
 		"HCLOUD_TOKEN":   "token",
 		"HCLOUD_NETWORK": "network",
 	} {
-		entry, ok := env[name].(pulumi.Map)
-		require.True(t, ok, name)
+		ref := nestedMap(t, env, name, "valueFrom", "secretKeyRef")
 
-		valueFrom, ok := entry["valueFrom"].(pulumi.Map)
-		require.True(t, ok, name)
-
-		ref, ok := valueFrom["secretKeyRef"].(pulumi.Map)
-		require.True(t, ok, name)
-
-		assert.Equal(t, pulumi.String(CredentialsSecret), ref["name"], name)
-		assert.Equal(t, pulumi.String(key), ref["key"], name)
+		assert.Equal(t, CredentialsSecret, ref["name"], name)
+		assert.Equal(t, key, ref["key"], name)
 	}
-}
-
-func TestSecretRef_PointsAtTheSharedSecret(t *testing.T) {
-	t.Parallel()
-
-	// Both charts default to a secret with this name; a mismatch produces
-	// pods that start and then fail to authenticate against the Hetzner API.
-	ref := SecretRef("token")
-
-	valueFrom, ok := ref["valueFrom"].(pulumi.Map)
-	require.True(t, ok)
-
-	secretKeyRef, ok := valueFrom["secretKeyRef"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.String("hcloud"), secretKeyRef["name"])
-	assert.Equal(t, pulumi.String("token"), secretKeyRef["key"])
 }
 
 // ---------------------------------------------------------------------------
