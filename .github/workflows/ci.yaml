@@ -489,7 +489,13 @@ jobs:
   # only runs on push would never say so.
   security:
     name: Security
+    needs: [changes]
     uses: ./.github/workflows/security.yaml
+    with:
+      # Only govulncheck reads this. gitleaks and trivy run either way: a
+      # credential or a misconfiguration can arrive in any kind of file,
+      # documentation included.
+      go-code: ${{ needs.changes.outputs.relevant == 'true' }}
     permissions:
       contents: read
 
