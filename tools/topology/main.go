@@ -13,7 +13,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
@@ -134,7 +134,7 @@ func topologyFiles(dir string) ([]string, error) {
 		paths = append(paths, filepath.Join(dir, name))
 	}
 
-	sort.Strings(paths)
+	slices.Sort(paths)
 
 	return paths, nil
 }
@@ -208,7 +208,7 @@ func fieldNames() []string {
 		names = append(names, name)
 	}
 
-	sort.Strings(names)
+	slices.Sort(names)
 
 	return names
 }

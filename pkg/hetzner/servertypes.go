@@ -2,7 +2,7 @@ package hetzner
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
@@ -153,7 +153,7 @@ func sortedNames(set map[string]bool) []string {
 		out = append(out, name)
 	}
 
-	sort.Strings(out)
+	slices.Sort(out)
 
 	return out
 }

@@ -15,7 +15,7 @@ package charts
 import (
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 )
 
 // Chart is one pinned Helm chart.
@@ -173,7 +173,7 @@ func Keys() []string {
 		keys = append(keys, key)
 	}
 
-	sort.Strings(keys)
+	slices.Sort(keys)
 
 	return keys
 }
