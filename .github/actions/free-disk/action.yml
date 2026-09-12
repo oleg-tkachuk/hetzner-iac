@@ -18,9 +18,16 @@ description: >
   enough that the runner could not write its own log pages, so the job failed
   with no logs at all and looked like lost infrastructure.
 
-  Which is why this runs inside setup-go for every job rather than being added
-  to the ones that have failed so far. Guessing which job is next is a game of
-  whack-a-mole, and it costs about 24 seconds to stop playing.
+  Which is why this runs inside setup-go rather than being added to the jobs
+  that have failed so far: guessing which one is next is a game of whack-a-mole.
+
+  It runs for the jobs that restore the shared cache, and not for the ones that
+  set `cache-mode: off` — both failures above were a job filling the disk with
+  the cache, and a job without it has the runner's own 13.7 GB. That
+  distinction is worth the line it costs: the "about 24 seconds" this
+  description used to claim was measured once, on one runner. Across a single
+  later run's ten jobs it took 38 to 175 seconds each, which is up to fifteen
+  minutes of runner time per pull request.
 
 runs:
   using: composite
