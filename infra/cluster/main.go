@@ -80,6 +80,9 @@ func main() {
 		// The CCM's route controller needs the network id to programme pod
 		// routes inside the private network.
 		ctx.Export(clusterref.OutputNetworkID, cluster.NetworkID)
+		// The private range the nodes are addressed in. The ingress layer
+		// trusts PROXY protocol headers from inside it and nowhere else.
+		ctx.Export(clusterref.OutputNodeSubnet, pulumi.String(topology.Network.NodeSubnet))
 		ctx.Export(clusterref.OutputPodCIDR, cluster.PodCIDR)
 		ctx.Export(clusterref.OutputServiceCIDR, cluster.ServiceCIDR)
 		// How many control-plane nodes exist, for layers sizing something that
