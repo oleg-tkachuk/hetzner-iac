@@ -50,6 +50,7 @@ vars:
   # that one stack, where the engine enforces it.
   LAYERS: >-
     10-node-platform
+    20-network-policy
     30-core
     40-ingress
     50-gitops
