@@ -1,0 +1,55 @@
+# checkov: hardening rules over the Kubernetes manifests and GitHub Actions
+# workflows this repository ships.
+#
+# It complements what is already here rather than repeating it. trivy reports
+# IaC misconfiguration but does so report-only, because its findings are dense;
+# zizmor and actionlint cover workflow security and workflow correctness. What
+# checkov adds is 480-odd hardening rules over the manifests themselves, and it
+# is the only check that reads the vendored manifest as Kubernetes rather than
+# as YAML.
+#
+# Skips carry their reason, the same convention as .trivyignore.yaml. A skip
+# with no reason is a finding somebody hid.
+
+directory:
+  - .
+
+skip-path:
+  - ^\.git/
+  # Internal documents, not shipped.
+  - ^docs/
+
+quiet: true
+compact: true
+
+skip-check:
+  # SLSA build-integrity rule: a workflow_dispatch must take no inputs, so a
+  # build cannot be steered by the person who triggers it. Neither workflow
+  # here builds anything — preview takes the stack to preview, and renovate
+  # takes a flag that ignores its own schedule. Both are operator tools.
+  - CKV_GHA_7
+
+  # The three below are the vendored kubelet-serving-cert-approver being what
+  # it is. layers/30-core/manifests/ explains the component; these are its
+  # design, not oversights in it.
+  #
+  # Approving CertificateSigningRequests is the component's entire purpose:
+  # Talos kubelets raise CSRs for their serving certificates and nothing in
+  # Kubernetes approves them, so metrics-server cannot verify a kubelet and
+  # never becomes Ready.
+  - CKV_K8S_156
+  # It needs a service account token because its whole job is to call the API.
+  - CKV_K8S_38
+  # Events for cluster-scoped objects are written to the default namespace by
+  # Kubernetes convention, and a CSR is cluster-scoped — so the RoleBinding
+  # there is what lets the controller report what it approved.
+  - CKV_K8S_21
+
+  # Both of these are real and both are in docs/BACKLOG.md, with the reason
+  # they are not done yet. Skipped rather than left failing, because a gate
+  # that is permanently red is a gate everyone learns to ignore:
+  #
+  #   images are pinned by tag, not by digest;
+  #   nothing has a NetworkPolicy — the cluster has no default-deny at all.
+  - CKV_K8S_43
+  - CKV2_K8S_6
