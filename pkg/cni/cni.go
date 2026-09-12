@@ -20,7 +20,7 @@ package cni
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -84,7 +84,7 @@ func Names() []string {
 		out = append(out, name)
 	}
 
-	sort.Strings(out)
+	slices.Sort(out)
 
 	return out
 }
