@@ -118,16 +118,11 @@ func createCNI(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource
 
 	r.Log.Step("cni", name)
 
-	opts := make([]pulumi.ResourceOption, 0, 1)
-	if len(dependencies) > 0 {
-		opts = append(opts, pulumi.DependsOn(dependencies))
-	}
-
-	return r.Release(r.Ctx, layer.ReleaseArgs{
+	return r.Release(layer.ReleaseArgs{
 		Chart:          chosen.Chart,
 		TimeoutSeconds: CiliumTimeoutSeconds,
 		Values:         CiliumValues(r.Cluster.PodCIDR, r.Cluster.ControlPlaneCount),
-	}, opts...)
+	}, layer.DependsOn(dependencies)...)
 }
 
 // base64Of encodes a value for a Secret's data field. Secretness survives the
@@ -157,7 +152,7 @@ func createCredentials(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.
 			// surfaces as pods unable to reach pods on other nodes.
 			"network": base64Of(r.Cluster.NetworkID.ApplyT(strconv.Itoa).(pulumi.StringOutput)),
 		},
-	}, r.With(pulumi.DependsOn(dependencies))...)
+	}, r.With(layer.DependsOn(dependencies)...)...)
 }
 
 func main() {
@@ -216,7 +211,7 @@ func operatorReplicas(controlPlaneCount int) int {
 //     server. KubePrism is a node-local load balancer over the control plane,
 //     so Cilium keeps working while a control-plane node is replaced.
 //   - Native routing depends on the hcloud CCM's route controller, enabled in
-//     20-cloud-integration. With routes but no native routing the packets are
+//     this layer. With routes but no native routing the packets are
 //     encapsulated for no reason; with native routing but no routes they are
 //     dropped.
 func CiliumValues(podCIDR pulumi.StringInput, controlPlaneCount pulumi.IntInput) pulumi.Map {

@@ -63,7 +63,7 @@ type ReleaseArgs struct {
 // way that matters operationally: a failed upgrade rolls back instead of
 // leaving half a release behind, so re-running converges rather than
 // compounding.
-func (r *Runner) Release(ctx *pulumi.Context, args ReleaseArgs, opts ...pulumi.ResourceOption) (*helm.Release, error) {
+func (r *Runner) Release(args ReleaseArgs, opts ...pulumi.ResourceOption) (*helm.Release, error) {
 	chart, err := charts.Get(args.Chart)
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func (r *Runner) Release(ctx *pulumi.Context, args ReleaseArgs, opts ...pulumi.R
 	// holds it, the release carries it, and nothing said it out loud.
 	r.Log.Step(name, fmt.Sprintf("chart %s %s → %s", chart.Name, chart.Version, namespace))
 
-	release, err := helm.NewRelease(ctx, name, &helm.ReleaseArgs{
+	release, err := helm.NewRelease(r.Ctx, name, &helm.ReleaseArgs{
 		Name:            pulumi.String(name),
 		Chart:           pulumi.String(chart.Name),
 		Version:         pulumi.String(chart.Version),
