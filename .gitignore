@@ -59,8 +59,14 @@ talosconfig
 infra/cluster/cluster.*.yaml
 !infra/cluster/cluster.example.yaml
 
-# Internal design docs — kept out of the public repository (temporary).
-docs/
+# docs/ is published — the README maps to it. Two things stay internal:
+#
+#   BACKLOG.md is planning, not documentation.
+#   adr/ is a pending decision. The records are design rationale rather than a
+#   development diary, so publishing them is probably right, but that is the
+#   author's call and not a default.
+docs/BACKLOG.md
+docs/adr/
 
 # Local-only lefthook overrides. Gates that belong to a working copy rather
 # than to the project; lefthook merges the file automatically when present.
