@@ -26,9 +26,19 @@ type Addressing struct {
 	stride int
 }
 
+// Offsets inside a slice, which the layout above describes. Named because the
+// count of reserved addresses appeared three times — in the bounds check, in
+// the message that check produces, and in the arithmetic that skips them.
+const (
+	gatewayOffset = 1
+	// reservedPerSubnet covers the network address and the gateway, the two
+	// Hetzner does not let a server hold.
+	reservedPerSubnet = 2
+)
+
 // NewAddressing prepares address allocation over a node subnet.
 func NewAddressing(nodeSubnet string, stride int) (*Addressing, error) {
-	if stride < 2 {
+	if stride < reservedPerSubnet {
 		// Slice 0 loses two addresses to the network and the gateway, so a
 		// stride below 2 cannot seat even one control-plane node.
 		return nil, fmt.Errorf("addressing stride %d is too small: a slice must hold at least the network and gateway addresses", stride)
@@ -55,12 +65,12 @@ func (a *Addressing) ControlPlaneIP(ordinal int) (string, error) {
 		return "", fmt.Errorf("control-plane ordinal %d is negative", ordinal)
 	}
 
-	// +2 skips the network address and the gateway.
-	if ordinal+2 >= a.stride {
-		return "", fmt.Errorf("control-plane ordinal %d does not fit in a %d-address slice (2 addresses are reserved)", ordinal, a.stride)
+	if ordinal+reservedPerSubnet >= a.stride {
+		return "", fmt.Errorf("control-plane ordinal %d does not fit in a %d-address slice (%d addresses are reserved)",
+			ordinal, a.stride, reservedPerSubnet)
 	}
 
-	return a.at(2 + ordinal)
+	return a.at(reservedPerSubnet + ordinal)
 }
 
 // WorkerIP returns the private address of node `ordinal` in worker pool
@@ -84,7 +94,7 @@ func (a *Addressing) WorkerIP(poolIndex, ordinal int) (string, error) {
 // Gateway is the subnet's gateway, which Hetzner fixes at the first usable
 // address. Talos needs it to build the node's default route.
 func (a *Addressing) Gateway() (string, error) {
-	return a.at(1)
+	return a.at(gatewayOffset)
 }
 
 // at converts an offset within the subnet to an address, refusing anything
