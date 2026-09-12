@@ -11,7 +11,7 @@
 [![Argo CD](https://img.shields.io/badge/Argo%20CD-EF7B4D?logo=argo&logoColor=white)](https://argo-cd.readthedocs.io)
 [![Hetzner Cloud](https://img.shields.io/badge/Hetzner%20Cloud-D50C2D?logo=hetzner&logoColor=white)](https://www.hetzner.com/cloud)
 
-Production Kubernetes on Hetzner Cloud, built with Pulumi and Go.
+Kubernetes on Hetzner Cloud, built with the Pulumi Go SDK.
 
 Hetzner has no managed Kubernetes, so this repository builds the cluster
 itself — a Talos control plane on a private network — and then deploys the
@@ -26,54 +26,46 @@ infra/cluster              the only project that talks to the Hetzner API
                             layers/60-observability       Prometheus, Grafana, Loki, Tempo, Alloy
 ```
 
-## Contents
+## Quick start
 
-- [Why it is shaped this way](#why-it-is-shaped-this-way)
-- [Prerequisites](#prerequisites)
-- [Bring-up](#bring-up)
-- [Commands](#commands)
-  - [Whole platform](#whole-platform)
-  - [Cluster](#cluster)
-  - [Layers](#layers)
-  - [Code](#code)
-  - [Security](#security)
-  - [Charts](#charts)
-- [Configuration](#configuration)
-- [How changes land](#how-changes-land)
-- [Security scanning](#security-scanning)
-- [Testing](#testing)
-- [Layout](#layout)
-- [License](#license)
+You need a Hetzner Cloud API token with read+write scope, and the tools in
+[Prerequisites](#prerequisites). Everything below creates **billable** Hetzner
+resources; `task cluster:destroy` and `task platform:destroy-all` remove them.
 
-## Why it is shaped this way
+```bash
+# 1. Describe the cluster. Set network.adminCIDRs to the address you apply
+#    from: Talos configuration goes over the Talos API, and a host outside
+#    that list hangs with the port filtered.
+cp infra/cluster/cluster.example.yaml infra/cluster/cluster.dev.yaml
+$EDITOR infra/cluster/cluster.dev.yaml
 
-**Each layer is its own Pulumi project.** A layer can be previewed, applied and
-destroyed on its own, and reads the cluster's kubeconfig through a
-StackReference rather than sharing state with it. Upgrading Cilium does not
-mean planning a change to Argo CD.
+# 2. Create the stack and set the token. This is the only place it is typed.
+task cluster:init stack=dev
+pulumi -C infra/cluster -s dev config set --secret hcloud:token <token>
 
-Independence has a boundary worth stating: layers are independently
-*appliable*, not order-free. On an empty cluster nothing schedules before the
-CCM clears Talos's `uninitialized` taint, and nothing networks before the CNI.
-`task platform:apply-all` walks them in order; the order lives once, in the
-Taskfile, and CI derives its matrix from the same list.
+# 3. Bake the Talos snapshot. Once per Talos version; idempotent.
+task cluster:image-bake stack=dev
 
-**The cluster is a committed file.** `infra/cluster/cluster.<stack>.yaml`
-describes the topology, so a cluster is reviewable in a diff before it exists
-and reproducible from a clone. It is sparse — anything omitted keeps the
-default in `pkg/hetzner` — and it is validated against the same code the Pulumi
-program runs, so the check cannot drift from the thing it checks.
+# 4. Build the cluster, reading the diff first.
+task cluster:plan stack=dev
+task cluster:apply stack=dev
 
-**The cluster tier stops at "a Kubernetes API that answers".** It installs no
-CNI: Talos would otherwise install Flannel, which would then have to be removed
-before Cilium could take over. Nodes are `NotReady` until `10-node-platform`
-runs. That is the handover point, not a failure — and it is why that layer also
-owns the cloud controller manager, which cannot be scheduled onto a node no CNI
-has made Ready.
+# 5. Point every layer at it, then apply them in order. No token here — the
+#    CCM and the CSI driver read the one from step 2, through the same stack
+#    reference that carries the kubeconfig.
+task platform:init stack=dev ref=<org>/hetzner-cluster/dev
+task platform:apply-all stack=dev
 
-**Every chart version is pinned in one place.** `pkg/charts` is the registry;
-floating tags are rejected by validation rather than by convention.
-`task charts:outdated` compares each pin against its upstream repository.
+# 6. Check what you built.
+task cluster:kubeconfig stack=dev
+task cluster:status stack=dev
+task e2e
+```
+
+Nodes stay `NotReady` between steps 4 and 5. That is the handover point, not a
+failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
+
+`task up stack=dev` does steps 4 and 5 in one go, once the stacks exist.
 
 ## Prerequisites
 
@@ -85,477 +77,64 @@ floating tags are rejected by validation rather than by convention.
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
 | [talosctl](https://www.talos.dev/) | day-2: upgrades, etcd snapshots |
-| `jq` | two JSON field reads in the status tasks; image-bake no longer needs it |
+| `jq` | two JSON field reads in the status tasks |
 
-On macOS, `brew bundle` installs all of it:
-
-```bash
-brew bundle
-```
-
-Read the `talosctl` note in the `Brewfile` first: Homebrew ships a newer minor
-than the topology pins, and `task cluster:config-check` declines a mismatched
-binary rather than trusting it.
-
-A Hetzner Cloud API token with read+write scope on the project.
+On macOS, `brew bundle` installs all of it. Read the `talosctl` note in the
+`Brewfile` first: Homebrew ships a newer minor than the topology pins, and
+`task cluster:config-check` declines a mismatched binary rather than trusting
+it.
 
 Optional, and only for the tasks that name them: `golangci-lint`, `gitleaks`,
 `gosec`, `trivy`, `lefthook`. Each task says what to install rather than
-skipping itself silently.
-
-Hooks are opt-in per clone:
-
-```bash
-lefthook install
-```
-
-## Bring-up
-
-```bash
-# 1. Describe the cluster. Set network.adminCIDRs to the address you will
-#    apply from — Talos configuration is pushed over the Talos API, and a host
-#    outside that list hangs with the port filtered.
-cp infra/cluster/cluster.example.yaml infra/cluster/cluster.dev.yaml
-$EDITOR infra/cluster/cluster.dev.yaml
-
-# 2. Create the stack and set the Hetzner token. This is the only place the
-#    token is typed: it is stored encrypted in Pulumi.dev.yaml, which is
-#    committed, and every task below decrypts it from there.
-task cluster:init stack=dev
-pulumi -C infra/cluster -s dev config set --secret hcloud:token <token>
-
-# 3. Bake the Talos snapshot. Once per Talos version; idempotent.
-task cluster:image-bake stack=dev
-
-# 4. Build the cluster.
-task cluster:plan stack=dev      # read the diff first
-task cluster:apply stack=dev
-
-# 5. Point every layer at it, then apply them in order. No token here: the
-#    cloud controller manager and the CSI driver read the one set in step 2,
-#    through the same stack reference that carries the kubeconfig.
-task platform:init stack=dev ref=<org>/hetzner-cluster/dev
-task platform:apply-all stack=dev
-
-# 6. Check what you built.
-task cluster:kubeconfig stack=dev
-task cluster:status stack=dev
-task e2e stack=dev
-```
-
-`task up stack=dev` does steps 4 and 5 in one go, once the stacks exist.
-
-An exported `HCLOUD_TOKEN` still takes priority over the stack config, which
-is how CI passes a token it holds as a GitHub secret.
+skipping itself silently. Git hooks are opt-in per clone with
+`lefthook install`.
 
 ## Commands
 
 `task` on its own lists everything. Every cluster and layer task takes
-`stack=<name>`, defaulting to `dev` — that is the only deployment parameter,
-because where a cluster lives and how it is shaped comes from its committed
-topology file.
-
-Tasks from the shared library
-([oleg-tkachuk/taskfiles](https://github.com/oleg-tkachuk/taskfiles), pinned)
-are trimmed with `excludes:` to what works here. A module task that cannot
-succeed in this repository is worse than a missing one: it is a command
-someone runs once, in an emergency, and gets a confusing failure from.
-
-### Whole platform
+`stack=<name>`, defaulting to `dev` — the only deployment parameter, because
+where a cluster lives and how it is shaped comes from its committed topology.
 
 | Task | Does |
 |------|------|
 | `task up` | cluster, then every layer in dependency order |
 | `task plan` | preview the cluster and every layer; change nothing |
-| `task build` | compile every program into `bin/` |
-| `task verify` | everything checkable without a cluster — needs helm, talosctl and docker |
-| `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec |
-| `task e2e` | verify a running cluster; read-only |
-| `task fmt` | format and tidy |
-| `task fmt-check` | fail if anything is not gofmt-clean |
-| `task clean` | drop the compiled layer binaries under `.cache` |
-
-### Cluster
-
-| Task | Does |
-|------|------|
-| `task cluster:image-bake` | bake the Talos snapshot named by the topology; idempotent |
-| `task cluster:init` | create the Pulumi stack for this environment |
-| `task cluster:plan` | show what applying would change |
-| `task cluster:apply` | provision or converge the cluster |
-| `task cluster:destroy` | delete the servers; asks first |
-| `task cluster:kubeconfig` | write `./kubeconfig` |
-| `task cluster:talosconfig` | write `./talosconfig` |
-| `task cluster:outputs` | stack outputs, secrets redacted |
-| `task cluster:nodes` | list nodes |
 | `task cluster:status` | nodes, then anything not Running |
-| `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
-| `task cluster:upgrade-talos` | upgrade Talos, one node at a time |
-| `task cluster:upgrade-k8s` | upgrade Kubernetes in place |
+| `task platform:status` | which layers are deployed |
+| `task e2e` | verify a running cluster; read-only |
+| `task verify` | everything checkable without a cluster |
+| `task scan` | every scanner CI runs |
 
-Upgrading Talos means bumping `talos.version` in the topology, re-running
-`cluster:image-bake`, then `cluster:upgrade-talos`. Nodes are upgraded in
-place; they are never replaced, which is why the server resource ignores
-changes to its image.
-
-### Layers
-
-| Task | Does |
-|------|------|
-| `task platform:init ref=<org>/hetzner-cluster/<stack>` | create every layer's stack and point it at the cluster |
-| `task platform:plan-all` | preview every layer in order |
-| `task platform:apply-all` | apply every layer in dependency order |
-| `task platform:destroy-all` | destroy every layer, in reverse |
-| `task platform:plan layer=10-node-platform` | preview one layer |
-| `task platform:apply layer=10-node-platform` | apply one layer |
-| `task platform:destroy layer=60-observability` | destroy one layer |
-| `task platform:outputs layer=50-gitops` | one layer's stack outputs |
-| `task platform:status` | which layers are deployed, and how large |
-| `task platform:layers` | the layer order; CI derives its matrix from this |
-| `task helm:list` | every Helm release on the cluster |
-
-### Code
-
-| Task | Does |
-|------|------|
-| `task go:test` | the unit suite |
-| `task go:test:coverage` | unit suite with an HTML coverage report |
-| `task go:test:tagged:compile` | type-check the `e2e` suite, which the default run never compiles |
-| `task go:lint` | golangci-lint |
-| `task go:vuln` | govulncheck |
-| `task go:compile` | type-check without writing a binary |
-| `task go:fmt` / `task go:tidy` | format; tidy the module |
-| `task go:deps:outdated` / `task go:deps:update` | dependency reports and bumps |
-
-### Security
-
-| Task | Does |
-|------|------|
-| `task security:all` | secrets, filesystem, Go vuln, lint and SAST — what `task scan` runs |
-| `task security:secrets` | gitleaks over the whole history |
-| `task security:trivy` | vulnerable dependencies and secrets, plus IaC misconfig |
-| `task security:gosec` | insecure patterns the compiler is happy with |
-| `task security:vuln` / `task security:lint` | govulncheck and golangci-lint across every module |
-
-### Charts
-
-| Task | Does |
-|------|------|
-| `task charts:list` | every pinned chart |
-| `task charts:outdated` | each pin against the latest upstream chart |
-| `task charts:validate` | pins are exact versions, not floating tags |
-| `task charts:render-check` | the charts still produce the workloads and honour the values |
-| `task cluster:config-check` | Talos accepts the machine-config patches |
-| `task observability:check` | Alloy parses the collector config |
+Full reference: [docs/commands.md](docs/commands.md).
 
 ## Configuration
 
-State lives in **Pulumi Cloud**, declared as `backend:` in every `Pulumi.yaml`
-so it is a property of the repository rather than of whoever last ran
-`pulumi login`. To keep state at Hetzner instead, override the URL — it is the
-only change needed:
-
-```bash
-export PULUMI_BACKEND_URL='s3://<bucket>?endpoint=fsn1.your-objectstorage.com&s3ForcePathStyle=true&region=fsn1'
-export AWS_ACCESS_KEY_ID=...
-export AWS_SECRET_ACCESS_KEY=...
-export PULUMI_CONFIG_PASSPHRASE=...
-```
-
-A DIY backend encrypts stack secrets with that passphrase; Pulumi Cloud manages
-the key for you.
-
-That is also where the Hetzner token lives. `pulumi config set --secret` writes
-it into `Pulumi.<stack>.yaml` as a `secure:` ciphertext, and those files are
-committed on purpose: the plaintext is recoverable only with the stack's key,
-which the backend holds and the repository does not. So the token is versioned
-with the code it configures, and cloning the repository grants nothing. Nothing
-here reads a plaintext secrets file, and none should be created.
-
-
-Everything that shapes a cluster lives in `infra/cluster/cluster.<stack>.yaml`,
-validated by `cluster.schema.json` as you type it. Stack config holds one
-cluster-tier value, the Hetzner token, because a token must not be in git — the
-three switches that used to sit beside it are in the topology now. The layers
-keep their own config, which is about what they deploy rather than about the
-cluster:
+Everything that shapes a cluster is in `infra/cluster/cluster.<stack>.yaml`,
+validated as you type it. Stack config holds the Hetzner token and what each
+layer deploys:
 
 | Key | Where | Meaning |
 |-----|-------|---------|
-| `hcloud:token` | `infra/cluster` | Hetzner API token (secret); `cluster:image-bake` decrypts it from here too |
+| `hcloud:token` | `infra/cluster` | Hetzner API token (secret) |
 | `<layer>:clusterStackRef` | every layer | `<org>/hetzner-cluster/<stack>` |
-| `node-platform:hcloudToken` | `10-node-platform` | optional; overrides the token the cluster stack exports (secret) |
 | `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | `40-ingress` | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
 | `observability:metricsRetention` | `60-observability` | default `30d` |
 | `observability:metricsVolumeSize` | `60-observability` | default `50Gi` |
 
-Both the Talos and the Kubernetes version are pinned in the topology, and
-neither derives from the other. An empty `kubernetes.version` takes
-`DefaultKubernetesVersion` — also pinned — rather than whatever the configured
-Talos release happens to ship, because that made a Talos patch bump able to
-move Kubernetes a whole minor with no diff and no decision. It did: the first
-bring-up landed on v1.36.0, new enough that `kube-apiserver` had removed a flag
-the machine config was passing, and the control plane never started.
+Details, including why the token is committed encrypted and how to keep state
+at Hetzner instead: [docs/configuration.md](docs/configuration.md).
 
-The Hetzner token is exported by the cluster tier and read through the same
-stack reference that carries the kubeconfig, so it is typed once. The objection
-to exporting a credential — that it lands in the state of every referencing
-stack — is already true of the kubeconfig and the talosconfig on that channel,
-both strictly more powerful than an API token.
+## Documentation
 
-### Chart upgrades arrive as pull requests
-
-Every chart is pinned in [pkg/charts/registry.go](pkg/charts/registry.go) — one
-file, no version literal anywhere else. Renovate watches it through a regex in
-[.github/renovate.json](.github/renovate.json) and opens one pull request per
-chart, weekly, labelled `charts`, with `fix(charts):` so the upgrade reaches a
-release (`feat(charts):` for a major, so the version says so).
-
-It runs from [.github/workflows/renovate.yaml](.github/workflows/renovate.yaml)
-rather than as the hosted GitHub App, which needed account rights that were not
-available. Dependabot was the other option and does not fit: it reads gomod and
-github-actions natively but cannot see a chart version pinned inside a Go
-source file, which is the whole point here.
-
-Two schedules, which is not a contradiction. The workflow's cron decides how
-often Renovate **runs** — daily. `renovate.json` decides what it may **do**
-when it runs: regular updates wait for Monday so chart upgrades batch into one
-review, while `vulnerabilityAlerts` are exempt and can land any morning. A
-weekly cron alone would have delayed a security fix by up to seven days.
-
-`workflow_dispatch` runs a pass now and sets `RENOVATE_FORCE` to ignore the
-Monday schedule, which is how the first pass happens without waiting for it.
-
-Self-hosting costs a token. `GITHUB_TOKEN` cannot serve: a pull request opened
-with it does not trigger `pull_request` workflows, so no required check would
-ever report and branch protection would block the merge for ever. The workflow
-fails with that explanation, and the scopes, when `RENOVATE_TOKEN` is unset.
-
-Two things about that are worth knowing before a bot's pull request arrives.
-
-**Renovate cannot maintain `AppVersion`.** The helm datasource knows chart
-versions and nothing else, so a bumped pin sits beside an app version the chart
-no longer ships. `task charts:appversions` reads each repository's index and
-fails when they disagree — a misleading comment for most charts, and a real
-defect for alloy, whose validation image tag is built out of it. The pull
-request says so in its own body, and the fix is the value that check prints.
-
-**The regex is a silent failure waiting to happen.** It keys off the field order
-`Name → Repo → Version`; reorder them and Renovate stops matching, opens no
-pull request, and reports nothing. So `tools/charts` reads that regex out of
-Renovate's own configuration and asserts it still matches every chart in the
-registry. Verified by reordering two fields on purpose:
-
-```
-Renovate's pattern does not match chart "loki" (key "loki") — it would never be upgraded
-```
-
-### What a run prints
-
-Every layer logs through [pkg/pulumilog](pkg/pulumilog), which borrows its
-vocabulary from the [taskfiles](https://github.com/oleg-tkachuk/taskfiles)
-repository so that `task` and `pulumi up` read as one tool:
-
-| glyph | means | survives the run |
-|-------|-------|------------------|
-| `◉` | work starting | no |
-| `✔` | work finished | no |
-| `○` | deliberately not done | **yes** |
-| `▲` | configured, and will not do what it looks like | **yes** |
-
-The last two are the point. A layer that installs cert-manager and no
-ClusterIssuer, or Loki on a volume rather than the bucket, is the most
-confusing thing this repository can do — so those lines go to Pulumi's
-permanent diagnostics and are still on screen when the run ends. Progress lines
-are ephemeral, or the summary is one line per release and nobody reads it.
-
-The loudest of them today is Alertmanager. The chart's default route ends at a
-receiver named `null`, so alerts are grouped, inhibited and then dropped —
-Prometheus stores metrics, rules evaluate, alerts fire, and they reach nobody.
-Every apply says so until a receiver exists.
-
-What is *not* wrong, checked rather than assumed: the four scrape targets Talos
-does not expose are disabled, and the chart removes their alert rules along
-with them. Rendering with and without proves it — `KubeSchedulerDown`,
-`KubeControllerManagerDown`, `KubeProxyDown` and `etcdMembersDown` are present
-in the chart's default output and absent from ours, and `absent()` drops from
-five expressions to one (the API server, which should keep it). There are no
-permanently firing alerts to silence.
-
-`NO_COLOR` drops the escape codes and keeps the glyphs. A TTY check would be
-wrong rather than merely unhelpful: a Pulumi program's output is captured by
-the CLI over gRPC, so stdout is never a terminal.
-
-### Asking the real tool
-
-Four checks run offline against the actual software rather than against this
-repository's own assumptions, because that is where the expensive mistakes hide
-— each of the following was found this way, and none of them would have failed
-a `pulumi up` cleanly:
-
-- Grafana pointed at Tempo's port 3100, which the chart does not expose.
-- `machine.network.hostname`, which Talos rejects outright.
-- A Talos version pinned ahead of what the provider's generator knows.
-
-`task verify` runs them all. They need `helm`, a `talosctl` matching the pinned
-Talos minor, and a running Docker.
-
-## How changes land
-
-Everything goes through a pull request; `main` is protected and takes no direct
-pushes.
-
-```
-branch → PR → CI → rebase merge → release
-```
-
-The pieces that make that work, and the reason each one is there:
-
-- **Rebase is the only merge method.** Each commit of the PR is replayed onto
-  `main` as it was written, so the history stays the sequence of changes it
-  actually was rather than one squashed lump.
-- **Every commit is checked against Conventional Commits.** Under rebase they
-  all land on `main`, and semantic-release reads each of them to pick the next
-  version and write the notes. A commit that does not conform contributes
-  nothing, and a PR made entirely of them produces no release at all —
-  silently. CI checks them with the same expression as the local commit-msg
-  hook, which is opt-in per clone; the CI check is not.
-- **Release is a job of the CI workflow**, gated by `needs:` on every check.
-  It used to be a workflow of its own triggered on push, running in parallel
-  with the checks — and v1.0.2 was cut from a commit whose CI was failing.
-  The commit-message check is deliberately *not* in that `needs:` list: it
-  only runs on pull requests, and a skipped dependency would skip the release
-  along with it. It is enforced as a required check on the branch instead.
-- **`main` requires linear history** and refuses force pushes, so the commit a
-  release points at is the commit that was tested.
-
-Release notes are generated from the commit history by semantic-release; there
-is no changelog file to keep in step.
-
-## Security scanning
-
-The scanners live in their own workflow, `.github/workflows/security.yaml`,
-which CI calls and which also runs weekly on its own. That schedule is the
-reason for the split: a CVE published today makes yesterday's green commit
-vulnerable, and a gate that only runs on push would never say so.
-
-Each job installs its tool and then calls the same task an operator runs
-locally, so the flags live in one place rather than being restated in YAML.
-`task scan` is the whole set.
-
-Accepted findings live in `.trivyignore.yaml`, each with the reason it stands.
-Entries are removed as soon as a fix lands — a stale ignore masks the finding
-coming back.
-
-### What runs when
-
-Pull requests run everything cheap and everything that catches a mistake the
-same day. Two checks run nightly instead, because each cost more than ten
-minutes of every pipeline for coverage a day's delay does not meaningfully
-weaken:
-
-- **the race detector**, which compiles the whole tree a second time with build
-  IDs nothing else can reuse;
-- **standalone gosec**, because golangci-lint already runs gosec over this code
-  and finishes sooner — it loads the package graph once and runs every linter
-  over it, where standalone gosec re-loads per package.
-
-`task scan` still runs the full set locally.
-
-A push to `main` runs almost nothing: the priming job, the scanners, `build`,
-and the release.
-
-`build` is there because branch protection does **not** require a branch to be
-current before it merges. That requirement cost a second full run of every
-check on every pull request — update the branch, the checks start again — and
-bought only the guarantee that the pull request had compiled against the exact
-`main` it landed on. Compiling the merged tree once, warm, buys the same thing
-for a quarter of the price. The other checks stay pull-request-only because
-they read one tree rather than a combination: the layer list, the chart pins,
-the topology and the commit subjects cannot break by merging. Compilation can —
-one pull request renames a function, another adds a caller, both green apart.
-
-A merge queue would also solve it and was ruled out after checking: the queue
-runs the checks itself, so a pull request would be tested twice again, once on
-the branch and once in the queue.
-
-Two things do run there. The release, obviously. And the priming job, which is
-less obvious: a cache written on a pull request is scoped to `refs/pull/N/merge`
-and no other branch can read it. Only the default branch can seed a cache that
-every pull request restores. Skipping `main` entirely would mean every pull
-request pays the cold ten-minute build for ever.
-
-That also makes the push to `main` the only run that *writes* the cache. Pull
-requests restore it and never save: a 789 MB entry under `refs/pull/N/merge` is
-unreadable the moment the branch merges, and three of them were already sitting
-against a 10 GB repository limit whose eviction policy is least-recently-used —
-which would eventually have taken the `main` entry with them. What a pull
-request gives up is one of its own pushes reusing the build of the push before
-it; the dependency tree, which is the expensive part, still comes from `main`.
-
-The scanners also gate the expensive half of the pipeline. GitHub has no
-job-level fail-fast — a failing job does not stop its siblings — so the priming
-job depends on them, and everything expensive depends on priming. A secret, a
-reachable vulnerability or a workflow finding therefore stops the run in under a
-minute, rather than after ten minutes of compiling.
-
-### Why the pipeline is not slow any more
-
-Every run used to pay for a cold compile of a 208-module graph dominated by the
-generated Pulumi Kubernetes SDK. Two separate causes.
-
-**The shared Go cache was poisoned.** `actions/setup-go` caches the module and
-build directories under a key derived from `go.sum`, and that key is immutable:
-whichever job saves first owns it for good. Early runs failed before they
-touched Go, saved a 31 MB cache, and every later run restored those 31 MB and
-rebuilt everything. A `prime` job now compiles the tree first, so the cache that
-gets saved is the useful one, and the jobs that need it depend on it.
-
-That job builds unconditionally, and the comment above it says why: the first
-version skipped the build when no Go had changed, saved an empty cache under
-the immutable key, and poisoned it again on the very run that introduced it.
-
-Building unconditionally was still not enough. Every job attached the cache in
-both directions, so the *fastest* one owned the key — and the job that compiles
-the tree is by definition slower than one that does not. The roles are explicit
-now: `.github/actions/setup-go` takes a `cache-mode`, the priming job is the
-only writer and only on a push to `main`, everything else is `restore`, and a
-race build opts out entirely
-because its artifacts carry build IDs nothing else can reuse. CI asserts that
-exactly one writer exists, because a comment did not prevent the second
-occurrence.
-
-**gosec's memory.** It loads every package with full syntax *and* type
-information for the whole transitive graph, and processes `-concurrency` of them
-at once — defaulting to the core count, so fourteen large graphs at once on a
-developer machine. `GOSEC_FLAGS: -concurrency=4` caps it.
-
-A docs-only change still reports every check: the jobs run and skip their
-expensive step, rather than being skipped themselves. A required check that
-never reports leaves the pull request waiting forever.
-
-Note that govulncheck and trivy disagree by design: govulncheck reports only
-what this code can actually reach, trivy reports everything present in the
-dependency graph. Both are useful, and a finding in one and not the other is
-information rather than a contradiction.
-
-## Testing
-
-```bash
-task go:test         # unit
-task e2e stack=dev  # against a real cluster; read-only
-```
-
-The unit tests pin what Pulumi will *ask for*, including the settings whose
-mismatch never fails an apply — kube-proxy replacement, PROXY protocol on both
-sides of the load balancer, the KubePrism port. They exercise the resource
-graph under Pulumi's mock monitor, so no cloud account is involved.
-
-The e2e suite checks what actually happened: taints cleared, routes
-programmed, the load balancer provisioned, volumes bound. It lives behind the
-`e2e` build tag, so `go test ./...` never reaches for a cluster.
+| | |
+|---|---|
+| [docs/design.md](docs/design.md) | why it is shaped this way — layers, the committed topology, version pinning, what a run prints |
+| [docs/configuration.md](docs/configuration.md) | the topology file, stack config, state and secrets |
+| [docs/commands.md](docs/commands.md) | every task, and how to test |
+| [docs/ci.md](docs/ci.md) | how changes land, the scanners, chart upgrades, why the pipeline is fast |
+| [.github/SECURITY.md](.github/SECURITY.md) | reporting a vulnerability, and what is in scope |
 
 ## Layout
 
@@ -566,11 +145,20 @@ pkg/hetzner/      cluster component resources and topology validation
 pkg/layer/        the shim every layer shares: cluster resolution, provider, Helm
 pkg/charts/       every chart version, pinned
 pkg/clusterref/   the output contract between the cluster tier and the layers
-tools/            chart pin auditor, topology validator
+tools/            chart pin auditor, topology validator, and the other checks
 test/e2e/         verification against a running cluster
 tasks/            task definitions
+docs/             the documents above
 ```
+
+## Status
+
+Built and running on a single-control-plane dev cluster. Not yet done, and
+blocked on decisions rather than work: no `Ingress` or `ClusterIssuer`, so
+nothing is reachable from outside and no certificate is issued; Argo CD is
+deployed but reconciles nothing; Alertmanager has no receiver, and says so on
+every apply; etcd snapshots are manual.
 
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE).
