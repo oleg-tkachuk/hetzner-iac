@@ -134,7 +134,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-go
+      - id: go
+        uses: ./.github/actions/setup-go
         with:
           # The one writer, and only on a push to main.
           #
@@ -149,17 +150,22 @@ jobs:
           # only thing given up is one push in a pull request reusing the
           # build of the push before it.
           cache-mode: ${{ github.event_name == 'push' && 'save' || 'restore' }}
-      # No `if:` here, deliberately. This job exists to OWN the cache, and the
-      # cache key is immutable — whoever saves first keeps it. Skipping the
-      # build on a docs-only change saves an EMPTY cache under that key and
-      # poisons it for every run afterwards, which is exactly the failure this
-      # job was added to fix. It happened once already, in the run that
-      # introduced the job.
+      # Gated on whether there is a key to fill, and on nothing else.
       #
-      # Against a warm cache this is a no-op and costs seconds; against a cold
-      # one somebody has to pay the compile, and it should be the job whose
-      # purpose is to pay it.
-      - name: Build everything
+      # The distinction matters, because the obvious version of this condition
+      # is the bug it replaces: skipping the build on a docs-only change still
+      # SAVED, which put an empty cache under an immutable key and poisoned
+      # every run afterwards. That happened, in the run that introduced this
+      # job. Here the save is skipped by the same answer, so a cache is never
+      # written without the build that fills it.
+      #
+      # "Against a warm cache this is a no-op and costs seconds" is what this
+      # comment used to claim. Measured on the push that merged #73: 319
+      # seconds — 67 freeing disk, 103 restoring 2 GB, 113 compiling — and
+      # then `not saving cache`, because the key was already there. Most
+      # merges do not touch go.sum, so most runs of this job were that.
+      - if: steps.go.outputs.cache-present != 'true'
+        name: Build everything
         run: |
           set -euo pipefail
           go build -o bin/ ./...
