@@ -3,6 +3,7 @@ package repo
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -72,4 +73,146 @@ func TestWorkflows_RunGoToolsFromTheWorkspace(t *testing.T) {
 	}
 
 	assert.Zero(t, steps)
+}
+
+// gate is the part of a workflow these tests read: what a job is conditional
+// on, and what the job it depends on publishes.
+type gate struct {
+	Jobs map[string]struct {
+		If      string            `json:"if"`
+		Outputs map[string]string `json:"outputs"`
+	} `json:"jobs"`
+}
+
+// ciWorkflow is the workflow whose gate these tests guard.
+const ciWorkflow = "ci.yaml"
+
+func readGate(t *testing.T) gate {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", ciWorkflow))
+	require.NoError(t, err)
+
+	var parsed gate
+	require.NoError(t, yaml.Unmarshal(raw, &parsed))
+
+	return parsed
+}
+
+// outputReference finds `needs.<job>.outputs.<name>` in a condition.
+var outputReference = regexp.MustCompile(`needs\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)`)
+
+// TestCI_EveryGateNamesAnOutputThatExists is the guard for the cheapest and
+// worst failure this workflow can have.
+//
+// A job whose `if:` reads an output that does not exist — a rename, a typo —
+// evaluates to the empty string, compares unequal to 'true', and skips. The
+// job reports as skipped, branch protection accepts a skipped required check
+// as success, and the pull request goes green having run nothing at all.
+// Nothing else in this repository would notice.
+func TestCI_EveryGateNamesAnOutputThatExists(t *testing.T) {
+	t.Parallel()
+
+	workflow := readGate(t)
+
+	var checked int
+
+	for name, job := range workflow.Jobs {
+		for _, found := range outputReference.FindAllStringSubmatch(job.If, -1) {
+			producer, output := found[1], found[2]
+
+			declared, ok := workflow.Jobs[producer]
+			require.True(t, ok, "job %q is gated on job %q, which does not exist", name, producer)
+
+			require.Contains(t, declared.Outputs, output,
+				"job %q reads needs.%s.outputs.%s, which %s does not declare — "+
+					"the condition would be empty and the job would skip silently",
+				name, producer, output, producer)
+
+			checked++
+		}
+	}
+
+	assert.NotZero(t, checked, "no job is gated on a changed-path output any more")
+}
+
+// TestCI_EveryDeclaredOutputIsRead catches the other direction: an output
+// nothing consumes is a gate somebody meant to wire up and did not.
+func TestCI_EveryDeclaredOutputIsRead(t *testing.T) {
+	t.Parallel()
+
+	workflow := readGate(t)
+
+	// The whole file, because a reader is not always a condition: the reusable
+	// security workflow takes the same answer as a `with:` input.
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", ciWorkflow))
+	require.NoError(t, err)
+
+	for producer, job := range workflow.Jobs {
+		for output := range job.Outputs {
+			assert.Contains(t, string(raw), "needs."+producer+".outputs."+output,
+				"job %q declares output %q that nothing reads", producer, output)
+		}
+	}
+}
+
+// inertPattern lifts the classifier out of the workflow's shell.
+//
+// Kept to the subset grep -E and Go's regexp read identically — alternation,
+// anchors, character classes, escaped dots — so that testing it here is
+// testing what CI runs, not an approximation of it.
+var inertPattern = regexp.MustCompile(`(?m)^\s*inert='([^']+)'`)
+
+// TestCI_ClassifiesDocumentationAsInert pins the one decision the gate makes.
+//
+// Both directions are failures, and they are not symmetrical. Calling a
+// relevant file inert skips a check that would have failed — silent, green,
+// and the reason this list excludes documentation rather than including code:
+// the previous inclusion list skipped the test suite for a change to
+// Taskfile.yaml or to a layer's manifests, both of which the suite asserts
+// against. Calling documentation relevant only wastes eleven minutes.
+func TestCI_ClassifiesDocumentationAsInert(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", ciWorkflow))
+	require.NoError(t, err)
+
+	found := inertPattern.FindStringSubmatch(string(raw))
+	require.NotNil(t, found, "no inert pattern in %s", ciWorkflow)
+
+	pattern, err := regexp.Compile(found[1])
+	require.NoError(t, err, "the workflow's pattern does not compile as a regexp")
+
+	for path, inert := range map[string]bool{
+		// Documentation, and the files that are only ever read by a person.
+		"README.md":                       true,
+		"docs/design.md":                  true,
+		"docs/img/topology.png":           true,
+		"LICENSE":                         true,
+		".gitignore":                      true,
+		".github/SECURITY.md":             true,
+		".github/ISSUE_TEMPLATE/bug.yaml": true,
+
+		// Code, and every other input a check reads. The taskfiles, the
+		// manifests, the topology and these workflows are all asserted
+		// against by the Go suite, which is why none of them may be inert.
+		"pkg/layer/runner.go":                  false,
+		"go.mod":                               false,
+		"go.sum":                               false,
+		".golangci.yaml":                       false,
+		"pkg/values/loki.yaml.tmpl":            false,
+		"Taskfile.yaml":                        false,
+		"tasks/platform.task.yaml":             false,
+		"layers/20-network-policy/Pulumi.yaml": false,
+		"layers/20-network-policy/manifests/10-dns.yaml": false,
+		"infra/cluster/cluster.example.yaml":             false,
+		".github/workflows/ci.yaml":                      false,
+		".github/actions/setup-go/action.yml":            false,
+		".checkov.yaml":                                  false,
+		// A kind of file nobody has classified yet. Relevant by default is
+		// what makes forgetting safe.
+		"tools/something/new.awk": false,
+	} {
+		assert.Equal(t, inert, pattern.MatchString(path), "%q", path)
+	}
 }
