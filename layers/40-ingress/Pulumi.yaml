@@ -6,7 +6,7 @@ runtime:
     # hashing still rebuilds when sources change.
     buildTarget: ../../.cache/pulumi-bin/ingress
 description: |
-  Ingress: ingress-nginx behind a Hetzner load balancer.
+  Ingress: Traefik behind a Hetzner load balancer.
 
   The load balancer is created by the cloud controller manager from the
   Service of type LoadBalancer, which is why this layer depends on

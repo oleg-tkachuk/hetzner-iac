@@ -95,8 +95,11 @@ func TestKeys_AreNotEmpty(t *testing.T) {
 		"CiliumKubeProxyReplacement": chartsettings.CiliumKubeProxyReplacement,
 		"CiliumK8sServiceHost":       chartsettings.CiliumK8sServiceHost,
 		"CiliumK8sServicePort":       chartsettings.CiliumK8sServicePort,
-		"IngressUseProxyProtocol":    chartsettings.IngressUseProxyProtocol,
-		"IngressUseForwardedHeaders": chartsettings.IngressUseForwardedHeaders,
+		"TraefikPorts":               chartsettings.TraefikPorts,
+		"TraefikEntryPointWeb":       chartsettings.TraefikEntryPointWeb,
+		"TraefikEntryPointTLS":       chartsettings.TraefikEntryPointTLS,
+		"TraefikProxyProtocol":       chartsettings.TraefikProxyProtocol,
+		"TraefikTrustedIPs":          chartsettings.TraefikTrustedIPs,
 		"MetricsServerAddressTypes":  chartsettings.MetricsServerAddressTypes,
 	} {
 		assert.NotEmpty(t, key, name)

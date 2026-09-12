@@ -36,12 +36,28 @@ const (
 // all read one value.
 const KubePrismPort = 7445
 
-// ingress-nginx keys. The PROXY protocol has to be enabled on both the load
-// balancer and the controller; one side alone makes every request unparseable.
+// Traefik keys, as path segments rather than one dotted string, because the
+// layer writes them as a nested map and the render check writes them as a
+// --set expression. Assembling both from the same pieces is the point.
+//
+// Traefik accepts a PROXY protocol header only from addresses it is told to
+// trust, and the Hetzner load balancer is told to send one. Leave the trusted
+// list empty — which a misspelt key does — and Traefik rejects the header on
+// every connection that arrives through the load balancer.
 const (
-	IngressUseProxyProtocol    = "use-proxy-protocol"
-	IngressUseForwardedHeaders = "use-forwarded-headers"
+	TraefikPorts         = "ports"
+	TraefikEntryPointWeb = "web"
+	TraefikEntryPointTLS = "websecure"
+	TraefikProxyProtocol = "proxyProtocol"
+	TraefikTrustedIPs    = "trustedIPs"
 )
+
+// TraefikProxyProtocolSet is the --set expression for one entry point, built
+// from the same constants the layer nests.
+func TraefikProxyProtocolSet(entryPoint, cidr string) string {
+	return TraefikPorts + "." + entryPoint + "." + TraefikProxyProtocol + "." +
+		TraefikTrustedIPs + "[0]=" + cidr
+}
 
 // MetricsServerAddressTypes pins kubelet address resolution to the node's
 // internal address. Talos kubelet certificates carry that address, and the
@@ -75,6 +91,12 @@ type Effect struct {
 	Why string
 }
 
+// ProxyProtocolProbeCIDR is the range the render check renders with. It is a
+// documentation range rather than this platform's node subnet, which is a
+// per-environment value the check has no business knowing: what is being
+// verified is that the key reaches the rendered arguments at all.
+const ProxyProtocolProbeCIDR = "192.0.2.0/24"
+
 // Effects is what `task charts:render-check` verifies.
 var Effects = []Effect{
 	{
@@ -93,16 +115,16 @@ var Effects = []Effect{
 		Why:    "Cilium reaches the API through KubePrism on the node; a wrong port ties it to one control-plane node's life",
 	},
 	{
-		Chart: "ingress-nginx", Release: "ingress-nginx", Namespace: "ingress-nginx",
-		Set:    []string{"controller.config." + IngressUseProxyProtocol + "=true"},
-		Expect: `use-proxy-protocol: "true"`,
-		Why:    "the Hetzner load balancer sends the PROXY header; a controller that does not expect it fails every request",
+		Chart: "traefik", Release: "traefik", Namespace: "traefik",
+		Set:    []string{TraefikProxyProtocolSet(TraefikEntryPointWeb, ProxyProtocolProbeCIDR)},
+		Expect: "--entryPoints." + TraefikEntryPointWeb + ".proxyProtocol.trustedIPs=" + ProxyProtocolProbeCIDR,
+		Why:    "the Hetzner load balancer sends the PROXY header; an entry point that trusts nobody rejects it on every connection",
 	},
 	{
-		Chart: "ingress-nginx", Release: "ingress-nginx", Namespace: "ingress-nginx",
-		Set:    []string{"controller.config." + IngressUseForwardedHeaders + "=false"},
-		Expect: `use-forwarded-headers: "false"`,
-		Why:    "with PROXY protocol carrying the client address, trusting a forwarded header would accept a spoofed one",
+		Chart: "traefik", Release: "traefik", Namespace: "traefik",
+		Set:    []string{TraefikProxyProtocolSet(TraefikEntryPointTLS, ProxyProtocolProbeCIDR)},
+		Expect: "--entryPoints." + TraefikEntryPointTLS + ".proxyProtocol.trustedIPs=" + ProxyProtocolProbeCIDR,
+		Why:    "the TLS entry point is behind the same load balancer and needs the same trust, and forgetting it breaks only HTTPS",
 	},
 	{
 		Chart: "metrics-server", Release: "metrics-server", Namespace: "kube-system",

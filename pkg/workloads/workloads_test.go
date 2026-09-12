@@ -130,7 +130,7 @@ func TestCharts_CoversEveryLayer(t *testing.T) {
 	for _, chart := range []string{
 		"hcloud-ccm", "hcloud-csi", "cilium",
 		"cert-manager", "external-secrets", "metrics-server",
-		"ingress-nginx", "argo-cd",
+		"traefik", "argo-cd",
 		"kube-prometheus-stack", "loki", "tempo", "alloy",
 	} {
 		assert.NotEmpty(t, workloads.ForChart(chart), "chart %q has no expected workloads", chart)
