@@ -31,6 +31,7 @@ env:
   # built with go1.27.
   GOLANGCI_VERSION: "v2.13.2"
   GOSEC_VERSION: "v2.29.0"
+  CHECKOV_VERSION: "3.3.17"
 
   # Same reason: a kubeconform release changing which schemas it accepts would
   # turn CI red with no commit of ours in between.
@@ -332,6 +333,36 @@ jobs:
       # and fail this one.
       - if: needs.changes.outputs.code == 'true'
         run: task security:gosec
+
+  checkov:
+    name: Manifest hardening
+    # 480-odd hardening rules over the Kubernetes manifests and the workflows
+    # this repository ships. It is the only check that reads the vendored
+    # cert-approver manifest as Kubernetes rather than as YAML, and the only
+    # one that reads the workflows as a build pipeline.
+    #
+    # Here rather than in security.yaml by that workflow's own criterion: the
+    # version is pinned, so the findings are a pure function of the code.
+    # Measured at under three seconds locally, beside jobs that take minutes.
+    #
+    # Accepted findings live in .checkov.yaml with the reason each one stands,
+    # the same convention as .trivyignore.yaml.
+    if: github.event_name == 'pull_request'
+    needs: [changes, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: pipx install "checkov==${CHECKOV_VERSION}"
+      # The same task an operator runs, so the flags live in .checkov.yaml
+      # rather than being restated here.
+      - run: task checkov
 
   charts:
     name: Chart pins

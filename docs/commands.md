@@ -19,7 +19,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task plan` | preview the cluster and every layer; change nothing |
 | `task build` | compile every program into `bin/` |
 | `task verify` | everything checkable without a cluster — needs helm, talosctl and docker |
-| `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec |
+| `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
 | `task e2e` | verify a running cluster; read-only |
 | `task fmt` | format and tidy |
 | `task fmt-check` | fail if anything is not gofmt-clean |
@@ -93,6 +93,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task security:secrets` | gitleaks over the whole history |
 | `task security:trivy` | vulnerable dependencies and secrets, plus IaC misconfig |
 | `task security:gosec` | insecure patterns the compiler is happy with |
+| `task checkov` | hardening rules over the manifests and workflows this repository ships |
 | `task security:vuln` / `task security:lint` | govulncheck and golangci-lint across every module |
 
 ## Testing
