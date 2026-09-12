@@ -2,11 +2,10 @@ name: Security
 
 # A reusable workflow, called by CI and also run on its own schedule.
 #
-# gosec is NOT here: golangci-lint already runs it over this code, in a job
-# that finishes sooner because it loads the package graph once and runs every
-# linter over it. Standalone gosec re-loads per package and cost fifteen
-# minutes of every pipeline for the same findings. It runs nightly instead,
-# where its own defaults still get a chance to say something.
+# gosec is not here, and the criterion below is why: its findings are a pure
+# function of the code at a pinned version, so a scheduled run would report
+# what the pull request already did. It lives in ci.yaml, beside the other
+# checks that read one tree.
 #
 # The schedule is the reason this is a separate workflow rather than four more
 # jobs in ci.yaml: a security finding appears without anyone touching the code.
