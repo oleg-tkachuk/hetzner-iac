@@ -1,0 +1,2 @@
+config:
+  network-policy:clusterStackRef: oleg-tkachuk/hetzner-cluster/dev
