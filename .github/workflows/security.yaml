@@ -121,6 +121,19 @@ jobs:
         with:
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # No cache, measured rather than assumed. govulncheck does compile
+          # the module, so this was the one scanner with a real claim on the
+          # shared cache — and the claim does not survive the numbers. Both
+          # arms in one run, so they shared its runner conditions:
+          #
+          #             setup-go   go install   scan   total
+          #   restore       206s          11s    11s    234s
+          #   off            15s          31s    17s     70s
+          #
+          # The cache saves 26 seconds of work and costs 191 seconds of
+          # restore. It is a 4.4 GB build cache for a tool that reads the
+          # module graph and one package's call paths at a time.
+          cache-mode: "off"
       - run: go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
       # Reachability-based: it reports the vulnerabilities this code actually
       # calls, not every advisory touching the dependency tree.
