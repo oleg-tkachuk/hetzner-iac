@@ -1,0 +1,57 @@
+# The pod-to-pod flows this platform actually has, from Hubble rather than
+# from imagination:
+#
+#   observability/loki  -> observability/loki   TCP/3100   480 events
+#   observability/alloy -> observability/loki   TCP/8080     8
+#   argocd/argocd-server <-> argocd/argocd-redis TCP/6379   24
+#
+# Loki talks to itself because the chart runs a gateway in front of the
+# single binary, and both carry app.kubernetes.io/name=loki.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-loki
+spec:
+  description: the Loki gateway reaches the single binary, and Alloy reaches the gateway
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: observability
+      k8s:app.kubernetes.io/name: loki
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            k8s:app.kubernetes.io/name: loki
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            k8s:app.kubernetes.io/name: alloy
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            k8s:app.kubernetes.io/name: loki
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-argocd-redis
+spec:
+  description: the Argo CD server and repo server reach their cache
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: argocd
+      k8s:app.kubernetes.io/name: argocd-redis
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: argocd
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP

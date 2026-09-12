@@ -1,0 +1,32 @@
+# The Kubernetes API, reached through KubePrism on the node.
+#
+# The rule a policy author forgets, because the API server does not look like
+# a destination inside the cluster. The cluster tier sets Cilium's
+# k8sServiceHost to localhost and KubePrism listens on the node, so every
+# controller's API traffic leaves as egress to `reserved:host` on tcp/6443 —
+# measured, and from everything: Grafana, Argo CD, Traefik, Loki, Alloy,
+# kube-state-metrics.
+#
+# Deny it and every controller in the cluster stops reconciling while looking
+# perfectly healthy.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-apiserver
+spec:
+  description: every endpoint may reach the API server through KubePrism
+  endpointSelector: {}
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+            # KubePrism itself, which the CNI is pointed at.
+            - port: "7445"
+              protocol: TCP

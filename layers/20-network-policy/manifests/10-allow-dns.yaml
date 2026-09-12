@@ -1,0 +1,27 @@
+# DNS, both directions.
+#
+# Measured: `argocd/argocd-repo-server -> kube-system/kube-dns UDP/53`, and
+# Prometheus scraping CoreDNS metrics on TCP/9153. Every controller resolves
+# names, so a default-deny without this is a cluster where nothing finds
+# anything — and the failure reads as a hung API client rather than as policy.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  description: every endpoint may resolve names through kube-dns
+  endpointSelector: {}
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

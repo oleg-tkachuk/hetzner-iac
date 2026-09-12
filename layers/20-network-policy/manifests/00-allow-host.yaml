@@ -1,0 +1,31 @@
+# Ingress from the node itself, to every endpoint in the cluster.
+#
+# This is the first policy to write and the one a default-deny breaks first.
+# Measured on this cluster: `reserved:host -> pod` is the dominant flow by a
+# wide margin — 322 events on TCP/8080 alone, 195 on 9808, 137 on 10250 — and
+# it is the kubelet running liveness and readiness probes. Deny it and every
+# workload in the cluster is restarted, for ever.
+#
+# remote-node as well, so this keeps working when the control plane is three
+# nodes instead of one.
+#
+# enableDefaultDeny is off in this and every other allow policy here. In
+# Cilium a policy that selects an endpoint normally switches it to default-deny
+# for the directions the policy mentions — so without this field, adding an
+# allow rule would silently deny everything it does not name. Explicitly off,
+# these rules are purely additive: safe to apply on a running cluster, and the
+# deny arrives only with 90-default-deny.yaml.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-host
+spec:
+  description: kubelet probes and node-sourced traffic reach every endpoint
+  endpointSelector: {}
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingress:
+    - fromEntities:
+        - host
+        - remote-node

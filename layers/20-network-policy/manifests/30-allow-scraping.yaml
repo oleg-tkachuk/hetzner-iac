@@ -1,0 +1,36 @@
+# Prometheus reaching what it scrapes.
+#
+# Two destinations, both measured. Every pod in the cluster, because a
+# ServiceMonitor may be created by any layer and the metrics port differs per
+# chart — narrowing this to a port list would mean editing policy every time a
+# component is added, which is how policy comes to be disabled instead.
+#
+# And the kubelet on tcp/10250: `observability/prometheus -> reserved:host
+# TCP/10250` is how cAdvisor and the node's own metrics are collected.
+#
+# The selector is the label the chart actually stamps — app.kubernetes.io/name
+# is `prometheus`, verified against the running pod. A selector that matches
+# nothing is accepted by Kubernetes and quietly does nothing.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-scraping
+spec:
+  description: Prometheus reaches every endpoint it scrapes, and the kubelet
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: observability
+      k8s:app.kubernetes.io/name: prometheus
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEndpoints:
+        - {}
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "10250"
+              protocol: TCP
