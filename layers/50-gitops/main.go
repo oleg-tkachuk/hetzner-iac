@@ -11,6 +11,8 @@ import (
 	"fmt"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -19,6 +21,12 @@ import (
 // NAME of a Kubernetes Secret, not a credential: the password is generated
 // in-cluster and deliberately never read by this program.
 const AdminSecret = "argocd-initial-admin-secret" // #nosec G101 -- a secret's name, not its value
+
+// StatelessReplicas is how many of each stateless Argo CD component to run,
+// so the API, the UI and the repo server survive a node failure. The
+// application controller is deliberately not one of them: sharding it needs
+// configuration that only pays off with many applications.
+const StatelessReplicas = 2
 
 // IssuerName must match the ClusterIssuer created by 30-core.
 const IssuerName = "letsencrypt"
@@ -34,8 +42,15 @@ var Components = layer.Components{
 	{
 		Chart:          "argo-cd",
 		TimeoutSeconds: ArgoCDTimeoutSeconds,
-		Values: func(r *layer.Runner) pulumi.Map {
-			return ArgoCDValues(r.Cfg.Get("domain"))
+		ValuesYAML: func(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
+			rendered, err := values.Static("argo-cd", ArgoCDData(r.Cfg.Get("domain")))
+			if err != nil {
+				r.Log.Warn("argo-cd", "values template failed to render: %v", err)
+
+				return nil
+			}
+
+			return rendered
 		},
 	},
 }
@@ -70,61 +85,16 @@ func main() {
 	})
 }
 
-// ArgoCDValues builds the Argo CD values.
+// ArgoCDData is what pkg/values/argo-cd.yaml.tmpl renders with.
 //
 // An empty domain installs Argo CD without an Ingress, which is the right
 // shape before DNS exists: the UI is then reachable with `kubectl port-forward`
 // and nothing is published by accident.
-func ArgoCDValues(domain string) pulumi.Map {
-	server := pulumi.Map{
-		// Two replicas: the API and UI should survive a node failure.
-		"replicas": pulumi.Int(2),
-		// TLS terminates at the ingress, so the API server speaks plaintext
-		// behind it. Running TLS on both sides produces a redirect loop that
-		// is tedious to diagnose.
-		"extraArgs": pulumi.ToStringArray([]string{"--insecure"}),
-		"metrics": pulumi.Map{
-			"enabled":        pulumi.Bool(true),
-			"serviceMonitor": pulumi.Map{"enabled": pulumi.Bool(false)},
-		},
-	}
-
-	if domain != "" {
-		server["ingress"] = pulumi.Map{
-			"enabled":          pulumi.Bool(true),
-			"ingressClassName": pulumi.String("nginx"),
-			"hostname":         pulumi.String(domain),
-			"annotations": pulumi.Map{
-				"cert-manager.io/cluster-issuer": pulumi.String(IssuerName),
-			},
-			"tls": pulumi.Bool(true),
-		}
-	}
-
-	return pulumi.Map{
-		"global": pulumi.Map{"domain": pulumi.String(domain)},
-		// The application controller is the component that actually
-		// reconciles; it is deliberately single-replica because sharding it
-		// needs configuration that only pays off with many applications.
-		"controller": pulumi.Map{
-			"replicas": pulumi.Int(1),
-			"metrics": pulumi.Map{
-				"enabled":        pulumi.Bool(true),
-				"serviceMonitor": pulumi.Map{"enabled": pulumi.Bool(false)},
-			},
-		},
-		"repoServer": pulumi.Map{
-			"replicas": pulumi.Int(2),
-			"metrics": pulumi.Map{
-				"enabled":        pulumi.Bool(true),
-				"serviceMonitor": pulumi.Map{"enabled": pulumi.Bool(false)},
-			},
-		},
-		"server":         server,
-		"applicationSet": pulumi.Map{"replicas": pulumi.Int(2)},
-		"redis-ha":       pulumi.Map{"enabled": pulumi.Bool(false)},
-		"configs": pulumi.Map{
-			"params": pulumi.Map{"server.insecure": pulumi.Bool(true)},
-		},
+func ArgoCDData(domain string) values.ArgoCD {
+	return values.ArgoCD{
+		Domain:       domain,
+		IngressClass: platform.IngressClass,
+		Issuer:       IssuerName,
+		Replicas:     StatelessReplicas,
 	}
 }

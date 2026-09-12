@@ -1,0 +1,14 @@
+# Tempo, single binary.
+#
+# No storage key at all: the chart's defaults are already the local backend on
+# the volume, and restating them changes the values without changing a byte of
+# what renders. Tempo needs the volume regardless — a trace is written to the
+# WAL before it becomes a block.
+
+persistence:
+  enabled: true
+  storageClassName: {{ .StorageClass }}
+  size: {{ .Size }}
+
+tempo:
+  retention: {{ .Retention }}

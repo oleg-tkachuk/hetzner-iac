@@ -10,6 +10,7 @@ package main
 import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	apiextensions "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
@@ -25,6 +26,9 @@ const IssuerName = "letsencrypt"
 // warnings that look like a misconfiguration.
 const LetsEncryptDirectory = "https://acme-v02.api.letsencrypt.org/directory"
 
+// MetricsServerReplicas is how many metrics-server pods to run.
+const MetricsServerReplicas = 2
+
 // Components are what this layer deploys.
 //
 // The ClusterIssuer is a component that may decline. Its Create returns
@@ -35,8 +39,8 @@ const LetsEncryptDirectory = "https://acme-v02.api.letsencrypt.org/directory"
 // noisier than an absent one.
 var Components = layer.Components{
 	{
-		Chart:  "cert-manager",
-		Values: func(*layer.Runner) pulumi.Map { return CertManagerValues() },
+		Chart:      "cert-manager",
+		ValuesYAML: static("cert-manager", nil),
 	},
 	{
 		Name:   IssuerName,
@@ -44,8 +48,8 @@ var Components = layer.Components{
 		Create: createClusterIssuer,
 	},
 	{
-		Chart:  "external-secrets",
-		Values: func(*layer.Runner) pulumi.Map { return ExternalSecretsValues() },
+		Chart:      "external-secrets",
+		ValuesYAML: static("external-secrets", nil),
 	},
 	{
 		// Approves the CSRs the kubelets raise once pkg/hetzner turns on
@@ -61,9 +65,9 @@ var Components = layer.Components{
 		// has one the cluster CA signed. Without this ordering it fails every
 		// scrape and Helm waits out its whole timeout — measured at 611s
 		// before rolling back.
-		Chart:  "metrics-server",
-		After:  []string{CertApproverComponent},
-		Values: func(*layer.Runner) pulumi.Map { return MetricsServerValues() },
+		Chart:      "metrics-server",
+		After:      []string{CertApproverComponent},
+		ValuesYAML: static("metrics-server", MetricsServerData()),
 	},
 }
 
@@ -119,53 +123,30 @@ func main() {
 	})
 }
 
-// CertManagerValues builds the cert-manager values.
-func CertManagerValues() pulumi.Map {
-	return pulumi.Map{
-		"crds": pulumi.Map{
-			// CRDs come with the release. Managing them separately is right
-			// when several things install cert-manager; this cluster has one.
-			"enabled": pulumi.Bool(true),
-			// Leave them behind on uninstall. Removing the CRDs deletes every
-			// Certificate and Issuer in the cluster — a far larger action than
-			// uninstalling a chart, and not one an uninstall should imply.
-			"keep": pulumi.Bool(true),
-		},
-		"prometheus": pulumi.Map{
-			"enabled": pulumi.Bool(true),
-			// Owned by 60-observability, which installs the operator CRDs.
-			"servicemonitor": pulumi.Map{"enabled": pulumi.Bool(false)},
-		},
+// MetricsServerData is the data the metrics-server template renders with.
+func MetricsServerData() values.MetricsServer {
+	return values.MetricsServer{
+		AddressTypes: chartsettings.MetricsServerAddressTypes,
+		Replicas:     MetricsServerReplicas,
 	}
 }
 
-// ExternalSecretsValues builds the external-secrets values.
-func ExternalSecretsValues() pulumi.Map {
-	return pulumi.Map{
-		"installCRDs":    pulumi.Bool(true),
-		"webhook":        pulumi.Map{"create": pulumi.Bool(true)},
-		"serviceMonitor": pulumi.Map{"enabled": pulumi.Bool(false)},
-	}
-}
+// static renders a template whose values need nothing resolved, failing the
+// run rather than installing a chart on defaults nobody chose.
+//
+// The render can only fail on a template this repository ships, which is a
+// programming error a test catches — so the error is reported through the
+// component rather than returned to a caller that could not act on it.
+func static(chart string, data any) func(*layer.Runner) pulumi.AssetOrArchiveArrayInput {
+	return func(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
+		rendered, err := values.Static(chart, data)
+		if err != nil {
+			r.Log.Warn(chart, "values template failed to render: %v", err)
 
-// MetricsServerValues builds the metrics-server values.
-func MetricsServerValues() pulumi.Map {
-	return pulumi.Map{
-		"args": pulumi.ToStringArray([]string{
-			// Talos nodes are addressed on the private network and their
-			// kubelet certificates carry the internal address. The chart's
-			// default preference order tries the hostname first, which does
-			// not resolve here — so metrics-server starts and every scrape
-			// fails, and the autoscaler is silently blind.
-			chartsettings.MetricsServerAddressTypes,
-		}),
-		// Two replicas so a node failure does not take metrics — and with them
-		// the horizontal pod autoscaler — down.
-		"replicas": pulumi.Int(2),
-		"podDisruptionBudget": pulumi.Map{
-			"enabled":      pulumi.Bool(true),
-			"minAvailable": pulumi.Int(1),
-		},
+			return nil
+		}
+
+		return rendered
 	}
 }
 
