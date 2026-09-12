@@ -1,0 +1,72 @@
+# Traefik, behind a Hetzner load balancer.
+#
+# The load balancer is not created here: Traefik asks for a Service of type
+# LoadBalancer and the hcloud cloud controller manager turns that into a real
+# one. The annotations below are read by the CCM, not by Traefik — a wrong one
+# produces a load balancer that exists and routes to nothing, with no error
+# from either component.
+
+deployment:
+  # Two, so losing one node does not take ingress with it.
+  replicas: {{ .Replicas }}
+
+service:
+  annotations:
+    load-balancer.hetzner.cloud/name: {{ .Name }}
+    load-balancer.hetzner.cloud/location: {{ .Location }}
+    load-balancer.hetzner.cloud/type: {{ .LoadBalancerType }}
+    # Reach the nodes over the private network. Targeting public addresses
+    # would send traffic out of and back into Hetzner's network — metered,
+    # slower, and needing firewall rules that would otherwise not exist.
+    load-balancer.hetzner.cloud/use-private-ip: "true"
+    # One half of the PROXY protocol pair: this tells the load balancer to
+    # send the header. The other half is the trust list below.
+    load-balancer.hetzner.cloud/uses-proxyprotocol: "true"
+  spec:
+    # Local keeps the client address usable end to end by avoiding the extra
+    # hop that would rewrite it.
+    externalTrafficPolicy: Local
+
+# The other half of the PROXY protocol pair. Traefik accepts the header only
+# from addresses it is told to trust, and its default is to trust nobody —
+# which rejects every connection arriving through the load balancer.
+#
+# The range is the node subnet the cluster tier publishes, because the load
+# balancer reaches the nodes privately. A wider range would accept a spoofed
+# header from any pod.
+#
+# Both entry points need it. Forgetting websecure breaks only HTTPS, which is
+# the harder failure to notice.
+ports:
+  web:
+    proxyProtocol:
+      trustedIPs:
+        - {{ .NodeSubnet }}
+  websecure:
+    proxyProtocol:
+      trustedIPs:
+        - {{ .NodeSubnet }}
+
+# No forwardedHeaders trust list, deliberately. The client address arrives in
+# the PROXY header; trusting X-Forwarded-* as well would accept a spoofed one.
+# Traefik trusts nobody by default, so this is a default kept rather than a
+# value set.
+
+# No api.insecure either: that serves the dashboard without authentication.
+# Exposing it is an IngressRoute plus an auth middleware, and belongs with
+# whatever decides who may see it.
+
+# Spread across nodes rather than merely counted. The selector is the label
+# the chart stamps on its pods — a selector matching nothing is accepted by
+# Kubernetes and does nothing at all.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: traefik
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

@@ -153,3 +153,33 @@ func TestDependsOn(t *testing.T) {
 	assert.Nil(t, layer.DependsOn([]pulumi.Resource{}))
 	assert.Len(t, layer.DependsOn([]pulumi.Resource{nil}), 1)
 }
+
+func TestDeploy_HandsTheRenderedValuesToTheRelease(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	m := newMocks()
+
+	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
+		_, err := runner.Deploy(layer.Components{
+			{
+				Chart: "cilium",
+				ValuesYAML: func(*layer.Runner) pulumi.AssetOrArchiveArrayInput {
+					return pulumi.AssetOrArchiveArray{
+						pulumi.NewStringAsset("kubeProxyReplacement: true\n"),
+					}
+				},
+			},
+		})
+
+		return err
+	}))
+
+	releases := m.of(releaseType)
+	require.Len(t, releases, 1)
+
+	// The whole point of the values-as-templates move: what reaches Helm is a
+	// file, and a release that quietly carried none would install the chart on
+	// its defaults with nothing said.
+	assert.True(t, releases[0]["valueYamlFiles"].HasValue(),
+		"the rendered values never reached the release")
+}
