@@ -3,34 +3,50 @@ package main
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
-
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 // testNodeSubnet is what the cluster tier publishes as nodeSubnet.
 const testNodeSubnet = "10.0.1.0/24"
 
-func values(t *testing.T) pulumi.Map {
+// rendered is the values YAML this layer would hand Helm, parsed.
+//
+// Through the template rather than around it: what reaches the cluster is the
+// rendered file, so a test reading a Go map would be checking something the
+// chart never sees.
+func rendered(t *testing.T) map[string]any {
 	t.Helper()
 
-	return IngressValues(
-		pulumi.String("platform-prod-ingress"),
+	data, err := internals.UnsafeAwaitOutput(t.Context(), IngressData(
+		pulumi.String("platform-prod"),
 		pulumi.String("hel1"),
 		pulumi.String(testNodeSubnet),
 		DefaultLoadBalancerType,
-	)
+	))
+	require.NoError(t, err)
+
+	text, err := values.Render(Chart, data.Value)
+	require.NoError(t, err)
+
+	var out map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(text), &out), "the template must render valid yaml")
+
+	return out
 }
 
-func nested(t *testing.T, in pulumi.Map, keys ...string) pulumi.Map {
+func nested(t *testing.T, in map[string]any, keys ...string) map[string]any {
 	t.Helper()
 
 	for _, key := range keys {
-		next, ok := in[key].(pulumi.Map)
+		next, ok := in[key].(map[string]any)
 		require.True(t, ok, "no map at %q", key)
 
 		in = next
@@ -39,135 +55,112 @@ func nested(t *testing.T, in pulumi.Map, keys ...string) pulumi.Map {
 	return in
 }
 
-func annotations(t *testing.T) pulumi.Map {
+func annotations(t *testing.T) map[string]any {
 	t.Helper()
 
-	return nested(t, values(t), "service", "annotations")
+	return nested(t, rendered(t), "service", "annotations")
 }
 
-func TestIngressValues_ProxyProtocolIsSetOnBothSides(t *testing.T) {
+func TestValues_ProxyProtocolIsSetOnBothSides(t *testing.T) {
 	t.Parallel()
 
 	// The annotation tells the load balancer to send the PROXY header; the
 	// entry point has to be told which addresses may send one. Enabling one
 	// side alone fails every request, which is why this is a test rather than
 	// a comment.
-	assert.Equal(t, pulumi.String("true"),
-		annotations(t)["load-balancer.hetzner.cloud/uses-proxyprotocol"])
+	assert.Equal(t, "true", annotations(t)["load-balancer.hetzner.cloud/uses-proxyprotocol"])
 
 	for _, entryPoint := range []string{
 		chartsettings.TraefikEntryPointWeb,
 		chartsettings.TraefikEntryPointTLS,
 	} {
-		trusted := nested(t, values(t),
+		trusted := nested(t, rendered(t),
 			chartsettings.TraefikPorts, entryPoint, chartsettings.TraefikProxyProtocol)
 
-		assert.Equal(t, pulumi.StringArray{pulumi.String(testNodeSubnet)},
-			trusted[chartsettings.TraefikTrustedIPs],
+		assert.Equal(t, []any{testNodeSubnet}, trusted[chartsettings.TraefikTrustedIPs],
 			"entry point %q trusts nobody, so it rejects the header on every connection", entryPoint)
 	}
 }
 
-func TestIngressValues_TrustsOnlyTheNodeSubnet(t *testing.T) {
-	t.Parallel()
-
-	// The trust list decides who may claim to be someone else. It comes from
-	// the cluster tier, so it is the range the nodes are actually in — a
-	// wider one would accept a spoofed PROXY header from any pod.
-	trusted := nested(t, values(t),
-		chartsettings.TraefikPorts, chartsettings.TraefikEntryPointWeb,
-		chartsettings.TraefikProxyProtocol)
-
-	list, ok := trusted[chartsettings.TraefikTrustedIPs].(pulumi.StringArray)
-	require.True(t, ok)
-	require.Len(t, list, 1, "one range, the one the tier published")
-}
-
-func TestIngressValues_DoesNotTrustForwardedHeaders(t *testing.T) {
+func TestValues_DoesNotTrustForwardedHeaders(t *testing.T) {
 	t.Parallel()
 
 	// With PROXY protocol carrying the real client address, also trusting
-	// X-Forwarded-For would accept a spoofed one. Traefik's default is to
-	// trust nobody, so the assertion is that nothing here turns it on —
-	// setting the default explicitly would render identically and this test
-	// would not notice a later change that did.
+	// X-Forwarded-For would accept a spoofed one. Traefik trusts nobody by
+	// default, so the assertion is that nothing turns it on.
 	for _, entryPoint := range []string{
 		chartsettings.TraefikEntryPointWeb,
 		chartsettings.TraefikEntryPointTLS,
 	} {
-		port := nested(t, values(t), chartsettings.TraefikPorts, entryPoint)
+		port := nested(t, rendered(t), chartsettings.TraefikPorts, entryPoint)
 
 		assert.NotContains(t, port, "forwardedHeaders",
 			"entry point %q trusts a forwarded header, which PROXY protocol makes spoofable", entryPoint)
 	}
 }
 
-func TestIngressValues_ReachesNodesOverThePrivateNetwork(t *testing.T) {
+func TestValues_ReachesNodesOverThePrivateNetwork(t *testing.T) {
 	t.Parallel()
 
 	// Public targets would route traffic out of and back into Hetzner's
 	// network, and would need firewall rules that otherwise do not exist.
-	assert.Equal(t, pulumi.String("true"),
-		annotations(t)["load-balancer.hetzner.cloud/use-private-ip"])
+	assert.Equal(t, "true", annotations(t)["load-balancer.hetzner.cloud/use-private-ip"])
 }
 
-func TestIngressValues_AsksForALoadBalancerService(t *testing.T) {
+func TestValues_KeepsTheClientAddress(t *testing.T) {
 	t.Parallel()
 
 	// The chart's service type is LoadBalancer by default, and the CCM only
 	// creates a load balancer for that type — so what this asserts is the
-	// part the layer sets: the traffic policy that keeps the client address.
-	spec := nested(t, values(t), "service", "spec")
+	// part the layer sets.
+	spec := nested(t, rendered(t), "service", "spec")
 
-	assert.Equal(t, pulumi.String("Local"), spec["externalTrafficPolicy"])
+	assert.Equal(t, "Local", spec["externalTrafficPolicy"])
 }
 
-func TestIngressValues_PlacementFollowsTheCluster(t *testing.T) {
+func TestValues_PlacementFollowsTheCluster(t *testing.T) {
 	t.Parallel()
 
 	// A load balancer in a different location than the nodes cannot use
 	// private-network targets.
 	got := annotations(t)
 
-	assert.Equal(t, pulumi.String("hel1"), got["load-balancer.hetzner.cloud/location"])
-	assert.Equal(t, pulumi.String("platform-prod-ingress"), got["load-balancer.hetzner.cloud/name"])
-	assert.Equal(t, pulumi.String(DefaultLoadBalancerType), got["load-balancer.hetzner.cloud/type"])
+	assert.Equal(t, "hel1", got["load-balancer.hetzner.cloud/location"])
+	assert.Equal(t, "platform-prod-ingress", got["load-balancer.hetzner.cloud/name"])
+	assert.Equal(t, DefaultLoadBalancerType, got["load-balancer.hetzner.cloud/type"])
 }
 
-func TestIngressValues_LeavesTheDashboardOff(t *testing.T) {
+func TestValues_LeaveTheDashboardOff(t *testing.T) {
 	t.Parallel()
 
 	// Traefik's API serves the dashboard without authentication when
-	// `api.insecure` is on. Nothing here turns it on, and this test is what
-	// would notice if something did.
-	assert.NotContains(t, values(t), "api")
+	// `api.insecure` is on. Nothing here turns it on, and this is what would
+	// notice if something did.
+	assert.NotContains(t, rendered(t), "api")
 }
 
-func TestIngressValues_SurvivesANodeFailure(t *testing.T) {
+func TestValues_SurviveANodeFailure(t *testing.T) {
 	t.Parallel()
 
-	all := values(t)
+	all := rendered(t)
 
-	assert.Equal(t, pulumi.Int(ControllerReplicas),
-		nested(t, all, "deployment")["replicas"])
+	assert.Equal(t, float64(ControllerReplicas), nested(t, all, "deployment")["replicas"])
+	assert.Equal(t, true, nested(t, all, "podDisruptionBudget")["enabled"])
 
-	budget := nested(t, all, "podDisruptionBudget")
-	assert.Equal(t, pulumi.Bool(true), budget["enabled"])
-
-	spread, ok := all["topologySpreadConstraints"].(pulumi.Array)
+	spread, ok := all["topologySpreadConstraints"].([]any)
 	require.True(t, ok)
 	require.Len(t, spread, 1)
 
-	constraint, ok := spread[0].(pulumi.Map)
+	constraint, ok := spread[0].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, pulumi.String("kubernetes.io/hostname"), constraint["topologyKey"],
+	assert.Equal(t, "kubernetes.io/hostname", constraint["topologyKey"],
 		"replicas must be spread across nodes, not just counted")
 
 	// The selector has to be a label the chart stamps on the pods. A
 	// constraint whose selector matches nothing is accepted by Kubernetes and
 	// does nothing at all.
 	labels := nested(t, constraint, "labelSelector", "matchLabels")
-	assert.Equal(t, pulumi.String("traefik"), labels["app.kubernetes.io/name"])
+	assert.Equal(t, "traefik", labels["app.kubernetes.io/name"])
 }
 
 func TestComponents(t *testing.T) {

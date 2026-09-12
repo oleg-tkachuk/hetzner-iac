@@ -37,7 +37,15 @@ type ReleaseArgs struct {
 	// Values are the chart values. They are Pulumi inputs, so an output from
 	// another resource — a generated password, the pod CIDR from the cluster
 	// tier — can be threaded in without resolving it first.
+	//
+	// Most charts here supply ValuesYAML instead: a rendered template from
+	// pkg/values, which is the same configuration in the form the charts
+	// document it.
 	Values pulumi.Map
+
+	// ValuesYAML are rendered values files, taking precedence over Values the
+	// way `helm -f` does. Set one or the other, not both.
+	ValuesYAML pulumi.AssetOrArchiveArrayInput
 
 	// TimeoutSeconds overrides the default for a chart that is genuinely slow.
 	TimeoutSeconds int
@@ -103,7 +111,8 @@ func (r *Runner) Release(args ReleaseArgs, opts ...pulumi.ResourceOption) (*helm
 		RepositoryOpts: &helm.RepositoryOptsArgs{
 			Repo: pulumi.String(chart.Repo),
 		},
-		Values: values,
+		Values:         values,
+		ValueYamlFiles: args.ValuesYAML,
 		// Roll back a failed upgrade rather than leaving a half-applied
 		// release for the next run to inherit.
 		Atomic: pulumi.Bool(true),
