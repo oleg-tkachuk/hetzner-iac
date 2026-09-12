@@ -1,0 +1,44 @@
+name: network-policy
+runtime:
+  name: go
+  options:
+    # Stable build path so repeated previews skip the link step; content
+    # hashing still rebuilds when sources change.
+    buildTarget: ../../.cache/pulumi-bin/network-policy
+# Next after the CNI, because Cilium is what enforces these — the custom
+# resources do not exist until its CRDs do. Nothing is created until `enabled`
+# is set: in Cilium, ANY policy selecting an endpoint switches that endpoint to
+# default-deny for the direction the policy mentions, so there is no such thing
+# as an allow rule that changes nothing.
+description: |
+  Cilium network policy: a default-deny and the flows that must survive it.
+
+# State backend. Declared here rather than left to `pulumi login`, so the
+# backend is a property of the repository and not of whoever runs it.
+#
+# Pulumi Cloud is the default: it coordinates concurrent updates, keeps update
+# history, and manages the secrets encryption key, none of which a DIY backend
+# does for you.
+#
+# To keep state in your own S3 bucket instead — one vendor, one bill — point
+# this url at it. That also changes how stack secrets are encrypted,
+# which changes whether Pulumi.<stack>.yaml may be committed: see
+# docs/configuration.md, "Keeping state in your own S3 bucket".
+backend:
+  url: https://api.pulumi.com
+
+config:
+  network-policy:clusterStackRef:
+    default: ""
+    description: |
+      Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
+      This layer reads the kubeconfig from it, which is what lets it be applied
+      and destroyed without touching the cluster.
+
+  network-policy:enabled:
+    default: "false"
+    description: |
+      Create the policies. False by default, and deliberately so: the first
+      policy to select an endpoint denies everything it does not name, so
+      turning this on is an act to take with the flows in front of you —
+      `task cluster:hubble` collects them.

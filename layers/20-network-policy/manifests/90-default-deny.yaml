@@ -1,0 +1,36 @@
+# The default-deny itself, and the only policy here that takes anything away.
+#
+# Separate from the allow rules on purpose. Every other file sets
+# enableDefaultDeny to false, so it can be applied to a running cluster and
+# only ever permits. This one flips every endpoint into deny mode, and from
+# that moment anything the files above do not name is dropped.
+#
+# What is knowingly NOT covered yet, because it does not exist on this cluster
+# and could not be measured:
+#
+#   - cert-manager reaching Let's Encrypt. There is no ClusterIssuer, so ACME
+#     has never run. It needs egress to the world on tcp/443, plus DNS.
+#   - Argo CD fetching from git. There is no root Application, so the repo
+#     server has never cloned anything. Same shape: world, tcp/443.
+#   - Alertmanager reaching a receiver. There is no receiver.
+#
+# Each is a backlog item with its own blocker. Turn this on before they exist
+# and the first of them will fail in a way that reads as a broken component
+# rather than as policy — so the rule stands: enable this when the flows you
+# care about are in front of you, and add the egress with the feature.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  description: everything not named by another policy is dropped
+  endpointSelector: {}
+  # Both fields explicit. enableDefaultDeny is what flips the mode, and the
+  # empty rule lists are what a policy needs to be accepted at all — without
+  # either direction present the API refuses it outright with
+  # `spec.ingress: Required value`, which is how this was found.
+  enableDefaultDeny:
+    ingress: true
+    egress: true
+  ingress: []
+  egress: []
