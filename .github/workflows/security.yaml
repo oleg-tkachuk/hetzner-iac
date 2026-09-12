@@ -65,6 +65,10 @@ jobs:
         with:
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # No cache. The scan itself is two seconds; restoring the shared Go
+          # build cache for it was three hundred, which made this job the gate
+          # the whole expensive half of CI queued behind.
+          cache-mode: "off"
       - name: Install gitleaks
         run: |
           set -euo pipefail
@@ -117,6 +121,10 @@ jobs:
         with:
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # No cache, for the same reason as the job above: trivy reads go.sum
+          # and the filesystem, and nothing here compiles. 184 seconds of
+          # restore for 15 seconds of scanning.
+          cache-mode: "off"
       # The binary rather than the action: the action would run a scan of its
       # own whose result is then discarded, and the gate is the task below —
       # which carries the same flags an operator gets locally.
