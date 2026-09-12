@@ -38,17 +38,27 @@ env:
   KUBECONFORM_VERSION: "0.8.0"
 
 jobs:
-  # Decides whether this change touches anything that needs compiling.
+  # Decides whether anything in this change can break a check below.
   #
-  # The heavy jobs still RUN and still report — they just skip their expensive
-  # step. Gating the jobs themselves with `if:` would leave required checks
-  # unreported on a docs-only PR, and branch protection would wait forever.
+  # The jobs it gates carry a job-level `if:`, so on a documentation-only pull
+  # request they never start a runner. That is safe, and it is worth saying why
+  # the opposite was believed here for a while: a job skipped by `if:` DOES
+  # report, with a "skipping" conclusion that branch protection accepts as
+  # success. The proof is in this workflow — `Go build cache` is a required
+  # check and is skipped on every pull request. What blocks a branch forever is
+  # a check that never reports at all, which is what a workflow-level `paths:`
+  # filter would cause. There is none here, deliberately.
+  #
+  # Before this, the gate ran the jobs anyway and skipped their expensive step.
+  # Measured on a documentation-only pull request: 11 minutes of wall clock, of
+  # which six jobs spent 139-313 seconds each in setup-go — restoring a 4.4 GB
+  # build cache for steps they then skipped.
   changes:
     name: Changed paths
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      relevant: ${{ steps.filter.outputs.relevant }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -60,20 +70,43 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+
+          # Inert paths — what no check in this repository reads. Everything
+          # else is relevant, and the direction matters more than the list.
+          #
+          # This used to be an inclusion list: "code" meant a .go file, go.mod
+          # or .golangci.yaml. But the test suite asserts against Taskfile.yaml,
+          # the per-layer taskfiles, every layer's manifests and Pulumi.yaml,
+          # the committed topology and these workflows — so a change to any of
+          # them skipped the very tests written to guard it. An inclusion list
+          # has to be extended for each new kind of input, and forgetting is
+          # silent and green. Excluding documentation cannot fail that way: a
+          # file type nobody has thought about yet is relevant by default.
+          #
+          # Held to a table of examples by tools/repo/workflows_test.go.
+          inert='(^|/)[^/]*\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.github/(ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE)/|\.(png|jpe?g|svg|gif)$'
+
           if [ -z "${BASE:-}" ]; then
-            # A push to main: always treat it as code, so the release path is
-            # never gated on a diff computation.
-            echo "code=true" >>"$GITHUB_OUTPUT"
+            # A push to main: always relevant, so the release path is never
+            # gated on a diff computation.
+            echo "relevant=true" >>"$GITHUB_OUTPUT"
             echo "push to main — running everything"
             exit 0
           fi
+
           changed="$(git diff --name-only "$BASE" "$HEAD")"
           echo "$changed"
-          if printf '%s\n' "$changed" | grep -qE '\.go$|^go\.(mod|sum)$|^\.golangci\.yaml$'; then
-            echo "code=true" >>"$GITHUB_OUTPUT"
+
+          # grep exits 1 when every line is inert, which is an answer here.
+          relevant="$(printf '%s\n' "$changed" | grep -vE "$inert" || true)"
+
+          if [ -n "$relevant" ]; then
+            echo "relevant=true" >>"$GITHUB_OUTPUT"
+            echo "outside documentation:"
+            printf '%s\n' "$relevant" | sed 's/^/  /'
           else
-            echo "code=false" >>"$GITHUB_OUTPUT"
-            echo "no Go files changed — the compiling jobs will report without compiling"
+            echo "relevant=false" >>"$GITHUB_OUTPUT"
+            echo "documentation only — the checks below will report as skipped"
           fi
 
   # Compiles everything once, so the shared Go cache is saved by a job that has
@@ -149,7 +182,8 @@ jobs:
     # is scoped to refs/pull/N/merge and no other branch can read it — only the
     # default branch can seed a cache everything else restores. Plus the
     # scanners, which gate the release.
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
+    needs: [changes]
     runs-on: ubuntu-latest
     # Ten, not five. The work here is two seconds of echo and awk; everything
     # else is setup, and setup is not something this job controls. At five it
@@ -239,7 +273,10 @@ jobs:
     # here, once, warm. The rest of the checks stay pull-request-only because
     # they read one tree rather than a combination — the layer list, the chart
     # pins, the topology and the commit subjects cannot break by merging.
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: >-
+      needs.changes.outputs.relevant == 'true' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     needs: [changes, security]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -250,11 +287,9 @@ jobs:
       - uses: ./.github/actions/setup-go
       # No separate `go build ./...`: `go test ./...` already compiles every
       # package, including those with no test files.
-      - if: needs.changes.outputs.code == 'true'
-        name: go test
+      - name: go test
         run: go test -count=1 ./...
-      - if: needs.changes.outputs.code == 'true'
-        name: gofmt
+      - name: gofmt
         run: |
           set -euo pipefail
           unformatted="$(gofmt -l .)"
@@ -263,19 +298,17 @@ jobs:
             echo "$unformatted" >&2
             exit 1
           fi
-      - if: needs.changes.outputs.code == 'true'
-        name: go vet
+      - name: go vet
         run: go vet ./...
       # The e2e suite is behind a build tag, so `go test ./...` never compiles
       # it. Without this it rots unnoticed until someone tries to run it
       # against a cluster, which is the worst moment to find a type error.
-      - if: needs.changes.outputs.code == 'true'
-        name: type-check the e2e suite
+      - name: type-check the e2e suite
         run: go vet -tags e2e ./test/...
 
   lint:
     name: Go lint
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes, security]
     runs-on: ubuntu-latest
     # Above golangci's own --timeout, or the runner kills the job first and the
@@ -286,8 +319,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-go
-      - if: needs.changes.outputs.code == 'true'
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: ${{ env.GOLANGCI_VERSION }}
           # --fix=false: the config enables fix for local development, where it
@@ -311,7 +343,7 @@ jobs:
     # `Tests and vet` that takes thirteen minutes. It was nightly on the belief
     # that it cost fifteen — locally it is 2m42s from a cold build cache and 7s
     # from a warm one.
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes, security]
     runs-on: ubuntu-latest
     # Well above the measurement and far below the 40 minutes it had nightly: a
@@ -326,13 +358,11 @@ jobs:
         with:
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - if: needs.changes.outputs.code == 'true'
-        run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+      - run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
       # Suppressions are written as #nosec, which both this and the gosec
       # inside golangci-lint honour — //nolint:gosec would satisfy the lint job
       # and fail this one.
-      - if: needs.changes.outputs.code == 'true'
-        run: task security:gosec
+      - run: task security:gosec
 
   checkov:
     name: Manifest hardening
@@ -347,7 +377,7 @@ jobs:
     #
     # Accepted findings live in .checkov.yaml with the reason each one stands,
     # the same convention as .trivyignore.yaml.
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes, security]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -366,7 +396,7 @@ jobs:
 
   charts:
     name: Chart pins
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes, security]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -413,7 +443,7 @@ jobs:
 
   topology:
     name: Cluster topology
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes, security]
     runs-on: ubuntu-latest
     timeout-minutes: 10
