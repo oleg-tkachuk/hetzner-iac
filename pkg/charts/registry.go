@@ -92,12 +92,12 @@ var registry = map[string]Chart{
 	},
 
 	// Layer 40 — ingress.
-	"ingress-nginx": {
-		Name:       "ingress-nginx",
-		Repo:       "https://kubernetes.github.io/ingress-nginx",
-		Version:    "4.15.1", // app 1.15.1
-		AppVersion: "1.15.1",
-		Namespace:  "ingress-nginx",
+	"traefik": {
+		Name:       "traefik",
+		Repo:       "https://traefik.github.io/charts",
+		Version:    "41.5.0", // app v3.7.13
+		AppVersion: "v3.7.13",
+		Namespace:  "traefik",
 	},
 
 	// Layer 50 — GitOps.

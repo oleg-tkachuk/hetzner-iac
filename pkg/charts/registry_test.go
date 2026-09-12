@@ -144,7 +144,7 @@ func TestRegistry_CoversEveryLayer(t *testing.T) {
 		"cilium",
 		"hcloud-ccm", "hcloud-csi",
 		"cert-manager", "external-secrets", "metrics-server",
-		"ingress-nginx",
+		"traefik",
 		"argo-cd",
 		"kube-prometheus-stack", "loki", "tempo", "alloy",
 	} {

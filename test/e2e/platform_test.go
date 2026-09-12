@@ -89,8 +89,8 @@ func TestIngressLoadBalancer(t *testing.T) {
 			// CCM never created one — usually a bad annotation, and the
 			// Service sits <pending> indefinitely with no event saying so.
 			service := &corev1.Service{}
-			if err := cfg.Client().Resources("ingress-nginx").
-				Get(ctx, "ingress-nginx-controller", "ingress-nginx", service); err != nil {
+			if err := cfg.Client().Resources("traefik").
+				Get(ctx, "traefik", "traefik", service); err != nil {
 				t.Fatalf("get ingress service: %v", err)
 			}
 
