@@ -2,7 +2,7 @@ package hetzner
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -56,8 +56,22 @@ const (
 	PortTalosdAPI = 50000 // talosctl → apid: config apply, upgrades, kubeconfig
 
 	protocolTCP  = "tcp"
+	protocolUDP  = "udp"
 	protocolICMP = "icmp"
+	protocolGRE  = "gre"
+	protocolESP  = "esp"
 	directionIn  = "in"
+)
+
+// The protocols Hetzner Cloud firewall rules accept, split by whether a rule
+// carries a port.
+//
+// Named because they were half named: tcp and icmp were constants and udp,
+// gre and esp were literals in the validator below, so the set a rule is
+// checked against was in two forms at once.
+var (
+	portedProtocols   = []string{protocolTCP, protocolUDP}
+	portlessProtocols = []string{protocolICMP, protocolGRE, protocolESP}
 )
 
 // FirewallRule is a provider-neutral inbound rule.
@@ -133,17 +147,19 @@ func (r FirewallRule) validate(index int) error {
 		return fmt.Errorf("firewall rule %d (%s) has no source CIDRs", index, r.Description)
 	}
 
-	switch r.Protocol {
-	case protocolTCP, "udp":
+	switch {
+	case slices.Contains(portedProtocols, r.Protocol):
 		if r.Port == "" {
 			return fmt.Errorf("firewall rule %d (%s) is %s and needs a port", index, r.Description, r.Protocol)
 		}
-	case protocolICMP, "gre", "esp":
+	case slices.Contains(portlessProtocols, r.Protocol):
 		if r.Port != "" {
 			return fmt.Errorf("firewall rule %d (%s) is %s and must not carry port %q", index, r.Description, r.Protocol, r.Port)
 		}
 	default:
-		return fmt.Errorf("firewall rule %d (%s) has unsupported protocol %q", index, r.Description, r.Protocol)
+		return fmt.Errorf("firewall rule %d (%s) has unsupported protocol %q: this platform builds %s",
+			index, r.Description, r.Protocol,
+			strings.Join(slices.Concat(portedProtocols, portlessProtocols), ", "))
 	}
 
 	return nil
@@ -164,7 +180,7 @@ func SortedLabelPairs(labels map[string]string) []string {
 		pairs = append(pairs, key+"="+value)
 	}
 
-	sort.Strings(pairs)
+	slices.Sort(pairs)
 
 	return pairs
 }

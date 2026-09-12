@@ -24,6 +24,7 @@ type node struct {
 	AdditionalProperties json.RawMessage `json:"additionalProperties"`
 	MaxLength            *int            `json:"maxLength"`
 	Pattern              string          `json:"pattern"`
+	Enum                 []string        `json:"enum"`
 }
 
 // TestSchema_DescribesExactlyTheTopologyStruct is the guard that makes the
@@ -199,4 +200,24 @@ func TestSchema_BoundsMatchTheConstantsTheyMirror(t *testing.T) {
 
 	assert.Equal(t, hetzner.MaxClusterNameLength, *name.MaxLength,
 		"the schema and pkg/hetzner disagree on how long a cluster name may be")
+}
+
+func TestSchema_EnumsMatchTheValidator(t *testing.T) {
+	t.Parallel()
+
+	// The schema is what an editor validates against, and it accepts or
+	// rejects a value before Validate ever runs. An enum the validator
+	// disagrees with is worse than no enum: the editor either marks a legal
+	// value as wrong, or autocompletes one the apply then refuses.
+	raw, err := os.ReadFile(schemaPath)
+	require.NoError(t, err)
+
+	var schema node
+	require.NoError(t, json.Unmarshal(raw, &schema))
+
+	architecture := schema.Properties["talos"].Properties["architecture"]
+	require.NotEmpty(t, architecture.Enum, "talos.architecture has no enum")
+
+	assert.ElementsMatch(t, hetzner.Architectures, architecture.Enum,
+		"the schema and pkg/hetzner disagree on which architectures exist")
 }
