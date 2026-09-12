@@ -230,6 +230,23 @@ func TestValidate_Rejects(t *testing.T) {
 			wantMsg: "must be key=value:Effect",
 		},
 		{
+			// Kubernetes assigns a Service its ClusterIP out of serviceCIDR
+			// and a pod its address out of podCIDR. Overlapping ranges make
+			// one address mean two things, and the symptom is a Service that
+			// works until a pod happens to land on the colliding address.
+			name:    "serviceCIDR overlaps podCIDR",
+			mutate:  func(top *hetzner.Topology) { top.Network.ServiceCIDR = top.Network.PodCIDR },
+			wantMsg: "overlaps network.podCIDR",
+		},
+		{
+			// Same reason podCIDR must stay out of the private network: the
+			// CCM programmes routes inside it, and an address in both is
+			// ambiguous.
+			name:    "serviceCIDR overlaps ipRange",
+			mutate:  func(top *hetzner.Topology) { top.Network.ServiceCIDR = top.Network.IPRange },
+			wantMsg: "overlaps network.ipRange",
+		},
+		{
 			name:    "wrong apiVersion",
 			mutate:  func(top *hetzner.Topology) { top.APIVersion = "caryon/v1" },
 			wantMsg: `apiVersion must be "hetzner-iac/v1"`,
