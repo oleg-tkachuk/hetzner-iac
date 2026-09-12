@@ -52,6 +52,19 @@ func TestStackNamed_UnparseableIsAnErrorNotAbsent(t *testing.T) {
 	assert.Contains(t, err.Error(), "no usable json")
 }
 
+func TestStackAction_PairsTheVerbWithWhatItDid(t *testing.T) {
+	t.Parallel()
+
+	verb, state := stackAction(false)
+	assert.Equal(t, "init", verb)
+	assert.Equal(t, StateCreated, state)
+
+	verb, state = stackAction(true)
+	assert.Equal(t, "select", verb)
+	assert.Equal(t, StateExisting, state,
+		"a stack that was only selected must not be reported as created")
+}
+
 func TestRun_RejectsAnUnknownCommand(t *testing.T) {
 	t.Parallel()
 

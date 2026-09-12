@@ -131,23 +131,43 @@ func names(ctx context.Context, dir string) ([]string, error) {
 	return available, nil
 }
 
-// ensure selects the stack, creating it first if it is not there.
+// The one word `ensure` writes to stdout, so a caller can put it in a column
+// of its own table rather than parse a sentence out of it. platform:init runs
+// this six times, and six sentences naming an absolute path is most of what
+// that command used to print.
+const (
+	StateCreated  = "created"
+	StateExisting = "existing"
+)
+
+// stackAction pairs the pulumi subcommand with the word that describes it.
+//
+// Separated from ensure so the pairing can be tested without a pulumi binary:
+// reporting "created" for a stack that was only selected is a wrong answer in
+// the one place an operator looks to see whether a stack is new.
+func stackAction(present bool) (verb, state string) {
+	if present {
+		return "select", StateExisting
+	}
+
+	return "init", StateCreated
+}
+
+// ensure selects the stack, creating it first if it is not there, and names
+// which of those two it did.
 func ensure(ctx context.Context, dir, name string) error {
 	present, err := exists(ctx, dir, name)
 	if err != nil {
 		return err
 	}
 
-	action := "init"
-	if present {
-		action = "select"
-	}
+	verb, state := stackAction(present)
 
-	if _, err := pulumi(ctx, dir, "stack", action, name); err != nil {
+	if _, err := pulumi(ctx, dir, "stack", verb, name); err != nil {
 		return err
 	}
 
-	fmt.Printf("%s %s in %s\n", action, name, dir)
+	fmt.Println(state)
 
 	return nil
 }
