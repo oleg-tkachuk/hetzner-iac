@@ -1,0 +1,196 @@
+package main
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// claims is a cluster that accounts for everything named in it.
+func claims() Claims {
+	return Claims{
+		PersistentVolumes: map[string]bool{"pvc-kept": true},
+		ServiceUIDs:       map[string]bool{"uid-kept": true},
+		Nodes:             map[string]bool{"node-kept": true},
+		TalosVersion:      "v1.13.10",
+	}
+}
+
+func TestOrphans_SaysNothingWhenEverythingIsClaimed(t *testing.T) {
+	t.Parallel()
+
+	// The case that must never produce a finding, because a false positive
+	// here invites an operator to delete a volume that is in use.
+	found := Orphans(Inventory{
+		Volumes:       []Volume{{Name: "pvc-kept", SizeGB: 50}},
+		LoadBalancers: []LoadBalancer{{Name: "lb", Labels: map[string]string{ServiceUIDLabel: "uid-kept"}}},
+		Servers:       []Server{{Name: "node-kept", Type: "cx23"}},
+		PrimaryIPs:    []PrimaryIP{{Name: "ip", IP: "192.0.2.1", AssigneeID: 42}},
+		Snapshots: []Snapshot{{
+			Description: "talos", Labels: map[string]string{TalosVersionLabel: "v1.13.10"},
+		}},
+	}, claims())
+
+	assert.Empty(t, found)
+}
+
+func TestOrphans_AVolumeIsJudgedByItsNameNotItsAttachment(t *testing.T) {
+	t.Parallel()
+
+	// A volume detaches for a moment whenever its pod is rescheduled, so
+	// "no server" would report every rolling update. What makes it an orphan
+	// is that no PersistentVolume of that name exists — which is the state a
+	// destroyed cluster leaves, because the API server that would have told
+	// the CSI driver to delete it went with the cluster.
+	found := Orphans(Inventory{Volumes: []Volume{
+		{Name: "pvc-kept", SizeGB: 50},
+		{Name: "pvc-gone", SizeGB: 20},
+	}}, claims())
+
+	require.Len(t, found, 1)
+	assert.Equal(t, KindVolume, found[0].Kind)
+	assert.Equal(t, "pvc-gone", found[0].Name)
+	assert.InDelta(t, 20, found[0].Size, 0)
+	assert.Contains(t, found[0].Why, "no PersistentVolume")
+}
+
+func TestOrphans_LoadBalancers(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		labels map[string]string
+		why    string
+	}{
+		// The shape a deleted Service leaves behind: the CCM removes the load
+		// balancer when the Service goes, but not when the whole cluster does.
+		"service gone": {
+			labels: map[string]string{ServiceUIDLabel: "uid-gone"},
+			why:    "its Service is gone",
+		},
+		// Reported rather than skipped: the operator is reading this to find
+		// out what is being paid for, and "something else made it" is an
+		// answer, not a reason to stay silent.
+		"not ours": {
+			labels: map[string]string{"team": "platform"},
+			why:    "not created by this cluster's CCM",
+		},
+	} {
+		found := Orphans(Inventory{
+			LoadBalancers: []LoadBalancer{{Name: "lb-" + name, Labels: tc.labels}},
+		}, claims())
+
+		require.Len(t, found, 1, name)
+		assert.Equal(t, KindLoadBalancer, found[0].Kind, name)
+		assert.Contains(t, found[0].Why, tc.why, name)
+	}
+}
+
+func TestOrphans_AServerThatIsNotANode(t *testing.T) {
+	t.Parallel()
+
+	// The shape a failed image bake leaves: hcloud-upload-image boots a
+	// server into rescue mode, and a crash part way through leaves it
+	// running and billed with nothing referring to it.
+	found := Orphans(Inventory{Servers: []Server{
+		{Name: "node-kept", Type: "cx23"},
+		{Name: "hcloud-upload-image-leftover", Type: "cx23"},
+	}}, claims())
+
+	require.Len(t, found, 1)
+	assert.Equal(t, KindServer, found[0].Kind)
+	assert.Equal(t, "hcloud-upload-image-leftover", found[0].Name)
+	assert.Contains(t, found[0].Why, "cx23")
+}
+
+func TestOrphans_AnUnassignedAddress(t *testing.T) {
+	t.Parallel()
+
+	// A primary IP is billed while it exists, assigned or not — and a server
+	// deleted without its address leaves one behind.
+	found := Orphans(Inventory{PrimaryIPs: []PrimaryIP{
+		{Name: "assigned", IP: "192.0.2.1", AssigneeID: 42},
+		{Name: "loose", IP: "192.0.2.2"},
+	}}, claims())
+
+	require.Len(t, found, 1)
+	assert.Equal(t, KindPrimaryIP, found[0].Kind)
+	assert.Equal(t, "loose", found[0].Name)
+	assert.Contains(t, found[0].Why, "192.0.2.2")
+}
+
+func TestOrphans_SnapshotsOnlyForAnotherTalosVersion(t *testing.T) {
+	t.Parallel()
+
+	// The pinned version is what every server boots from, so only the others
+	// are unused. A snapshot with no version label is somebody else's and is
+	// left alone — image-bake stamps the label, so its absence means this
+	// repository did not create it.
+	found := Orphans(Inventory{Snapshots: []Snapshot{
+		{Description: "current", SizeGB: 0.2, Labels: map[string]string{TalosVersionLabel: "v1.13.10"}},
+		{Description: "previous", SizeGB: 0.2, Labels: map[string]string{TalosVersionLabel: "v1.12.4"}},
+		{Description: "somebody else's", SizeGB: 9},
+	}}, claims())
+
+	require.Len(t, found, 1)
+	assert.Equal(t, KindSnapshot, found[0].Kind)
+	assert.Equal(t, "previous", found[0].Name)
+	assert.Contains(t, found[0].Why, "v1.12.4")
+	assert.Contains(t, found[0].Why, "v1.13.10")
+}
+
+func TestOrphans_IsOrderedSoTwoRunsReadTheSame(t *testing.T) {
+	t.Parallel()
+
+	// Reported to a person who compares runs. Grouped by kind, then by name.
+	found := Orphans(Inventory{
+		Volumes: []Volume{{Name: "pvc-b"}, {Name: "pvc-a"}},
+		Servers: []Server{{Name: "server-b"}, {Name: "server-a"}},
+	}, claims())
+
+	var order []string
+	for _, finding := range found {
+		order = append(order, finding.Kind+"/"+finding.Name)
+	}
+
+	assert.Equal(t, []string{
+		"server/server-a", "server/server-b",
+		"volume/pvc-a", "volume/pvc-b",
+	}, order)
+}
+
+func TestReport_SaysSoWhenThereIsNothing(t *testing.T) {
+	t.Parallel()
+
+	// "(none)" must not read the same as a failed lookup, which is why the
+	// empty case has words rather than an empty table.
+	got := Report(nil, Inventory{Volumes: []Volume{{Name: "pvc-kept"}}}.Examined())
+
+	assert.Contains(t, got, "no orphans")
+	assert.NotContains(t, got, "KIND")
+	// The counts are the point: "clean" and "read nothing" must not print the
+	// same line.
+	assert.Contains(t, got, "examined 1 volumes")
+}
+
+func TestReport_TotalsOnlyProvisionedStorage(t *testing.T) {
+	t.Parallel()
+
+	// A snapshot's size is a compressed artefact and a volume's is
+	// provisioned block storage. Adding them would print a number that means
+	// nothing, so only volumes are totalled.
+	inventory := Inventory{
+		Volumes:   []Volume{{Name: "pvc-gone", SizeGB: 50}},
+		Snapshots: []Snapshot{{Description: "old", SizeGB: 0.2, Labels: map[string]string{TalosVersionLabel: "v1.0.0"}}},
+	}
+
+	got := Report(Orphans(inventory, claims()), inventory.Examined())
+
+	assert.Contains(t, got, "50 GiB of provisioned volumes")
+	// Both sizes still show per row, in a form each is readable in.
+	assert.Contains(t, got, "50 Gi")
+	assert.Contains(t, got, "0.2 Gi")
+	assert.Equal(t, 2, strings.Count(got, "Gi\n")+strings.Count(got, "Gi "),
+		"one size per row, and one in the total")
+}

@@ -21,6 +21,7 @@ bin/
 /charts
 /cluster
 /image
+/orphans
 /stack
 /talos
 /topology
