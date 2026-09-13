@@ -79,7 +79,7 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 |------|-----|
 | [Pulumi](https://www.pulumi.com/docs/install/) 3.261+ | runs everything here; `pulumi login` before the first task |
 | [Go](https://go.dev/dl/) 1.27+ | the programs are Go |
-| [Task](https://taskfile.dev/installation/) 3.53+ | the entry points; remote Taskfiles need 3.53 |
+| [Task](https://taskfile.dev/installation/) 3.53+ | the entry points; the [remote Taskfiles](https://github.com/oleg-tkachuk/taskfiles) it includes need 3.53 |
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
 | [talosctl](https://www.talos.dev/) | day-2: upgrades, etcd snapshots |
