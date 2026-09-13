@@ -36,7 +36,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) != 3 {
-		return fmt.Errorf("usage: stack <exists|ensure> <project-dir> <stack>")
+		return fmt.Errorf("usage: stack <exists|ensure|ref> <project-dir> <stack>")
 	}
 
 	command, dir, name := args[0], args[1], args[2]
@@ -66,8 +66,11 @@ func run(ctx context.Context, args []string) error {
 	case "ensure":
 		return ensure(ctx, dir, name)
 
+	case "ref":
+		return reference(ctx, dir, name)
+
 	default:
-		return fmt.Errorf("unknown command %q: exists or ensure", command)
+		return fmt.Errorf("unknown command %q: exists, ensure or ref", command)
 	}
 }
 
@@ -129,6 +132,76 @@ func names(ctx context.Context, dir string) ([]string, error) {
 	}
 
 	return available, nil
+}
+
+// qualifiedSegments is how many parts a fully qualified stack name has:
+// <org>/<project>/<stack>. Pulumi Cloud prints all three under -Q; a
+// self-managed backend has no organization and prints one, which is a name
+// pulumi.NewStackReference cannot resolve.
+const qualifiedSegments = 3
+
+// qualifiedName picks one stack out of `pulumi stack ls -Q --json` and returns
+// the fully qualified name a layer's clusterStackRef needs.
+//
+// Separated from the call so it can be tested without a Pulumi backend, and
+// matching on the last segment because -Q qualifies every row while the caller
+// knows only the stack's own name.
+//
+// Reading the backend's answer rather than assembling one: the organization
+// from `pulumi whoami` is a guess as soon as an account has two, and the
+// project name would be a third copy of the grep on Pulumi.yaml.
+func qualifiedName(raw []byte, name string) (string, error) {
+	var rows []stackRow
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return "", fmt.Errorf("pulumi stack ls returned no usable json: %w", err)
+	}
+
+	available := make([]string, 0, len(rows))
+
+	for _, row := range rows {
+		segments := strings.Split(row.Name, "/")
+
+		available = append(available, row.Name)
+
+		if segments[len(segments)-1] != name {
+			continue
+		}
+
+		if len(segments) != qualifiedSegments {
+			return "", fmt.Errorf("the backend names this stack %q, not <org>/<project>/<stack>: "+
+				"a self-managed backend has no organization to reference, so pass ref= explicitly", row.Name)
+		}
+
+		return row.Name, nil
+	}
+
+	if len(available) == 0 {
+		return "", fmt.Errorf("no stack named %q, and the project has none", name)
+	}
+
+	return "", fmt.Errorf("no stack named %q. Stacks that do exist: %s", name, strings.Join(available, ", "))
+}
+
+// reference prints the stack reference for one stack, for a caller that has to
+// point another project at it.
+//
+// `pulumi stack ls`, not `pulumi --stack <name> stack --show-name`: the latter
+// falls back to the SELECTED stack when the name is empty, so a caller with an
+// unset variable gets a confident answer about the wrong stack.
+func reference(ctx context.Context, dir, name string) error {
+	out, err := pulumi(ctx, dir, "stack", "ls", "-Q", "--json")
+	if err != nil {
+		return err
+	}
+
+	ref, err := qualifiedName(out, name)
+	if err != nil {
+		return fmt.Errorf("%s: %w", dir, err)
+	}
+
+	fmt.Println(ref)
+
+	return nil
 }
 
 // The one word `ensure` writes to stdout, so a caller can put it in a column
