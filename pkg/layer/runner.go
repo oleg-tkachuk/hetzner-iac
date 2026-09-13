@@ -59,9 +59,12 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 
 	ref := cfg.Get("clusterStackRef")
 	if ref == "" {
+		// Naming the task rather than the pulumi command: the task derives
+		// the reference from the cluster tier, where a hand-typed one can
+		// name another environment's cluster and nothing rejects it.
 		return nil, fmt.Errorf(
 			"config `clusterStackRef` is not set: point this layer at the cluster tier with\n" +
-				"  pulumi config set clusterStackRef <org>/hetzner-cluster/<stack>")
+				"  task platform:init stack=<stack>")
 	}
 
 	cluster, err := clusterref.Resolve(ctx, ref)

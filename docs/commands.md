@@ -27,7 +27,9 @@ a typo is caught before anything runs:
     task: ... layer has an invalid value : '30-cor'
       (allowed values : [10-node-platform 20-network-policy 30-cluster-services 40-ingress 50-gitops])
 
-`task platform:init` needs `ref=`.
+`task platform:init` needs no reference: it reads the cluster tier's stack name
+from `infra/cluster` and writes that into every layer. `ref=` overrides it, for
+a cluster in another organization or one shared by several layer stacks.
 
 Every task that runs `pulumi up` or `pulumi destroy` asks before it does —
 applying is not the safe half of the pair, because `pulumi up` replaces a
@@ -103,7 +105,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 
 | Task | Does |
 |------|------|
-| `task platform:init ref=<org>/hetzner-cluster/<stack>` | create every layer's stack and point it at the cluster |
+| `task platform:init` | create every layer's stack and point it at the cluster |
 | `task platform:plan-all` | preview every layer in order |
 | `task platform:apply-all` | apply every layer in dependency order; asks first |
 | `task platform:destroy-all` | destroy every layer, in reverse |

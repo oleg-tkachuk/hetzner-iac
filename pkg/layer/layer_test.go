@@ -109,6 +109,8 @@ func TestNew_RequiresAClusterStackRef(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "clusterStackRef")
+	assert.Contains(t, err.Error(), "task platform:init",
+		"the remedy is the task that derives the reference, not a hand-typed one")
 }
 
 func TestNew_BuildsAProviderFromTheClusterKubeconfig(t *testing.T) {
