@@ -89,6 +89,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:reboot` | reboot the nodes through Talos; they come back by themselves |
 | `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
 | `task cluster:secrets-export` | print the Talos secrets bundle — pipe it into a password store |
+| `task cluster:etcd-restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
 | `task cluster:upgrade-talos` | upgrade Talos, one node at a time |
 | `task cluster:upgrade-k8s` | upgrade Kubernetes in place |
 

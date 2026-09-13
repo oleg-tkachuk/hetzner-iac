@@ -8,6 +8,27 @@ vars:
   _CL_STACK: '{{.stack}}'
   _CL_TOPOLOGY: '{{.ROOT}}/infra/cluster/cluster.{{.stack}}.yaml'
 
+  # The control-plane nodes, from Hetzner rather than from the cluster.
+  #
+  # `talosctl get members` is the obvious source and the wrong one: it needs
+  # etcd to answer, and the task that uses this runs when etcd is what is
+  # broken. The provider knows which servers exist whatever state they are in,
+  # and role=control-plane is a label pkg/hetzner stamps.
+  #
+  # Refuses an empty match rather than looping zero times and reporting
+  # success — an empty selector would match every server in the project.
+  _CL_CONTROL_PLANE: |
+    export HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._CL_STACK}}")"
+    cluster="$(go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}")"
+    nodes="$(hcloud server list -l "cluster=${cluster},role=control-plane" -o noheader -o columns=ipv4)"
+    test -n "$nodes"
+
+  # How long to wait for a node to come back with etcd in Preparing after its
+  # EPHEMERAL partition is wiped. A reboot and a volume unlock; generous,
+  # because the alternative to waiting is bootstrapping a node that is not
+  # ready and reading an error about the wrong thing.
+  _CL_RECOVER_TIMEOUT: '300'
+
   # Where the Cilium chart puts the Hubble relay, and what it listens on.
   # Named because `hubble` is given the local end and kubectl the remote one,
   # and a mismatch between the two produces a connection refused with nothing
@@ -533,6 +554,89 @@ tasks:
           TALOSCONFIG="{{.ROOT}}/talosconfig" talosctl etcd snapshot \
             "{{.ROOT}}/.backups/etcd-${stamp}.db"
           echo "{{._OK}} cluster · etcd · wrote .backups/etcd-${stamp}.db"
+
+  etcd-restore:
+    desc: "Restore etcd from a snapshot — wipes every control-plane node first (snapshot=<path>). The other half of a backup."
+    deps: [talosconfig]
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: '[ -n "{{.snapshot}}" ]'
+        msg: |
+          cluster:etcd-restore needs the snapshot to restore from.
+
+              task cluster:etcd-restore stack=dev snapshot=.backups/etcd-<stamp>.db
+
+          `task cluster:etcd-snapshot` writes them; ls .backups/ for what exists.
+      - sh: '[ -f "{{.snapshot}}" ]'
+        msg: "no snapshot at {{.snapshot}} — ls .backups/ for what exists"
+      - sh: command -v talosctl >/dev/null
+        msg: "talosctl not installed — https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl"
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
+    prompt: "Restore {{._CL_STACK}} from {{.snapshot}}? Every control-plane node is wiped and rebuilt from it, and everything written after it is gone."
+    cmds:
+      # The procedure Talos documents, and nothing invented on top of it:
+      # wipe EPHEMERAL on every control-plane node, wait for each to come back
+      # with etcd Preparing, then bootstrap one of them from the snapshot.
+      #
+      # No --recover-skip-hash-check. That flag is for a snapshot copied out of
+      # /var/lib/etcd by hand, which carries no hash; `cluster:etcd-snapshot`
+      # takes them through the etcd API, which writes one. Passing it anyway
+      # would turn the integrity check off for every restore.
+      #
+      # No talosctl version gate either, unlike cluster:config-check. That
+      # check refuses a mismatched minor because config validation differs
+      # between them and reports conflicts that will not happen; reset and
+      # bootstrap are plain API calls, and talosctl is supported one minor
+      # ahead of the cluster.
+      - cmd: |
+          set -euo pipefail
+          export TALOSCONFIG="{{.ROOT}}/talosconfig"
+
+          # Before anything is wiped. A truncated download has the right name
+          # and the right size to the eye, and finding out after the reset
+          # leaves a cluster with no etcd and no way back.
+          echo "{{._RUN}} cluster · etcd-restore · checking the snapshot"
+          go run "{{.ROOT}}/tools/etcd" verify "{{.snapshot}}"
+
+          {{._CL_CONTROL_PLANE}}
+
+          count="$(echo "$nodes" | wc -l | tr -d ' ')"
+          echo "{{._RUN}} cluster · etcd-restore · ${count} control-plane node(s) to wipe"
+
+          for node in $nodes; do
+            echo "{{._RUN}} cluster · etcd-restore · ${node} → wiping EPHEMERAL"
+            talosctl -n "$node" reset --graceful=false --reboot --system-labels-to-wipe=EPHEMERAL
+          done
+
+          # Every node has to be back with etcd Preparing before one is
+          # bootstrapped. Failures are "not yet": the node is rebooting, so
+          # apid is unreachable for most of this wait.
+          for node in $nodes; do
+            echo "{{._RUN}} cluster · etcd-restore · ${node} → waiting for etcd to reach Preparing"
+            deadline=$(( $(date +%s) + {{._CL_RECOVER_TIMEOUT}} ))
+
+            until talosctl -n "$node" service etcd 2>/dev/null | grep -qE '^STATE[[:space:]]+Preparing'; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "{{._ERR}} cluster · etcd-restore · ${node} did not reach Preparing in {{._CL_RECOVER_TIMEOUT}}s" >&2
+                echo "{{._ERR}} cluster · etcd-restore · look at it with: task hcloud:console stack={{._CL_STACK}} server=<name>" >&2
+                exit 1
+              fi
+
+              sleep 5
+            done
+          done
+
+          # One node, from the local file. The others rejoin on their own once
+          # the control-plane endpoint answers.
+          first="$(echo "$nodes" | head -1)"
+          echo "{{._RUN}} cluster · etcd-restore · ${first} → bootstrap from {{.snapshot}}"
+          talosctl -n "$first" bootstrap --recover-from="{{.snapshot}}"
+
+          echo
+          echo "{{._OK}} cluster · etcd-restore · restored — task cluster:status stack={{._CL_STACK}}"
+          echo "{{._WARN}} cluster · etcd-restore · objects created after the snapshot are gone; re-apply the layers to converge"
 
   upgrade-talos:
     desc: "Upgrade Talos on every node. Bump talos.version in the topology first, then re-bake."
