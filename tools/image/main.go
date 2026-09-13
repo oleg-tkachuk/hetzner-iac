@@ -84,7 +84,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	token, err := hcloudToken(ctx, stack)
+	token, err := hetzner.Token(ctx, stack)
 	if err != nil {
 		return err
 	}
@@ -137,47 +137,6 @@ func factoryArchitecture(arch string) (string, error) {
 	}
 
 	return factoryArch, nil
-}
-
-// hcloudToken prefers an exported token, then the encrypted stack config.
-//
-// An exported HCLOUD_TOKEN wins so a shell that already has one — CI, or a
-// token for another project — keeps working. Otherwise the token comes out of
-// Pulumi's own ciphertext in the committed Pulumi.<stack>.yaml, which is why
-// no plaintext file has to exist anywhere.
-func hcloudToken(ctx context.Context, stack string) (string, error) {
-	if token := os.Getenv("HCLOUD_TOKEN"); token != "" {
-		return token, nil
-	}
-
-	var stderr bytes.Buffer
-
-	// Pulumi's own error goes through untouched: "no stack named" and "invalid
-	// access token" are different problems and say so. Only the remedy is
-	// added.
-	// #nosec G204 -- the stack name comes from the Taskfile's own stack
-	// variable, and exec.Command passes arguments as a vector: there is no
-	// shell to interpret them.
-	cmd := exec.CommandContext(ctx, "pulumi", "--non-interactive",
-		"-C", "infra/cluster", "-s", stack, "config", "get", "hcloud:token")
-	cmd.Stderr = &stderr
-
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf(
-			"%s\nno Hetzner token for stack %s. Set it once, encrypted, in the stack:\n\n"+
-				"  pulumi -C infra/cluster -s %s config set --secret hcloud:token <token>\n\n"+
-				"It is then committed as ciphertext in Pulumi.%s.yaml and every task reads it\n"+
-				"from there. Exporting HCLOUD_TOKEN also works and takes priority",
-			strings.TrimSpace(stderr.String()), stack, stack, stack)
-	}
-
-	token := strings.TrimSpace(string(out))
-	if token == "" {
-		return "", fmt.Errorf("stack %s has an empty hcloud:token", stack)
-	}
-
-	return token, nil
 }
 
 // hcloudImage is the part of `hcloud image list -o json` this needs.
