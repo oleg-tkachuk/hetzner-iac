@@ -50,6 +50,16 @@ jobs:
           avail=$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)
           printf '| after toolchain | %s MB |\n' "$avail" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # THE CONTROL. Everything above and below is unchanged; this one step is
+      # the only difference from the run that died at the restore below.
+      - uses: ./.github/actions/free-disk
+
+      - name: After free-disk
+        run: |
+          set -euo pipefail
+          avail=$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)
+          printf '| after free-disk | %s MB |\n' "$avail" | tee -a "$GITHUB_STEP_SUMMARY"
+
       # The same reader the composite action uses, with the same key.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
