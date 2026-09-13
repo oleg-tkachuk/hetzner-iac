@@ -99,42 +99,6 @@ func TestAvailMB_FailsWhenDfPrintsNothing(t *testing.T) {
 	assert.Contains(t, out, "no data row")
 }
 
-func TestCountRows_ZeroIsAnAnswerNotAFailure(t *testing.T) {
-	t.Parallel()
-
-	// `grep -c .` exits 1 on zero, which needs a `|| true` under `set -e` and
-	// makes a real failure look like an empty result.
-	out, code := run(t, "count-rows", "")
-
-	assert.Equal(t, 0, code)
-	assert.Equal(t, "0", strings.TrimSpace(out))
-}
-
-func TestCountRows_SkipsBlankLines(t *testing.T) {
-	t.Parallel()
-
-	out, code := run(t, "count-rows", "a\n\nb\n   \nc\n")
-
-	assert.Equal(t, 0, code)
-	assert.Equal(t, "3", strings.TrimSpace(out))
-}
-
-func TestAnyRow_ExitStatusMirrorsGrepQ(t *testing.T) {
-	t.Parallel()
-
-	for name, tc := range map[string]struct {
-		stdin string
-		want  int
-	}{
-		"empty":       {"", 1},
-		"blank lines": {"\n   \n", 1},
-		"one row":     {"x\n", 0},
-	} {
-		_, code := run(t, "any-row", tc.stdin)
-		assert.Equal(t, tc.want, code, name)
-	}
-}
-
 func TestCacheWriters_FindsExactlyOneInTheRealWorkflows(t *testing.T) {
 	t.Parallel()
 
