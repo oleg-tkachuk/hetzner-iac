@@ -98,7 +98,7 @@ tasks:
       - cmd: |
           set -euo pipefail
           state="$(go run {{.ROOT}}/tools/stack ensure "{{._CL_DIR}}" "{{._CL_STACK}}")"
-          echo "cluster stack {{._CL_STACK}}: ${state}"
+          echo "{{._RUN}} cluster · stack · {{._CL_STACK}} ${state}"
 
   token:
     desc: "Store the Hetzner API token in this stack, encrypted"
@@ -123,7 +123,7 @@ tasks:
           set -euo pipefail
           cd "{{._CL_DIR}}"
           pulumi --stack "{{._CL_STACK}}" config set --secret hcloud:token
-          echo "stored hcloud:token — encrypted in Pulumi.{{._CL_STACK}}.yaml, safe to commit"
+          echo "{{._OK}} cluster · token · encrypted in Pulumi.{{._CL_STACK}}.yaml, which is gitignored"
 
   plan:
     desc: "Show what applying the cluster would change; change nothing"
@@ -183,10 +183,8 @@ tasks:
           cd "{{._CL_DIR}}"
           pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes --exclude-protected
           echo
-          echo "the Talos secrets bundle is kept — the cluster CA, which is state and costs nothing."
-          echo "to remove it as well, and with it the stack:"
-          echo
-          echo "    task cluster:destroy-secrets stack={{._CL_STACK}}"
+          echo "{{._SKIP}} cluster · secrets · kept — the CA is state, not a billed resource"
+          echo "{{._SKIP}} cluster · secrets · remove it too: task cluster:destroy-secrets stack={{._CL_STACK}}"
 
   destroy-secrets:
     desc: "Destroy the Talos secrets bundle too — the cluster CA. Unrecoverable."
@@ -224,8 +222,8 @@ tasks:
           export TALOSCONFIG="{{.ROOT}}/talosconfig"
           talosctl shutdown
           echo
-          echo "stopped, and still billed — only cluster:destroy stops that."
-          echo "back up with: task hcloud:poweron stack={{._CL_STACK}}"
+          echo "{{._OK}} cluster · stop · halted, and still billed — only cluster:destroy stops that"
+          echo "{{._OK}} cluster · stop · back up with: task hcloud:poweron stack={{._CL_STACK}}"
 
   reboot:
     desc: "Reboot the cluster's nodes through Talos"
@@ -266,7 +264,7 @@ tasks:
           cd "{{._CL_DIR}}"
           pulumi --non-interactive --stack "{{._CL_STACK}}" stack output kubeconfig --show-secrets > "{{.ROOT}}/kubeconfig"
           chmod 600 "{{.ROOT}}/kubeconfig"
-          echo "wrote kubeconfig — export KUBECONFIG={{.ROOT}}/kubeconfig"
+          echo "{{._OK}} cluster · kubeconfig · wrote ./kubeconfig — export KUBECONFIG={{.ROOT}}/kubeconfig"
 
   kubeconfig-add:
     desc: "Add this cluster to ~/.kube/config, so a plain kubectl reaches it"
@@ -348,9 +346,8 @@ tasks:
 
           # Not switched to, deliberately. Repointing the operator's shell is
           # the hazard every --kubeconfig in this repository exists to avoid.
-          echo "added to $target"
-          echo "  context: $context"
-          echo "  switch:  kubectl config use-context $context"
+          echo "{{._OK}} cluster · kubeconfig · added to $target"
+          echo "{{._SKIP}} cluster · kubeconfig · not switched to — kubectl config use-context $context"
 
   talosconfig:
     desc: "Write ./talosconfig from the cluster stack"
@@ -363,7 +360,7 @@ tasks:
           cd "{{._CL_DIR}}"
           pulumi --non-interactive --stack "{{._CL_STACK}}" stack output talosconfig --show-secrets > "{{.ROOT}}/talosconfig"
           chmod 600 "{{.ROOT}}/talosconfig"
-          echo "wrote talosconfig — export TALOSCONFIG={{.ROOT}}/talosconfig"
+          echo "{{._OK}} cluster · talosconfig · wrote ./talosconfig — export TALOSCONFIG={{.ROOT}}/talosconfig"
 
   nodes:
     desc: "List cluster nodes"
@@ -378,10 +375,10 @@ tasks:
       - cmd: |
           set -euo pipefail
           export KUBECONFIG="{{.ROOT}}/kubeconfig"
-          echo "== nodes"
+          echo "{{._RUN}} cluster · status · nodes"
           kubectl get nodes -o wide
           echo
-          echo "== pods that are not Running or Succeeded"
+          echo "{{._RUN}} cluster · status · pods that are not Running or Succeeded"
           # "(none)" must mean "every pod is healthy", not "kubectl could not
           # reach the cluster". Those are opposite answers, and discarding
           # stderr made them print the same line.
@@ -394,7 +391,7 @@ tasks:
             esac
           else
             printf '%s\n' "$out" >&2
-            echo "  cannot reach the cluster — is KUBECONFIG set?" >&2
+            echo "{{._ERR}} cluster · status · cannot reach the cluster — is KUBECONFIG set?" >&2
             exit 1
           fi
 
@@ -498,10 +495,10 @@ tasks:
 
           if [ "$plaintext" -ne 0 ]; then
             echo                                                                  >&2
-            echo "A system volume is not encrypted. Talos has no in-place"         >&2
-            echo "encryption, so a node built before the VolumeConfig keeps its"   >&2
-            echo "plaintext partitions however often the config is re-applied."    >&2
-            echo "The fix is a node built with it:"                               >&2
+            echo "{{._ERR}} cluster · encryption · a system volume is plaintext"    >&2
+            echo "Talos has no in-place encryption, so a node built before the"      >&2
+            echo "VolumeConfig keeps its plaintext partitions however often the"    >&2
+            echo "config is re-applied. The fix is a node built with it:"           >&2
             echo                                                                  >&2
             echo "    task cluster:destroy stack={{.stack}}"                      >&2
             echo "    task cluster:apply   stack={{.stack}}"                      >&2
@@ -523,7 +520,7 @@ tasks:
           stamp="$(date -u +%Y%m%dT%H%M%SZ)"
           TALOSCONFIG="{{.ROOT}}/talosconfig" talosctl etcd snapshot \
             "{{.ROOT}}/.backups/etcd-${stamp}.db"
-          echo "wrote .backups/etcd-${stamp}.db"
+          echo "{{._OK}} cluster · etcd · wrote .backups/etcd-${stamp}.db"
 
   upgrade-talos:
     desc: "Upgrade Talos on every node. Bump talos.version in the topology first, then re-bake."
@@ -540,7 +537,7 @@ tasks:
           # One node at a time, waiting for each: rolling through the control
           # plane in parallel takes etcd below quorum.
           for node in $(talosctl get members -o json | jq -r '.spec.addresses[0]'); do
-            echo "== upgrading ${node} to ${version}"
+            echo "{{._RUN}} cluster · upgrade · ${node} → ${version}"
             talosctl upgrade --nodes "${node}" \
               --image "ghcr.io/siderolabs/installer:${version}" --wait
           done
