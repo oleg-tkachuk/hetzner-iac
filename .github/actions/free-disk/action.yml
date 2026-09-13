@@ -3,23 +3,36 @@ description: >
   Removes preinstalled toolchains this repository never uses, to make room for
   a cold Go build.
 
-  A hosted runner starts with 13.7 GB free, and this repository's cache no
-  longer fits in it. Measured on 2026-09-13, on a reader job with this action
-  deliberately absent:
+  A hosted runner starts with 13.7 GB free, and this repository's cache fits
+  in that — now. It did not this morning, and the difference is worth reading
+  before anyone removes this action.
+
+  Measured 2026-09-13, a reader job with this action deliberately absent,
+  against a cache of 15.6 GB:
 
     baseline               13 720 MB
     after the toolchain    13 087 MB
-    cache restore          died, no logs
+    cache restore          died, with no logs at all
 
-  Because the restore needs 15.6 GB: the build cache is 14 155 MB and the
-  module cache 1 452 MB. With this action the same job has 35 478 MB before
-  the restore and 19 873 MB after it, and finishes.
+  Then the saved cache was trimmed to one build's worth — 4 635 MB of build
+  cache and 1 452 MB of modules — and the same job was measured again:
 
-  Those numbers used to read 4.4 GB and 810 MB. The build cache has tripled
-  since, which is worth knowing for two reasons: this action is now
-  load-bearing rather than defensive — removing it from a reader breaks the
-  job outright — and the guard below, which wants 20 GB, is 127 MB away from
-  firing on a successful run.
+    baseline               13 086 MB
+    after the restore       7 001 MB
+    after the work          5 732 MB   and it finished
+
+  So this is headroom rather than necessity, and it stays for two reasons
+  that are not sentiment. The failure it prevents is the worst kind this
+  repository has produced — a job killed with no logs, which reads as lost
+  infrastructure rather than as a full disk. And removing it buys nothing:
+  measured on the same run, 250s for the reader without it against 209s for
+  the one with it.
+
+  What would change that: the cache growing again. It reached 14 155 MB once,
+  because Go trims entries untouched for five days and a cache restored fresh
+  on every run never ages. The priming job now builds from an empty cache to
+  keep that from recurring — if that ever stops being true, this action is
+  what stands between the regression and a run with no logs.
 
   It first went over the edge twice, in two different jobs and with two
   different faces:
