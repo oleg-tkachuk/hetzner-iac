@@ -1,0 +1,98 @@
+name: Disk probe
+
+# TEMPORARY. Measures whether a reader job survives without free-disk, which
+# is the only way to answer it: the action's own description says a hosted
+# runner starts with 13.7 GB, the build cache expands to 4.4 GB and the module
+# cache to 810 MB, and that it has already hit ENOSPC twice — once with no
+# logs at all, because the disk was too full for the runner to write them.
+#
+# This job is a reader — restore, never save — with free-disk deliberately
+# absent, printing free space at every stage. Not for merging.
+on: pull_request
+
+permissions: {}
+
+jobs:
+  probe:
+    name: Disk probe (no free-disk)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Baseline, before anything
+        run: |
+          set -euo pipefail
+          printf '%s\n' "=== baseline ==="
+          df -h /
+          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - id: go-paths
+        run: |
+          set -euo pipefail
+          {
+            printf 'mod=%s\n' "$(go env GOMODCACHE)"
+            printf 'build=%s\n' "$(go env GOCACHE)"
+            printf 'version=%s\n' "$(go env GOVERSION)"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: After the toolchain
+        run: |
+          set -euo pipefail
+          printf '%s\n' "=== after toolchain ==="
+          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
+
+      # The same reader the composite action uses, with the same key.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-paths.outputs.mod }}
+            ${{ steps.go-paths.outputs.build }}
+          key: go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
+
+      - name: After the cache
+        env:
+          MOD: ${{ steps.go-paths.outputs.mod }}
+          BUILD: ${{ steps.go-paths.outputs.build }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "=== after cache restore ==="
+          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
+          du -sm "$MOD" "$BUILD" 2>/dev/null || true
+
+      # The work a reader job actually does, each followed by the space left.
+      # `go build` first because it is what fills $WORK, which is where the
+      # ENOSPC the action documents happened.
+      - name: go build, then space
+        run: |
+          set -euo pipefail
+          go build -o bin/ ./...
+          printf '%s\n' "=== after go build ==="
+          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
+
+      - name: go test, then space
+        env:
+          BUILD: ${{ steps.go-paths.outputs.build }}
+        run: |
+          set -euo pipefail
+          go test -count=1 ./... >/dev/null
+          printf '%s\n' "=== after go test ==="
+          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
+          du -sm "$BUILD" 2>/dev/null || true
+
+      - name: e2e type-check, then space
+        run: |
+          set -euo pipefail
+          go vet -tags e2e ./test/...
+          printf '%s\n' "=== after e2e vet ==="
+          df -h /
+          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
