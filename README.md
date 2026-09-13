@@ -11,7 +11,8 @@
 [![Argo CD](https://img.shields.io/badge/Argo%20CD-EF7B4D?logo=argo&logoColor=white)](https://argo-cd.readthedocs.io)
 [![Hetzner Cloud](https://img.shields.io/badge/Hetzner%20Cloud-D50C2D?logo=hetzner&logoColor=white)](https://www.hetzner.com/cloud)
 
-Kubernetes on [Hetzner Cloud](https://www.hetzner.com/cloud), built with the
+Kubernetes on [Hetzner Cloud](https://www.hetzner.com/cloud), running
+[Talos Linux](https://www.siderolabs.com/talos-linux) and built with the
 [Pulumi Go SDK](https://www.pulumi.com/docs/iac/languages-sdks/go/).
 
 [Hetzner](https://www.hetzner.com/) has no managed Kubernetes, so this
