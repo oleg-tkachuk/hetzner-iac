@@ -556,6 +556,11 @@ jobs:
   # permissions and is the usual way people accidentally build untrusted code;
   # a job dependency states the same requirement with none of that surface,
   # and states it where the checks themselves are visible.
+  #
+  # Its steps live in release.yaml, called from here. That is presentation
+  # only — GitHub's workflow list is per file, so a job cannot appear in it —
+  # and the gating below is unchanged, which is the reason it is a call and
+  # not a trigger.
   release:
     name: Release
     # Only jobs that also run on a push to main. A skipped dependency skips
@@ -570,34 +575,12 @@ jobs:
     # Only from a push to main. On a pull request the checks still run; there
     # is simply nothing to release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
     permissions:
       # semantic-release pushes the tag and the release notes; the issues and
       # pull-requests scopes are for its comment plugins. Scoped to this job,
-      # so every other job in this workflow stays read-only.
+      # so every other job in this workflow stays read-only — and a called
+      # workflow cannot widen what is granted here.
       contents: write
       issues: write
       pull-requests: write
-    steps:
-      # No persist-credentials: false here — semantic-release pushes the tag it
-      # creates, so this is the one checkout in the repository that genuinely
-      # needs its credentials.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 # zizmor: ignore[artipacked]
-        with:
-          # semantic-release derives the next version from the commit history.
-          fetch-depth: 0
-
-      - uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          # BOTH pins matter, and it is the PAIR that matters.
-          #
-          # An unpinned preset resolves to its current major on every run, so a
-          # release that worked yesterday breaks on an upstream publish with no
-          # commit of ours in between — and the failure reads as a missing
-          # module rather than as a version mismatch.
-          semantic_version: 25
-          extra_plugins: |
-            conventional-changelog-conventionalcommits@10.2.1
+    uses: ./.github/workflows/release.yaml
