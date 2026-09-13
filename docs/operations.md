@@ -107,6 +107,7 @@ so "nothing to report" cannot read the same as "nothing was read".
 | `task cluster:upgrade-k8s` | upgrade Kubernetes in place; asks first |
 | `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
 | `task cluster:secrets-export` | print the Talos secrets bundle, to pipe into a password store |
+| `task cluster:etcd-restore` | restore etcd from a snapshot; wipes the control plane first, asks first |
 
 Both upgrades are Talos operations and both ask before they start. The Talos
 version comes from the topology, not the task: bump `talos.version`, run
@@ -133,6 +134,32 @@ scrollback. Store it where the Hetzner token already lives.
 
 Re-export it only if the bundle is ever regenerated, which nothing but
 `task cluster:destroy-secrets` does.
+
+### Restoring
+
+    task cluster:etcd-restore stack=dev snapshot=.backups/etcd-<stamp>.db
+
+This is the procedure Talos documents, with nothing on top: wipe the EPHEMERAL
+partition of every control-plane node, wait for each to come back with etcd in
+`Preparing`, then bootstrap one of them from the snapshot. The others rejoin
+once the control-plane endpoint answers.
+
+Three things it does before touching anything:
+
+- **checks the snapshot.** A truncated download has the right name and looks
+  the right size; finding out after the wipe leaves a cluster with no etcd and
+  no way back. The file is a bbolt database, so the check is the format's own
+  magic number and page size, not a size threshold;
+- **finds the nodes through Hetzner,** not `talosctl get members`, which needs
+  the etcd that is broken;
+- **asks.** Everything written after the snapshot is gone.
+
+The node list comes from the `role=control-plane` label, so this works
+unchanged on one node or three.
+
+Afterwards the cluster holds what the snapshot held. Re-apply the layers to
+converge anything created since — they are idempotent, which is what makes
+that safe.
 
 The etcd snapshot still writes to the operator's machine, on no schedule, with
 no copy anywhere else. That half is a gap, not a design.
