@@ -3,6 +3,56 @@
 Four decisions explain most of the repository. Each one has a cost, and the
 cost is named.
 
+## What lives inside what
+
+The seam this repository is built on: one project writes to Hetzner, and every
+layer writes only to Kubernetes. Destroying the cluster tier takes everything
+above it; destroying a layer takes only its own namespaces.
+
+```mermaid
+flowchart TB
+    subgraph hetzner["Hetzner Cloud project — infra/cluster is the only thing that writes here"]
+        direction TB
+        net["private network + subnet"]
+        fw["firewall"]
+        pg["placement group"]
+        snap["Talos snapshot<br/>(task cluster:image-bake)"]
+
+        subgraph servers["servers"]
+            direction LR
+            cp["control plane"]
+            wk["worker pools"]
+        end
+
+        apilb["load balancer for the API<br/>(only when the control plane has more than one node)"]
+        inglb["load balancer for ingress<br/>(created by the CCM, not by Pulumi)"]
+    end
+
+    subgraph talos["Talos on those servers"]
+        direction TB
+        etcd["etcd"]
+        api["kube-apiserver"]
+    end
+
+    subgraph k8s["Kubernetes — every layer writes only here"]
+        direction TB
+        ks["kube-system<br/>layers/10-node-platform"]
+        cmns["cert-manager, external-secrets<br/>layers/30-cluster-services"]
+        tns["traefik<br/>layers/40-ingress"]
+        argons["argocd<br/>layers/50-gitops"]
+        pol["cluster-wide policy<br/>layers/20-network-policy"]
+    end
+
+    servers --> talos
+    talos --> k8s
+    ks -.->|"CCM asks for it"| inglb
+```
+
+The ingress load balancer is the one resource that crosses the seam, and it
+crosses from the wrong side on purpose: a layer asks Kubernetes for a Service,
+and the cloud controller manager turns that into a Hetzner resource. No layer
+holds a Hetzner credential to do it with.
+
 ## Each layer is its own Pulumi project
 
 A layer can be previewed, applied and destroyed on its own, and reads the
@@ -40,6 +90,27 @@ have to be removed before Cilium could take over. Nodes are `NotReady` until
 `layers/10-node-platform` runs. That is the handover point, not a failure — and
 it is why that layer also owns the cloud controller manager, which cannot be
 scheduled onto a node no CNI has made Ready.
+
+```mermaid
+sequenceDiagram
+    actor operator
+    participant tier as infra/cluster
+    participant hcloud as Hetzner Cloud
+    participant k8s as Kubernetes API
+    participant layers as layers/*
+
+    operator->>tier: task cluster:apply
+    tier->>hcloud: private network, firewall, servers
+    tier->>hcloud: Talos machine configuration, then bootstrap
+    hcloud-->>k8s: the API answers
+    tier-->>operator: kubeconfig and talosconfig, as stack outputs
+    Note over k8s: no CNI is installed here,<br/>so every node is NotReady
+
+    operator->>layers: task platform:apply-all
+    layers->>k8s: layers/10-node-platform installs the CNI
+    Note over k8s: nodes become Ready
+    layers->>k8s: the remaining layers, in dependency order
+```
 
 ## The default deny is opt-in
 
@@ -83,6 +154,40 @@ interpreting.
 
 Turn it on with the flows in front of you: `task cluster:hubble` prints what
 the cluster is doing now.
+
+## How a request reaches a pod
+
+Two halves of one setting, and enabling either alone fails every request
+through the load balancer. The load balancer is told to send a PROXY header;
+Traefik accepts one only from addresses it is told to trust, and its default is
+to trust nobody.
+
+```mermaid
+flowchart LR
+    client(["client"])
+
+    lb["Hetzner load balancer<br/>public IPv4 and IPv6"]
+
+    subgraph private["private network — network.nodeSubnet"]
+        direction LR
+        node["node<br/>private address only"]
+        traefik["Traefik<br/>entry points: web, websecure<br/>trusted for the PROXY header: network.nodeSubnet"]
+        svc["Service"]
+        pod["pod"]
+    end
+
+    client -->|"tcp/80, tcp/443"| lb
+    lb -->|"PROXY header,<br/>use-private-ip: true"| node
+    node --> traefik
+    traefik --> svc
+    svc --> pod
+```
+
+The trusted range is the node subnet the cluster tier publishes, not a wider
+one: the load balancer reaches the nodes privately, and a wider range would
+accept a spoofed header from any pod. Nothing trusts `X-Forwarded-*` in
+addition — the client address arrives in the PROXY header, and trusting both
+would accept a forged one.
 
 ## What the cluster encrypts, and what it does not
 
