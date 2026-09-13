@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -388,4 +390,75 @@ func TestGet_RefusesToPrintAnEmptyValue(t *testing.T) {
 		require.NoError(t, err, field)
 		assert.NotEmpty(t, value, field)
 	}
+}
+
+// haBlock is where cluster.example.yaml's commented high-availability
+// configuration starts. The marker is in the file, so moving the block moves
+// this test with it.
+const haMarker = "# Uncomment from here"
+
+// TestExampleTopology_TheCommentedHAConfigIsValid uncomments the example's
+// high-availability block exactly the way its own instructions say to, and
+// puts the result through the real loader.
+//
+// A commented configuration nobody checks is a claim. This one is worse than
+// most if it is wrong: it is the copy-paste path for an operator who has just
+// decided to spend money on three servers and a load balancer, and the
+// failure would arrive after `pulumi up` had started creating them.
+//
+// It caught its own first draft, which mixed prose and yaml at different
+// comment depths — stripping the prefix produced a document nothing could
+// parse. The block is pure yaml now, which is what makes "strip the leading
+// # " the whole edit.
+func TestExampleTopology_TheCommentedHAConfigIsValid(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join("..", "..", "infra", "cluster", "cluster.example.yaml")
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	example := string(raw)
+
+	marker := strings.Index(example, haMarker)
+	require.Positive(t, marker, "no %q in the example: the HA block has moved or gone", haMarker)
+
+	// Everything above the first topology key stays; the commented block
+	// replaces the active one. Checked rather than sliced blind: Index
+	// returns -1 when the key is gone, and example[:-1] panics with nothing
+	// saying which file lost a key.
+	active := strings.Index(example, "controlPlane:\n")
+	require.Positive(t, active, "the example has no active controlPlane block")
+
+	head := example[:active]
+
+	var uncommented []string
+
+	for _, line := range strings.Split(example[marker:], "\n") {
+		if !strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		body := strings.TrimPrefix(strings.TrimPrefix(line, "#"), " ")
+		if body == "" || strings.HasPrefix(body, haMarker[2:]) {
+			continue
+		}
+
+		uncommented = append(uncommented, body)
+	}
+
+	require.NotEmpty(t, uncommented, "the HA block is empty")
+
+	written := filepath.Join(t.TempDir(), "cluster.ha.yaml")
+	require.NoError(t, os.WriteFile(written, []byte(head+strings.Join(uncommented, "\n")+"\n"), 0o600))
+
+	// The same loader the program runs, so this cannot drift from it.
+	topology, err := hetzner.LoadTopology(written)
+	require.NoError(t, err, "the example's own instructions produce a topology that does not load")
+
+	// And it is HA, not merely valid: a block that validated while quietly
+	// describing one node would pass a load and buy nothing.
+	assert.Equal(t, 3, topology.ControlPlane.Count)
+	assert.NotEmpty(t, topology.ControlPlane.APILoadBalancerType,
+		"three control planes with no load balancer is what validation refuses")
 }
