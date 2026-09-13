@@ -134,6 +134,10 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
+    # No prompt of its own: the two tasks below each have one, and Task asks
+    # per task it runs. A third here would make bringing up a cluster three
+    # questions, and the two that remain are the two real decisions — the
+    # servers, then everything on them.
     cmds:
       - task: cluster:apply
       - task: platform:apply-all

@@ -223,3 +223,55 @@ func splitEnum(items string) []string {
 
 	return out
 }
+
+// changesTheCluster matches a task whose command applies or destroys real
+// infrastructure, by the two verbs Pulumi has for it.
+var changesTheCluster = regexp.MustCompile(`pulumi[^\n]*\b(up|destroy)\b`)
+
+// TestTasks_ThatChangeInfrastructureAskFirst is the guard for the confirmation
+// a task carries.
+//
+// Destroy tasks always had one. Apply tasks did not, on the assumption that
+// applying is the safe half of the pair — and it is not: `pulumi up` replaces
+// a resource for any input that forces a replacement, and replacing the only
+// control-plane server took this cluster down and needed a bootstrap to come
+// back. Both verbs change a real cluster, so both ask.
+//
+// A task that runs one of them through another task is exempt: Task prompts
+// per task it runs, so the inner prompt fires and a second one outside would
+// make bringing up a cluster three questions instead of two.
+func TestTasks_ThatChangeInfrastructureAskFirst(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	var checked int
+
+	for _, path := range []string{
+		filepath.Join(root, "Taskfile.yaml"),
+		filepath.Join(root, "tasks", "cluster.task.yaml"),
+		filepath.Join(root, "tasks", "platform.task.yaml"),
+	} {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for name, body := range tasksIn(string(raw)) {
+			if !changesTheCluster.MatchString(body) {
+				continue
+			}
+
+			// `preview` is the read-only verb and shares no word with these.
+			checked++
+
+			assert.Contains(t, body, "prompt:",
+				"%s: %s runs `pulumi up` or `pulumi destroy` with no confirmation",
+				filepath.Base(path), name)
+		}
+	}
+
+	// The count is the part that rots: a task that stops matching the pattern
+	// — a different spelling, a wrapper — would silently leave this test
+	// asserting nothing at all.
+	assert.GreaterOrEqual(t, checked, 5,
+		"fewer applying or destroying tasks found than exist; the pattern has drifted")
+}
