@@ -48,17 +48,26 @@ the node's own UUID, which survives one, so the disks unlock with no operator
 
 ### These are conveniences, not a management interface
 
-The `hcloud:` tasks cover what this repository needs day to day, against every
-server of the cluster at once, selected by the `cluster=<name>` label that
-`pkg/hetzner` stamps. That label is why they are safe on a shared project and
-why they work unchanged on three control planes.
+The `hcloud:` tasks are the shared library's
+[`hcloud` module](https://github.com/oleg-tkachuk/taskfiles/blob/main/hcloud/README.md),
+not this repository's own. They act on every server of the cluster at once,
+selected by the `cluster=<name>` label that `pkg/hetzner` stamps — the label is
+why they are safe on a shared project and why they work unchanged on three
+control planes.
 
-One exception to the fleet-wide rule: `hcloud:console` takes `server=<name>`,
-because a console for five nodes at once is not a thing. It refuses a name the
-cluster's label does not cover, and prints what it has instead — the project
-may hold servers this repository did not create, and the API will happily open
-a console on one of them. What it prints is a short-lived credential giving
-root-level console access, so keep it out of anything that logs.
+The module knows nothing about Pulumi or the topology, so the two things it
+cannot know are passed as commands rather than values: `HCLOUD_SELECTOR_CMD`
+reads the cluster name through the real parser, `HCLOUD_TOKEN_CMD` decrypts the
+token out of stack config. Both run inside the task, which is what keeps
+`task --list` from reaching for a credential.
+
+One exception to the fleet-wide rule: `hcloud:console` takes
+`HCLOUD_SERVER=<name>`, because a console for five nodes at once is not a
+thing. It refuses a name the selector does not cover, and prints what it has
+instead — the project may hold servers this repository did not create, and the
+API will happily open a console on one of them. What it prints is a short-lived
+credential giving root-level console access, so keep it out of anything that
+logs.
 
 Everything else Hetzner offers is deliberately not wrapped — `hcloud server`
 alone has rebuild, change-type, rescue mode, ISO attachment, backups,

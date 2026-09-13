@@ -31,3 +31,20 @@ func TestRun_PrintsTheExportedToken(t *testing.T) {
 
 	require.NoError(t, run([]string{"dev"}))
 }
+
+func TestRun_TheUsageErrorCarriesTheRemedy(t *testing.T) {
+	t.Parallel()
+
+	// The shared hcloud module resolves the token through this before any
+	// check of its own, so this message is what an operator who forgot
+	// stack= actually reads.
+	for name, args := range map[string][]string{
+		"no arguments": {},
+		"empty stack":  {""},
+	} {
+		err := run(args)
+
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), "stack=dev", name)
+	}
+}
