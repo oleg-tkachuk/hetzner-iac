@@ -145,19 +145,19 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 
 ## Layout
 
-```
-infra/cluster/    the Hetzner cluster: network, firewall, control plane, workers
-layers/           one Pulumi project per platform layer
-pkg/hetzner/      cluster component resources and topology validation
-pkg/layer/        the shim every layer shares: cluster resolution, provider, Helm
-pkg/charts/       every chart version, pinned
-pkg/clusterref/   the output contract between the cluster tier and the layers
-pkg/values/       every chart's Helm values, as templates
-tools/            the checks: chart pins, topology, orphaned resources, stack state
-test/e2e/         verification against a running cluster
-tasks/            task definitions
-docs/             the documents above
-```
+| | |
+|---|---|
+| [infra/cluster/](infra/cluster) | the Hetzner cluster: network, firewall, control plane, workers |
+| [layers/](layers) | one Pulumi project per platform layer |
+| [pkg/hetzner/](pkg/hetzner) | cluster component resources and topology validation |
+| [pkg/layer/](pkg/layer) | the shim every layer shares: cluster resolution, provider, Helm |
+| [pkg/charts/](pkg/charts) | every chart version, pinned |
+| [pkg/clusterref/](pkg/clusterref) | the output contract between the cluster tier and the layers |
+| [pkg/values/](pkg/values) | every chart's Helm values, as templates |
+| [tools/](tools) | the checks: chart pins, topology, orphaned resources, stack state |
+| [test/e2e/](test/e2e) | verification against a running cluster |
+| [tasks/](tasks) | task definitions |
+| [docs/](docs) | the documents above |
 
 ## Status
 
