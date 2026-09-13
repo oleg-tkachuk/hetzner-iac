@@ -123,19 +123,16 @@ runs:
         key: go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
         # A cache from an older go.sum still holds most of what a build needs;
         # restoring it beats starting from nothing.
-        # Two prefixes, newest first. The second is the previous generation,
-        # and it is there only until a `go2-` key exists: without it the first
-        # pull request after the bump is cold everywhere, and measured that
-        # way gosec went over its 15-minute bound and the job was killed.
-        # Restoring the old fat cache is what every reader did before this
-        # change, so the transition costs nothing and the cliff disappears.
+        # A cache from an older go.sum still holds most of what a build needs;
+        # restoring it beats starting from nothing.
         #
-        # Drop the `go-` line once a go2- cache has been saved on main —
-        # written INSIDE a block scalar it would be data, not a comment, which
-        # is how this was first got wrong.
+        # One prefix again. The previous `go-` generation was listed here
+        # through the transition, so that the first pull request after the key
+        # bump was not cold everywhere — measured that way, gosec went past its
+        # 15-minute bound and the job was killed. A `go2-` cache exists now, so
+        # the fallback would only let a reader keep restoring the fat one.
         restore-keys: |
           go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
-          go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
 
     # The writer. actions/cache restores and then saves at the end of the job.
     #
@@ -152,19 +149,16 @@ runs:
           ${{ steps.go-paths.outputs.mod }}
           ${{ steps.go-paths.outputs.build }}
         key: go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
-        # Two prefixes, newest first. The second is the previous generation,
-        # and it is there only until a `go2-` key exists: without it the first
-        # pull request after the bump is cold everywhere, and measured that
-        # way gosec went over its 15-minute bound and the job was killed.
-        # Restoring the old fat cache is what every reader did before this
-        # change, so the transition costs nothing and the cliff disappears.
+        # A cache from an older go.sum still holds most of what a build needs;
+        # restoring it beats starting from nothing.
         #
-        # Drop the `go-` line once a go2- cache has been saved on main —
-        # written INSIDE a block scalar it would be data, not a comment, which
-        # is how this was first got wrong.
+        # One prefix again. The previous `go-` generation was listed here
+        # through the transition, so that the first pull request after the key
+        # bump was not cold everywhere — measured that way, gosec went past its
+        # 15-minute bound and the job was killed. A `go2-` cache exists now, so
+        # the fallback would only let a reader keep restoring the fat one.
         restore-keys: |
           go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
-          go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
 
     - if: inputs.task == 'true'
       uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
