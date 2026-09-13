@@ -27,10 +27,19 @@ type recorder struct {
 	// architecture. Empty by default, which ValidateServerTypes reads as
 	// "unverified" rather than "none exist".
 	serverTypes map[string]string
+
+	// deleteFirst is the deleteBeforeReplace option each resource type was
+	// registered with. It comes off the register RPC rather than the inputs,
+	// because a resource option is not an input — and this one is the
+	// difference between a replacement that works and one that fails.
+	deleteFirst map[string]bool
 }
 
 func newRecorder() *recorder {
-	return &recorder{resources: map[string][]resource.PropertyMap{}}
+	return &recorder{
+		resources:   map[string][]resource.PropertyMap{},
+		deleteFirst: map[string]bool{},
+	}
 }
 
 func (r *recorder) record(token string, inputs resource.PropertyMap) {
@@ -49,6 +58,12 @@ func (r *recorder) of(token string) []resource.PropertyMap {
 
 func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
 	r.record(args.TypeToken, args.Inputs)
+
+	if rpc := args.RegisterRPC; rpc != nil && rpc.GetDeleteBeforeReplaceDefined() {
+		r.mu.Lock()
+		r.deleteFirst[args.TypeToken] = rpc.GetDeleteBeforeReplace()
+		r.mu.Unlock()
+	}
 
 	outputs := args.Inputs.Copy()
 
@@ -344,4 +359,25 @@ func TestNewCluster_RejectsMissingTopology(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "topology is required")
+}
+
+func TestCluster_ServerReplacementDeletesFirst(t *testing.T) {
+	t.Parallel()
+
+	// A Hetzner server name is unique within the project, so Pulumi's default
+	// create-before-delete cannot replace one: the create is rejected before
+	// the delete runs, and the stack errors with the old server still
+	// standing.
+	//
+	//     server name is already used (uniqueness_error)
+	//
+	// Measured on a deliberate replacement of the only control-plane node,
+	// which failed in five seconds having changed nothing. Every input that
+	// forces a replacement reaches this — the server type, the datacenter, the
+	// private address — so it is worth a test rather than a comment.
+	rec := runCluster(t, singleNodeTopology(t), &hetzner.ClusterArgs{})
+
+	deleteFirst, ok := rec.deleteFirst["hcloud:index/server:Server"]
+	require.True(t, ok, "the server does not set deleteBeforeReplace at all")
+	assert.True(t, deleteFirst, "a replacement would fail on the unique server name")
 }
