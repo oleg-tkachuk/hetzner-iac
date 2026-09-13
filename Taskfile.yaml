@@ -9,7 +9,7 @@ vars:
   # The git form is the default because someone who clones this repository has
   # no sibling checkout. Working on the library itself:
   #   TASKLIB: '../taskfiles/%s'
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v5.3.0'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v5.4.0'
 
   PROJECT_NAME: hetzner-iac
   ROOT: { sh: pwd }
@@ -86,6 +86,23 @@ includes:
       # cluster, so it has its own entry point — `task e2e`.
       - test:integration
 
+  # The Hetzner servers this cluster runs on. The module knows nothing about
+  # Pulumi or the topology, so both of the things it cannot know are passed as
+  # commands rather than values — they run inside the task, which is what
+  # keeps `task --list` from reaching for a credential.
+  hcloud:
+    taskfile: '{{printf .TASKLIB "hcloud"}}'
+    dir: .
+    vars:
+      # The label pkg/hetzner stamps on every server of a cluster, read
+      # through the real parser rather than grepped out of the yaml: an empty
+      # selector matches every server in the project, which for a power
+      # command is the difference between one cluster and all of them.
+      HCLOUD_SELECTOR_CMD: 'printf "%s\n" "cluster=$(go run ./tools/topology get cluster-name infra/cluster/cluster.{{.stack}}.yaml)"'
+      # The token out of the encrypted stack config, the same resolution every
+      # other task here uses.
+      HCLOUD_TOKEN_CMD: 'go run ./tools/token {{.stack}}'
+
   security:
     taskfile: '{{printf .TASKLIB "security"}}'
     dir: .
@@ -131,7 +148,6 @@ includes:
   cluster: { taskfile: tasks/cluster.task.yaml, dir: . }
   platform: { taskfile: tasks/platform.task.yaml, dir: . }
   charts: { taskfile: tasks/charts.task.yaml, dir: . }
-  hcloud: { taskfile: tasks/hcloud.task.yaml, dir: . }
 
 tasks:
   default:
@@ -178,7 +194,7 @@ tasks:
       # layers/ and infra/ directory names — which is how a 52 MB layer binary
       # came to be committed once, and how two more reached the tree since.
       - go build -o {{.ROOT}}/bin/ ./...
-      - cmd: 'echo "{{._OK}} hetzner-iac · build · $(ls {{.ROOT}}/bin | wc -l | tr -d " ") programs into bin/"'
+      - cmd: 'printf "%s\n" "{{._OK}} hetzner-iac · build · $(ls {{.ROOT}}/bin | awk "END {print NR}") programs into bin/"'
         silent: true
 
   verify:
@@ -246,7 +262,7 @@ tasks:
       - cmd: |
           set -euo pipefail
           [ -f "{{.ROOT}}/kubeconfig" ] || {
-            echo "{{._ERR}} hetzner-iac · e2e · no ./kubeconfig — run: task cluster:kubeconfig stack=<name>" >&2
+            printf '%s\n' "{{._ERR}} hetzner-iac · e2e · no ./kubeconfig — run: task cluster:kubeconfig stack=<name>" >&2
             exit 1
           }
           # The suite verifies the cluster this repository built, so it runs

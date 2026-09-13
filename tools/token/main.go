@@ -31,8 +31,15 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("usage: token <stack>")
+	if len(args) != 1 || args[0] == "" {
+		// The remedy, not just the shape. This runs inside tasks that take
+		// stack= and have no default, and an operator who forgot it sees this
+		// message rather than the task's own: the shared hcloud module
+		// resolves the token through here before any precondition of its own.
+		return fmt.Errorf("usage: token <stack>\n\n" +
+			"Every task here takes a stack and there is no default:\n\n" +
+			"    task <task> stack=dev\n\n" +
+			"The stack names both the Pulumi stack and infra/cluster/cluster.<stack>.yaml")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

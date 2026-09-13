@@ -163,7 +163,7 @@ jobs:
           set -euo pipefail
           curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
             | tar -xz -C "${RUNNER_TEMP}" trivy
-          echo "${RUNNER_TEMP}" >>"$GITHUB_PATH"
+          printf '%s\n' "${RUNNER_TEMP}" >>"$GITHUB_PATH"
       - run: task security:trivy
 
   workflows:
