@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -59,5 +60,64 @@ func TestRun_RejectsTheWrongNumberOfArguments(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "usage:")
 		})
+	}
+}
+
+func TestSnapshotMatched_PresentAbsentAndBroken(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		raw     string
+		want    bool
+		wantErr string
+	}{
+		"one snapshot":  {`[{"id":1,"description":"talos v1.13.10"}]`, true, ""},
+		"two snapshots": {`[{"id":1},{"id":2}]`, true, ""},
+		// The ordinary first-run state, and not an error.
+		"none": {`[]`, false, ""},
+		// The distinction awk could not make: it answered "no rows" with exit
+		// 1 for both an empty list and a failed call.
+		"not json":   {"talos v1.13.10", false, "no usable json"},
+		"empty body": {"", false, "no usable json"},
+	} {
+		got, err := snapshotMatched([]byte(tc.raw))
+
+		if tc.wantErr != "" {
+			require.Error(t, err, name)
+			assert.Contains(t, err.Error(), tc.wantErr, name)
+
+			continue
+		}
+
+		require.NoError(t, err, name)
+		assert.Equal(t, tc.want, got, name)
+	}
+}
+
+func TestDecodeSchematic(t *testing.T) {
+	t.Parallel()
+
+	id, err := decodeSchematic(strings.NewReader(`{"id":"abc123"}`))
+	require.NoError(t, err)
+	assert.Equal(t, "abc123", id)
+}
+
+func TestDecodeSchematic_Errors(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		// Both would build a URL the factory serves nothing at, and that
+		// failure arrives minutes later from hcloud-upload-image.
+		"no id":    {`{}`, "no schematic id"},
+		"empty id": {`{"id":""}`, "no schematic id"},
+		"not json": {`<html>502</html>`, "image factory response"},
+	} {
+		_, err := decodeSchematic(strings.NewReader(tc.body))
+
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), tc.want, name)
 	}
 }
