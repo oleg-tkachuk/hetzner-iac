@@ -1,0 +1,136 @@
+# Running it day to day
+
+Everything here is about a cluster that already exists. How it is built is
+[the command reference](commands.md); why it is shaped this way is
+[design.md](design.md).
+
+## Stopping and starting
+
+Two levels, not two halves. The namespace says which API answers, and each is
+complete on its own terms:
+
+| | Soft | Hard | Back on |
+|---|---|---|---|
+| the **instance** | `hcloud:shutdown` | `hcloud:poweroff` | `hcloud:poweron` |
+| the **cluster** | `cluster:stop` | — | `hcloud:poweron` |
+
+Which to reach for follows from the level. Stopping the **cluster** is a Talos
+operation: `talosctl shutdown` brings etcd down cleanly and can cordon and
+evict first. Halting the machine is its consequence, so the instance then
+needs `hcloud:poweron` — not because the pair is split, but because a stopped
+machine runs no apid and nothing but the provider can power it back on.
+
+Stopping the **instance** says nothing to Kubernetes at all. `hcloud:shutdown`
+presses the power button and Talos acts on the ACPI event; `hcloud:poweroff`
+cuts power mid-write, and etcd recovers on the next boot instead of starting
+clean. Prefer `cluster:stop` whenever Talos is answering; reach for these when
+it is not.
+
+**Stopping does not save money.** A Hetzner server is billed while it exists,
+not while it runs — [their billing
+documentation](https://docs.hetzner.com/cloud/billing/) is explicit that
+servers are billed until they are deleted regardless of state. To stop paying,
+destroy: `task cluster:destroy`. What stopping buys is a cluster that is
+unreachable and unchanging, with its disks at rest.
+
+Encrypted volumes do not complicate a power cycle. The LUKS key derives from
+the node's own UUID, which survives one, so the disks unlock with no operator
+— see [design.md](design.md#what-the-cluster-encrypts-and-what-it-does-not).
+
+### These are conveniences, not a management interface
+
+The `hcloud:` tasks cover what this repository needs day to day, against every
+server of the cluster at once, selected by the `cluster=<name>` label that
+`pkg/hetzner` stamps. That label is why they are safe on a shared project and
+why they work unchanged on three control planes.
+
+Everything else Hetzner offers is deliberately not wrapped — `hcloud server`
+alone has rebuild, change-type, rescue mode, ISO attachment, backups,
+snapshots, a VNC console, RDNS and per-server metrics. Use the CLI directly
+for those:
+
+```bash
+export HCLOUD_TOKEN="$(go run ./tools/token dev)"
+hcloud server --help
+hcloud server describe platform-dev-control-plane-0
+```
+
+A wrapper per API call would be a second, worse CLI to keep in step with the
+first.
+
+## Checks worth running
+
+| Task | Answers |
+|------|---------|
+| `task cluster:status` | are the nodes Ready, and is anything not Running |
+| `task cluster:encryption-check` | are the system volumes really encrypted, or only configured to be |
+| `task cluster:orphans` | is anything being billed that nothing claims |
+| `task cluster:config-check` | does Talos accept the machine-config patches |
+| `task cluster:hubble` | what is the cluster's traffic, as flows |
+
+Two of them exist because the failure they catch is silent.
+
+`encryption-check` compares the configuration with the disk. Talos encrypts a
+system volume only when the partition is empty, so applying the VolumeConfig
+to a node that already exists is accepted, reports nothing, and leaves the
+disk in plaintext. The probe's answer is the evidence: `luks` on an encrypted
+volume, the filesystem itself on a plaintext one.
+
+`orphans` compares the Hetzner project with the cluster. A StatefulSet's
+claims outlive their Helm release by design, and destroying a cluster destroys
+the API server that would have told the CSI driver to delete a volume — 160
+GiB were found that way. It prints what it examined as well as what it found,
+so "nothing to report" cannot read the same as "nothing was read".
+
+## Upgrades and backups
+
+| Task | Does |
+|------|------|
+| `task cluster:upgrade-talos` | upgrade Talos, one node at a time; asks first |
+| `task cluster:upgrade-k8s` | upgrade Kubernetes in place; asks first |
+| `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
+
+Both upgrades are Talos operations and both ask before they start. The Talos
+version comes from the topology, not the task: bump `talos.version`, run
+`task cluster:image-bake`, then upgrade — the image selector keys off the
+version label, so a bump without a bake fails at plan time rather than
+halfway.
+
+The etcd snapshot writes to the operator's machine, on no schedule, with no
+copy anywhere else. That is a gap, not a design.
+
+## Reaching the cluster with a plain kubectl
+
+Every task here passes `--kubeconfig` explicitly, and so does Pulumi, so none
+of them depends on what the shell points at — a resource created against the
+ambient config lands on whatever cluster that happens to be. A bare `kubectl`
+is the exception, and there are two ways to give it this cluster.
+
+Without touching any file, which is the safer one:
+
+```bash
+export KUBECONFIG=$HOME/.kube/config:$PWD/kubeconfig
+```
+
+kubectl merges at read time, so both sets of contexts appear.
+
+Or add it once:
+
+```bash
+task cluster:kubeconfig-add stack=dev
+```
+
+Three entries through `kubectl config set-*`, not a merged file. The obvious
+`kubectl config view --flatten` is wrong here: it rewrites the whole target
+and inlines every other cluster's `certificate-authority` file into the
+document — measured on a config holding an unrelated cluster, whose
+`certificate-authority: /path/ca.crt` came back as `certificate-authority-data`.
+That is somebody else's entry changed in order to add ours.
+
+The certificate data is passed as base64 with `--set-raw-bytes=false`, which
+is what keeps a cluster-admin key off the disk: the `--embed-certs` route
+needs the key written to a temporary file first.
+
+It backs the target up with a timestamp, refuses outright if a cluster of that
+name already points somewhere else, and does not switch the current context —
+it prints the command that would.
