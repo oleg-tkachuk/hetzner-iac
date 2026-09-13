@@ -98,8 +98,7 @@ tasks:
           done
 
           echo
-          echo "powered on. the API needs a moment; watch it with:"
-          echo "    task cluster:status stack={{._HC_STACK}}"
+          echo "{{._OK}} hcloud · poweron · the API needs a moment — task cluster:status stack={{._HC_STACK}}"
 
   shutdown:
     desc: "ACPI shutdown of the instance — the guest decides what to do with it"
@@ -132,7 +131,7 @@ tasks:
           done
 
           echo
-          echo "shutdown sent. back up with: task hcloud:poweron stack={{._HC_STACK}}"
+          echo "{{._OK}} hcloud · shutdown · sent — back up with task hcloud:poweron stack={{._HC_STACK}}"
 
   poweroff:
     desc: "Cut power without a clean shutdown — for when Talos cannot answer"
@@ -158,7 +157,7 @@ tasks:
           done
 
           echo
-          echo "power cut. back up with: task hcloud:poweron stack={{._HC_STACK}}"
+          echo "{{._OK}} hcloud · poweroff · power cut — back up with task hcloud:poweron stack={{._HC_STACK}}"
 
   reset:
     desc: "Hard reset — a power cut and a start in one, for an unresponsive node"
