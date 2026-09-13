@@ -33,12 +33,17 @@ type recorder struct {
 	// because a resource option is not an input — and this one is the
 	// difference between a replacement that works and one that fails.
 	deleteFirst map[string]bool
+
+	// replaceOn is the replaceOnChanges option, from the same place and for
+	// the same reason.
+	replaceOn map[string][]string
 }
 
 func newRecorder() *recorder {
 	return &recorder{
 		resources:   map[string][]resource.PropertyMap{},
 		deleteFirst: map[string]bool{},
+		replaceOn:   map[string][]string{},
 	}
 }
 
@@ -59,9 +64,17 @@ func (r *recorder) of(token string) []resource.PropertyMap {
 func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
 	r.record(args.TypeToken, args.Inputs)
 
-	if rpc := args.RegisterRPC; rpc != nil && rpc.GetDeleteBeforeReplaceDefined() {
+	if rpc := args.RegisterRPC; rpc != nil {
 		r.mu.Lock()
-		r.deleteFirst[args.TypeToken] = rpc.GetDeleteBeforeReplace()
+
+		if rpc.GetDeleteBeforeReplaceDefined() {
+			r.deleteFirst[args.TypeToken] = rpc.GetDeleteBeforeReplace()
+		}
+
+		if fields := rpc.GetReplaceOnChanges(); len(fields) > 0 {
+			r.replaceOn[args.TypeToken] = fields
+		}
+
 		r.mu.Unlock()
 	}
 
@@ -380,4 +393,23 @@ func TestCluster_ServerReplacementDeletesFirst(t *testing.T) {
 	deleteFirst, ok := rec.deleteFirst["hcloud:index/server:Server"]
 	require.True(t, ok, "the server does not set deleteBeforeReplace at all")
 	assert.True(t, deleteFirst, "a replacement would fail on the unique server name")
+}
+
+func TestCluster_BootstrapIsReplacedWhenTheNodeChanges(t *testing.T) {
+	t.Parallel()
+
+	// A bootstrap is one-shot, and the provider declares `node` as an
+	// updatable field — so replacing the first control-plane server produced
+	// an UPDATE: the address was rewritten in state, nothing ran, and the new
+	// node sat there saying
+	//
+	//     etcd is waiting to join the cluster … please run `talosctl bootstrap`
+	//
+	// while the apply reported success. A green apply and a cluster with no
+	// etcd is the worst shape this failure can take, which is why the option
+	// is pinned here rather than trusted to a comment.
+	rec := runCluster(t, singleNodeTopology(t), &hetzner.ClusterArgs{})
+
+	assert.Equal(t, []string{"node"}, rec.replaceOn["talos:machine/bootstrap:Bootstrap"],
+		"a new node address must replace the bootstrap, or it is never performed")
 }
