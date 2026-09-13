@@ -33,7 +33,7 @@ brew "jq"
 
 # --- Required, but read the note --------------------------------------------
 
-# Day two: upgrades, etcd snapshots, and `task cluster:config-check`.
+# Machine-config validation, upgrades, etcd snapshots.
 #
 # That check refuses a talosctl whose minor does not match the topology's
 # talos.version, because a mismatched binary reports conflicts that will not
