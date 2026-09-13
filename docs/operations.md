@@ -105,7 +105,7 @@ so "nothing to report" cannot read the same as "nothing was read".
 |------|------|
 | `task cluster:upgrade-talos` | upgrade Talos, one node at a time; asks first |
 | `task cluster:upgrade-k8s` | upgrade Kubernetes in place; asks first |
-| `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
+| `task cluster:etcd-snapshot` | snapshot etcd into `.backups/`, read it back, record what it holds |
 | `task cluster:secrets-export` | print the Talos secrets bundle, to pipe into a password store |
 | `task cluster:etcd-restore` | restore etcd from a snapshot; wipes the control plane first, asks first |
 
@@ -175,8 +175,26 @@ as the workloads, so the layers were already what they had been. Re-apply only
 if something was created after the snapshot was taken — and that is exactly
 what the restore cannot bring back.
 
-The etcd snapshot still writes to the operator's machine, on no schedule, with
-no copy anywhere else. That half is a gap, not a design.
+Each snapshot is read back before the task reports success, and what it holds
+is written beside it as `<snapshot>.info`:
+
+    taken:     20260913T140204Z
+    talosctl:  snapshot info: hash 68be579d, revision 39170, total keys 1616, …
+    read back: …/etcd-20260913T140204Z.db — 45273120 bytes, 3278 revisions, consistent index 6028
+
+A snapshot nobody has opened is a file of the right size, and the moment to
+find that out is not the incident it was taken for. `cluster:etcd-restore`
+prints that record beside what it reads back itself, so a file that changed
+after it was written shows up before the wipe rather than after.
+
+The two numbers are different counters and neither is the other: `revision` is
+the MVCC revision, `consistent index` is how far raft had applied. The
+consistent index also restarts after a recovery bootstrap, because that begins
+a new raft cluster — so it tells two snapshots of one cluster apart and says
+nothing across a restore.
+
+The snapshots still write to the operator's machine, on no schedule, with no
+copy anywhere else. That half is a gap, not a design.
 
 ## Reaching the cluster with a plain kubectl
 

@@ -292,6 +292,44 @@ func TestTasks_ThatChangeInfrastructureAskFirst(t *testing.T) {
 		"fewer applying or destroying tasks found than exist; the pattern has drifted")
 }
 
+// TestSnapshotSidecar_IsSpelledOnce holds the writer and the reader of a
+// snapshot's .info file to one spelling.
+//
+// cluster:etcd-snapshot writes it and cluster:etcd-restore reads it, and a
+// mismatch between them is not an error anybody sees: the restore simply
+// stops printing what the snapshot was recorded as containing, which is the
+// one thing that would say the file changed after it was written.
+func TestSnapshotSidecar_IsSpelledOnce(t *testing.T) {
+	t.Parallel()
+
+	const (
+		sidecarVar    = "_CL_SNAPSHOT_INFO"
+		sidecarSuffix = ".info"
+	)
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	tasks := tasksIn(string(raw))
+
+	for _, name := range []string{"etcd-snapshot", "etcd-restore"} {
+		body, found := tasks[name]
+		require.True(t, found, "no %s task to check", name)
+
+		assert.Contains(t, body, sidecarVar,
+			"%s does not use {{.%s}}, so it carries its own spelling of the sidecar's name",
+			name, sidecarVar)
+
+		// The var alone is not enough: a body can mention it in a message and
+		// still build the path from a literal, which is exactly the drift
+		// this is here to stop. The suffix itself lives in the vars block,
+		// which is not part of any task body.
+		assert.NotContains(t, body, sidecarSuffix,
+			"%s spells the sidecar suffix %q itself instead of using {{.%s}}",
+			name, sidecarSuffix, sidecarVar)
+	}
+}
+
 // interruptsANode matches the hcloud verbs that take a running node away.
 //
 // poweron and request-console are absent on purpose: one starts a machine that
