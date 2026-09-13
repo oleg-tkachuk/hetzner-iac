@@ -1,0 +1,124 @@
+name: Cache probe
+
+# TEMPORARY, not for merging.
+#
+# Asks one question: is caching the 14 GB build cache cheaper than compiling
+# cold? Three reader-shaped jobs doing identical work, so the only variable is
+# what is cached.
+#
+#   both            free-disk + module and build caches — what CI does today
+#   mod-only        free-disk + module cache alone, build compiles cold
+#   mod-only-lean   no free-disk either, since 1.4 GB fits in a runner's 13 GB
+#
+# Run it TWICE. The mod-only key has never been written, so the first run
+# measures a module download and the second measures the steady state.
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  both:
+    name: probe both caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - id: setup
+        uses: ./.github/actions/setup-go
+      - name: work
+        run: |
+          set -euo pipefail
+          go build -o bin/ ./...
+          go test -count=1 ./... >/dev/null
+          go vet -tags e2e ./test/...
+      - name: report
+        run: |
+          set -euo pipefail
+          {
+            printf '| both | build cache %s MB | free %s MB |\n' \
+              "$(du -sm "$(go env GOCACHE)" | awk '{print $1}')" \
+              "$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  mod-only:
+    name: probe module cache only
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - id: go-paths
+        run: |
+          set -euo pipefail
+          {
+            printf 'mod=%s\n' "$(go env GOMODCACHE)"
+            printf 'version=%s\n' "$(go env GOVERSION)"
+          } >>"$GITHUB_OUTPUT"
+      - uses: ./.github/actions/free-disk
+      # Its own key, and a writer: the first run fills it, the second measures
+      # it. Only the module cache — the build cache is what this asks about.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.go-paths.outputs.mod }}
+          key: probe-mod-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+      - name: work
+        run: |
+          set -euo pipefail
+          go build -o bin/ ./...
+          go test -count=1 ./... >/dev/null
+          go vet -tags e2e ./test/...
+      - name: report
+        run: |
+          set -euo pipefail
+          {
+            printf '| mod-only | build cache %s MB | free %s MB |\n' \
+              "$(du -sm "$(go env GOCACHE)" | awk '{print $1}')" \
+              "$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  mod-only-lean:
+    name: probe module cache, no free-disk
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - id: go-paths
+        run: |
+          set -euo pipefail
+          {
+            printf 'mod=%s\n' "$(go env GOMODCACHE)"
+            printf 'version=%s\n' "$(go env GOVERSION)"
+          } >>"$GITHUB_OUTPUT"
+      # Reader only: the job above owns this key.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.go-paths.outputs.mod }}
+          key: probe-mod-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+      - name: work
+        run: |
+          set -euo pipefail
+          go build -o bin/ ./...
+          go test -count=1 ./... >/dev/null
+          go vet -tags e2e ./test/...
+      - name: report
+        run: |
+          set -euo pipefail
+          {
+            printf '| mod-only-lean | build cache %s MB | free %s MB |\n' \
+              "$(du -sm "$(go env GOCACHE)" | awk '{print $1}')" \
+              "$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
