@@ -261,30 +261,16 @@ func TestOutputNames_AreStable(t *testing.T) {
 	assert.Equal(t, "controlPlaneCount", clusterref.OutputControlPlaneCount)
 }
 
-// TestContract_ProducerExportsEveryDeclaredOutput closes the hole that let two
-// halves of this contract drift: a constant could be declared here, read by a
-// layer, and never exported by the cluster tier. That compiles, and fails at
-// apply against a real cluster.
+// The producer side of this contract is checked where the producer lives:
+// infra/cluster's TestExports_CoverEveryDeclaredOutput compares the names it
+// publishes with Declared, and TestExports_CarryTheValueEachNamePromises
+// compares the values.
 //
-// Reading the producer's source rather than running it: the program builds
-// servers and reads a topology, and what is being checked is a static fact
-// about which names it exports. The same technique as the renovate regex test.
-func TestContract_ProducerExportsEveryDeclaredOutput(t *testing.T) {
-	t.Parallel()
-
-	raw, err := os.ReadFile("../../infra/cluster/main.go")
-	require.NoError(t, err)
-
-	producer := string(raw)
-
-	for _, name := range clusterref.Declared {
-		constant := constantFor(t, name)
-
-		assert.Contains(t, producer, "ctx.Export(clusterref."+constant,
-			"the cluster tier exports no %s (clusterref.%s): a layer reading it fails at apply",
-			name, constant)
-	}
-}
+// It used to be here, reading main.go as text and looking for each
+// ctx.Export. That could only see names — podCidr wired to nodeSubnet passed
+// it — and a package main cannot be imported, which is why it was text at
+// all. The producer now builds its exports as a map, so the check is an
+// assertion in its own package.
 
 func TestDeclared_ListsEveryOutputConstant(t *testing.T) {
 	t.Parallel()
@@ -304,35 +290,4 @@ func TestDeclared_ListsEveryOutputConstant(t *testing.T) {
 
 	assert.Equal(t, constants, len(clusterref.Declared),
 		"%d Output constants but %d in Declared", constants, len(clusterref.Declared))
-}
-
-// constantFor maps an output's wire name back to its Go constant name, so the
-// producer test can look for the identifier rather than the literal — the
-// producer is required to use the constant, which is the point of having one.
-func constantFor(t *testing.T, name string) string {
-	t.Helper()
-
-	for constant, wire := range map[string]string{
-		"OutputContractVersion":   clusterref.OutputContractVersion,
-		"OutputKubeconfig":        clusterref.OutputKubeconfig,
-		"OutputTalosconfig":       clusterref.OutputTalosconfig,
-		"OutputEndpoint":          clusterref.OutputEndpoint,
-		"OutputAPILoadBalancerIP": clusterref.OutputAPILoadBalancerIP,
-		"OutputNetworkID":         clusterref.OutputNetworkID,
-		"OutputNodeSubnet":        clusterref.OutputNodeSubnet,
-		"OutputPodCIDR":           clusterref.OutputPodCIDR,
-		"OutputServiceCIDR":       clusterref.OutputServiceCIDR,
-		"OutputClusterName":       clusterref.OutputClusterName,
-		"OutputLocation":          clusterref.OutputLocation,
-		"OutputHcloudToken":       clusterref.OutputHcloudToken,
-		"OutputControlPlaneCount": clusterref.OutputControlPlaneCount,
-	} {
-		if wire == name {
-			return constant
-		}
-	}
-
-	t.Fatalf("no constant known for output %q", name)
-
-	return ""
 }
