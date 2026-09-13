@@ -83,7 +83,7 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
 | [talosctl](https://www.talos.dev/) | day-2: upgrades, etcd snapshots |
-| `jq` | two JSON field reads in the status tasks |
+| [jq](https://github.com/jqlang/jq) | two JSON field reads in the status tasks |
 
 On macOS, `brew bundle` installs all of it. Read the `talosctl` note in the
 `Brewfile` first: Homebrew ships a newer minor than the topology pins, and
