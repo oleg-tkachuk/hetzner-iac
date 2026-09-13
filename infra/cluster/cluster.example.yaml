@@ -88,16 +88,82 @@ kubernetes:
   version: v1.36.4
 
 controlPlane:
-  # Three for etcd quorum. One is a development shape: it survives no node
-  # failure and its API endpoint moves if the node is replaced — and with no
-  # worker pool below, the whole platform runs on it.
-  count: 3
-  serverType: cx23
+  # One node. This shape survives no node failure and its API endpoint moves
+  # if the node is replaced — which is the right trade for a cluster meant to
+  # be thrown away, and the wrong one for anything else.
+  #
+  # With no worker pool below, scheduling on the control plane is enabled
+  # automatically: it is the only place a pod could run.
+  count: 1
+  # cx43 for a single node, which is what this platform is known to run on:
+  # Argo CD, ingress, cert-manager and the CSI driver together ask for more
+  # than the 4 GB of the cheaper types, and a node that comes up and then
+  # leaves half the platform Pending validates nothing. The HA block below
+  # uses cx23 because three nodes share the same work.
+  serverType: cx43
   # Required once count > 1 and ignored otherwise: a single control plane has
   # nothing to fail over between, so a load balancer would only cost money.
-  apiLoadBalancerType: lb11
+  #
+  # Hetzner offers three, and this one fronts one service — the Kubernetes API
+  # on tcp/6443 — for as many targets as there are control planes. Read from
+  # the API rather than remembered, with hel1 prices:
+  #
+  #   lb11   10 000 connections    5 services    25 targets    7.49 EUR/month
+  #   lb21   20 000 connections   15 services    75 targets   21.49 EUR/month
+  #   lb31   40 000 connections   30 services   150 targets   42.99 EUR/month
+  #
+  # lb11 is the size for this: three targets and one service against limits of
+  # twenty-five and five. The reason to move up is throughput to the API, not
+  # availability — and the ingress load balancer is a separate one, created by
+  # the CCM from Traefik's Service and sized by ingress:loadBalancerType.
+  apiLoadBalancerType: ""
 
-workerPools:
-  - name: worker
-    count: 3
-    serverType: cx33
+workerPools: []
+
+# ─── High availability ───────────────────────────────────────────────────────
+#
+# Everything below is a working configuration, commented because it costs
+# money rather than because anything is missing: the code already does all of
+# it. Replace the two blocks above with the two below to use it.
+#
+# Three, not two. Validation refuses an even count — etcd needs a quorum, and
+# a second member tolerates no more failures than one while costing twice as
+# much:
+#
+#   controlPlane.count is 2: an even count costs more without tolerating more
+#   failures — use 1 or 3
+#
+# The load balancer stops being optional at the same moment, and validation
+# says so rather than building a cluster whose API address belongs to one
+# node:
+#
+#   controlPlane.apiLoadBalancerType is required when controlPlane.count > 1:
+#   without it the API has no stable address to fail over to
+#
+# It is also what makes a node replaceable: the endpoint signed into every
+# certificate is then the load balancer's rather than a server's.
+#
+# The three members land on separate physical hosts — pkg/hetzner puts the
+# control plane in a spread placement group, which is what turns three etcd
+# members into three failure domains instead of three processes on one
+# machine.
+#
+# The worker pool is a separate decision. Without one the platform keeps
+# running on the control planes; adding one brings the control-plane taint
+# back automatically, so workloads move off them.
+#
+# Everything below this line is yaml and nothing else, so stripping the
+# leading "# " is the whole edit. Held to that by
+# TestExampleTopology_TheCommentedHAConfigIsValid, which does exactly that and
+# loads the result.
+#
+# Uncomment from here:
+# controlPlane:
+#   count: 3
+#   serverType: cx23
+#   apiLoadBalancerType: lb11
+#
+# workerPools:
+#   - name: worker
+#     count: 3
+#     serverType: cx33
