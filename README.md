@@ -26,6 +26,17 @@ infra/cluster              the only project that talks to the Hetzner API
                             layers/50-gitops              Argo CD
 ```
 
+## Contents
+
+- [Quick start](#quick-start) — from nothing to a running platform
+- [Prerequisites](#prerequisites) — what has to be installed
+- [Commands](#commands) — the handful worth knowing
+- [Configuration](#configuration) — the topology file and stack config
+- [Documentation](#documentation) — the rest, by document
+- [Layout](#layout) — where things live in the tree
+- [Status](#status) — what works and what is not done
+- [License](#license)
+
 ## Quick start
 
 You need three things: a Hetzner Cloud API token with read+write scope, a
