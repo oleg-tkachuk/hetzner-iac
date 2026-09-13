@@ -99,6 +99,11 @@ includes:
     excludes:
       # No protobuf here.
       - proto:breaking
+      # No Dockerfile here either: this repository ships infrastructure code,
+      # not an image. hadolint over nothing printed nothing and exited zero,
+      # which is the confusing kind of success — a check that appears to run
+      # and asserts nothing.
+      - dockerfile
 
   helm:
     taskfile: '{{printf .TASKLIB "helm"}}'
