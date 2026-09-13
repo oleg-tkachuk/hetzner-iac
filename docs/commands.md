@@ -83,11 +83,8 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:config-check` | Talos accepts the machine-config patches |
 | `task cluster:encryption-check` | the system volumes are really encrypted, not just configured to be |
 | `task cluster:orphans` | Hetzner resources nothing in the cluster claims; read-only |
-| `task cluster:power-status` | power state of every server in this cluster; read-only |
-| `task cluster:stop` | clean shutdown through Talos; the servers keep existing |
-| `task cluster:start` | power the servers back on through the Hetzner API |
-| `task cluster:reboot` | reboot the nodes through Talos |
-| `task cluster:power-off` | cut power without a clean shutdown, for when Talos cannot answer |
+| `task cluster:stop` | bring the cluster down cleanly through Talos; the instances keep existing |
+| `task cluster:reboot` | reboot the nodes through Talos; they come back by themselves |
 | `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
 | `task cluster:upgrade-talos` | upgrade Talos, one node at a time |
 | `task cluster:upgrade-k8s` | upgrade Kubernetes in place |
@@ -163,21 +160,37 @@ It runs from the operator's machine rather than from CI: the firewall opens the
 Kubernetes API to `network.adminCIDRs` only, and a GitHub-hosted runner is not
 in it.
 
+## Hetzner instances
+
+| Task | Does |
+|------|------|
+| `task hcloud:servers` | power state of every server in this cluster; read-only |
+| `task hcloud:poweron` | power the instances on |
+| `task hcloud:shutdown` | ACPI shutdown — the power button, which Talos acts on |
+| `task hcloud:poweroff` | cut power, for when Talos cannot answer |
+| `task hcloud:reset` | hard reset: a power cut and a start in one |
+
 ## Stopping and starting
 
-The five power tasks above are wrappers over two APIs, and which API does what
-is not a preference:
+Two levels, not two halves. The namespace says which API answers, and each is
+complete on its own terms:
 
-- **Talos stops a node.** `talosctl shutdown` is a clean shutdown of a machine
-  whose entire interface is an API, and on more than one node it can cordon and
-  evict first. Hetzner's API can do neither: its `shutdown` is an ACPI signal
-  at the guest and its `poweroff` is the plug.
-- **Hetzner starts a node.** Nothing else can. A powered-off machine runs no
-  apid for `talosctl` to reach, so `poweron` is the only way back.
+| | Soft | Hard | Back on |
+|---|---|---|---|
+| the **instance** | `hcloud:shutdown` | `hcloud:poweroff` | `hcloud:poweron` |
+| the **cluster** | `cluster:stop` | — | `hcloud:poweron` |
 
-`cluster:power-off` is separate from `cluster:stop` and named for what it does:
-it cuts power mid-write, and etcd recovers on the next boot rather than
-starting clean. It is the better option only when Talos cannot answer.
+Which to reach for follows from the level. Stopping the **cluster** is a Talos
+operation: `talosctl shutdown` brings etcd down cleanly and can cordon and
+evict first. Halting the machine is its consequence, so the instance then
+needs `hcloud:poweron` — not because the pair is split, but because a stopped
+machine runs no apid and nothing but the provider can power it back on.
+
+Stopping the **instance** says nothing to Kubernetes at all. `hcloud:shutdown`
+presses the power button and Talos acts on the ACPI event; `hcloud:poweroff`
+cuts power mid-write, and etcd recovers on the next boot instead of starting
+clean. Prefer `cluster:stop` whenever Talos is answering; reach for these when
+it is not.
 
 **Stopping does not save money.** A Hetzner server is billed while it exists,
 not while it runs — [their billing
@@ -192,7 +205,7 @@ the node's own UUID, which survives one, so the disks unlock with no operator
 
 ### These are conveniences, not a management interface
 
-The five tasks cover what this repository needs day to day, against every
+The `hcloud:` tasks cover what this repository needs day to day, against every
 server of the cluster at once, selected by the `cluster=<name>` label that
 `pkg/hetzner` stamps. That label is why they are safe on a shared project and
 why they work unchanged on three control planes.
@@ -209,9 +222,7 @@ hcloud server describe platform-dev-control-plane-0
 ```
 
 A wrapper per API call would be a second, worse CLI to keep in step with the
-first. `hcloud server reset` — a hard reboot — is not wrapped for a smaller
-reason: it is `power-off` then `start`, and spelling it in two steps makes an
-operator notice which half they are in.
+first.
 
 ## Reaching the cluster with a plain kubectl
 
