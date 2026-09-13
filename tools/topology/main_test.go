@@ -392,25 +392,26 @@ func TestGet_RefusesToPrintAnEmptyValue(t *testing.T) {
 	}
 }
 
-// haBlock is where cluster.example.yaml's commented high-availability
-// configuration starts. The marker is in the file, so moving the block moves
-// this test with it.
-const haMarker = "# Uncomment from here"
+// altMarker is where cluster.example.yaml's commented alternative shape
+// starts. The marker is in the file, so moving the block moves this test with
+// it. Which shape is commented has swapped once — high availability was the
+// alternative and is now the default — and this test does not care which.
+const altMarker = "# Uncomment from here"
 
-// TestExampleTopology_TheCommentedHAConfigIsValid uncomments the example's
-// high-availability block exactly the way its own instructions say to, and
-// puts the result through the real loader.
+// TestExampleTopology_TheCommentedAlternativeIsValid uncomments the example's
+// alternative block exactly the way its own instructions say to, and puts the
+// result through the real loader.
 //
-// A commented configuration nobody checks is a claim. This one is worse than
-// most if it is wrong: it is the copy-paste path for an operator who has just
-// decided to spend money on three servers and a load balancer, and the
-// failure would arrive after `pulumi up` had started creating them.
+// A commented configuration nobody checks is a claim, and this one is the
+// copy-paste path for an operator changing the shape of a cluster — the
+// failure would otherwise arrive after `pulumi up` had started creating
+// servers.
 //
 // It caught its own first draft, which mixed prose and yaml at different
 // comment depths — stripping the prefix produced a document nothing could
 // parse. The block is pure yaml now, which is what makes "strip the leading
 // # " the whole edit.
-func TestExampleTopology_TheCommentedHAConfigIsValid(t *testing.T) {
+func TestExampleTopology_TheCommentedAlternativeIsValid(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join("..", "..", "infra", "cluster", "cluster.example.yaml")
@@ -420,8 +421,8 @@ func TestExampleTopology_TheCommentedHAConfigIsValid(t *testing.T) {
 
 	example := string(raw)
 
-	marker := strings.Index(example, haMarker)
-	require.Positive(t, marker, "no %q in the example: the HA block has moved or gone", haMarker)
+	marker := strings.Index(example, altMarker)
+	require.Positive(t, marker, "no %q in the example: the alternative block has moved or gone", altMarker)
 
 	// Everything above the first topology key stays; the commented block
 	// replaces the active one. Checked rather than sliced blind: Index
@@ -440,25 +441,32 @@ func TestExampleTopology_TheCommentedHAConfigIsValid(t *testing.T) {
 		}
 
 		body := strings.TrimPrefix(strings.TrimPrefix(line, "#"), " ")
-		if body == "" || strings.HasPrefix(body, haMarker[2:]) {
+		if body == "" || strings.HasPrefix(body, altMarker[2:]) {
 			continue
 		}
 
 		uncommented = append(uncommented, body)
 	}
 
-	require.NotEmpty(t, uncommented, "the HA block is empty")
+	require.NotEmpty(t, uncommented, "the alternative block is empty")
 
-	written := filepath.Join(t.TempDir(), "cluster.ha.yaml")
+	written := filepath.Join(t.TempDir(), "cluster.alternative.yaml")
 	require.NoError(t, os.WriteFile(written, []byte(head+strings.Join(uncommented, "\n")+"\n"), 0o600))
 
 	// The same loader the program runs, so this cannot drift from it.
-	topology, err := hetzner.LoadTopology(written)
+	alternative, err := hetzner.LoadTopology(written)
 	require.NoError(t, err, "the example's own instructions produce a topology that does not load")
 
-	// And it is HA, not merely valid: a block that validated while quietly
-	// describing one node would pass a load and buy nothing.
-	assert.Equal(t, 3, topology.ControlPlane.Count)
-	assert.NotEmpty(t, topology.ControlPlane.APILoadBalancerType,
-		"three control planes with no load balancer is what validation refuses")
+	// And it is an alternative, not merely valid. A commented block that
+	// described the same shape as the active one would load, pass, and buy
+	// nobody anything — which is the failure this half catches. Asserted as a
+	// difference rather than as a count, because which shape is commented has
+	// already swapped once.
+	// activeTopology, not active: `active` is already the byte offset of the
+	// active block above.
+	activeTopology, err := hetzner.LoadTopology(path)
+	require.NoError(t, err, "the example's own active configuration does not load")
+
+	assert.NotEqual(t, activeTopology.ControlPlane.Count, alternative.ControlPlane.Count,
+		"the commented block describes the same control plane as the active one")
 }

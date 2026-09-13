@@ -344,3 +344,41 @@ func dedupe(values []string) []string {
 
 	return out
 }
+
+// BuildEtcdPatch pins etcd's peer traffic to the private network.
+//
+// Its own document, applied to control planes only, because Talos refuses the
+// section anywhere else — measured by `task cluster:config-check`, which
+// rejected it in the shared cluster patch with
+//
+//	etcd config is only allowed on control plane machines
+//
+// Why it is needed at all: without it etcd advertises whichever address a node
+// has first, and on Hetzner that is the public one. The perimeter firewall
+// opens tcp/6443 and tcp/50000 to adminCIDRs and nothing else, so the members
+// cannot reach each other's tcp/2380. Measured on the first real three-member
+// cluster this repository built: two members, one of them a learner for ever,
+// and the third never joining at all.
+//
+// A single node never needed it, which is why a commented HA configuration
+// could look complete for months.
+func BuildEtcdPatch(nodeSubnet string) (string, error) {
+	if nodeSubnet == "" {
+		return "", fmt.Errorf("etcd patch: nodeSubnet is required to keep peer traffic off the public address")
+	}
+
+	patch := map[string]any{
+		"cluster": map[string]any{
+			"etcd": map[string]any{
+				"advertisedSubnets": []string{nodeSubnet},
+			},
+		},
+	}
+
+	encoded, err := yaml.Marshal(patch)
+	if err != nil {
+		return "", fmt.Errorf("etcd patch: %w", err)
+	}
+
+	return string(encoded), nil
+}

@@ -37,7 +37,7 @@ flowchart TB
             wk["worker pools"]
         end
 
-        apilb(["load balancer for the API<br/>only with more than one control-plane node"])
+        apilb(["load balancer for the API<br/>the endpoint every certificate names"])
         inglb(["load balancer for ingress<br/>created by the CCM, not by Pulumi"])
     end
 
@@ -194,6 +194,31 @@ interpreting.
 
 Turn it on with the flows in front of you: `task cluster:hubble` prints what
 the cluster is doing now.
+
+## Three control planes, and etcd on the private network
+
+The shipped shape is three control planes behind a load balancer, which is the
+smallest number that means anything: validation refuses an even count, because
+a second member tolerates no more failures than one while costing twice as
+much. The three land in a spread placement group, so they are three failure
+domains rather than three processes on one machine.
+
+The load balancer is not a convenience. It is the endpoint signed into every
+certificate, which is what makes a member replaceable — with a node's own
+address there, replacing that node reissues everything that named it.
+
+One thing HA needs that a single node never did: **etcd has to advertise
+inside the private network.** Left alone it advertises whichever address the
+node has first, and on Hetzner that is the public one — where the perimeter
+firewall opens tcp/6443 and tcp/50000 and nothing else, so the members cannot
+reach each other's tcp/2380. Measured on the first three-member cluster built
+here: two members, one of them a learner for ever, and the third never
+joining. `pkg/hetzner.BuildEtcdPatch` pins it, in a document applied to
+control planes only — Talos refuses the section on a worker, which
+`task cluster:config-check` says out loud.
+
+Verified by turning a member off: the API kept answering through the load
+balancer and Kubernetes kept accepting writes on the remaining two.
 
 ## How a request reaches a pod
 
