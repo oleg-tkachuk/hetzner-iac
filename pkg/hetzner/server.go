@@ -72,6 +72,27 @@ func newServer(ctx *pulumi.Context, spec serverSpec, opts ...pulumi.ResourceOpti
 
 	options := append([]pulumi.ResourceOption{
 		pulumi.IgnoreChanges([]string{"image"}),
+		// Delete the old server before creating its replacement.
+		//
+		// Pulumi's default is the opposite, and for a Hetzner server the
+		// default cannot work: a name is unique within the project, so the
+		// create half of create-before-delete is rejected before the delete
+		// half runs —
+		//
+		//     server name is already used (uniqueness_error)
+		//     creating replacement … **creating failed**
+		//
+		// which leaves the stack errored and the old server still standing.
+		// Every input that forces a replacement hits this: the server type,
+		// the datacenter, the private address. Measured on a deliberate
+		// replacement of the only control-plane node, which failed in five
+		// seconds having changed nothing.
+		//
+		// The cost is honest and unavoidable: the node is gone between the
+		// delete and the create. On a single-node cluster that is an outage
+		// either way, and on an HA one the replacement is one member at a
+		// time, which etcd survives.
+		pulumi.DeleteBeforeReplace(true),
 		pulumi.Timeouts(&pulumi.CustomTimeouts{
 			Create: "10m",
 			Update: "10m",
