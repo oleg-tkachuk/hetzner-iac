@@ -168,6 +168,15 @@ jobs:
         name: Build everything
         run: |
           set -euo pipefail
+          # From empty, so what gets saved is what a build of this tree needs
+          # and nothing else. Without this the job restores whatever the
+          # previous generation held, adds to it and saves the sum — which is
+          # how the saved cache reached 14 235 MB against the 4 635 MB a cold
+          # build actually produces.
+          #
+          # It costs this job a cold compile, once per merge. Every reader on
+          # every pull request then restores a third as much.
+          go clean -cache
           go build -o bin/ ./...
           # Compiles every test binary without running a single test, which is
           # what the test and lint jobs then reuse.
