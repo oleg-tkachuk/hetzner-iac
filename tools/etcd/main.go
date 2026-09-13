@@ -36,10 +36,17 @@ import (
 var requiredBuckets = []string{"key", "meta", "members", "cluster"}
 
 const (
-	// metaBucket and consistentIndexKey are where etcd records how far it had
-	// applied when the snapshot was taken. Reported because it is the one
-	// number that says a snapshot is the one expected, and it is what
-	// `talosctl etcd snapshot` prints as the revision at capture time.
+	// metaBucket and consistentIndexKey are where etcd records how far raft
+	// had applied when the snapshot was taken.
+	//
+	// NOT the revision `talosctl etcd snapshot` prints, which is the MVCC
+	// revision: measured on one snapshot, revision 39170 against consistent
+	// index 6028. Two counters, and reporting either as the other would have
+	// somebody comparing the wrong numbers during a restore.
+	//
+	// It restarts after a recovery bootstrap, because that begins a new raft
+	// cluster — so it separates two snapshots of one cluster, and says
+	// nothing across a restore.
 	metaBucket         = "meta"
 	consistentIndexKey = "consistent_index"
 
@@ -102,12 +109,13 @@ func run(args []string) error {
 // Facts are what a snapshot says about itself.
 type Facts struct {
 	// Revisions is the number of entries in the key bucket, which is one per
-	// revision rather than one per key.
+	// revision rather than one per key: 3278 entries against the 1616 keys
+	// talosctl counted in the same snapshot.
 	Revisions int
 
-	// ConsistentIndex is how far etcd had applied when the snapshot was
-	// taken. Zero is a valid value only for a snapshot of a cluster that has
-	// applied nothing, which a real one never is.
+	// ConsistentIndex is how far raft had applied when the snapshot was
+	// taken. Zero is a valid value only for a cluster that has applied
+	// nothing, which a real one never is.
 	ConsistentIndex uint64
 }
 
