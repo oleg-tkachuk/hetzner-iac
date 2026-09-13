@@ -76,13 +76,14 @@ func TestArgoCDValues_AsksForTheClassTheIngressLayerRegisters(t *testing.T) {
 func TestArgoCDValues_RequestsCertificatesFromTheClusterIssuer(t *testing.T) {
 	t.Parallel()
 
-	// The annotation must name the ClusterIssuer created by 30-core; a
+	// The annotation must name the ClusterIssuer created by
+	// 30-cluster-services; a
 	// different name leaves the Ingress with no certificate and no error.
 	annotations := nested(t, render(t, testDomain), "server", "ingress", "annotations")
 
 	assert.Equal(t, IssuerName, annotations["cert-manager.io/cluster-issuer"])
 	assert.Equal(t, "letsencrypt", IssuerName,
-		"must match the ClusterIssuer name in 30-core")
+		"must match the ClusterIssuer name in 30-cluster-services")
 }
 
 func TestArgoCDValues_TerminatesTLSAtTheIngressOnly(t *testing.T) {

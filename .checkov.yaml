@@ -30,7 +30,7 @@ skip-check:
   - CKV_GHA_7
 
   # The three below are the vendored kubelet-serving-cert-approver being what
-  # it is. layers/30-core/manifests/ explains the component; these are its
+  # it is. layers/30-cluster-services/manifests/ explains the component; these are its
   # design, not oversights in it.
   #
   # Approving CertificateSigningRequests is the component's entire purpose:

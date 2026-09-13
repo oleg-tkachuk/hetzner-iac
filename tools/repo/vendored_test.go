@@ -24,7 +24,7 @@ var vendored = []struct {
 	url  string
 }{
 	{
-		path: "../../layers/30-core/manifests/kubelet-serving-cert-approver.yaml",
+		path: "../../layers/30-cluster-services/manifests/kubelet-serving-cert-approver.yaml",
 		url: "https://raw.githubusercontent.com/alex1989hu/kubelet-serving-cert-approver/" +
 			"v0.12.0/deploy/standalone-install.yaml",
 	},

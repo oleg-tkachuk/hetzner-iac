@@ -108,7 +108,7 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 					// found, after a 611-second install that rolled back.
 					//
 					// This makes the kubelet issue a CSR that something has to
-					// approve. 30-core deploys the approver, and metrics-server
+					// approve. 30-cluster-services deploys the approver, and metrics-server
 					// follows it. The alternative, --kubelet-insecure-tls, is
 					// what both Talos and metrics-server call testing-only.
 					"rotate-server-certificates": "true",

@@ -71,7 +71,7 @@ jobs:
   layer:
     # No `name:` on purpose. A custom name is used verbatim, so a skipped job
     # shows as one check literally called "Preview (${{ matrix.layer }})".
-    # Without it GitHub builds the label per layer: "layer (30-core)".
+    # Without it GitHub builds the label per layer: "layer (30-cluster-services)".
     needs: [target]
     runs-on: ubuntu-latest
     timeout-minutes: 20

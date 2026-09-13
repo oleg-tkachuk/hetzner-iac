@@ -21,7 +21,7 @@ platform onto it in independent, idempotent layers.
 infra/cluster              the only project that talks to the Hetzner API
   └─ exports kubeconfig ──► layers/10-node-platform       Cilium, hcloud CCM + CSI
                             layers/20-network-policy      Cilium network policy (opt-in)
-                            layers/30-core                cert-manager, ESO, metrics-server
+                            layers/30-cluster-services    cert-manager, ESO, metrics-server
                             layers/40-ingress             Traefik      
                             layers/50-gitops              Argo CD
 ```
@@ -137,7 +137,7 @@ layer deploys:
 |-----|-------|---------|
 | `hcloud:token` | [`infra/cluster`](infra/cluster) | Hetzner API token (secret) |
 | `<layer>:clusterStackRef` | every [layer](layers) | `<org>/hetzner-cluster/<stack>` |
-| `core:acmeEmail` | [`30-core`](layers/30-core) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
+| `cluster-services:acmeEmail` | [`30-cluster-services`](layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | [`50-gitops`](layers/50-gitops) | publishes Argo CD through ingress; omit it and there is no Ingress |
 

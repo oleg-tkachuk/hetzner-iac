@@ -51,9 +51,9 @@ func TestLine_ColoursOnlyTheGlyph(t *testing.T) {
 
 	// The text stays uncoloured on purpose: a line whose body carries escape
 	// codes is unreadable once it is pasted into an issue or grepped.
-	got := coloured("core").line(GlyphSkipped, colourGrey, "cluster-issuer", "acmeEmail unset")
+	got := coloured("cluster-services").line(GlyphSkipped, colourGrey, "cluster-issuer", "acmeEmail unset")
 
-	assert.Equal(t, "\x1b[90m○\x1b[0m core · cluster-issuer · acmeEmail unset", got)
+	assert.Equal(t, "\x1b[90m○\x1b[0m cluster-services · cluster-issuer · acmeEmail unset", got)
 	assert.Equal(t, 1, strings.Count(got, colourReset), "exactly one reset, right after the glyph")
 	assert.NotContains(t, strings.TrimPrefix(got, colourGrey+GlyphSkipped+colourReset), "\x1b[")
 }
@@ -62,10 +62,10 @@ func TestLine_WithoutColourCarriesNoEscapeCodes(t *testing.T) {
 	t.Parallel()
 
 	// NO_COLOR has to produce output that is safe to diff and to grep.
-	got := plain("core").line(GlyphWarning, colourYellow, "issuer", "no email")
+	got := plain("cluster-services").line(GlyphWarning, colourYellow, "issuer", "no email")
 
 	assert.NotContains(t, got, "\x1b[")
-	assert.Equal(t, "▲ core · issuer · no email", got)
+	assert.Equal(t, "▲ cluster-services · issuer · no email", got)
 }
 
 func TestColourEnabled_HonoursNoColor(t *testing.T) {

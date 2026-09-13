@@ -1,10 +1,10 @@
-name: core
+name: cluster-services
 runtime:
   name: go
   options:
     # Stable build path so repeated previews skip the link step; content
     # hashing still rebuilds when sources change.
-    buildTarget: ../../.cache/pulumi-bin/core
+    buildTarget: ../../.cache/pulumi-bin/cluster-services
 description: |
   Core platform: cert-manager, external-secrets and metrics-server.
 
@@ -26,7 +26,7 @@ backend:
   url: https://api.pulumi.com
 
 config:
-  core:clusterStackRef:
+  cluster-services:clusterStackRef:
     default: ""
     description: |
       Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
