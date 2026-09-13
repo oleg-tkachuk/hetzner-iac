@@ -10,6 +10,12 @@ one without it prints the usage instead:
 
         task platform:plan-all stack=dev
 
+There is no default because an empty one is not an error. `pulumi --stack ""`
+ignores the empty value and uses the stack selected in the workspace — local,
+invisible state left by the last `pulumi stack select` — so without the guard a
+forgotten word aims the command at whatever that happens to be rather than
+failing.
+
 It is the only deployment parameter: where a cluster lives and how it is
 shaped comes from its committed topology file.
 
