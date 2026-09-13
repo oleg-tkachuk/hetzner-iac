@@ -115,7 +115,7 @@ than by convention. `task charts:outdated` compares each pin against its
 upstream repository, and Renovate opens one pull request per chart — see
 [ci.md](ci.md#chart-upgrades-arrive-as-pull-requests).
 
-# Versions
+## Versions
 
 Both the Talos and the Kubernetes version are pinned in the topology, and
 neither derives from the other. An empty `kubernetes.version` takes
@@ -133,7 +133,7 @@ Upgrading Talos means bumping `talos.version` in the topology, re-running
 upgraded in place and never replaced, which is why the server resource ignores
 changes to its image.
 
-# The Hetzner token travels with the kubeconfig
+## The Hetzner token travels with the kubeconfig
 
 The cluster tier exports the token and every layer reads it through the same
 stack reference that carries the kubeconfig, so it is typed once.
@@ -142,7 +142,7 @@ The objection to exporting a credential — that it lands in the state of every
 referencing stack — is already true of the kubeconfig and the talosconfig on
 that channel, both strictly more powerful than an API token.
 
-# Asking the real tool
+## Asking the real tool
 
 Four checks run offline against the actual software rather than against this
 repository's own assumptions, because that is where the expensive mistakes
@@ -159,7 +159,7 @@ hide. Each of these was found that way, and none would have failed a
 `task verify` runs them all. They need `helm`, a `talosctl` matching the
 pinned Talos minor, and a running Docker.
 
-# What a run prints
+## What a run prints
 
 Every layer logs through [pkg/pulumilog](../pkg/pulumilog), which borrows its
 vocabulary from the [taskfiles](https://github.com/oleg-tkachuk/taskfiles)

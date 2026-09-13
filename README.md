@@ -32,7 +32,7 @@ You need three things: a Hetzner Cloud API token with read+write scope, a
 [Pulumi Cloud](https://app.pulumi.com/signup) account for state — free for an
 individual, and `pulumi login` is how you get one on this machine — and the
 tools in [Prerequisites](#prerequisites). State can live in your own S3 bucket
-instead: [docs/configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
+instead: [configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
 
 Everything below creates **billable** Hetzner resources; `task cluster:destroy`
 and `task platform:destroy-all` remove them.
@@ -113,7 +113,7 @@ from its committed topology.
 | `task verify` | everything checkable without a cluster |
 | `task scan` | every scanner CI runs |
 
-Full reference: [docs/commands.md](docs/commands.md).
+Full reference: [commands.md](docs/commands.md).
 
 ## Configuration
 
@@ -130,17 +130,18 @@ layer deploys:
 | `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
 
 Details, including why the token is committed encrypted and how to keep state
-at Hetzner instead: [docs/configuration.md](docs/configuration.md).
+at Hetzner instead: [configuration.md](docs/configuration.md).
 
 ## Documentation
 
 | | |
 |---|---|
-| [docs/design.md](docs/design.md) | why it is shaped this way — layers, the committed topology, version pinning, what a run prints |
-| [docs/configuration.md](docs/configuration.md) | the topology file, stack config, state and secrets |
-| [docs/commands.md](docs/commands.md) | every task, and how to test |
-| [docs/ci.md](docs/ci.md) | how changes land, the scanners, chart upgrades, why the pipeline is fast |
-| [.github/SECURITY.md](.github/SECURITY.md) | reporting a vulnerability, and what is in scope |
+| [design.md](docs/design.md) | why it is shaped this way: layers, the committed topology, encryption, version pinning |
+| [configuration.md](docs/configuration.md) | the topology file, stack config, state and secrets |
+| [commands.md](docs/commands.md) | every task, as tables |
+| [operations.md](docs/operations.md) | running a cluster that exists: stopping, starting, the checks, kubectl |
+| [ci.md](docs/ci.md) | how changes land, the scanners, what the suites prove, chart upgrades |
+| [SECURITY.md](.github/SECURITY.md) | reporting a vulnerability, and what is in scope |
 
 ## Layout
 
@@ -151,7 +152,8 @@ pkg/hetzner/      cluster component resources and topology validation
 pkg/layer/        the shim every layer shares: cluster resolution, provider, Helm
 pkg/charts/       every chart version, pinned
 pkg/clusterref/   the output contract between the cluster tier and the layers
-tools/            chart pin auditor, topology validator, and the other checks
+pkg/values/       every chart's Helm values, as templates
+tools/            the checks: chart pins, topology, orphaned resources, stack state
 test/e2e/         verification against a running cluster
 tasks/            task definitions
 docs/             the documents above
@@ -159,11 +161,16 @@ docs/             the documents above
 
 ## Status
 
-Built and running on a single-control-plane dev cluster. Not yet done, and
-blocked on decisions rather than work: no `Ingress` or `ClusterIssuer`, so
-nothing is reachable from outside and no certificate is issued; Argo CD is
-deployed but reconciles nothing; Alertmanager has no receiver, and says so on
-every apply; etcd snapshots are manual.
+Built and running on a single-control-plane dev cluster, on encrypted system
+volumes. Five layers: the node platform, Cilium network policy, core services,
+Traefik ingress and Argo CD.
+
+Not done, and blocked on decisions rather than work: no `Ingress` or
+`ClusterIssuer`, so nothing is reachable from outside and no certificate is
+issued; Argo CD is deployed but reconciles nothing; the network policies are
+applied but the default deny is off, waiting for flows that do not exist yet;
+etcd snapshots are manual. Observability is deployed through Argo CD rather
+than from here.
 
 ## License
 
