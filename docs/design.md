@@ -19,7 +19,9 @@ list.
 ## The cluster is a committed file
 
 `infra/cluster/cluster.<stack>.yaml` describes the topology, so a cluster is
-reviewable in a diff before it exists and reproducible from a clone. It is
+reviewable in a diff before it exists and reproducible from a clone. The
+template for it is
+[cluster.example.yaml](../infra/cluster/cluster.example.yaml). It is
 sparse — anything omitted keeps the default in `pkg/hetzner` — and it is
 validated against the same code the Pulumi program runs, so the check cannot
 drift from the thing it checks.

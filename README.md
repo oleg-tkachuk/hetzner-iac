@@ -118,6 +118,7 @@ Full reference: [commands.md](docs/commands.md).
 ## Configuration
 
 Everything that shapes a cluster is in `infra/cluster/cluster.<stack>.yaml`,
+copied from [cluster.example.yaml](infra/cluster/cluster.example.yaml) and
 validated as you type it. Stack config holds the Hetzner token and what each
 layer deploys:
 
