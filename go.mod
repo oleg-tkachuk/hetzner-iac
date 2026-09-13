@@ -9,6 +9,7 @@ require (
 	github.com/pulumi/pulumi/sdk/v3 v3.262.0
 	github.com/pulumiverse/pulumi-talos/sdk v0.8.1
 	github.com/stretchr/testify v1.12.1
+	go.etcd.io/bbolt v1.5.0
 	golang.org/x/term v0.46.0
 	k8s.io/api v0.37.0
 	sigs.k8s.io/e2e-framework v0.7.0
