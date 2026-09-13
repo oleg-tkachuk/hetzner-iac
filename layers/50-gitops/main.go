@@ -42,15 +42,8 @@ var Components = layer.Components{
 	{
 		Chart:          "argo-cd",
 		TimeoutSeconds: ArgoCDTimeoutSeconds,
-		ValuesYAML: func(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
-			rendered, err := values.Static("argo-cd", ArgoCDData(r.Cfg.Get("domain")))
-			if err != nil {
-				r.Log.Warn("argo-cd", "values template failed to render: %v", err)
-
-				return nil
-			}
-
-			return rendered
+		ValuesYAML: func(r *layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
+			return values.Static("argo-cd", ArgoCDData(r.Cfg.Get("domain")))
 		},
 	},
 }

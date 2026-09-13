@@ -138,22 +138,14 @@ func MetricsServerData() values.MetricsServer {
 	}
 }
 
-// static renders a template whose values need nothing resolved, failing the
-// run rather than installing a chart on defaults nobody chose.
+// static renders a template whose values need nothing resolved.
 //
-// The render can only fail on a template this repository ships, which is a
-// programming error a test catches — so the error is reported through the
-// component rather than returned to a caller that could not act on it.
-func static(chart string, data any) func(*layer.Runner) pulumi.AssetOrArchiveArrayInput {
-	return func(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
-		rendered, err := values.Static(chart, data)
-		if err != nil {
-			r.Log.Warn(chart, "values template failed to render: %v", err)
-
-			return nil
-		}
-
-		return rendered
+// It used to log the error and return nil, which installed the chart on its
+// own defaults — the outcome these templates exist to prevent. The error now
+// stops the run.
+func static(chart string, data any) func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
+	return func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
+		return values.Static(chart, data)
 	}
 }
 
