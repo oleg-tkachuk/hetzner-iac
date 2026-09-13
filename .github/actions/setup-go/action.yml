@@ -70,6 +70,17 @@ runs:
         echo "build=$(go env GOCACHE)"  >>"$GITHUB_OUTPUT"
         echo "version=$(go env GOVERSION)" >>"$GITHUB_OUTPUT"
 
+    # The `go2-` generation. An Actions cache key is immutable, so the old
+    # `go-` entries hold what they held: measured on 2026-09-13, 14 235 MB of
+    # build cache where a complete cold build produces 4 635 MB. Two thirds of
+    # what every reader restored was stale — Go trims entries untouched for
+    # five days, and a cache restored fresh on every run never ages.
+    #
+    # Bumping the generation abandons those entries to eviction and lets the
+    # writer save a clean one. The first run after this change is a miss
+    # everywhere, which costs one cold build; every run after it restores a
+    # third of what it used to.
+    #
     # Does the key this job would write already exist?
     #
     # lookup-only, and deliberately without restore-keys: a prefix match means
@@ -87,7 +98,7 @@ runs:
         path: |
           ${{ steps.go-paths.outputs.mod }}
           ${{ steps.go-paths.outputs.build }}
-        key: go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+        key: go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
 
     # Room for the cache, and only for the jobs that hold one.
     #
@@ -109,11 +120,11 @@ runs:
         path: |
           ${{ steps.go-paths.outputs.mod }}
           ${{ steps.go-paths.outputs.build }}
-        key: go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+        key: go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
         # A cache from an older go.sum still holds most of what a build needs;
         # restoring it beats starting from nothing.
         restore-keys: |
-          go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
+          go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
 
     # The writer. actions/cache restores and then saves at the end of the job.
     #
@@ -129,9 +140,9 @@ runs:
         path: |
           ${{ steps.go-paths.outputs.mod }}
           ${{ steps.go-paths.outputs.build }}
-        key: go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+        key: go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
         restore-keys: |
-          go-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
+          go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
 
     - if: inputs.task == 'true'
       uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
