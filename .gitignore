@@ -20,6 +20,7 @@ bin/
 # for infra/cluster, whose binary is called `cluster` and was never listed.
 /charts
 /cluster
+/etcd
 /image
 /orphans
 /secrets
