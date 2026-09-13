@@ -143,10 +143,27 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 	// The bootstrap runs exactly once, on the first node, and only after EVERY
 	// control plane has its configuration. Bootstrapping while a peer is still
 	// unconfigured leaves a one-member etcd the cluster never recovers from.
+	//
+	// ReplaceOnChanges on the node, because a bootstrap is a one-shot action
+	// and the provider declares `node` as an updatable field. Replacing the
+	// first control-plane server therefore produced an UPDATE here: Pulumi
+	// rewrote the address in state and ran nothing, and the new node was left
+	// saying
+	//
+	//     etcd is waiting to join the cluster, if this node is the first node
+	//     in the cluster, please run `talosctl bootstrap`
+	//
+	// while the apply reported `3 to update, 1 to replace` and exited zero.
+	// That is the worst shape a failure can take here — the tool says done
+	// and the cluster has no etcd. A replacement runs the create, and the
+	// create is the bootstrap.
+	//
+	// The delete half is a no-op: there is no un-bootstrapping, and the
+	// provider returned in half a second when this was forced by hand.
 	bootstrap, err := talosmachine.NewBootstrap(ctx, name+"-bootstrap", &talosmachine.BootstrapArgs{
 		ClientConfiguration: clientConfig,
 		Node:                nodes[0].address,
-	}, parent, pulumi.DependsOn(applies))
+	}, parent, pulumi.DependsOn(applies), pulumi.ReplaceOnChanges([]string{"node"}))
 	if err != nil {
 		return nil, fmt.Errorf("talos bootstrap: %w", err)
 	}
