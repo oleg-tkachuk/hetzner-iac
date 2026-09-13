@@ -198,4 +198,11 @@ func TestHandoverDiagram_NamesTheLayerThatEndsNotReady(t *testing.T) {
 
 	assert.Contains(t, diagram, "layers/"+first+" installs the CNI",
 		"the handover diagram credits the CNI to another layer than the first one applied")
+
+	// And the note has to say WHOSE absence it describes. Worded as "no CNI is
+	// installed here" it was read as a standing fact about the cluster, which
+	// is the opposite of what the diagram means — Cilium is installed, one
+	// step later.
+	assert.Contains(t, diagram, "the cluster tier installs no CNI",
+		"the NotReady note does not name the tier, so it reads as a claim that this platform has no CNI")
 }

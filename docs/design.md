@@ -11,12 +11,24 @@ above it; destroying a layer takes only its own namespaces.
 
 ```mermaid
 flowchart TB
-    subgraph hetzner["Hetzner Cloud project — infra/cluster is the only thing that writes here"]
+    %% Palette from the README badges: Hetzner red, Talos orange, Kubernetes
+    %% blue, so the header and the diagrams read as one thing and the colour
+    %% says whose territory a box is in.
+    %%
+    %% Fills are pale and text is near-black explicitly. GitHub renders this in
+    %% both themes, and a colour left to the theme picks one of them and is
+    %% unreadable in the other.
+    classDef hetzner fill:#fde8eb,stroke:#d50c2d,stroke-width:1px,color:#1f2328
+    classDef talos fill:#fff0e0,stroke:#ff7300,stroke-width:1px,color:#1f2328
+    classDef kube fill:#e7effc,stroke:#326ce5,stroke-width:1px,color:#1f2328
+    classDef derived fill:#f6f8fa,stroke:#8c959f,stroke-width:1px,stroke-dasharray:4 3,color:#1f2328
+
+    subgraph hetzner["☁️ Hetzner Cloud project — infra/cluster is the only thing that writes here"]
         direction TB
-        net["private network + subnet"]
+        net["private network<br/>+ subnet"]
         fw["firewall"]
         pg["placement group"]
-        snap["Talos snapshot<br/>(task cluster:image-bake)"]
+        snap[("Talos snapshot<br/>task cluster:image-bake")]
 
         subgraph servers["servers"]
             direction LR
@@ -24,28 +36,38 @@ flowchart TB
             wk["worker pools"]
         end
 
-        apilb["load balancer for the API<br/>(only when the control plane has more than one node)"]
-        inglb["load balancer for ingress<br/>(created by the CCM, not by Pulumi)"]
+        apilb(["load balancer for the API<br/>only with more than one control-plane node"])
+        inglb(["load balancer for ingress<br/>created by the CCM, not by Pulumi"])
     end
 
     subgraph talos["Talos on those servers"]
-        direction TB
-        etcd["etcd"]
+        direction LR
+        etcd[("etcd")]
         api["kube-apiserver"]
     end
 
     subgraph k8s["Kubernetes — every layer writes only here"]
         direction TB
         ks["kube-system<br/>layers/10-node-platform"]
+        pol["cluster-wide policy<br/>layers/20-network-policy"]
         cmns["cert-manager, external-secrets<br/>layers/30-cluster-services"]
         tns["traefik<br/>layers/40-ingress"]
         argons["argocd<br/>layers/50-gitops"]
-        pol["cluster-wide policy<br/>layers/20-network-policy"]
     end
 
-    servers --> talos
-    talos --> k8s
-    ks -.->|"CCM asks for it"| inglb
+    servers ==> talos
+    talos ==> k8s
+    ks -.->|"the CCM asks for it"| inglb
+
+    class net,fw,pg,snap,cp,wk hetzner
+    class apilb,inglb derived
+    class etcd,api talos
+    class ks,pol,cmns,tns,argons kube
+
+    style hetzner fill:#fffafb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
+    style servers fill:#fde8eb,stroke:#d50c2d,stroke-dasharray:3 3,color:#1f2328
+    style talos fill:#fffbf5,stroke:#ff7300,stroke-width:2px,color:#1f2328
+    style k8s fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
 ```
 
 The ingress load balancer is the one resource that crosses the seam, and it
@@ -93,23 +115,29 @@ scheduled onto a node no CNI has made Ready.
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor operator
     participant tier as infra/cluster
     participant hcloud as Hetzner Cloud
     participant k8s as Kubernetes API
     participant layers as layers/*
 
-    operator->>tier: task cluster:apply
-    tier->>hcloud: private network, firewall, servers
-    tier->>hcloud: Talos machine configuration, then bootstrap
-    hcloud-->>k8s: the API answers
-    tier-->>operator: kubeconfig and talosconfig, as stack outputs
-    Note over k8s: no CNI is installed here,<br/>so every node is NotReady
+    rect rgb(253, 232, 235)
+        operator->>tier: task cluster:apply
+        tier->>hcloud: private network, firewall, servers
+        tier->>hcloud: Talos machine configuration, then bootstrap
+        hcloud-->>k8s: the API answers
+        tier-->>operator: kubeconfig and talosconfig, as stack outputs
+    end
 
-    operator->>layers: task platform:apply-all
-    layers->>k8s: layers/10-node-platform installs the CNI
-    Note over k8s: nodes become Ready
-    layers->>k8s: the remaining layers, in dependency order
+    Note over tier,k8s: the cluster tier installs no CNI,<br/>so every node stays NotReady until the next phase
+
+    rect rgb(231, 239, 252)
+        operator->>layers: task platform:apply-all
+        layers->>k8s: layers/10-node-platform installs the CNI — Cilium
+        Note over layers,k8s: nodes become Ready
+        layers->>k8s: the remaining layers, in dependency order
+    end
 ```
 
 ## The default deny is opt-in
@@ -164,23 +192,40 @@ to trust nobody.
 
 ```mermaid
 flowchart LR
-    client(["client"])
+    %% Same palette as the diagram above, and the same reason for spelling the
+    %% colours out rather than inheriting the theme's.
+    classDef outside fill:#f6f8fa,stroke:#8c959f,stroke-width:1px,color:#1f2328
+    classDef edge fill:#fde8eb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
+    classDef inside fill:#e7effc,stroke:#326ce5,stroke-width:1px,color:#1f2328
+    classDef gate fill:#fff0e0,stroke:#ff7300,stroke-width:2px,color:#1f2328
 
+    client(["client"])
     lb["Hetzner load balancer<br/>public IPv4 and IPv6"]
 
-    subgraph private["private network — network.nodeSubnet"]
+    subgraph private["🔒 private network — network.nodeSubnet"]
         direction LR
         node["node<br/>private address only"]
-        traefik["Traefik<br/>entry points: web, websecure<br/>trusted for the PROXY header: network.nodeSubnet"]
+        traefik["Traefik<br/>entry points: web, websecure<br/>trusts the PROXY header from network.nodeSubnet"]
         svc["Service"]
-        pod["pod"]
+        pod(["pod"])
     end
 
     client -->|"tcp/80, tcp/443"| lb
-    lb -->|"PROXY header,<br/>use-private-ip: true"| node
+    lb ==>|"PROXY header<br/>use-private-ip: true"| node
     node --> traefik
     traefik --> svc
     svc --> pod
+
+    class client outside
+    class lb edge
+    class traefik gate
+    class node,svc,pod inside
+
+    style private fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
+
+    %% The one edge worth pointing at: it is the hop that carries the PROXY
+    %% header. Indexed by edge order, so adding an edge above this one moves it.
+    linkStyle 1 stroke:#d50c2d,stroke-width:3px
 ```
 
 The trusted range is the node subnet the cluster tier publishes, not a wider
