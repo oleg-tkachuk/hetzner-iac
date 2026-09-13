@@ -340,6 +340,15 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 	var checked int
 
 	for _, path := range append(docs, filepath.Join(root, "README.md")) {
+		// BACKLOG.md is planning, and planning names the task it wants
+		// before that task exists — which is the point of writing it down.
+		// It is gitignored for the same reason it is skipped here: it is not
+		// documentation an operator copies from. On a clean clone the glob
+		// never finds it.
+		if filepath.Base(path) == "BACKLOG.md" {
+			continue
+		}
+
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
