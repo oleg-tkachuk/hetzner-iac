@@ -1,2 +1,0 @@
-config:
-  cluster-services:clusterStackRef: oleg-tkachuk/hetzner-cluster/dev

@@ -19,8 +19,8 @@ description: |
 # does for you.
 #
 # To keep state in your own S3 bucket instead — one vendor, one bill — point
-# this url at it. That also changes how stack secrets are encrypted,
-# which changes whether Pulumi.<stack>.yaml may be committed: see
+# this url at it. That also changes how stack secrets are encrypted — with a
+# passphrase you hold rather than a key the backend holds: see
 # docs/configuration.md, "Keeping state in your own S3 bucket".
 backend:
   url: https://api.pulumi.com

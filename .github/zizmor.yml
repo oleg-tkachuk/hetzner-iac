@@ -14,5 +14,4 @@ rules:
       # job to satisfy a style finding. Revisit with a reference in hand.
       - ci.yaml
       - security.yaml
-      - preview.yaml
       - nightly.yaml

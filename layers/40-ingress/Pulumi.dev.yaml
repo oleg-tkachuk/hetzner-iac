@@ -1,2 +1,0 @@
-config:
-  ingress:clusterStackRef: oleg-tkachuk/hetzner-cluster/dev
