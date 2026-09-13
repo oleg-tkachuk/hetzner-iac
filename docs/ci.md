@@ -30,7 +30,7 @@ The pieces that make that work, and the reason each one is there:
 Release notes are generated from the commit history by semantic-release; there
 is no changelog file to keep in step.
 
-# Security scanning
+## Security scanning
 
 The scanners live in their own workflow, `.github/workflows/security.yaml`,
 which CI calls and which also runs weekly on its own. That schedule is the
@@ -169,7 +169,28 @@ exists". A gate reading an output that does not exist — a rename, a typo —
 evaluates to the empty string and skips the job, which reports as skipped,
 which branch protection accepts. Nothing else would notice.
 
-# Chart upgrades arrive as pull requests
+## What the suites prove
+
+```bash
+task go:test    # unit
+task e2e        # against a running cluster; read-only, needs ./kubeconfig
+```
+
+The unit tests pin what Pulumi will *ask for*, including the settings whose
+mismatch never fails an apply — kube-proxy replacement, PROXY protocol on both
+sides of the load balancer, the KubePrism port. They exercise the resource
+graph under Pulumi's mock monitor, so no cloud account is involved.
+
+The e2e suite checks what actually happened: taints cleared, routes
+programmed, the load balancer provisioned, volumes bound. It lives behind the
+`e2e` build tag, so `go test ./...` never reaches for a cluster. It needs
+`./kubeconfig`, which `task cluster:kubeconfig` writes.
+
+It runs from the operator's machine rather than from CI: the firewall opens the
+Kubernetes API to `network.adminCIDRs` only, and a GitHub-hosted runner is not
+in it.
+
+## Chart upgrades arrive as pull requests
 
 Every chart is pinned in [pkg/charts/registry.go](../pkg/charts/registry.go) —
 one file, no version literal anywhere else. Renovate watches it through a regex
