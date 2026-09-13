@@ -41,11 +41,13 @@ var Components = layer.Components{
 }
 
 // renderValues resolves what the template needs, then renders it.
-func renderValues(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
+// Asset renders inside an apply, so a template error reaches the engine as a
+// failed input rather than being returned here — hence the nil.
+func renderValues(r *layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
 	loadBalancerType := r.StringOr("loadBalancerType", DefaultLoadBalancerType)
 
 	return values.Asset(Chart, IngressData(
-		r.Cluster.ClusterName, r.Cluster.Location, r.Cluster.NodeSubnet, loadBalancerType))
+		r.Cluster.ClusterName, r.Cluster.Location, r.Cluster.NodeSubnet, loadBalancerType)), nil
 }
 
 // IngressData resolves the cluster tier's outputs into the template's data.

@@ -99,7 +99,11 @@ type Component struct {
 	// ValuesYAML renders this chart's template from pkg/values. A function
 	// rather than a string because the values read stack config and the
 	// cluster tier's outputs, both of which exist only at run time.
-	ValuesYAML func(*Runner) pulumi.AssetOrArchiveArrayInput
+	//
+	// The error is returned rather than logged: without it a failed render
+	// installed the chart on its own defaults, which is the outcome the
+	// templates exist to prevent.
+	ValuesYAML func(*Runner) (pulumi.AssetOrArchiveArrayInput, error)
 
 	// SkipCRDs leaves custom resource definitions alone.
 	SkipCRDs bool
@@ -167,8 +171,14 @@ func (r *Runner) create(component Component, dependencies []pulumi.Resource) (pu
 	}
 
 	var rendered pulumi.AssetOrArchiveArrayInput
+
 	if component.ValuesYAML != nil {
-		rendered = component.ValuesYAML(r)
+		yaml, err := component.ValuesYAML(r)
+		if err != nil {
+			return nil, fmt.Errorf("values for %s: %w", component.Key(), err)
+		}
+
+		rendered = yaml
 	}
 
 	return r.Release(ReleaseArgs{
