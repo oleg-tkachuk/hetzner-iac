@@ -134,8 +134,8 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 
 ## Documentation
 
-| | |
-|---|---|
+| Document | Covers |
+|----------|--------|
 | [design.md](docs/design.md) | why it is shaped this way: layers, the committed topology, encryption, version pinning |
 | [configuration.md](docs/configuration.md) | the topology file, stack config, state and secrets |
 | [commands.md](docs/commands.md) | every task, as tables |
@@ -145,8 +145,8 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 
 ## Layout
 
-| | |
-|---|---|
+| Path | Holds |
+|------|-------|
 | [infra/cluster/](infra/cluster) | the Hetzner cluster: network, firewall, control plane, workers |
 | [layers/](layers) | one Pulumi project per platform layer |
 | [pkg/hetzner/](pkg/hetzner) | cluster component resources and topology validation |
