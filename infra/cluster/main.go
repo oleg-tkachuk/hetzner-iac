@@ -109,7 +109,7 @@ func exports(topology *hetzner.Topology, cluster *hetzner.Cluster, token pulumi.
 
 		// Talosconfig is more powerful than the kubeconfig — it can reset
 		// nodes and read etcd — so it is exported as a secret and used only by
-		// day-2 tasks.
+		// the tasks that operate the cluster once it exists.
 		clusterref.OutputTalosconfig: cluster.Talosconfig,
 
 		clusterref.OutputEndpoint: cluster.Endpoint,
