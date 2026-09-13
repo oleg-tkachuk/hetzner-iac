@@ -95,6 +95,9 @@ someone runs once, in an emergency, and gets a confusing failure from.
 
 ## Hetzner instances
 
+From the shared library's `hcloud` module, not this repository. `console` takes
+`HCLOUD_SERVER=<name>`; the rest act on every server of the cluster.
+
 | Task | Does |
 |------|------|
 | `task hcloud:servers` | power state of every server in this cluster; read-only |
@@ -103,7 +106,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task hcloud:poweroff` | cut power, for when Talos cannot answer |
 | `task hcloud:reboot` | ACPI reboot — for a kernel that lives when apid does not |
 | `task hcloud:reset` | hard reset: a power cut and a start in one |
-| `task hcloud:console` | VNC console on one node, `server=<name>`; the only way to watch a node that will not boot |
+| `task hcloud:console` | VNC console on one node, `HCLOUD_SERVER=<name>`; the only way to watch a node that will not boot |
 
 ## Layers
 

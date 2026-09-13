@@ -75,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${RENOVATE_TOKEN}" ]; then
-            echo "::error::the RENOVATE_TOKEN secret is not set"
+            printf '%s\n' "::error::the RENOVATE_TOKEN secret is not set"
             cat >&2 <<'EOF'
           Renovate needs a token of its own. GITHUB_TOKEN cannot be used here:
           a pull request opened with it does not trigger `pull_request`

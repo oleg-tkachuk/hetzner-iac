@@ -127,7 +127,7 @@ tasks:
       - cmd: |
           set -euo pipefail
           state="$(go run {{.ROOT}}/tools/stack ensure "{{._CL_DIR}}" "{{._CL_STACK}}")"
-          echo "{{._RUN}} cluster · stack · {{._CL_STACK}} ${state}"
+          printf '%s\n' "{{._RUN}} cluster · stack · {{._CL_STACK}} ${state}"
 
   token:
     desc: "Store the Hetzner API token in this stack, encrypted"
@@ -152,7 +152,7 @@ tasks:
           set -euo pipefail
           cd "{{._CL_DIR}}"
           pulumi --stack "{{._CL_STACK}}" config set --secret hcloud:token
-          echo "{{._OK}} cluster · token · encrypted in Pulumi.{{._CL_STACK}}.yaml, which is gitignored"
+          printf '%s\n' "{{._OK}} cluster · token · encrypted in Pulumi.{{._CL_STACK}}.yaml, which is gitignored"
 
   plan:
     desc: "Show what applying the cluster would change; change nothing"
@@ -211,9 +211,9 @@ tasks:
           set -euo pipefail
           cd "{{._CL_DIR}}"
           pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes --exclude-protected
-          echo
-          echo "{{._SKIP}} cluster · secrets · kept — the CA is state, not a billed resource"
-          echo "{{._SKIP}} cluster · secrets · remove it too: task cluster:destroy-secrets stack={{._CL_STACK}}"
+          printf '\n'
+          printf '%s\n' "{{._SKIP}} cluster · secrets · kept — the CA is state, not a billed resource"
+          printf '%s\n' "{{._SKIP}} cluster · secrets · remove it too: task cluster:destroy-secrets stack={{._CL_STACK}}"
 
   destroy-secrets:
     desc: "Destroy the Talos secrets bundle too — the cluster CA. Unrecoverable."
@@ -250,9 +250,9 @@ tasks:
           set -euo pipefail
           export TALOSCONFIG="{{.ROOT}}/talosconfig"
           talosctl shutdown
-          echo
-          echo "{{._OK}} cluster · stop · halted, and still billed — only cluster:destroy stops that"
-          echo "{{._OK}} cluster · stop · back up with: task hcloud:poweron stack={{._CL_STACK}}"
+          printf '\n'
+          printf '%s\n' "{{._OK}} cluster · stop · halted, and still billed — only cluster:destroy stops that"
+          printf '%s\n' "{{._OK}} cluster · stop · back up with: task hcloud:poweron stack={{._CL_STACK}}"
 
   reboot:
     desc: "Reboot the cluster's nodes through Talos"
@@ -293,7 +293,7 @@ tasks:
           cd "{{._CL_DIR}}"
           pulumi --non-interactive --stack "{{._CL_STACK}}" stack output kubeconfig --show-secrets > "{{.ROOT}}/kubeconfig"
           chmod 600 "{{.ROOT}}/kubeconfig"
-          echo "{{._OK}} cluster · kubeconfig · wrote ./kubeconfig — export KUBECONFIG={{.ROOT}}/kubeconfig"
+          printf '%s\n' "{{._OK}} cluster · kubeconfig · wrote ./kubeconfig — export KUBECONFIG={{.ROOT}}/kubeconfig"
 
   kubeconfig-add:
     desc: "Add this cluster to ~/.kube/config, so a plain kubectl reaches it"
@@ -351,8 +351,8 @@ tasks:
               -o "jsonpath={.clusters[?(@.name=='$cluster')].cluster.server}" 2>/dev/null || true)"
 
             if [ -n "$existing" ] && [ "$existing" != "$server" ]; then
-              echo "$target already has a cluster named $cluster at $existing," >&2
-              echo "and this stack's is $server. Rename one of them first." >&2
+              printf '%s\n' "$target already has a cluster named $cluster at $existing," >&2
+              printf '%s\n' "and this stack's is $server. Rename one of them first." >&2
               exit 1
             fi
 
@@ -375,8 +375,8 @@ tasks:
 
           # Not switched to, deliberately. Repointing the operator's shell is
           # the hazard every --kubeconfig in this repository exists to avoid.
-          echo "{{._OK}} cluster · kubeconfig · added to $target"
-          echo "{{._SKIP}} cluster · kubeconfig · not switched to — kubectl config use-context $context"
+          printf '%s\n' "{{._OK}} cluster · kubeconfig · added to $target"
+          printf '%s\n' "{{._SKIP}} cluster · kubeconfig · not switched to — kubectl config use-context $context"
 
   talosconfig:
     desc: "Write ./talosconfig from the cluster stack"
@@ -389,7 +389,7 @@ tasks:
           cd "{{._CL_DIR}}"
           pulumi --non-interactive --stack "{{._CL_STACK}}" stack output talosconfig --show-secrets > "{{.ROOT}}/talosconfig"
           chmod 600 "{{.ROOT}}/talosconfig"
-          echo "{{._OK}} cluster · talosconfig · wrote ./talosconfig — export TALOSCONFIG={{.ROOT}}/talosconfig"
+          printf '%s\n' "{{._OK}} cluster · talosconfig · wrote ./talosconfig — export TALOSCONFIG={{.ROOT}}/talosconfig"
 
   nodes:
     desc: "List cluster nodes"
@@ -404,23 +404,23 @@ tasks:
       - cmd: |
           set -euo pipefail
           export KUBECONFIG="{{.ROOT}}/kubeconfig"
-          echo "{{._RUN}} cluster · status · nodes"
+          printf '%s\n' "{{._RUN}} cluster · status · nodes"
           kubectl get nodes -o wide
-          echo
-          echo "{{._RUN}} cluster · status · pods that are not Running or Succeeded"
+          printf '\n'
+          printf '%s\n' "{{._RUN}} cluster · status · pods that are not Running or Succeeded"
           # "(none)" must mean "every pod is healthy", not "kubectl could not
           # reach the cluster". Those are opposite answers, and discarding
           # stderr made them print the same line.
           if out="$(kubectl get pods -A \
                      --field-selector=status.phase!=Running,status.phase!=Succeeded 2>&1)"; then
             case "$out" in
-              "") echo "  (none)" ;;
-              *"No resources found"*) echo "  (none)" ;;
+              "") printf '%s\n' "  (none)" ;;
+              *"No resources found"*) printf '%s\n' "  (none)" ;;
               *) printf '%s\n' "$out" ;;
             esac
           else
             printf '%s\n' "$out" >&2
-            echo "{{._ERR}} cluster · status · cannot reach the cluster — is KUBECONFIG set?" >&2
+            printf '%s\n' "{{._ERR}} cluster · status · cannot reach the cluster — is KUBECONFIG set?" >&2
             exit 1
           fi
 
@@ -523,15 +523,15 @@ tasks:
           done
 
           if [ "$plaintext" -ne 0 ]; then
-            echo                                                                  >&2
-            echo "{{._ERR}} cluster · encryption · a system volume is plaintext"    >&2
-            echo "Talos has no in-place encryption, so a node built before the"      >&2
-            echo "VolumeConfig keeps its plaintext partitions however often the"    >&2
-            echo "config is re-applied. The fix is a node built with it:"           >&2
-            echo                                                                  >&2
-            echo "    task cluster:destroy stack={{.stack}}"                      >&2
-            echo "    task cluster:apply   stack={{.stack}}"                      >&2
-            echo "    task platform:apply-all stack={{.stack}}"                   >&2
+            printf '\n' >&2
+            printf '%s\n' "{{._ERR}} cluster · encryption · a system volume is plaintext"    >&2
+            printf '%s\n' "Talos has no in-place encryption, so a node built before the"      >&2
+            printf '%s\n' "VolumeConfig keeps its plaintext partitions however often the"    >&2
+            printf '%s\n' "config is re-applied. The fix is a node built with it:"           >&2
+            printf '\n' >&2
+            printf '%s\n' "    task cluster:destroy stack={{.stack}}"                      >&2
+            printf '%s\n' "    task cluster:apply   stack={{.stack}}"                      >&2
+            printf '%s\n' "    task platform:apply-all stack={{.stack}}"                   >&2
             exit 1
           fi
 
@@ -575,14 +575,14 @@ tasks:
 
           # Beside the snapshot, so the two travel together wherever it goes.
           {
-            echo "taken:     ${stamp}"
-            echo "talosctl:  ${taken}"
-            echo "read back: ${read_back}"
+            printf '%s\n' "taken:     ${stamp}"
+            printf '%s\n' "talosctl:  ${taken}"
+            printf '%s\n' "read back: ${read_back}"
           } > "${file}{{._CL_SNAPSHOT_INFO}}"
 
-          echo "{{._OK}} cluster · etcd · ${taken}"
-          echo "{{._OK}} cluster · etcd · ${read_back}"
-          echo "{{._OK}} cluster · etcd · wrote .backups/etcd-${stamp}.db and its {{._CL_SNAPSHOT_INFO}}"
+          printf '%s\n' "{{._OK}} cluster · etcd · ${taken}"
+          printf '%s\n' "{{._OK}} cluster · etcd · ${read_back}"
+          printf '%s\n' "{{._OK}} cluster · etcd · wrote .backups/etcd-${stamp}.db and its {{._CL_SNAPSHOT_INFO}}"
 
   etcd-restore:
     desc: "Restore etcd from a snapshot — wipes every control-plane node first (snapshot=<path>). The other half of a backup."
@@ -626,7 +626,7 @@ tasks:
           # Before anything is wiped. A truncated download has the right name
           # and the right size to the eye, and finding out after the reset
           # leaves a cluster with no etcd and no way back.
-          echo "{{._RUN}} cluster · etcd-restore · checking the snapshot"
+          printf '%s\n' "{{._RUN}} cluster · etcd-restore · checking the snapshot"
           go run "{{.ROOT}}/tools/etcd" verify "{{.snapshot}}"
 
           # What the snapshot said about itself when it was taken, if
@@ -634,19 +634,19 @@ tasks:
           # back, because a difference between the two means the file changed
           # after it was written — and that is worth seeing before the wipe.
           if [ -f "{{.snapshot}}{{._CL_SNAPSHOT_INFO}}" ]; then
-            echo "{{._RUN}} cluster · etcd-restore · recorded when taken:"
+            printf '%s\n' "{{._RUN}} cluster · etcd-restore · recorded when taken:"
             sed 's/^/    /' "{{.snapshot}}{{._CL_SNAPSHOT_INFO}}"
           else
-            echo "{{._WARN}} cluster · etcd-restore · no {{._CL_SNAPSHOT_INFO}} beside it, so there is nothing to compare against"
+            printf '%s\n' "{{._WARN}} cluster · etcd-restore · no {{._CL_SNAPSHOT_INFO}} beside it, so there is nothing to compare against"
           fi
 
           {{._CL_CONTROL_PLANE}}
 
-          count="$(echo "$nodes" | wc -l | tr -d ' ')"
-          echo "{{._RUN}} cluster · etcd-restore · ${count} control-plane node(s) to wipe"
+          count="$(printf '%s\n' "$nodes" | awk 'END {print NR}')"
+          printf '%s\n' "{{._RUN}} cluster · etcd-restore · ${count} control-plane node(s) to wipe"
 
           for node in $nodes; do
-            echo "{{._RUN}} cluster · etcd-restore · ${node} → wiping EPHEMERAL"
+            printf '%s\n' "{{._RUN}} cluster · etcd-restore · ${node} → wiping EPHEMERAL"
             talosctl -n "$node" reset --graceful=false --reboot --system-labels-to-wipe=EPHEMERAL
           done
 
@@ -654,13 +654,13 @@ tasks:
           # bootstrapped. Failures are "not yet": the node is rebooting, so
           # apid is unreachable for most of this wait.
           for node in $nodes; do
-            echo "{{._RUN}} cluster · etcd-restore · ${node} → waiting for etcd to reach Preparing"
+            printf '%s\n' "{{._RUN}} cluster · etcd-restore · ${node} → waiting for etcd to reach Preparing"
             deadline=$(( $(date +%s) + {{._CL_RECOVER_TIMEOUT}} ))
 
             until talosctl -n "$node" service etcd 2>/dev/null | grep -qE '^STATE[[:space:]]+Preparing'; do
               if [ "$(date +%s)" -ge "$deadline" ]; then
-                echo "{{._ERR}} cluster · etcd-restore · ${node} did not reach Preparing in {{._CL_RECOVER_TIMEOUT}}s" >&2
-                echo "{{._ERR}} cluster · etcd-restore · look at it with: task hcloud:console stack={{._CL_STACK}} server=<name>" >&2
+                printf '%s\n' "{{._ERR}} cluster · etcd-restore · ${node} did not reach Preparing in {{._CL_RECOVER_TIMEOUT}}s" >&2
+                printf '%s\n' "{{._ERR}} cluster · etcd-restore · look at it with: task hcloud:console stack={{._CL_STACK}} server=<name>" >&2
                 exit 1
               fi
 
@@ -670,14 +670,14 @@ tasks:
 
           # One node, from the local file. The others rejoin on their own once
           # the control-plane endpoint answers.
-          first="$(echo "$nodes" | head -1)"
-          echo "{{._RUN}} cluster · etcd-restore · ${first} → bootstrap from {{.snapshot}}"
+          first="$(printf '%s\n' "$nodes" | awk 'NR == 1')"
+          printf '%s\n' "{{._RUN}} cluster · etcd-restore · ${first} → bootstrap from {{.snapshot}}"
           talosctl -n "$first" bootstrap --recover-from="{{.snapshot}}"
 
-          echo
-          echo "{{._OK}} cluster · etcd-restore · restored — the node passes through NotReady for about two minutes"
-          echo "{{._OK}} cluster · etcd-restore · watch it with: task cluster:status stack={{._CL_STACK}}"
-          echo "{{._WARN}} cluster · etcd-restore · anything created after the snapshot is gone; re-apply the layers if that includes them"
+          printf '\n'
+          printf '%s\n' "{{._OK}} cluster · etcd-restore · restored — the node passes through NotReady for about two minutes"
+          printf '%s\n' "{{._OK}} cluster · etcd-restore · watch it with: task cluster:status stack={{._CL_STACK}}"
+          printf '%s\n' "{{._WARN}} cluster · etcd-restore · anything created after the snapshot is gone; re-apply the layers if that includes them"
 
   upgrade-talos:
     desc: "Upgrade Talos on every node. Bump talos.version in the topology first, then re-bake."
@@ -694,7 +694,7 @@ tasks:
           # One node at a time, waiting for each: rolling through the control
           # plane in parallel takes etcd below quorum.
           for node in $(talosctl get members -o json | jq -r '.spec.addresses[0]'); do
-            echo "{{._RUN}} cluster · upgrade · ${node} → ${version}"
+            printf '%s\n' "{{._RUN}} cluster · upgrade · ${node} → ${version}"
             talosctl upgrade --nodes "${node}" \
               --image "ghcr.io/siderolabs/installer:${version}" --wait
           done
