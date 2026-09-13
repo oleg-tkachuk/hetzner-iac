@@ -4,7 +4,7 @@ Three places hold configuration, and the split is deliberate.
 
 | Where | Holds |
 |-------|-------|
-| `infra/cluster/cluster.<stack>.yaml` | everything that shapes a cluster |
+| `infra/cluster/cluster.<stack>.yaml` | everything that shapes a cluster; not committed |
 | Pulumi stack config | the Hetzner token, and what each layer deploys |
 | `pkg/charts` | every chart version |
 
@@ -15,7 +15,8 @@ Everything that shapes a cluster lives in
 type it and by the same Go code the Pulumi program runs when you apply.
 
 It is sparse: anything omitted keeps the default in `pkg/hetzner`. Start from
-`cluster.example.yaml`, which is committed with an RFC 5737 placeholder in
+[cluster.example.yaml](../infra/cluster/cluster.example.yaml), which is
+committed with an RFC 5737 placeholder in
 `network.adminCIDRs` — set that to the address you will apply from, because
 Talos configuration is pushed over the Talos API and a host outside the list
 hangs with the port filtered.
