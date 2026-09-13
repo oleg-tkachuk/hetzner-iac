@@ -49,6 +49,13 @@ vars:
   # `ps` would show it to every other user on the machine.
   _HC_TOKEN: 'HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._HC_STACK}}")"'
 
+  # The four power tasks all act on every server of the cluster, and all four
+  # must refuse an empty match rather than loop zero times and report success.
+  # One spelling, here.
+  _HC_EACH_SERVER: |
+    servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
+    test -n "$servers"
+
 tasks:
   servers:
     desc: "Power state of every server in this cluster"
@@ -84,8 +91,7 @@ tasks:
           set -euo pipefail
           export {{._HC_TOKEN}}
 
-          servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
-          test -n "$servers"
+          {{._HC_EACH_SERVER}}
 
           for server in $servers; do
             hcloud server poweron "$server"
@@ -119,8 +125,7 @@ tasks:
           set -euo pipefail
           export {{._HC_TOKEN}}
 
-          servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
-          test -n "$servers"
+          {{._HC_EACH_SERVER}}
 
           for server in $servers; do
             hcloud server shutdown "$server"
@@ -146,8 +151,7 @@ tasks:
           set -euo pipefail
           export {{._HC_TOKEN}}
 
-          servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
-          test -n "$servers"
+          {{._HC_EACH_SERVER}}
 
           for server in $servers; do
             hcloud server poweroff "$server"
@@ -172,8 +176,7 @@ tasks:
           set -euo pipefail
           export {{._HC_TOKEN}}
 
-          servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
-          test -n "$servers"
+          {{._HC_EACH_SERVER}}
 
           for server in $servers; do
             hcloud server reset "$server"

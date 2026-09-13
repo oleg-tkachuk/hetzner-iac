@@ -199,6 +199,7 @@ tasks:
         msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
+          set -euo pipefail
           cd "{{.ROOT}}/layers/{{.layer}}"
           pulumi --non-interactive --stack "{{._PL_STACK}}" stack output
 
