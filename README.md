@@ -123,11 +123,11 @@ layer deploys:
 
 | Key | Where | Meaning |
 |-----|-------|---------|
-| `hcloud:token` | `infra/cluster` | Hetzner API token (secret) |
-| `<layer>:clusterStackRef` | every layer | `<org>/hetzner-cluster/<stack>` |
-| `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
-| `ingress:loadBalancerType` | `40-ingress` | Hetzner load balancer type, default `lb11` |
-| `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
+| `hcloud:token` | [`infra/cluster`](infra/cluster) | Hetzner API token (secret) |
+| `<layer>:clusterStackRef` | every [layer](layers) | `<org>/hetzner-cluster/<stack>` |
+| `core:acmeEmail` | [`30-core`](layers/30-core) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
+| `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | Hetzner load balancer type, default `lb11` |
+| `gitops:domain` | [`50-gitops`](layers/50-gitops) | publishes Argo CD through ingress; omit it and there is no Ingress |
 
 Details, including why the token is committed encrypted and how to keep state
 at Hetzner instead: [configuration.md](docs/configuration.md).
