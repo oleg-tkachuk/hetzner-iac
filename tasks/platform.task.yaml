@@ -48,6 +48,7 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
+    prompt: "Apply every platform layer on {{._PL_STACK}}?"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -164,6 +165,7 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
+    prompt: "Apply layer {{.layer}} on {{._PL_STACK}}?"
     cmds:
       - cmd: |
           set -euo pipefail
