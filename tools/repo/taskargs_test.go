@@ -22,9 +22,20 @@ const stackGuard = `- sh: '[ -n "{{.stack}}" ]'`
 // the dev default.
 //
 // The default was the danger: `task platform:destroy-all` with a forgotten
-// stack= meant dev, and the once that is wrong is the once it matters. With no
-// default and no guard, the same command would instead reach Pulumi with an
-// empty --stack and fail somewhere less obvious.
+// stack= meant dev, and the once that is wrong is the once it matters.
+//
+// Removing the default is not enough on its own, and the reason is worse than
+// the one this comment used to give. It said an empty --stack would "fail
+// somewhere less obvious". It does not fail at all — measured:
+//
+//	$ pulumi --non-interactive --stack "" preview
+//	Previewing update (dev)
+//
+// Pulumi ignores the empty value and uses the stack selected in the
+// workspace, which is invisible local state: whatever `pulumi stack select`
+// left, or `tools/stack ensure` set during platform:init, or somebody's
+// command from last week. So a forgotten word does not produce an error, it
+// produces an operation aimed at whatever was selected last.
 //
 // A task whose dependency carries the guard is exempt, because Task runs
 // dependencies before a task's own preconditions: the dependency's guard fires
