@@ -38,7 +38,7 @@ The stack files themselves are **not** committed, for that one field.
 Layer config is about what a layer deploys, not about the cluster. The three
 cluster switches that used to sit here are in the topology now.
 
-## State, and why the token is committed
+## State, and where the token lives
 
 State lives in **Pulumi Cloud**, declared as `backend:` in every `Pulumi.yaml`
 so it is a property of the repository rather than of whoever last ran
@@ -52,11 +52,15 @@ that is not on the command line and hides the input, and reads standard input
 when something is piped — so `pass hetzner/token | task cluster:token` works
 without the value ever reaching argv.
 
-Those files are committed on purpose: the plaintext is recoverable only with
-the stack's key, which the backend holds and the repository does not. So the
-token is versioned with the code it configures, and cloning the repository
-grants nothing. Nothing here reads a plaintext secrets file, and none should
-be created.
+`Pulumi.<stack>.yaml` is gitignored. The ciphertext is safe to publish — the
+key is the backend's, not the repository's — but the file is one operator's
+environment: their token, their org, the stack their layers point at. A public
+repository should not ship it, and a clone should not start by pointing at
+somebody else's cluster.
+
+So a fresh clone runs `task cluster:token` and `task platform:init`, which
+write those files locally. Nothing here reads a plaintext secrets file, and
+none should be created.
 
 An exported `HCLOUD_TOKEN` takes priority over the stack config, which is how
 CI passes a token it holds as a GitHub secret.

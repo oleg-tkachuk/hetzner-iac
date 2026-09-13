@@ -26,7 +26,7 @@ const (
 //
 // An exported token wins so a shell that already has one — CI, or a token for
 // another project — keeps working. Otherwise it comes out of Pulumi's own
-// ciphertext in the committed Pulumi.<stack>.yaml, which is why no plaintext
+// ciphertext in the gitignored Pulumi.<stack>.yaml, which is why no plaintext
 // file has to exist anywhere.
 //
 // Here rather than in one tool, because two tools need it and the alternative
@@ -67,7 +67,7 @@ func Token(ctx context.Context, stack string) (string, error) {
 		return "", fmt.Errorf(
 			"%w\nno Hetzner token for stack %s. Set it once, encrypted, in the stack:\n\n"+
 				"  pulumi -C %s -s %s config set --secret %s <token>\n\n"+
-				"It is then committed as ciphertext in Pulumi.%s.yaml and every task reads it\n"+
+				"It is then stored as ciphertext in Pulumi.%s.yaml and every task reads it\n"+
 				"from there. Exporting %s also works and takes priority",
 			err, stack, ClusterDir, stack, TokenConfigKey, stack, TokenEnv)
 	}

@@ -1,2 +1,0 @@
-config:
-  node-platform:clusterStackRef: oleg-tkachuk/hetzner-cluster/dev
