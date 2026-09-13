@@ -308,20 +308,36 @@ that channel, both strictly more powerful than an API token.
 
 ## Asking the real tool
 
-Four checks run offline against the actual software rather than against this
-repository's own assumptions, because that is where the expensive mistakes
-hide. Each of these was found that way, and none would have failed a
-`pulumi up` cleanly:
+Three checks run offline against the software itself rather than against this
+repository's own tests, because a test agreeing with the code that produced it
+proves nothing about what Helm or Talos will accept:
 
-- Grafana pointed at Tempo's port 3100, which the chart does not expose.
-- `machine.network.hostname`, which Talos rejects outright.
-- A Talos version pinned ahead of what the provider's generator knows.
+| Check | Asks |
+|-------|------|
+| `task charts:validate` | the upstream repositories, that every pin is an exact version that resolves |
+| `task charts:render-check` | `helm template`, then the pinned Kubernetes version's own schema |
+| `task cluster:config-check` | `talosctl`, that the machine configuration is one it would apply |
+
+`task verify` runs all three. They need `helm`, a `talosctl` matching the
+pinned Talos minor, and a running Docker.
+
+What they have caught, none of which would have failed a `pulumi up`:
+
+- `kubeProxyReplacment` — one letter short. Helm accepts an unknown key
+  silently, even for a chart shipping a `values.schema.json`, so the default
+  stayed and the rendered output read `kube-proxy-replacement: "false"`. Talos
+  runs with kube-proxy disabled, so that is a cluster where every ClusterIP
+  blackholes, started successfully.
 - A DaemonSet needing host access in a namespace Talos does not exempt from
   Pod Security Admission — its pods are never created, and Helm waits out its
   whole timeout with nothing to show.
+- `machine.network.hostname`, which Talos rejects outright.
+- A Talos version pinned ahead of what the provider's generator knows.
 
-`task verify` runs them all. They need `helm`, a `talosctl` matching the
-pinned Talos minor, and a running Docker.
+The first is why [pkg/chartsettings](../pkg/chartsettings) exists: the handful
+of values whose misspelling fails silently are constants there, and
+`render-check` asserts the **effect** each one has on the rendered chart rather
+than that the key was set.
 
 ## What a run prints
 
