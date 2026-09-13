@@ -384,6 +384,25 @@ tasks:
 
           hubble --server "$server" observe --last "{{.last}}"
 
+  orphans:
+    desc: "Hetzner resources nothing in the cluster claims any more — volumes, load balancers, servers, addresses, snapshots"
+    deps: [kubeconfig]
+    cmds:
+      # Read-only, and it never deletes. Two silent ways this platform loses
+      # track of a resource, both billed:
+      #
+      #   - a StatefulSet's claims outlive their Helm release, which is
+      #     Kubernetes behaving as designed, so destroying a layer leaves its
+      #     volumes behind. 160 GiB were found that way.
+      #   - destroying a cluster destroys the API server that would have told
+      #     the CSI driver to delete a volume.
+      #
+      # The token comes from the stack the same way every other task's does.
+      - cmd: |
+          set -euo pipefail
+          go run "{{.ROOT}}/tools/orphans" \
+            "{{._CL_STACK}}" "{{.ROOT}}/kubeconfig" "{{._CL_TOPOLOGY}}"
+
   encryption-check:
     desc: "Are the system volumes actually encrypted? Talos skips encryption on a formatted partition, silently"
     deps: [talosconfig]
