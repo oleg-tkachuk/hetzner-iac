@@ -65,13 +65,72 @@ func TestStackAction_PairsTheVerbWithWhatItDid(t *testing.T) {
 		"a stack that was only selected must not be reported as created")
 }
 
+func TestQualifiedName_ReturnsTheReferenceForTheNamedStack(t *testing.T) {
+	t.Parallel()
+
+	// The shape `pulumi stack ls -Q --json` returns: every row qualified,
+	// while the caller knows only "dev".
+	const list = `[{"name":"acme/hetzner-cluster/dev","current":true},{"name":"acme/hetzner-cluster/prod"}]`
+
+	got, err := qualifiedName([]byte(list), "dev")
+
+	require.NoError(t, err)
+	assert.Equal(t, "acme/hetzner-cluster/dev", got)
+}
+
+func TestQualifiedName_DoesNotMatchOnASubstringOfAnotherStack(t *testing.T) {
+	t.Parallel()
+
+	// "dev" must not be answered by "dev-2": the whole point of deriving the
+	// reference is that it cannot come back pointing somewhere else.
+	const list = `[{"name":"acme/hetzner-cluster/dev-2"},{"name":"acme/hetzner-cluster/staging"}]`
+
+	_, err := qualifiedName([]byte(list), "dev")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "acme/hetzner-cluster/dev-2", "the error lists what does exist")
+}
+
+func TestQualifiedName_Errors(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		list  string
+		stack string
+		want  string
+	}{
+		// A reference to a stack that is not there is not a thing to write
+		// into five layers' config and discover at apply time.
+		"absent": {`[{"name":"acme/hetzner-cluster/prod"}]`, "dev", "no stack named"},
+
+		"no stacks at all": {`[]`, "dev", "the project has none"},
+
+		// Reported as absent, a truncated response would send the caller to
+		// an explicit ref= for a problem that was a bad response.
+		"unparseable": {"not json at all", "dev", "no usable json"},
+
+		// A self-managed backend qualifies nothing, so there is no
+		// organization to name and no reference to derive.
+		"unqualified": {`[{"name":"dev"}]`, "dev", "pass ref= explicitly"},
+
+		// Two segments is neither shape, and guessing which half is missing
+		// is how a wrong reference gets written confidently.
+		"half qualified": {`[{"name":"hetzner-cluster/dev"}]`, "dev", "pass ref= explicitly"},
+	} {
+		_, err := qualifiedName([]byte(tc.list), tc.stack)
+
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), tc.want, name)
+	}
+}
+
 func TestRun_RejectsAnUnknownCommand(t *testing.T) {
 	t.Parallel()
 
 	err := run(context.Background(), []string{"destroy", "infra/cluster", "dev"})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "exists or ensure")
+	assert.Contains(t, err.Error(), "exists, ensure or ref")
 }
 
 func TestRun_RejectsTheWrongNumberOfArguments(t *testing.T) {
