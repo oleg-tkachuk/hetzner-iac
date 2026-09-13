@@ -22,6 +22,7 @@ bin/
 /cluster
 /image
 /orphans
+/secrets
 /stack
 /talos
 /token
