@@ -100,7 +100,9 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task hcloud:poweron` | power the instances on |
 | `task hcloud:shutdown` | ACPI shutdown — the power button, which Talos acts on |
 | `task hcloud:poweroff` | cut power, for when Talos cannot answer |
+| `task hcloud:reboot` | ACPI reboot — for a kernel that lives when apid does not |
 | `task hcloud:reset` | hard reset: a power cut and a start in one |
+| `task hcloud:console` | VNC console on one node, `server=<name>`; the only way to watch a node that will not boot |
 
 ## Layers
 
