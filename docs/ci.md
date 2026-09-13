@@ -19,8 +19,11 @@ The pieces that make that work, and the reason each one is there:
   — silently. CI checks them with the same expression as the local commit-msg
   hook, which is opt-in per clone; the CI check is not.
 - **Release is a job of the CI workflow**, gated by `needs:` on every check.
-  It used to be a workflow of its own triggered on push, running in parallel
-  with the checks — and v1.0.2 was cut from a commit whose CI was failing. The
+  Its steps live in `release.yaml` and CI calls them, which is presentation
+  rather than structure: `workflow_call` runs inside the caller's run, so the
+  gating below is exactly what it was. It used to be a workflow *triggered* on
+  push, running in parallel with the checks — and v1.0.2 was cut from a commit
+  whose CI was failing. The
   commit-message check is deliberately *not* in that `needs:` list: it only
   runs on pull requests, and a skipped dependency would skip the release along
   with it. It is enforced as a required check on the branch instead.
@@ -65,14 +68,24 @@ compiles the whole tree a second time with build IDs nothing else can reuse,
 twelve minutes that would sit on the critical path of every pipeline.
 
 Standalone gosec used to be nightly for the same stated reason and is back on
-every pull request. Measured, it costs four minutes beside a `Tests and vet`
-that takes thirteen, so it adds nothing to the wall clock — and it covers the
+every pull request. Measured, both it and `Tests and vet` now take about four
+minutes and run in parallel, so it adds nothing to the wall clock — and it
+covers the
 half golangci-lint cannot: that job runs gosec under `--new-from-merge-base`,
 so a finding already on `main` is invisible to it for good. The two also
 disagree on rules, which is what the `#nosec G204` in `tools/stack` is for.
 
 A push to `main` runs almost nothing: the priming job, the scanners, `Tests
 and vet`, and the release.
+
+The release is a workflow of its own, [`release.yaml`](../.github/workflows/release.yaml),
+called by CI rather than triggered beside it. `workflow_call` keeps the gating
+where it was — the same `needs:`, the same `if:`, the same position inside
+CI's run, so a red pipeline still cannot ship. What it buys is that the
+release appears in GitHub's workflow list, which is per file: a job cannot
+appear there however it is named. `workflow_run` would have given it its own
+run count instead, at the price of firing after CI, carrying full permissions,
+and never reaching the commit's check list.
 
 `Tests and vet` is there because branch protection does **not** require a
 branch to be current before it merges. That requirement cost a second full run
@@ -141,6 +154,39 @@ ten jobs of one pull-request run:
   compiles the module. Measured with both arms in a single run: 234 seconds
   with the cache, 70 without. It saves 26 seconds of work and costs 191 of
   restore, so it takes `cache-mode: off` too.
+
+**The cache itself, which was two thirds waste.** Restoring it was still the
+largest single cost of a reader job — 327 of the 429 seconds `Tests and vet`
+took — so the next question was whether the build cache earns its restore.
+
+It does, and by a distance: measured on three otherwise identical jobs, 332
+seconds with the module and build caches against 713 with the module cache
+alone. Compiling this dependency graph cold is worth far more than reading
+14 GB.
+
+What did not earn anything was most of those 14 GB. A complete cold build
+produces a **4 635 MB** build cache; the saved one had reached **14 235 MB**,
+because Go trims entries untouched for five days and a cache restored fresh on
+every run never ages. So the priming job now runs `go clean -cache` before it
+builds, and the key carries a generation (`go2-`) because an Actions key is
+immutable — the old entries would have kept their size until `go.sum` changed.
+
+The result, on the same job: **429 seconds to 249**, and the stored artifact
+from 2.0 GB compressed to 1.1. It costs the priming job one cold compile, once
+per merge.
+
+Two things that fell out of measuring it, both worth knowing before anyone
+changes this again:
+
+- **the key generation has to come with a fallback.** Bumped alone it made the
+  first pull request cold everywhere, and gosec went past its fifteen-minute
+  bound and was killed. The previous generation stayed in `restore-keys` until
+  a `go2-` cache existed, and then came out.
+- **`free-disk` is headroom now, not necessity.** At 15.6 GB of cache a reader
+  without it died at the restore with no logs at all. At 6 GB the same job
+  finishes with 5 732 MB to spare — but removing it measures *slower* (250
+  seconds against 209), so it stays. The full reasoning is in
+  [the action itself](../.github/actions/free-disk/action.yml).
 
 ## What a change does not run
 
