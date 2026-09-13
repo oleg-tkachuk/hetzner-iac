@@ -145,10 +145,10 @@ func TestCiliumValues_GrantsTheCapabilitiesTalosRequires(t *testing.T) {
 func TestCiliumValues_CreatesNoServiceMonitors(t *testing.T) {
 	t.Parallel()
 
-	// The Prometheus operator CRDs belong to layers/60-observability. A
-	// ServiceMonitor here would make this layer fail on a cluster where that
-	// layer is not installed, which would break the independence the whole
-	// layout is for.
+	// Nothing in this repository installs the Prometheus
+	// operator CRDs any more — observability is deployed through Argo CD — so
+	// a ServiceMonitor here is a resource whose kind does not exist, and the
+	// layer would fail on a cluster that has not been given one.
 	rendered := ciliumValues(t, 3)
 
 	// Three places, and the nesting differs in each — which is exactly the

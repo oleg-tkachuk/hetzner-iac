@@ -128,9 +128,10 @@ func TestExternalSecretsValues_InstallsItsCRDs(t *testing.T) {
 func TestNoLayerCreatesServiceMonitors(t *testing.T) {
 	t.Parallel()
 
-	// 60-observability owns the Prometheus operator CRDs. A ServiceMonitor
-	// here would make this layer fail on a cluster without that one, breaking
-	// the independence the layout exists for.
+	// Nothing in this repository installs the Prometheus
+	// operator CRDs any more — observability is deployed through Argo CD — so
+	// a ServiceMonitor here is a resource whose kind does not exist, and the
+	// layer would fail on a cluster that has not been given one.
 	certManager := nestedMap(t, chartValues(t, "cert-manager", nil), "prometheus")
 
 	assert.Equal(t, false, nestedMap(t, certManager, "servicemonitor")["enabled"])

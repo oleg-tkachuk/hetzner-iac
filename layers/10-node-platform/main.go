@@ -50,7 +50,9 @@ const (
 	// SystemNamespace is where both charts install.
 	SystemNamespace = "kube-system"
 	// StorageClass is re-exported for convenience; pkg/platform owns the name
-	// because 60-observability's claims have to ask for the same one.
+	// because every claim in the cluster has to ask for the same one, and a
+	// mismatch is not rejected — it leaves the volume Pending with nothing
+	// saying why.
 	StorageClass = platform.StorageClass
 )
 

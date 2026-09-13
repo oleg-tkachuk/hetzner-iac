@@ -146,7 +146,6 @@ func TestRegistry_CoversEveryLayer(t *testing.T) {
 		"cert-manager", "external-secrets", "metrics-server",
 		"traefik",
 		"argo-cd",
-		"kube-prometheus-stack", "loki", "tempo", "alloy",
 	} {
 		_, err := charts.Get(key)
 		assert.NoError(t, err, "chart %q is referenced by a layer", key)

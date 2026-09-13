@@ -7,7 +7,7 @@ version: "3"
 # requires.enum is static schema, so a template in it is read as a map and the
 # file stops parsing — measured. One copy here, aliased rather than repeated
 # per task, held equal to LAYERS by TestLayerEnum_MatchesTheLayerList.
-x-layers: &layers [10-node-platform, 20-network-policy, 30-core, 40-ingress, 50-gitops, 60-observability]
+x-layers: &layers [10-node-platform, 20-network-policy, 30-core, 40-ingress, 50-gitops]
 
 silent: true
 
@@ -171,7 +171,7 @@ tasks:
           pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes
 
   destroy:
-    desc: "Destroy one layer — task platform:destroy stack=dev layer=60-observability"
+    desc: "Destroy one layer — task platform:destroy stack=dev layer=50-gitops"
     requires:
       vars:
         - name: layer

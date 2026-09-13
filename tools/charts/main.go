@@ -59,10 +59,10 @@ func list() error {
 //
 // It exists because Renovate cannot maintain it. Renovate bumps Version — the
 // helm datasource only knows chart versions — and AppVersion beside it then
-// becomes a lie: a comment claiming a chart deploys something it does not. For
-// eleven charts that is a misleading document; for alloy it is a real defect,
-// because tools/alloy builds an image tag out of it and would validate
-// a configuration against the wrong Alloy.
+// becomes a lie: a comment claiming a chart deploys something it does not.
+// Mostly that is a misleading document — but it stops being only a document
+// the moment anything derives a value from it, as a validation image tag was
+// derived from alloy's while that chart was pinned here.
 //
 // A gate rather than a rewriter. An automated upgrade should stop for a human
 // to read a changelog, and this is the check that makes it stop.

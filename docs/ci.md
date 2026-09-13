@@ -203,15 +203,17 @@ Two things about that are worth knowing before a bot's pull request arrives.
 **Renovate cannot maintain `AppVersion`.** The helm datasource knows chart
 versions and nothing else, so a bumped pin sits beside an app version the chart
 no longer ships. `task charts:appversions` reads each repository's index and
-fails when they disagree — a misleading comment for most charts, and a real
-defect for alloy, whose validation image tag is built out of it. The pull
-request says so in its own body, and the fix is the value that check prints.
+fails when they disagree — mostly a misleading comment, but not only a comment
+once something derives a value from the field, as a validation image tag was
+derived from alloy's while that chart was pinned here. The pull request says so
+in its own body, and the fix is the value that check prints.
 
 **The regex is a silent failure waiting to happen.** It keys off the field
 order `Name → Repo → Version`; reorder them and Renovate stops matching, opens
 no pull request, and reports nothing. So `tools/charts` reads that regex out of
 Renovate's own configuration and asserts it still matches every chart in the
-registry. Verified by reordering two fields on purpose:
+registry. Verified by reordering two fields on purpose, when loki was still
+pinned here:
 
 ```
 Renovate's pattern does not match chart "loki" (key "loki") — it would never be upgraded

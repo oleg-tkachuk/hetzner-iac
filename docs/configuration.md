@@ -33,8 +33,6 @@ The stack files themselves are **not** committed, for that one field.
 | `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | `40-ingress` | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
-| `observability:metricsRetention` | `60-observability` | default `30d` |
-| `observability:metricsVolumeSize` | `60-observability` | default `50Gi` |
 
 Layer config is about what a layer deploys, not about the cluster. The three
 cluster switches that used to sit here are in the topology now.

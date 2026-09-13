@@ -31,12 +31,12 @@ type Workload struct {
 
 	// OperatorCreated marks a workload that `helm template` will NOT show
 	// because the chart renders a custom resource and an operator turns it
-	// into the workload later. kube-prometheus-stack does this for Prometheus
-	// and Alertmanager: the chart emits a Prometheus CR named
-	// kube-prometheus-stack-prometheus, and the operator creates the
-	// StatefulSet prometheus-kube-prometheus-stack-prometheus from it.
+	// into the workload later — the chart emits the CR, and a controller
+	// creates the Deployment or StatefulSet from it afterwards.
 	//
-	// The offline render check skips these; the e2e suite does not.
+	// Nothing pinned here does that today; the field stays because the render
+	// check has to know the difference, and finding out the hard way costs a
+	// Helm timeout. The offline check skips these; the e2e suite does not.
 	OperatorCreated bool
 
 	// Optional marks a workload that exists only under some values. It must
@@ -71,22 +71,6 @@ var Expected = []Workload{
 	{Chart: "argo-cd", Release: "argo-cd", Namespace: "argocd", Kind: Deployment, Name: "argo-cd-argocd-server"},
 	{Chart: "argo-cd", Release: "argo-cd", Namespace: "argocd", Kind: Deployment, Name: "argo-cd-argocd-repo-server"},
 	{Chart: "argo-cd", Release: "argo-cd", Namespace: "argocd", Kind: StatefulSet, Name: "argo-cd-argocd-application-controller"},
-
-	// Layer 60 — observability.
-	{Chart: "kube-prometheus-stack", Release: "kube-prometheus-stack", Namespace: "observability", Kind: Deployment, Name: "kube-prometheus-stack-grafana"},
-	{Chart: "kube-prometheus-stack", Release: "kube-prometheus-stack", Namespace: "observability", Kind: Deployment, Name: "kube-prometheus-stack-operator"},
-	{Chart: "kube-prometheus-stack", Release: "kube-prometheus-stack", Namespace: "observability", Kind: StatefulSet, Name: "prometheus-kube-prometheus-stack-prometheus", OperatorCreated: true},
-	{Chart: "kube-prometheus-stack", Release: "kube-prometheus-stack", Namespace: "observability", Kind: StatefulSet, Name: "alertmanager-kube-prometheus-stack-alertmanager", OperatorCreated: true},
-	// node-exporter installs into kube-system, not the release namespace: it
-	// needs host access, and Talos exempts only that namespace from Pod
-	// Security Admission. Declared here because nothing verified it before,
-	// which is how a DaemonSet with zero created pods went unnoticed until
-	// Helm timed out on it.
-	{Chart: "kube-prometheus-stack", Release: "kube-prometheus-stack", Namespace: "kube-system", Kind: DaemonSet, Name: "kube-prometheus-stack-prometheus-node-exporter"},
-	{Chart: "loki", Release: "loki", Namespace: "observability", Kind: StatefulSet, Name: "loki"},
-	{Chart: "loki", Release: "loki", Namespace: "observability", Kind: Deployment, Name: "loki-gateway"},
-	{Chart: "tempo", Release: "tempo", Namespace: "observability", Kind: StatefulSet, Name: "tempo"},
-	{Chart: "alloy", Release: "alloy", Namespace: "observability", Kind: DaemonSet, Name: "alloy"},
 }
 
 // Rendered returns the workloads `helm template` should show — everything an

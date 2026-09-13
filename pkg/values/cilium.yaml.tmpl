@@ -75,9 +75,9 @@ operator:
   replicas: {{ .OperatorReplicas }}
   prometheus:
     enabled: true
-    # ServiceMonitors belong to layers/60-observability, which owns the
-    # Prometheus operator CRDs. One here would make this layer fail on a
-    # cluster where that layer is not installed.
+    # Off: nothing here installs the Prometheus operator CRDs — observability
+    # is deployed through Argo CD — so this would be a kind that does not
+    # exist, and the layer would fail on a cluster without it.
     serviceMonitor:
       enabled: false
 

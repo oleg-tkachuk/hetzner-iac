@@ -57,44 +57,6 @@ type MetricsServer struct {
 	Replicas     int
 }
 
-// Prometheus is pkg/values/kube-prometheus-stack.yaml.tmpl.
-type Prometheus struct {
-	Retention        string
-	MetricsSize      string
-	AlertmanagerSize string
-	GrafanaSize      string
-	// StorageClass is the class the CSI driver registers.
-	StorageClass string
-	// LokiURL and TempoURL are registered as Grafana datasources here rather
-	// than by their own charts, so one list exists instead of three charts
-	// racing to write it.
-	LokiURL  string
-	TempoURL string
-	// NodeExporterNamespace is the one namespace Talos exempts from Pod
-	// Security Admission, and the only place a node metrics exporter can run.
-	NodeExporterNamespace string
-}
-
-// Loki is pkg/values/loki.yaml.tmpl.
-type Loki struct {
-	StorageClass string
-	Size         string
-}
-
-// Tempo is pkg/values/tempo.yaml.tmpl.
-type Tempo struct {
-	StorageClass string
-	Size         string
-	Retention    string
-}
-
-// Alloy is pkg/values/alloy.yaml.tmpl.
-type Alloy struct {
-	// Config is the collector configuration, indented into a values string by
-	// the template.
-	Config string
-}
-
 // ArgoCD is pkg/values/argo-cd.yaml.tmpl.
 type ArgoCD struct {
 	// Domain is empty until DNS exists, and an empty one installs Argo CD
@@ -128,22 +90,12 @@ var probes = map[string]any{
 	"metrics-server":   MetricsServer{AddressTypes: "--kubelet-preferred-address-types=InternalIP", Replicas: 2},
 	"cert-manager":     nil,
 	"external-secrets": nil,
-	"kube-prometheus-stack": Prometheus{
-		Retention: "30d", MetricsSize: "50Gi", AlertmanagerSize: "5Gi",
-		GrafanaSize: "10Gi", StorageClass: platform.StorageClass,
-		LokiURL:               "http://loki-gateway.observability.svc.cluster.local",
-		TempoURL:              "http://tempo.observability.svc.cluster.local:3200",
-		NodeExporterNamespace: "kube-system",
-	},
 	// A domain on purpose: the Ingress block is conditional, and rendering
 	// without one would leave the branch that publishes the UI unchecked.
 	"argo-cd": ArgoCD{
 		Domain: "argocd.example.com", IngressClass: platform.IngressClass,
 		Issuer: "letsencrypt", Replicas: 2,
 	},
-	"loki":  Loki{StorageClass: platform.StorageClass, Size: "50Gi"},
-	"tempo": Tempo{StorageClass: platform.StorageClass, Size: "20Gi", Retention: "168h"},
-	"alloy": Alloy{Config: "logging {\n  level = \"info\"\n}\n"},
 }
 
 // Probe returns representative data for a chart's template.

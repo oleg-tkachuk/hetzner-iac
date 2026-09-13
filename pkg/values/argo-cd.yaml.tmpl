@@ -23,7 +23,7 @@ controller:
   replicas: 1
   metrics:
     enabled: true
-    # Owned by layers/60-observability, which installs the operator CRDs.
+    # Off: nothing here installs the Prometheus operator CRDs.
     serviceMonitor:
       enabled: false
 
