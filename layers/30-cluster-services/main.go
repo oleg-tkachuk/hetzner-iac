@@ -1,5 +1,12 @@
-// Command core installs the platform pieces everything above assumes exist:
-// cert-manager, external-secrets and metrics-server.
+// Command cluster-services installs the services the rest of the cluster
+// consumes: cert-manager, external-secrets and metrics-server, plus the
+// ClusterIssuer and the kubelet-serving-certificate approver.
+//
+// Named for what they are rather than for their importance. None of them is
+// needed to make a node Ready — that is 10-node-platform, which holds the CNI
+// and the cloud controller manager, and which this layer would be a worse
+// name for. What these have in common is that something else asks them for
+// something: a certificate, a secret, a metric.
 //
 // Deliberately small. Anything only one workload needs belongs with that
 // workload; this is the set whose absence breaks something in a way that is

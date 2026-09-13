@@ -7,7 +7,7 @@ version: "3"
 # requires.enum is static schema, so a template in it is read as a map and the
 # file stops parsing — measured. One copy here, aliased rather than repeated
 # per task, held equal to LAYERS by TestLayerEnum_MatchesTheLayerList.
-x-layers: &layers [10-node-platform, 20-network-policy, 30-core, 40-ingress, 50-gitops]
+x-layers: &layers [10-node-platform, 20-network-policy, 30-cluster-services, 40-ingress, 50-gitops]
 
 silent: true
 
