@@ -2,71 +2,126 @@ package main
 
 import (
 	"encoding/binary"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bolt "go.etcd.io/bbolt"
 )
 
-// metaPage builds a bbolt meta page with the fields this checks.
-func metaPage(magic, version, pageSize uint32) []byte {
-	page := make([]byte, headerBytes)
+// testConsistentIndex is what the fixture records as applied.
+const testConsistentIndex = 38743
 
-	binary.LittleEndian.PutUint32(page[magicOffset:], magic)
-	binary.LittleEndian.PutUint32(page[versionOffset:], version)
-	binary.LittleEndian.PutUint32(page[pageSizeOffset:], pageSize)
+// testRevisions is how many entries the fixture's key bucket holds. More than
+// one, so a count that reads the wrong bucket cannot pass by accident.
+const testRevisions = 3
 
-	return page
+// fixture writes a bbolt database and returns its path.
+//
+// Built with bbolt rather than from crafted bytes: the point of this tool is
+// that the library defines the format, so its tests have to be written in the
+// same terms. omit names a bucket to leave out.
+func fixture(t *testing.T, omit string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "db.snapshot")
+
+	db, err := bolt.Open(path, 0o600, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Update(func(tx *bolt.Tx) error {
+		for _, name := range requiredBuckets {
+			if name == omit {
+				continue
+			}
+
+			bucket, createErr := tx.CreateBucket([]byte(name))
+			if createErr != nil {
+				return createErr
+			}
+
+			switch name {
+			case keyBucket:
+				for i := range testRevisions {
+					if putErr := bucket.Put([]byte{byte(i)}, []byte("v")); putErr != nil {
+						return putErr
+					}
+				}
+
+			case metaBucket:
+				applied := make([]byte, 8)
+				binary.BigEndian.PutUint64(applied, testConsistentIndex)
+
+				if putErr := bucket.Put([]byte(consistentIndexKey), applied); putErr != nil {
+					return putErr
+				}
+			}
+		}
+
+		return nil
+	}))
+	require.NoError(t, db.Close())
+
+	return path
 }
 
-func TestInspect_AcceptsWhatEtcdWrites(t *testing.T) {
+// open reopens a fixture read-only, the way run does.
+func open(t *testing.T, path string) *bolt.DB {
+	t.Helper()
+
+	db, err := bolt.Open(path, fileMode, &bolt.Options{ReadOnly: true, Timeout: openTimeout})
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = db.Close() })
+
+	return db
+}
+
+func TestInspect_ReadsWhatASnapshotSaysAboutItself(t *testing.T) {
 	t.Parallel()
 
-	// 4096 is what a snapshot from this cluster carries, measured.
-	got, err := inspect(metaPage(boltMagic, boltVersion, 4096))
+	facts, err := inspect(open(t, fixture(t, "")))
 
 	require.NoError(t, err)
-	assert.Equal(t, uint32(4096), got)
+	assert.Equal(t, testRevisions, facts.Revisions)
+	assert.Equal(t, uint64(testConsistentIndex), facts.ConsistentIndex,
+		"the consistent index is the one number that says whether this is the snapshot expected")
 }
 
-func TestInspect_AcceptsEveryPageSizeBoltWrites(t *testing.T) {
+func TestInspect_RefusesADatabaseMissingAnyBucketASnapshotHas(t *testing.T) {
 	t.Parallel()
 
-	for size := range pageSizes {
-		got, err := inspect(metaPage(boltMagic, boltVersion, size))
+	// The case the hand-written header reader could not see at all: a bbolt
+	// database that opens perfectly and is somebody else's.
+	for _, missing := range requiredBuckets {
+		_, err := inspect(open(t, fixture(t, missing)))
 
-		require.NoError(t, err, size)
-		assert.Equal(t, size, got)
+		require.Error(t, err, missing)
+		assert.Contains(t, err.Error(), missing)
+		assert.Contains(t, err.Error(), "not an etcd snapshot", missing)
 	}
 }
 
-func TestInspect_Errors(t *testing.T) {
+func TestInspect_RefusesAConsistentIndexThatIsNotOne(t *testing.T) {
 	t.Parallel()
 
-	for name, tc := range map[string]struct {
-		page []byte
-		want string
-	}{
-		// The case this command exists for: something that is not a snapshot
-		// at all, named as one.
-		"wrong magic": {metaPage(0xDEADBEEF, boltVersion, 4096), "not an etcd snapshot"},
+	path := fixture(t, "")
 
-		// A format this has never been tested against is not a thing to wipe
-		// a control plane on the strength of.
-		"wrong version": {metaPage(boltMagic, 99, 4096), "format version"},
+	db, err := bolt.Open(path, 0o600, nil)
+	require.NoError(t, err)
+	require.NoError(t, db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte(metaBucket)).Put([]byte(consistentIndexKey), []byte("short"))
+	}))
+	require.NoError(t, db.Close())
 
-		// A page size bbolt does not write means the header is being read as
-		// something it is not, even if the magic happened to match.
-		"impossible page size": {metaPage(boltMagic, boltVersion, 1234), "does not write"},
+	// Read as a number anyway, five bytes would decode to something plausible
+	// and wrong.
+	_, err = inspect(open(t, path))
 
-		"too short": {make([]byte, 8), "want at least"},
-	} {
-		_, err := inspect(tc.page)
-
-		require.Error(t, err, name)
-		assert.Contains(t, err.Error(), tc.want, name)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "want 8")
 }
 
 func TestRun_RejectsAnythingButVerify(t *testing.T) {
@@ -94,4 +149,22 @@ func TestRun_NamesAFileItCannotRead(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), missing)
+}
+
+func TestRun_RefusesAFileThatIsNotABoltDatabase(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "not.db")
+	require.NoError(t, os.WriteFile(path, []byte("a text file with the right extension"), 0o600))
+
+	err := run([]string{"verify", path})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not an etcd snapshot")
+}
+
+func TestRun_AcceptsASnapshotShapedDatabase(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, run([]string{"verify", fixture(t, "")}))
 }

@@ -6,39 +6,56 @@
 // incident becomes an unrecoverable one. So the file is checked before the
 // cluster is touched, not after.
 //
-// A snapshot is a bbolt database — the same format etcd stores its keyspace
-// in — so the check is a real one rather than a size threshold: the meta page
-// carries a magic number, a format version, and the page size that says where
-// the second meta page must be.
+// The check is bbolt's own, not a reimplementation of it. A snapshot is a
+// bbolt database, and opening one validates the magic, the format version,
+// the page size and the meta page checksum — all of which this used to read
+// by hand from copied offsets, correct for exactly the file it was written
+// against.
+//
+// Not go.etcd.io/etcd/etcdutl/v3, which has `snapshot status` as a library
+// and would be the more obvious choice: it brings the etcd server and raft
+// with it, thirteen modules to read a header. bbolt is the library that
+// defines the format, and it is one.
 package main
 
 import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
 )
 
-// The bbolt meta page, measured against a snapshot this repository took.
+// Buckets every etcd snapshot carries. A bbolt database without them opens
+// perfectly and is not an etcd snapshot — someone else's database, or the
+// wrong file with the right extension.
 //
-// Offsets are into the first page; the second meta page repeats at pageSize
-// plus the same offset, which is what makes the page size self-checking.
+// `key` holds the keyspace, `meta` the consistency bookkeeping, `members` and
+// `cluster` the membership a recovery rebuilds from.
+var requiredBuckets = []string{"key", "meta", "members", "cluster"}
+
 const (
-	boltMagic   = 0xED0CDAED
-	boltVersion = 2
+	// metaBucket and consistentIndexKey are where etcd records how far it had
+	// applied when the snapshot was taken. Reported because it is the one
+	// number that says a snapshot is the one expected, and it is what
+	// `talosctl etcd snapshot` prints as the revision at capture time.
+	metaBucket         = "meta"
+	consistentIndexKey = "consistent_index"
 
-	magicOffset    = 16
-	versionOffset  = 20
-	pageSizeOffset = 24
+	// keyBucket holds one entry per REVISION, not per key — etcd is
+	// multi-version, so this is larger than the key count etcdutl reports and
+	// must not be labelled as keys.
+	keyBucket = "key"
 
-	// headerBytes is enough for the first meta page at any page size bbolt
-	// uses, so one read answers everything about the first page.
-	headerBytes = 64
+	// openTimeout bounds the flock bbolt takes. A snapshot file nothing else
+	// is using opens at once; a hang here would be a lock held by something
+	// that should not have it, and waiting forever hides that.
+	openTimeout = 5 * time.Second
+
+	// fileMode is read-only: this command never writes to a snapshot.
+	fileMode = 0o400
 )
-
-// Page sizes bbolt is willing to write. A snapshot claiming anything else is
-// either corrupt or not a snapshot, and either way is not something to wipe a
-// control plane for.
-var pageSizes = map[uint32]bool{4096: true, 8192: true, 16384: true, 65536: true}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -54,73 +71,76 @@ func run(args []string) error {
 
 	path := args[1]
 
-	// #nosec G304,G703 -- the path names the snapshot the operator asked to
+	// #nosec G703 -- the path names the snapshot the operator asked to
 	// restore from, and reading it is the whole command. The taint analysis
 	// cannot see that an operator naming their own backup file is the input,
 	// not an attacker's.
-	file, err := os.Open(path)
+	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", path, err)
-	}
-	defer func() { _ = file.Close() }()
-
-	info, statErr := file.Stat()
-	if statErr != nil {
-		return fmt.Errorf("stat %s: %w", path, statErr)
+		return fmt.Errorf("stat %s: %w", path, err)
 	}
 
-	header := make([]byte, headerBytes)
-	if _, readErr := file.ReadAt(header, 0); readErr != nil {
-		return fmt.Errorf("%s is %d bytes, too short to be an etcd snapshot: %w",
-			path, info.Size(), readErr)
+	// ReadOnly, so a corrupt file is never written back to, and bbolt's own
+	// validation is what rejects a truncated or foreign one.
+	db, err := bolt.Open(path, fileMode, &bolt.Options{ReadOnly: true, Timeout: openTimeout})
+	if err != nil {
+		return fmt.Errorf("%s is not a readable bbolt database, so it is not an etcd snapshot: %w", path, err)
+	}
+	defer func() { _ = db.Close() }()
+
+	facts, err := inspect(db)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
 	}
 
-	pageSize, inspectErr := inspect(header)
-	if inspectErr != nil {
-		return fmt.Errorf("%s: %w", path, inspectErr)
-	}
-
-	// The second meta page, at the page size the first one claims. A file
-	// that has the right first page and nothing after it is a truncated
-	// download, which is the case this whole command exists for.
-	second := make([]byte, headerBytes)
-	if _, readErr := file.ReadAt(second, int64(pageSize)); readErr != nil {
-		return fmt.Errorf("%s has one meta page and no second at offset %d: truncated: %w",
-			path, pageSize, readErr)
-	}
-
-	if _, inspectErr := inspect(second); inspectErr != nil {
-		return fmt.Errorf("%s: second meta page at offset %d: %w", path, pageSize, inspectErr)
-	}
-
-	fmt.Printf("%s — bbolt v%d, %d byte pages, %d bytes\n", path, boltVersion, pageSize, info.Size())
+	fmt.Printf("%s — %d bytes, %d revisions, consistent index %d\n",
+		path, info.Size(), facts.Revisions, facts.ConsistentIndex)
 
 	return nil
 }
 
-// inspect reads one bbolt meta page and returns the page size it declares.
+// Facts are what a snapshot says about itself.
+type Facts struct {
+	// Revisions is the number of entries in the key bucket, which is one per
+	// revision rather than one per key.
+	Revisions int
+
+	// ConsistentIndex is how far etcd had applied when the snapshot was
+	// taken. Zero is a valid value only for a snapshot of a cluster that has
+	// applied nothing, which a real one never is.
+	ConsistentIndex uint64
+}
+
+// inspect reads what a snapshot says about itself, and refuses a database
+// that is not one.
 //
-// Separated from the file handling so it can be tested on crafted bytes: the
-// cases worth covering are a wrong magic, a wrong version and an impossible
-// page size, and writing three corrupt snapshots to disk to cover them would
-// test os.ReadAt rather than this.
-func inspect(page []byte) (uint32, error) {
-	if len(page) < headerBytes {
-		return 0, fmt.Errorf("meta page is %d bytes, want at least %d", len(page), headerBytes)
-	}
+// Takes the open database rather than a path so a test can build a fixture
+// with bbolt itself — the same library production files are read with, which
+// a struct of crafted bytes was not.
+func inspect(db *bolt.DB) (Facts, error) {
+	var facts Facts
 
-	if magic := binary.LittleEndian.Uint32(page[magicOffset:]); magic != boltMagic {
-		return 0, fmt.Errorf("magic is %#x, want %#x: not an etcd snapshot", magic, boltMagic)
-	}
+	err := db.View(func(tx *bolt.Tx) error {
+		for _, name := range requiredBuckets {
+			if tx.Bucket([]byte(name)) == nil {
+				return fmt.Errorf("a bbolt database with no %q bucket: not an etcd snapshot", name)
+			}
+		}
 
-	if version := binary.LittleEndian.Uint32(page[versionOffset:]); version != boltVersion {
-		return 0, fmt.Errorf("bbolt format version is %d, want %d", version, boltVersion)
-	}
+		facts.Revisions = tx.Bucket([]byte(keyBucket)).Stats().KeyN
 
-	pageSize := binary.LittleEndian.Uint32(page[pageSizeOffset:])
-	if !pageSizes[pageSize] {
-		return 0, fmt.Errorf("declares a %d byte page size, which bbolt does not write", pageSize)
-	}
+		// Stored big-endian by etcd. A short value means the bucket exists
+		// and holds something else, which is worth refusing rather than
+		// reading as a small number.
+		raw := tx.Bucket([]byte(metaBucket)).Get([]byte(consistentIndexKey))
+		if len(raw) != 8 {
+			return fmt.Errorf("%s/%s is %d bytes, want 8", metaBucket, consistentIndexKey, len(raw))
+		}
 
-	return pageSize, nil
+		facts.ConsistentIndex = binary.BigEndian.Uint64(raw)
+
+		return nil
+	})
+
+	return facts, err
 }

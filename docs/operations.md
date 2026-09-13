@@ -146,10 +146,12 @@ once the control-plane endpoint answers.
 
 Three things it does before touching anything:
 
-- **checks the snapshot.** A truncated download has the right name and looks
-  the right size; finding out after the wipe leaves a cluster with no etcd and
-  no way back. The file is a bbolt database, so the check is the format's own
-  magic number and page size, not a size threshold;
+- **checks the snapshot,** through the library that defines the format. A
+  snapshot is a bbolt database, so opening it read-only validates the magic,
+  the format version, the page size and the meta checksum; the buckets etcd
+  puts there — `key`, `meta`, `members`, `cluster` — are what say it is an
+  etcd snapshot rather than somebody else's database. It reports the revision
+  count and the consistent index, so a snapshot can be told from another one;
 - **finds the nodes through Hetzner,** not `talosctl get members`, which needs
   the etcd that is broken;
 - **asks.** Everything written after the snapshot is gone.
