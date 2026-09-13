@@ -635,8 +635,9 @@ tasks:
           talosctl -n "$first" bootstrap --recover-from="{{.snapshot}}"
 
           echo
-          echo "{{._OK}} cluster · etcd-restore · restored — task cluster:status stack={{._CL_STACK}}"
-          echo "{{._WARN}} cluster · etcd-restore · objects created after the snapshot are gone; re-apply the layers to converge"
+          echo "{{._OK}} cluster · etcd-restore · restored — the node passes through NotReady for about two minutes"
+          echo "{{._OK}} cluster · etcd-restore · watch it with: task cluster:status stack={{._CL_STACK}}"
+          echo "{{._WARN}} cluster · etcd-restore · anything created after the snapshot is gone; re-apply the layers if that includes them"
 
   upgrade-talos:
     desc: "Upgrade Talos on every node. Bump talos.version in the topology first, then re-bake."

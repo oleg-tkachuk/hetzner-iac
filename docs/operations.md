@@ -157,9 +157,21 @@ Three things it does before touching anything:
 The node list comes from the `role=control-plane` label, so this works
 unchanged on one node or three.
 
-Afterwards the cluster holds what the snapshot held. Re-apply the layers to
-converge anything created since — they are idempotent, which is what makes
-that safe.
+Afterwards the cluster converges on its own, and the sequence is worth knowing
+because the middle of it looks like a failure. Measured on a single-node
+cluster, from a 45 MB snapshot:
+
+| | |
+|---|---|
+| the task itself | about 1m40s — reset, reboot, wait for `Preparing`, bootstrap |
+| the API answers | ~10s after the bootstrap |
+| the node | `NotReady,SchedulingDisabled` for ~50s, then `NotReady`, then `Ready` at ~1m40s |
+| workloads | back to the pre-restore count by ~3m, with no operator action |
+
+Nothing needed re-applying: the snapshot holds the Helm release state as well
+as the workloads, so the layers were already what they had been. Re-apply only
+if something was created after the snapshot was taken — and that is exactly
+what the restore cannot bring back.
 
 The etcd snapshot still writes to the operator's machine, on no schedule, with
 no copy anywhere else. That half is a gap, not a design.
