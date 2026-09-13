@@ -28,7 +28,7 @@ The stack files themselves are **not** committed, for that one field.
 | Key | Where | Meaning |
 |-----|-------|---------|
 | `hcloud:token` | [`infra/cluster`](../infra/cluster) | Hetzner API token (secret); `cluster:image-bake` decrypts it from here too |
-| `<layer>:clusterStackRef` | every [layer](../layers) | `<org>/hetzner-cluster/<stack>` |
+| `<layer>:clusterStackRef` | every [layer](../layers) | `<org>/hetzner-cluster/<stack>`; written by `platform:init` |
 | `node-platform:hcloudToken` | [`10-node-platform`](../layers/10-node-platform) | optional; overrides the token the cluster stack exports (secret) |
 | `network-policy:enabled` | [`20-network-policy`](../layers/20-network-policy) | create the policies; `false` by default, see [design.md](design.md#the-default-deny-is-opt-in) |
 | `cluster-services:acmeEmail` | [`30-cluster-services`](../layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |

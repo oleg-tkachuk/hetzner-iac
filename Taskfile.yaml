@@ -32,12 +32,6 @@ vars:
     The stack names both the Pulumi stack and
     infra/cluster/cluster.<stack>.yaml, which is where everything about that
     cluster is described.
-  _REF_USAGE: |
-    {{.TASK}} needs the cluster tier's stack reference.
-
-        task {{.TASK}} stack=dev ref=<org>/hetzner-cluster/dev
-
-    Every layer reads the kubeconfig through it; `pulumi whoami` gives the org.
 
   # Status markers, the same vocabulary pkg/pulumilog prints from Go and the
   # shared library prints from shell. The shape carries the meaning, so a line

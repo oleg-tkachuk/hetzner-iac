@@ -69,7 +69,7 @@ task cluster:apply stack=dev
 # 5. Point every layer at it, then apply them in order. No token here — the
 #    CCM and the CSI driver read the one from step 2, through the same stack
 #    reference that carries the kubeconfig.
-task platform:init stack=dev ref=<org>/hetzner-cluster/dev
+task platform:init stack=dev
 task platform:apply-all stack=dev
 
 # 6. Check what you built.
@@ -135,7 +135,7 @@ layer deploys:
 | Key | Where | Meaning |
 |-----|-------|---------|
 | `hcloud:token` | [`infra/cluster`](infra/cluster) | Hetzner API token (secret) |
-| `<layer>:clusterStackRef` | every [layer](layers) | `<org>/hetzner-cluster/<stack>` |
+| `<layer>:clusterStackRef` | every [layer](layers) | `<org>/hetzner-cluster/<stack>`; written by `platform:init` |
 | `cluster-services:acmeEmail` | [`30-cluster-services`](layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | [`50-gitops`](layers/50-gitops) | publishes Argo CD through ingress; omit it and there is no Ingress |

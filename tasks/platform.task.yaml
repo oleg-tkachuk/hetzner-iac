@@ -14,6 +14,8 @@ silent: true
 vars:
   _PL_STACK: '{{.stack}}'
   _PL_LAYERS: '{{.LAYERS}}'
+  # The cluster tier — the stack every layer references.
+  _PL_CLUSTER_DIR: '{{.ROOT}}/infra/cluster'
   # init's row format, at the same layer-name width status prints, so the two
   # tables line up. A name past the width pushes its own row and no other.
   _PL_ROW: '%-24s %-9s %s'
@@ -90,12 +92,10 @@ tasks:
   # ---------------------------------------------------------------------------
 
   init:
-    desc: "Create the stack for every layer and point it at the cluster (ref=<org>/hetzner-cluster/<stack>)"
+    desc: "Create the stack for every layer and point it at the cluster (override with ref=<org>/hetzner-cluster/<stack>)"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-      - sh: '[ -n "{{.ref}}" ]'
-        msg: "{{._REF_USAGE}}"
     cmds:
       # One row per layer, in the same shape platform:status prints. It used to
       # be two sentences per layer — an absolute path, and the cluster
@@ -105,7 +105,21 @@ tasks:
       - cmd: |
           set -euo pipefail
 
-          echo "{{._RUN}} platform · init · stack {{._PL_STACK}} → cluster {{.ref}}"
+          # The reference is the cluster tier's own stack name, so it is read
+          # from the cluster tier rather than typed. Hand-typed, `stack=dev
+          # ref=.../prod` is accepted in silence — nothing compares the two —
+          # and five dev layers install into the production cluster, which
+          # shows up at apply time and not here.
+          #
+          # ref= still overrides, for the cases the derived answer gets wrong:
+          # a cluster in another organization, or one cluster shared by
+          # several layer stacks.
+          ref="{{.ref}}"
+          if [ -z "$ref" ]; then
+            ref="$(go run "{{.ROOT}}/tools/stack" ref "{{._PL_CLUSTER_DIR}}" "{{._PL_STACK}}")"
+          fi
+
+          echo "{{._RUN}} platform · init · stack {{._PL_STACK}} → cluster $ref"
           echo
           printf '{{._PL_ROW}}\n' LAYER STACK "CLUSTER REF"
 
@@ -129,7 +143,7 @@ tasks:
               # YAML: robust to comments and indentation, unlike the grep this
               # repository already got wrong once in cluster:image-bake.
               if grep -q 'clusterStackRef' Pulumi.yaml; then
-                pulumi --non-interactive --stack "{{._PL_STACK}}" config set "${project}:clusterStackRef" "{{.ref}}"
+                pulumi --non-interactive --stack "{{._PL_STACK}}" config set "${project}:clusterStackRef" "$ref"
                 reference=set
               else
                 reference="not declared"
