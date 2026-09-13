@@ -149,10 +149,45 @@ tasks:
         msg: "{{._STACK_USAGE}}"
     prompt: "Destroy the {{._CL_STACK}} CLUSTER and every server in it?"
     cmds:
+      # --exclude-protected, because without it this task could not finish at
+      # all. The Talos secrets bundle is `protect: true`, so a plain destroy
+      # fails in PREVIEW — nothing is deleted, and the operator is handed
+      #
+      #     pulumi state unprotect 'urn:pulumi:dev::hetzner-cluster::…'
+      #
+      # to type by hand, in the middle of a teardown they have already
+      # confirmed. A raw state command improvised under those conditions is a
+      # worse hazard than the one the protection exists for.
+      #
+      # So the servers, the network, the firewall and the placement group go,
+      # and the cluster's root of trust stays. That is not a leftover: the CA
+      # is what a rebuilt cluster can keep, and keeping it costs nothing —
+      # a Talos secrets bundle is state, not a billed resource.
       - cmd: |
           set -euo pipefail
           cd "{{._CL_DIR}}"
-          pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes
+          pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes --exclude-protected
+          echo
+          echo "the Talos secrets bundle is kept — the cluster CA, which is state and costs nothing."
+          echo "to remove it as well, and with it the stack:"
+          echo
+          echo "    task cluster:destroy-secrets stack={{._CL_STACK}}"
+
+  destroy-secrets:
+    desc: "Destroy the Talos secrets bundle too — the cluster CA. Unrecoverable."
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    prompt: "Destroy the {{._CL_STACK}} cluster CA? Every certificate it signed becomes unverifiable."
+    cmds:
+      # --ignore-protect rather than `pulumi state unprotect` then destroy:
+      # the flag is scoped to this one operation, so a failure part way
+      # through leaves the protection in place. Unprotecting first does not —
+      # it edits the state and leaves it edited.
+      - cmd: |
+          set -euo pipefail
+          cd "{{._CL_DIR}}"
+          pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes --ignore-protect
 
   # ---------------------------------------------------------------------------
   # Credentials and inspection

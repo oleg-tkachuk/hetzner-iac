@@ -52,7 +52,8 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:token` | store the Hetzner token in the stack, encrypted; prompts, or reads stdin |
 | `task cluster:plan` | show what applying would change |
 | `task cluster:apply` | provision or converge the cluster |
-| `task cluster:destroy` | delete the servers; asks first |
+| `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA, which is protected |
+| `task cluster:destroy-secrets` | delete the cluster CA as well; unrecoverable |
 | `task cluster:kubeconfig` | write `./kubeconfig` |
 | `task cluster:kubeconfig-add` | add this cluster to `~/.kube/config`, so a plain `kubectl` reaches it |
 | `task cluster:talosconfig` | write `./talosconfig` |
