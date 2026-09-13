@@ -1,0 +1,103 @@
+name: Disk probe
+
+# TEMPORARY, not for merging.
+#
+# free-disk exists to make room for the shared cache. That cache was 15.6 GB
+# against a runner's 13.1 GB, so it was load-bearing — measured, twice, by a
+# reader without it dying at the restore with no logs. It is 6 GB now. This
+# asks whether it still needs the room.
+#
+# Two jobs, identical but for one step, so the only variable is free-disk.
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  without:
+    name: reader without free-disk
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - id: go-paths
+        run: |
+          set -euo pipefail
+          {
+            printf 'mod=%s\n' "$(go env GOMODCACHE)"
+            printf 'build=%s\n' "$(go env GOCACHE)"
+            printf 'version=%s\n' "$(go env GOVERSION)"
+          } >>"$GITHUB_OUTPUT"
+      - name: before
+        run: |
+          set -euo pipefail
+          printf '| without · before | %s MB |\n' \
+            "$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      # The real cache, with the real key.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-paths.outputs.mod }}
+            ${{ steps.go-paths.outputs.build }}
+          key: go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go2-${{ runner.os }}-${{ steps.go-paths.outputs.version }}-
+      - name: after restore
+        env:
+          MOD: ${{ steps.go-paths.outputs.mod }}
+          BUILD: ${{ steps.go-paths.outputs.build }}
+        run: |
+          set -euo pipefail
+          printf '| without · after restore | %s MB |\n' \
+            "$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          du -sm "$MOD" "$BUILD" | awk '{printf "| without · %s | %s MB |\n", $2, $1}' \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: the work a reader does
+        run: |
+          set -euo pipefail
+          go build -o bin/ ./...
+          go test -count=1 ./... >/dev/null
+          go vet ./...
+          go vet -tags e2e ./test/...
+      - name: after the work
+        env:
+          BUILD: ${{ steps.go-paths.outputs.build }}
+        run: |
+          set -euo pipefail
+          printf '| without · after the work | %s MB |\n' \
+            "$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          du -sm "$BUILD" | awk '{printf "| without · build cache grew to | %s MB |\n", $1}' \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+  with:
+    name: reader with free-disk (control)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - id: setup
+        uses: ./.github/actions/setup-go
+      - name: the work a reader does
+        run: |
+          set -euo pipefail
+          go build -o bin/ ./...
+          go test -count=1 ./... >/dev/null
+          go vet ./...
+          go vet -tags e2e ./test/...
+      - name: after the work
+        run: |
+          set -euo pipefail
+          printf '| with · after the work | %s MB |\n' \
+            "$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
