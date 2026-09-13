@@ -196,10 +196,8 @@ func TestRelease_IsAtomicAndWaitsForHookJobs(t *testing.T) {
 	// Atomic: a failed upgrade rolls back instead of leaving half a release
 	// for the next run to inherit — which is what makes re-running converge.
 	assert.True(t, release["atomic"].BoolValue())
-	// WaitForJobs: cert-manager runs startupapicheck in a hook Job, and
-	// kube-prometheus-stack generates its webhook certificate in one.
-	// Without waiting, the release reports ready while the webhook still has
-	// no certificate.
+	// WaitForJobs: cert-manager runs startupapicheck in a hook Job. Without
+	// waiting, the release reports ready while the check has not run.
 	assert.True(t, release["waitForJobs"].BoolValue())
 	// Helm keeps release history forever by default, which on a repeatedly
 	// reconciled platform becomes thousands of secrets.
@@ -228,20 +226,20 @@ func TestRelease_NameAndNamespaceOverrides(t *testing.T) {
 
 	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
 		_, err := runner.Release(layer.ReleaseArgs{
-			Chart:     "loki",
-			Name:      "loki-primary",
-			Namespace: "logging",
+			Chart:     "cert-manager",
+			Name:      "cert-manager-primary",
+			Namespace: "pki",
 		})
 
 		return err
 	}))
 
 	release := m.of(releaseType)[0]
-	assert.Equal(t, "loki-primary", release["name"].StringValue())
-	assert.Equal(t, "logging", release["namespace"].StringValue())
+	assert.Equal(t, "cert-manager-primary", release["name"].StringValue())
+	assert.Equal(t, "pki", release["namespace"].StringValue())
 	// The version still comes from the registry: overriding the name must not
 	// be a way to float the version.
-	assert.Equal(t, charts.MustGet("loki").Version, release["version"].StringValue())
+	assert.Equal(t, charts.MustGet("cert-manager").Version, release["version"].StringValue())
 }
 
 func TestRelease_DefaultsTheReleaseNameToTheRegistryKey(t *testing.T) {
@@ -270,7 +268,7 @@ func TestRelease_TimeoutOverride(t *testing.T) {
 		}
 
 		_, err := runner.Release(layer.ReleaseArgs{
-			Chart:          "kube-prometheus-stack",
+			Chart:          "argo-cd",
 			TimeoutSeconds: 1200,
 		})
 
@@ -286,7 +284,7 @@ func TestRelease_TimeoutOverride(t *testing.T) {
 	}
 
 	assert.EqualValues(t, 600, byName["cilium"]["timeout"].NumberValue())
-	assert.EqualValues(t, 1200, byName["kube-prometheus-stack"]["timeout"].NumberValue())
+	assert.EqualValues(t, 1200, byName["argo-cd"]["timeout"].NumberValue())
 }
 
 func TestStringOr_FallsBackOnlyWhenUnset(t *testing.T) {
@@ -397,15 +395,15 @@ func TestDeploy_TurnsAfterIntoADependencyTheEngineHolds(t *testing.T) {
 		}
 
 		_, err = runner.Deploy(layer.Components{
-			{Chart: "loki", After: []string{"kube-prometheus-stack"}},
-			{Chart: "kube-prometheus-stack"},
+			{Chart: "hcloud-csi", After: []string{"cilium"}},
+			{Chart: "cilium"},
 		})
 
 		return err
 	}, pulumi.WithMocks(testProject, testStack, m)))
 
-	assert.True(t, m.dependsOn("loki", "kube-prometheus-stack"),
+	assert.True(t, m.dependsOn("hcloud-csi", "cilium"),
 		"After must become a DependsOn, not merely an earlier call")
-	assert.False(t, m.dependsOn("kube-prometheus-stack", "loki"),
+	assert.False(t, m.dependsOn("cilium", "hcloud-csi"),
 		"the dependency must not run backwards")
 }

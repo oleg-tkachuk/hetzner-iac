@@ -61,10 +61,9 @@ type ReleaseArgs struct {
 // Why a real Helm release rather than the newer Chart resource, which renders
 // manifests into the Pulumi graph and would give per-object diffs and
 // CrossGuard coverage: Chart renders with `helm template`, which does not run
-// Helm hooks. Several charts here depend on them — ingress-nginx generates its
-// admission-webhook certificate in a hook Job, kube-prometheus-stack does the
-// same for its webhook, cert-manager runs startupapicheck — and a chart whose
-// hooks never run installs cleanly and then misbehaves. Correct installation
+// Helm hooks. Charts here depend on them — cert-manager runs startupapicheck
+// in a hook Job — and a chart whose hooks never run installs cleanly and then
+// misbehaves. Correct installation
 // wins over diff granularity.
 //
 // Atomic and WaitForJobs together are what make the layer idempotent in the

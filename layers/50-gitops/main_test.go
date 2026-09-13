@@ -114,8 +114,10 @@ func TestArgoCDValues_APIAndRepoServerSurviveANodeFailure(t *testing.T) {
 func TestArgoCDValues_CreatesNoServiceMonitors(t *testing.T) {
 	t.Parallel()
 
-	// layers/60-observability owns the Prometheus operator CRDs. One here
-	// would make this layer fail on a cluster where that layer is absent.
+	// Nothing in this repository installs the Prometheus
+	// operator CRDs any more — observability is deployed through Argo CD — so
+	// a ServiceMonitor here is a resource whose kind does not exist, and the
+	// layer would fail on a cluster that has not been given one.
 	rendered := render(t, "")
 
 	for _, component := range []string{"controller", "repoServer", "server"} {

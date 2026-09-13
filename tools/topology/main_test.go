@@ -285,14 +285,16 @@ func projectPaths(t *testing.T) []string {
 //	error: validating stack config: Stack 'dev' is missing configuration
 //	values 'observability:logsRetention', ...
 //
+// (quoted as it was measured, on a layer this repository no longer carries)
+//
 // Which means the layer's own message, the one naming the three Object Storage
 // locations or the command that sets a stack reference, is never reached. That
 // is the whole failure: these layers report every problem at once, with a
 // remedy, and a schema that fails first replaces all of it with a list of key
 // names.
 //
-// It cost two `platform:plan-all` runs — the object-storage layer first, then
-// 60-observability behind it — so the guard is a test rather than a comment.
+// It cost two `platform:plan-all` runs — two layers in a row, each stopped by
+// its own schema — so the guard is a test rather than a comment.
 // An intentionally required key belongs in requiredConfig below, with the
 // reason; the point is that requiring one is a decision, not an omission.
 func TestDeclaredConfigIsOptional(t *testing.T) {

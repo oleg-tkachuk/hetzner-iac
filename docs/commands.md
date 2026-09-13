@@ -19,7 +19,7 @@ a typo is caught before anything runs:
 
     $ task platform:plan stack=dev layer=30-cor
     task: ... layer has an invalid value : '30-cor'
-      (allowed values : [10-node-platform 20-network-policy 30-core 40-ingress 50-gitops 60-observability])
+      (allowed values : [10-node-platform 20-network-policy 30-core 40-ingress 50-gitops])
 
 `task platform:init` needs `ref=`.
 
@@ -76,7 +76,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task platform:destroy-all` | destroy every layer, in reverse |
 | `task platform:plan layer=10-node-platform` | preview one layer |
 | `task platform:apply layer=10-node-platform` | apply one layer |
-| `task platform:destroy layer=60-observability` | destroy one layer |
+| `task platform:destroy layer=50-gitops` | destroy one layer |
 | `task platform:outputs layer=50-gitops` | one layer's stack outputs |
 | `task platform:status` | which layers are deployed, and how large |
 | `task platform:layers` | the layer order; CI derives its matrix from this |
@@ -91,7 +91,6 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task charts:validate` | pins are exact versions, not floating tags |
 | `task charts:appversions` | each `AppVersion` is what the pinned chart ships |
 | `task charts:render-check` | the charts still produce the workloads and honour the values |
-| `task observability:check` | Alloy parses the collector config |
 
 ## Code
 

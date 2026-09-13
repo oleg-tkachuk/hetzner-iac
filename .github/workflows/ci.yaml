@@ -439,9 +439,10 @@ jobs:
         run: go run ./tools/charts render
       # Unlike the report below, this one fails. Renovate bumps Version and
       # cannot touch the AppVersion beside it, so its pull requests arrive with
-      # an entry claiming a version the chart no longer ships — a misleading
-      # comment for most charts, and a real defect for alloy, whose image tag
-      # tools/alloy builds out of it.
+      # an entry claiming a version the chart no longer ships — mostly a
+      # misleading comment, and more than that as soon as anything derives a
+      # value from the field, as an image tag was derived from alloy's while
+      # that chart was pinned here.
       - name: App versions match the pinned charts
         run: go run ./tools/charts appversions
       # There is deliberately no "report what is outdated" step. It had
@@ -484,11 +485,6 @@ jobs:
           echo "${RUNNER_TEMP}" >>"$GITHUB_PATH"
       - name: Talos machine config
         run: go run ./tools/talos infra/cluster
-      # Docker is already on the runner, and Alloy is validated from the image
-      # the pinned chart deploys rather than a binary that happens to be
-      # installed.
-      - name: Alloy collector config
-        run: go run ./tools/alloy
 
   # Extracted into its own workflow so it can ALSO run on a schedule: a CVE
   # published today makes yesterday's green commit vulnerable, and a gate that

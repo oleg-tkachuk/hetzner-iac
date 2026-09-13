@@ -11,7 +11,7 @@ crds:
 
 prometheus:
   enabled: true
-  # Owned by layers/60-observability, which installs the operator CRDs. A
-  # ServiceMonitor here would be a resource whose kind does not exist yet.
+  # Off: nothing here installs the Prometheus operator CRDs — observability is
+  # deployed through Argo CD — so this would be a kind that does not exist.
   servicemonitor:
     enabled: false

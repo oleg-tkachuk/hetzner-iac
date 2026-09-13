@@ -107,32 +107,3 @@ func TestIngressLoadBalancer(t *testing.T) {
 
 	testenv.Test(t, ingress)
 }
-
-func TestObservabilityStorage(t *testing.T) {
-	storage := features.New("observability persists its data").
-		WithLabel("layer", "60-observability").
-		Assess("every claim is bound", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			// The point of the storage-class wiring: an unbound claim means
-			// metrics and logs are being written to a volume that does not
-			// exist, and the pod is Pending rather than failing.
-			claims := &corev1.PersistentVolumeClaimList{}
-			if err := cfg.Client().Resources("observability").List(ctx, claims); err != nil {
-				t.Fatalf("list persistent volume claims: %v", err)
-			}
-
-			if len(claims.Items) == 0 {
-				t.Fatal("no persistent volume claims in observability — nothing is persisting")
-			}
-
-			for _, claim := range claims.Items {
-				if claim.Status.Phase != corev1.ClaimBound {
-					t.Errorf("claim %s is %s, not Bound — check the hcloud CSI driver",
-						claim.Name, claim.Status.Phase)
-				}
-			}
-
-			return ctx
-		}).Feature()
-
-	testenv.Test(t, storage)
-}

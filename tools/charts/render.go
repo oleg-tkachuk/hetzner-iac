@@ -80,10 +80,11 @@ func run() (int, error) {
 
 		// The namespace comes from the registry, which is what the layer
 		// installs the release into. Taking it from the first expected
-		// workload made the render depend on the order of a table:
-		// kube-prometheus-stack puts node-exporter in kube-system and
-		// everything else in observability, so whichever entry came first
-		// decided what `helm template -n` was given.
+		// workload made the render depend on the order of a table, because a
+		// chart can install into two namespaces — one workload needing host
+		// access goes to kube-system while the rest stay in the release's own
+		// — and whichever entry came first decided what `helm template -n`
+		// was given.
 		found, err := renderChart(ctx, chart, expected[0].Release, chart.Namespace, key)
 		if err != nil {
 			return 0, fmt.Errorf("render %s: %w", key, err)
@@ -219,11 +220,11 @@ var hostAccessMarkers = []string{
 // checkHostAccess refuses a chart that needs host access in a namespace Talos
 // does not exempt from Pod Security Admission.
 //
-// Per document, not per release: one chart can install into two namespaces.
-// kube-prometheus-stack does exactly that now — node-exporter goes to
-// kube-system because it needs host access, and everything else stays in
-// observability under baseline. Checking the release's namespace would flag
-// the whole chart for what one DaemonSet asks.
+// Per document, not per release: one chart can install into two namespaces —
+// a node exporter into kube-system because it needs host access, the rest into
+// the release's own namespace under baseline. Checking the release's namespace
+// would flag the whole chart for what one DaemonSet asks. No chart pinned here
+// does that today; the check is per document because the next one will.
 //
 // The failure this replaces gave almost nothing to go on: the DaemonSet showed
 // DESIRED 1, CURRENT 0 — not a pending pod, no pod at all — and Helm then
@@ -318,10 +319,12 @@ const kubeconformBinary = "kubeconform"
 //   - CustomResourceDefinition: upstream publishes no CRD schema in the strict
 //     standalone set.
 //   - Alertmanager, Prometheus, PrometheusRule, ServiceMonitor: custom
-//     resources kube-prometheus-stack installs the definitions for in the same
-//     release, so nothing can validate them at render time. Collected by
-//     running kubeconform over every chart and reading what it could not
-//     resolve, rather than one failure per iteration.
+//     resources whose definitions arrive with the chart that renders them, so
+//     nothing can validate them at render time. Nothing pinned here emits
+//     them since the observability layer left, and they stay listed because a
+//     chart that does is one Argo CD application away. Collected by running
+//     kubeconform over every chart and reading what it could not resolve,
+//     rather than one failure per iteration.
 //
 // A new kind here is a deliberate edit, and that is the point: the flag that
 // would make this list unnecessary, -ignore-missing-schemas, also skips a

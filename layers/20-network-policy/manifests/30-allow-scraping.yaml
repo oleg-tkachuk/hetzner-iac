@@ -11,6 +11,12 @@
 # The selector is the label the chart actually stamps — app.kubernetes.io/name
 # is `prometheus`, verified against the running pod. A selector that matches
 # nothing is accepted by Kubernetes and quietly does nothing.
+#
+# The workload this selects is no longer deployed from this repository —
+# observability goes on through Argo CD. The policy stays because it describes
+# traffic, not who installs it: the labels are the chart's, so it applies the
+# moment that chart is reconciled, and deleting it would mean re-measuring
+# these flows before the default deny can ever go on.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
