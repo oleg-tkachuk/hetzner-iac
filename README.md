@@ -11,11 +11,13 @@
 [![Argo CD](https://img.shields.io/badge/Argo%20CD-EF7B4D?logo=argo&logoColor=white)](https://argo-cd.readthedocs.io)
 [![Hetzner Cloud](https://img.shields.io/badge/Hetzner%20Cloud-D50C2D?logo=hetzner&logoColor=white)](https://www.hetzner.com/cloud)
 
-Kubernetes on Hetzner Cloud, built with the Pulumi Go SDK.
+Kubernetes on [Hetzner Cloud](https://www.hetzner.com/cloud), built with the
+[Pulumi Go SDK](https://www.pulumi.com/docs/iac/languages-sdks/go/).
 
-Hetzner has no managed Kubernetes, so this repository builds the cluster
-itself — a Talos control plane on a private network — and then deploys the
-platform onto it in independent, idempotent layers.
+[Hetzner](https://www.hetzner.com/) has no managed Kubernetes, so this
+repository builds the cluster itself — a Talos control plane on a private
+network — and then deploys the platform onto it in independent, idempotent
+layers.
 
 ```
 infra/cluster              the only project that talks to the Hetzner API
@@ -38,14 +40,16 @@ infra/cluster              the only project that talks to the Hetzner API
 
 ## Quick start
 
-You need three things: a Hetzner Cloud API token with read+write scope, a
+You need three things: a Hetzner Cloud API token with read+write scope
+([how to create one](https://docs.hetzner.com/cloud/api/getting-started/generating-api-token/)), a
 [Pulumi Cloud](https://app.pulumi.com/signup) account for state — free for an
 individual, and `pulumi login` is how you get one on this machine — and the
 tools in [Prerequisites](#prerequisites). State can live in your own S3 bucket
 instead: [configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
 
-Everything below creates **billable** Hetzner resources; `task cluster:destroy`
-and `task platform:destroy-all` remove them.
+Everything below creates **billable**
+[Hetzner resources](https://www.hetzner.com/cloud#pricing);
+`task cluster:destroy` and `task platform:destroy-all` remove them.
 
 ```bash
 # 1. Describe the cluster. Set network.adminCIDRs to the address you apply
@@ -137,7 +141,7 @@ layer deploys:
 | `hcloud:token` | [`infra/cluster`](infra/cluster) | Hetzner API token (secret) |
 | `<layer>:clusterStackRef` | every [layer](layers) | `<org>/hetzner-cluster/<stack>`; written by `platform:init` |
 | `cluster-services:acmeEmail` | [`30-cluster-services`](layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
-| `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | Hetzner load balancer type, default `lb11` |
+| `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | [Hetzner load balancer](https://www.hetzner.com/cloud/load-balancer) type, default `lb11` |
 | `gitops:domain` | [`50-gitops`](layers/50-gitops) | publishes Argo CD through ingress; omit it and there is no Ingress |
 
 Details, including where the encrypted token lives and how to keep state
