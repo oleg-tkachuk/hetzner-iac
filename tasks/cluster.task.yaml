@@ -23,6 +23,14 @@ vars:
     nodes="$(hcloud server list -l "cluster=${cluster},role=control-plane" -o noheader -o columns=ipv4)"
     test -n "$nodes"
 
+  # The suffix of the file written beside a snapshot, holding what the
+  # snapshot said about itself when it was taken.
+  #
+  # A var because two tasks must spell it identically: etcd-snapshot writes it
+  # and etcd-restore reads it, and a mismatch is not an error — the restore
+  # just silently stops showing what the snapshot was supposed to contain.
+  _CL_SNAPSHOT_INFO: '.info'
+
   # How long to wait for a node to come back with etcd in Preparing after its
   # EPHEMERAL partition is wiped. A reboot and a volume unlock; generous,
   # because the alternative to waiting is bootstrapping a node that is not
@@ -544,16 +552,37 @@ tasks:
       - cmd: go run {{.ROOT}}/tools/secrets "{{._CL_STACK}}"
 
   etcd-snapshot:
-    desc: "Take an etcd snapshot into .backups/"
+    desc: "Take an etcd snapshot into .backups/, read it back, and record what it holds"
     deps: [talosconfig]
     cmds:
       - cmd: |
           set -euo pipefail
           mkdir -p "{{.ROOT}}/.backups"
           stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-          TALOSCONFIG="{{.ROOT}}/talosconfig" talosctl etcd snapshot \
-            "{{.ROOT}}/.backups/etcd-${stamp}.db"
-          echo "{{._OK}} cluster · etcd · wrote .backups/etcd-${stamp}.db"
+          file="{{.ROOT}}/.backups/etcd-${stamp}.db"
+
+          # talosctl reports the hash, the revision and the key count as it
+          # writes, on stdout. Captured rather than left to scroll past: it is
+          # the only account of what the snapshot held at the moment it was
+          # taken, and it is what tells one snapshot from another later.
+          taken="$(TALOSCONFIG="{{.ROOT}}/talosconfig" talosctl etcd snapshot "$file" \
+            | grep '^snapshot info:')"
+
+          # Read back before this reports success. A snapshot nobody has
+          # opened is a file of the right size, and the moment to discover
+          # that is now rather than during the incident it was taken for.
+          read_back="$(go run "{{.ROOT}}/tools/etcd" verify "$file")"
+
+          # Beside the snapshot, so the two travel together wherever it goes.
+          {
+            echo "taken:     ${stamp}"
+            echo "talosctl:  ${taken}"
+            echo "read back: ${read_back}"
+          } > "${file}{{._CL_SNAPSHOT_INFO}}"
+
+          echo "{{._OK}} cluster · etcd · ${taken}"
+          echo "{{._OK}} cluster · etcd · ${read_back}"
+          echo "{{._OK}} cluster · etcd · wrote .backups/etcd-${stamp}.db and its {{._CL_SNAPSHOT_INFO}}"
 
   etcd-restore:
     desc: "Restore etcd from a snapshot — wipes every control-plane node first (snapshot=<path>). The other half of a backup."
@@ -599,6 +628,17 @@ tasks:
           # leaves a cluster with no etcd and no way back.
           echo "{{._RUN}} cluster · etcd-restore · checking the snapshot"
           go run "{{.ROOT}}/tools/etcd" verify "{{.snapshot}}"
+
+          # What the snapshot said about itself when it was taken, if
+          # cluster:etcd-snapshot wrote it. Shown beside what was just read
+          # back, because a difference between the two means the file changed
+          # after it was written — and that is worth seeing before the wipe.
+          if [ -f "{{.snapshot}}{{._CL_SNAPSHOT_INFO}}" ]; then
+            echo "{{._RUN}} cluster · etcd-restore · recorded when taken:"
+            sed 's/^/    /' "{{.snapshot}}{{._CL_SNAPSHOT_INFO}}"
+          else
+            echo "{{._WARN}} cluster · etcd-restore · no {{._CL_SNAPSHOT_INFO}} beside it, so there is nothing to compare against"
+          fi
 
           {{._CL_CONTROL_PLANE}}
 
