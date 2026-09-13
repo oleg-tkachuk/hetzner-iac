@@ -72,8 +72,10 @@ const (
 
 // Declared is every output the cluster tier must export, in one list so the
 // producer and the consumer cannot drift apart. A constant added above without
-// a line here, or a line here the tier does not export, fails a test rather
-// than an apply.
+// a line here fails TestDeclared_ListsEveryOutputConstant; a line here the
+// tier does not export fails infra/cluster's
+// TestExports_CoverEveryDeclaredOutput. Either way a test rather than an
+// apply.
 var Declared = []string{
 	OutputContractVersion,
 	OutputKubeconfig,
