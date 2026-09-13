@@ -54,20 +54,12 @@ func run(dir string) error {
 		return fmt.Errorf("talosctl is not installed: %w", err)
 	}
 
-	entries, err := os.ReadDir(dir)
+	paths, err := topologyFiles(dir)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", dir, err)
+		return err
 	}
 
-	checked := 0
-
-	for _, entry := range entries {
-		if entry.IsDir() || !isTopologyFile(entry.Name()) {
-			continue
-		}
-
-		path := filepath.Join(dir, entry.Name())
-
+	for _, path := range paths {
 		topology, err := hetzner.LoadTopology(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
@@ -80,15 +72,40 @@ func run(dir string) error {
 		if err := validateTopology(ctx, path, topology); err != nil {
 			return err
 		}
-
-		checked++
-	}
-
-	if checked == 0 {
-		return fmt.Errorf("no cluster.<stack>.yaml files under %s", dir)
 	}
 
 	return nil
+}
+
+// topologyFiles lists the stack topologies in dir, and refuses an empty
+// result.
+//
+// Separated from run so the two answers an operator actually meets — the
+// wrong directory, and a directory with no stacks in it — are testable
+// without talosctl. Reporting success for zero files checked is the failure
+// worth ruling out: it is what a validation step run from the repository root
+// would have done.
+func topologyFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", dir, err)
+	}
+
+	var paths []string
+
+	for _, entry := range entries {
+		if entry.IsDir() || !isTopologyFile(entry.Name()) {
+			continue
+		}
+
+		paths = append(paths, filepath.Join(dir, entry.Name()))
+	}
+
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no cluster.<stack>.yaml files under %s", dir)
+	}
+
+	return paths, nil
 }
 
 // checkVersion refuses to run when the local talosctl does not match the

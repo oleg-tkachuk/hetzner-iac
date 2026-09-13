@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -167,8 +168,18 @@ func snapshotExists(ctx context.Context, token, selector string) (bool, error) {
 		return false, fmt.Errorf("hcloud image list: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
+	return snapshotMatched(out)
+}
+
+// snapshotMatched answers the question the awk pipeline answered, separated
+// from the call so it can be tested without hcloud.
+//
+// An unparseable list is an error rather than "no snapshot": reported as
+// absent, a broken response would bake an image that already exists and leave
+// two candidates behind for the Pulumi lookup's mostRecent to choose between.
+func snapshotMatched(raw []byte) (bool, error) {
 	var images []hcloudImage
-	if err := json.Unmarshal(out, &images); err != nil {
+	if err := json.Unmarshal(raw, &images); err != nil {
 		return false, fmt.Errorf("hcloud image list returned no usable json: %w", err)
 	}
 
@@ -199,11 +210,20 @@ func schematicID(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("image factory returned %s", response.Status)
 	}
 
+	return decodeSchematic(response.Body)
+}
+
+// decodeSchematic reads the schematic id out of the factory's response.
+//
+// An empty id is refused rather than passed on: it builds a URL the factory
+// serves nothing at, and that surfaces minutes later inside
+// hcloud-upload-image as a download error.
+func decodeSchematic(body io.Reader) (string, error) {
 	var decoded struct {
 		ID string `json:"id"`
 	}
 
-	if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
+	if err := json.NewDecoder(body).Decode(&decoded); err != nil {
 		return "", fmt.Errorf("image factory response: %w", err)
 	}
 
