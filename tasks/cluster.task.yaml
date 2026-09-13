@@ -136,6 +136,14 @@ tasks:
         msg: "{{._STACK_USAGE}}"
       - sh: test -f "{{._CL_TOPOLOGY}}"
         msg: "no topology at {{._CL_TOPOLOGY}} — cp infra/cluster/cluster.example.yaml {{._CL_TOPOLOGY}} and edit adminCIDRs"
+    # Applying is not the safe half of the pair. `pulumi up` creates servers,
+    # and it REPLACES them for any input that forces one — a server type, a
+    # datacenter, a private address — which on a single-node cluster is the
+    # same outage a destroy would cause. Measured here: replacing the only
+    # control plane took the cluster down and needed a bootstrap to come back.
+    #
+    # Pass --yes to skip this, which is what a script should do explicitly.
+    prompt: "Apply the {{._CL_STACK}} cluster? This creates servers, and replaces them when an input forces it."
     cmds:
       - cmd: |
           set -euo pipefail

@@ -23,6 +23,19 @@ a typo is caught before anything runs:
 
 `task platform:init` needs `ref=`.
 
+Every task that runs `pulumi up` or `pulumi destroy` asks before it does —
+applying is not the safe half of the pair, because `pulumi up` replaces a
+resource for any input that forces a replacement, and replacing the only
+control-plane server takes the cluster down. `--yes` skips the question, which
+is what a script should have to say out loud:
+
+    $ task platform:apply-all stack=dev
+    Apply every platform layer on dev? [y/N]
+
+`task up` asks twice rather than three times — once for the servers, once for
+everything on them — because Task prompts per task it runs and `up` adds none
+of its own.
+
 Tasks from the shared library
 ([oleg-tkachuk/taskfiles](https://github.com/oleg-tkachuk/taskfiles), pinned)
 are trimmed with `excludes:` to what works here. A module task that cannot
@@ -33,7 +46,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 
 | Task | Does |
 |------|------|
-| `task up` | cluster, then every layer in dependency order |
+| `task up` | cluster, then every layer in dependency order; asks twice |
 | `task plan` | preview the cluster and every layer; change nothing |
 | `task build` | compile every program into `bin/` |
 | `task verify` | everything checkable without a cluster — needs helm, talosctl and docker |
@@ -51,7 +64,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:init` | create the Pulumi stack for this environment |
 | `task cluster:token` | store the Hetzner token in the stack, encrypted; prompts, or reads stdin |
 | `task cluster:plan` | show what applying would change |
-| `task cluster:apply` | provision or converge the cluster |
+| `task cluster:apply` | provision or converge the cluster; asks first |
 | `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA, which is protected |
 | `task cluster:destroy-secrets` | delete the cluster CA as well; unrecoverable |
 | `task cluster:kubeconfig` | write `./kubeconfig` |
@@ -74,10 +87,10 @@ someone runs once, in an emergency, and gets a confusing failure from.
 |------|------|
 | `task platform:init ref=<org>/hetzner-cluster/<stack>` | create every layer's stack and point it at the cluster |
 | `task platform:plan-all` | preview every layer in order |
-| `task platform:apply-all` | apply every layer in dependency order |
+| `task platform:apply-all` | apply every layer in dependency order; asks first |
 | `task platform:destroy-all` | destroy every layer, in reverse |
 | `task platform:plan layer=10-node-platform` | preview one layer |
-| `task platform:apply layer=10-node-platform` | apply one layer |
+| `task platform:apply layer=10-node-platform` | apply one layer; asks first |
 | `task platform:destroy layer=50-gitops` | destroy one layer |
 | `task platform:outputs layer=50-gitops` | one layer's stack outputs |
 | `task platform:status` | which layers are deployed, and how large |
