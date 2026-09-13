@@ -67,7 +67,7 @@ tasks:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
       - sh: command -v talosctl >/dev/null
-        msg: "talosctl not installed — https://www.talos.dev/"
+        msg: "talosctl not installed — https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl"
     cmds:
       # The unit tests prove the patches contain what was intended; only Talos
       # can say whether it accepts them. Catches at plan time what would
@@ -507,7 +507,7 @@ tasks:
           fi
 
   # ---------------------------------------------------------------------------
-  # Day 2
+  # Upgrades and backups
   # ---------------------------------------------------------------------------
 
   etcd-snapshot:
