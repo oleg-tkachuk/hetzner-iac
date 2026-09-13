@@ -1,6 +1,7 @@
 package hetzner_test
 
 import (
+	"strings"
 	"sync"
 	"testing"
 
@@ -37,6 +38,13 @@ type recorder struct {
 	// replaceOn is the replaceOnChanges option, from the same place and for
 	// the same reason.
 	replaceOn map[string][]string
+
+	// dependsOn is the URNs each resource type was registered as depending
+	// on. Off the register RPC for the same reason as the two above: an
+	// ordering constraint is not an input, and this one is the difference
+	// between an HA cluster that comes up and an apply that fails after
+	// creating everything else.
+	dependsOn map[string][]string
 }
 
 func newRecorder() *recorder {
@@ -44,6 +52,7 @@ func newRecorder() *recorder {
 		resources:   map[string][]resource.PropertyMap{},
 		deleteFirst: map[string]bool{},
 		replaceOn:   map[string][]string{},
+		dependsOn:   map[string][]string{},
 	}
 }
 
@@ -73,6 +82,10 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 
 		if fields := rpc.GetReplaceOnChanges(); len(fields) > 0 {
 			r.replaceOn[args.TypeToken] = fields
+		}
+
+		if urns := rpc.GetDependencies(); len(urns) > 0 {
+			r.dependsOn[args.TypeToken] = urns
 		}
 
 		r.mu.Unlock()
@@ -412,4 +425,29 @@ func TestCluster_BootstrapIsReplacedWhenTheNodeChanges(t *testing.T) {
 
 	assert.Equal(t, []string{"node"}, rec.replaceOn["talos:machine/bootstrap:Bootstrap"],
 		"a new node address must replace the bootstrap, or it is never performed")
+}
+
+func TestNewCluster_TheAPITargetWaitsForTheLoadBalancerToJoinTheNetwork(t *testing.T) {
+	t.Parallel()
+
+	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: true})
+
+	depends := rec.dependsOn["hcloud:index/loadBalancerTarget:LoadBalancerTarget"]
+	require.NotEmpty(t, depends, "the api target was registered with no dependencies at all")
+
+	var onAttachment bool
+
+	for _, urn := range depends {
+		if strings.Contains(urn, "loadBalancerNetwork:LoadBalancerNetwork") {
+			onAttachment = true
+		}
+	}
+
+	// The target uses the private address, and Hetzner refuses one on a load
+	// balancer that is not in a network yet. With only the subnet in the list
+	// Pulumi created the two in parallel and the first real HA apply failed
+	// with `load_balancer_not_attached_to_network` — after creating
+	// everything else.
+	assert.True(t, onAttachment,
+		"the api target does not wait for the load balancer's network attachment")
 }

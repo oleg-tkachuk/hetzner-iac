@@ -166,7 +166,7 @@ Three things it does before touching anything:
 - **asks.** Everything written after the snapshot is gone.
 
 The node list comes from the `role=control-plane` label, so this works
-unchanged on one node or three.
+unchanged on one node or three — three is what ships.
 
 Afterwards the cluster converges on its own, and the sequence is worth knowing
 because the middle of it looks like a failure. Measured on a single-node
