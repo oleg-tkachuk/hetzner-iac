@@ -291,19 +291,20 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-go
+        with:
+          # For the gofmt gate below, which is the shared library's task.
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       # No separate `go build ./...`: `go test ./...` already compiles every
       # package, including those with no test files.
       - name: go test
         run: go test -count=1 ./...
+      # The same task an operator runs, not a second copy of it. This step
+      # used to hand-roll `gofmt -l .`, which asserts less than the task does
+      # now that the task is the library's `gofmt -s` gate — so a file could
+      # pass here and be rewritten by `task fmt` locally.
       - name: gofmt
-        run: |
-          set -euo pipefail
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "not gofmt-clean:" >&2
-            echo "$unformatted" >&2
-            exit 1
-          fi
+        run: task fmt-check --yes
       - name: go vet
         run: go vet ./...
       # The e2e suite is behind a build tag, so `go test ./...` never compiles

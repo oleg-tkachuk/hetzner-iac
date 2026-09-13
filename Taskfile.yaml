@@ -9,7 +9,7 @@ vars:
   # The git form is the default because someone who clones this repository has
   # no sibling checkout. Working on the library itself:
   #   TASKLIB: '../taskfiles/%s'
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v5.2.0'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v5.3.0'
 
   PROJECT_NAME: hetzner-iac
   ROOT: { sh: pwd }
@@ -206,15 +206,12 @@ tasks:
 
   fmt-check:
     desc: "Fail if any Go file is not gofmt-clean"
+    # The library's gate rather than eight lines of `gofmt -l` here. It
+    # checks `gofmt -s`, which is strictly more than this task did: the
+    # simplifications gofmt -s makes were never asserted, so a file could be
+    # gofmt-clean here and rewritten by `task fmt` on the next run.
     cmds:
-      - cmd: |
-          set -euo pipefail
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "not gofmt-clean:" >&2
-            echo "$unformatted" >&2
-            exit 1
-          fi
+      - task: go:fmt:check
 
   fmt:
     desc: "Format every Go file and tidy the module"

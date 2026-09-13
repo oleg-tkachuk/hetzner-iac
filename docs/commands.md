@@ -40,7 +40,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
 | `task e2e` | verify a running cluster; read-only |
 | `task fmt` | format and tidy |
-| `task fmt-check` | fail if anything is not gofmt-clean |
+| `task fmt-check` | fail if `gofmt -s` would change anything; the library's gate, and what CI runs |
 | `task clean` | remove build output: `bin/` and the layer binaries under `.cache` |
 
 ## Cluster
