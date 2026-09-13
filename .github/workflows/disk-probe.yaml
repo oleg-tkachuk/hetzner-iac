@@ -10,7 +10,8 @@ name: Disk probe
 # absent, printing free space at every stage. Not for merging.
 on: pull_request
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   probe:
