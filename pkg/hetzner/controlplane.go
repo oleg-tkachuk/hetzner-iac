@@ -52,6 +52,11 @@ type ControlPlaneArgs struct {
 	// control plane and wrong the moment that node is replaced.
 	APIAddress pulumi.StringInput
 
+	// EtcdPatch pins etcd's peers to the private network. Control planes
+	// only: Talos refuses the section on a worker, so it cannot ride along in
+	// ClusterPatch, which both roles share.
+	EtcdPatch pulumi.StringInput
+
 	KubernetesVersion string
 	TalosVersion      string
 	ClusterPatch      pulumi.StringInput
@@ -114,7 +119,7 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 		ClusterEndpoint:   endpoint,
 		MachineType:       pulumi.String(machineTypeControlPlane),
 		MachineSecrets:    args.MachineSecrets,
-		ConfigPatches:     pulumi.StringArray{args.ClusterPatch},
+		ConfigPatches:     pulumi.StringArray{args.ClusterPatch, args.EtcdPatch},
 		KubernetesVersion: optionalString(args.KubernetesVersion),
 		TalosVersion:      optionalString(args.TalosVersion),
 	})

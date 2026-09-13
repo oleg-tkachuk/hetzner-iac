@@ -116,6 +116,11 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		return nil, fmt.Errorf("talos secrets: %w", err)
 	}
 
+	etcdPatch, err := BuildEtcdPatch(topology.Network.NodeSubnet)
+	if err != nil {
+		return nil, err
+	}
+
 	clusterPatch, err := BuildClusterPatch(ClusterPatchArgs{
 		PodCIDR:     topology.Network.PodCIDR,
 		ServiceCIDR: topology.Network.ServiceCIDR,
@@ -159,6 +164,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		KubernetesVersion:   topology.Kubernetes.Version,
 		TalosVersion:        topology.Talos.Version,
 		ClusterPatch:        pulumi.String(clusterPatch),
+		EtcdPatch:           pulumi.String(etcdPatch),
 		MachineSecrets:      secrets.MachineSecrets,
 		ClientConfiguration: secrets.ClientConfiguration,
 		PublicIPv4:          args.PublicIPv4,
@@ -268,10 +274,12 @@ func apiEndpointAddress(
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer: %w", err)
 	}
 
-	if _, err := hcloud.NewLoadBalancerNetwork(ctx, name+"-api-network", &hcloud.LoadBalancerNetworkArgs{
+	// Kept, not discarded: the target below cannot exist until this has.
+	attachment, err := hcloud.NewLoadBalancerNetwork(ctx, name+"-api-network", &hcloud.LoadBalancerNetworkArgs{
 		LoadBalancerId: idToInt(loadBalancer.ID()),
 		NetworkId:      network.NetworkID,
-	}, append(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet}))...); err != nil {
+	}, append(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet}))...)
+	if err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer network: %w", err)
 	}
 
@@ -293,13 +301,25 @@ func apiEndpointAddress(
 
 	// Targets are selected by label so a replaced control-plane node is picked
 	// up without a diff on the load balancer.
+	//
+	// DependsOn the network ATTACHMENT, not just the subnet. UsePrivateIp is
+	// what makes that ordering load-bearing: Hetzner refuses a private-address
+	// target on a load balancer that is not in a network yet, and with only the
+	// subnet in the list Pulumi is free to create the two in parallel. It did,
+	// and the first real HA apply this repository ever ran failed with
+	//
+	//   add label selector target: load balancer is not attached to a network
+	//   (load_balancer_not_attached_to_network)
+	//
+	// after creating everything else — which is the shape of bug a commented
+	// configuration hides: the code was never wrong anywhere a test could see.
 	if _, err := hcloud.NewLoadBalancerTarget(ctx, name+"-api-targets", &hcloud.LoadBalancerTargetArgs{
 		LoadBalancerId: idToInt(loadBalancer.ID()),
 		Type:           pulumi.String("label_selector"),
 		LabelSelector: pulumi.String(fmt.Sprintf("%s,%s=%s",
 			ClusterSelector(topology.Metadata.Name), LabelRole, RoleControlPlane)),
 		UsePrivateIp: pulumi.Bool(true),
-	}, append(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet}))...); err != nil {
+	}, append(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet, attachment}))...); err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer target: %w", err)
 	}
 

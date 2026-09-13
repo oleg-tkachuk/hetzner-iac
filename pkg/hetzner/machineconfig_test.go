@@ -488,3 +488,56 @@ func TestBuildClusterPatch_DoesNotMixTheLegacyEncryptionForm(t *testing.T) {
 
 	assert.NotContains(t, machine, "systemDiskEncryption")
 }
+
+func TestBuildEtcdPatch_PinsPeersToThePrivateNetwork(t *testing.T) {
+	t.Parallel()
+
+	const nodeSubnet = "10.0.1.0/24"
+
+	patch, err := hetzner.BuildEtcdPatch(nodeSubnet)
+	require.NoError(t, err)
+
+	cluster, ok := decode(t, patch)["cluster"].(map[string]any)
+	require.True(t, ok)
+
+	etcd, ok := cluster["etcd"].(map[string]any)
+	require.True(t, ok, "the patch carries no etcd block")
+
+	// Without this etcd advertises whichever address comes first, which on
+	// Hetzner is the public one — and the perimeter firewall opens tcp/6443
+	// and tcp/50000 and nothing else, so members cannot reach each other's
+	// tcp/2380. Measured on the first real three-member cluster: two members,
+	// one of them a learner for ever, the third never joining.
+	assert.Equal(t, []any{nodeSubnet}, etcd["advertisedSubnets"],
+		"etcd must advertise inside the node subnet, not on the public address")
+}
+
+func TestBuildEtcdPatch_RequiresASubnet(t *testing.T) {
+	t.Parallel()
+
+	// Empty would produce a document Talos accepts and that pins nothing.
+	_, err := hetzner.BuildEtcdPatch("")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nodeSubnet is required")
+}
+
+func TestBuildClusterPatch_CarriesNoEtcdSection(t *testing.T) {
+	t.Parallel()
+
+	// The shared patch goes to workers too, and Talos refuses the section
+	// there: `etcd config is only allowed on control plane machines`. Found by
+	// cluster:config-check, which is why etcd has a patch of its own.
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+		NodeSubnet:  "10.0.1.0/24",
+	})
+	require.NoError(t, err)
+
+	cluster, ok := decode(t, patch)["cluster"].(map[string]any)
+	require.True(t, ok)
+
+	assert.NotContains(t, cluster, "etcd",
+		"the patch every role shares must not carry a control-plane-only section")
+}
