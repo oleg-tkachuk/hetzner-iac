@@ -157,6 +157,7 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 | [commands.md](docs/commands.md) | every task, as tables |
 | [operations.md](docs/operations.md) | running a cluster that exists: stopping, starting, the checks, kubectl |
 | [ci.md](docs/ci.md) | how changes land, the scanners, what the suites prove, chart upgrades |
+| [ROADMAP.md](ROADMAP.md) | what is intended next, and what is deliberately not planned |
 | [SECURITY.md](.github/SECURITY.md) | reporting a vulnerability, and what is in scope |
 
 ## Layout
