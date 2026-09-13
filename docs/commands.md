@@ -46,7 +46,9 @@ of its own.
 
 Tasks from the shared library
 ([oleg-tkachuk/taskfiles](https://github.com/oleg-tkachuk/taskfiles), pinned)
-are trimmed with `excludes:` to what works here. A module task that cannot
+are trimmed with `excludes:` to what works here. Four modules are included:
+`go`, `security`, `helm` and `hcloud` — the last one is where every
+`hcloud:` task below comes from. A module task that cannot
 succeed in this repository is worse than a missing one: it is a command
 someone runs once, in an emergency, and gets a confusing failure from.
 
