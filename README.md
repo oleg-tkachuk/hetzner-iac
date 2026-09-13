@@ -34,7 +34,6 @@ infra/cluster              the only project that talks to the Hetzner API
 - [Configuration](#configuration) — the topology file and stack config
 - [Documentation](#documentation) — the rest, by document
 - [Layout](#layout) — where things live in the tree
-- [Status](#status) — what works and what is not done
 - [License](#license)
 
 ## Quick start
@@ -170,19 +169,6 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 | [test/e2e/](test/e2e) | verification against a running cluster |
 | [tasks/](tasks) | task definitions |
 | [docs/](docs) | the documents above |
-
-## Status
-
-Built and running on a single-control-plane dev cluster, on encrypted system
-volumes. Five layers: the node platform, Cilium network policy, core services,
-Traefik ingress and Argo CD.
-
-Not done, and blocked on decisions rather than work: no `Ingress` or
-`ClusterIssuer`, so nothing is reachable from outside and no certificate is
-issued; Argo CD is deployed but reconciles nothing; the network policies are
-applied but the default deny is off, waiting for flows that do not exist yet;
-etcd snapshots are manual. Observability is deployed through Argo CD rather
-than from here.
 
 ## License
 
