@@ -14,6 +14,15 @@ complete on its own terms:
 | the **instance** | `hcloud:shutdown` | `hcloud:poweroff` | `hcloud:poweron` |
 | the **cluster** | `cluster:stop` | — | `hcloud:poweron` |
 
+Restarting has three rungs rather than two, and which one to use is a question
+about what is still answering:
+
+| Rung | Needs | Use when |
+|------|-------|----------|
+| `cluster:reboot` | Talos answering | normally — etcd closes its log |
+| `hcloud:reboot` | the kernel running | apid has stopped answering, the machine has not stopped |
+| `hcloud:reset` | nothing | the node is gone; etcd recovers its log on the way back |
+
 Which to reach for follows from the level. Stopping the **cluster** is a Talos
 operation: `talosctl shutdown` brings etcd down cleanly and can cordon and
 evict first. Halting the machine is its consequence, so the instance then
@@ -44,10 +53,18 @@ server of the cluster at once, selected by the `cluster=<name>` label that
 `pkg/hetzner` stamps. That label is why they are safe on a shared project and
 why they work unchanged on three control planes.
 
+One exception to the fleet-wide rule: `hcloud:console` takes `server=<name>`,
+because a console for five nodes at once is not a thing. It refuses a name the
+cluster's label does not cover, and prints what it has instead — the project
+may hold servers this repository did not create, and the API will happily open
+a console on one of them. What it prints is a short-lived credential giving
+root-level console access, so keep it out of anything that logs.
+
 Everything else Hetzner offers is deliberately not wrapped — `hcloud server`
 alone has rebuild, change-type, rescue mode, ISO attachment, backups,
-snapshots, a VNC console, RDNS and per-server metrics. Use the CLI directly
-for those:
+snapshots, RDNS and per-server metrics. Each of those either fights Pulumi for
+ownership of the server or means nothing against Talos, and metrics is marked
+ALPHA upstream. Use the CLI directly for those:
 
 ```bash
 export HCLOUD_TOKEN="$(go run ./tools/token dev)"

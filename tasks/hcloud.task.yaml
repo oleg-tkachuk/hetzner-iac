@@ -9,8 +9,14 @@ version: "3"
 #
 #     hcloud:shutdown  →  hcloud:poweron     the instance, ACPI and power
 #     hcloud:poweroff  →  hcloud:poweron     the instance, the plug
+#     hcloud:reboot                          the instance, ACPI, coming back
+#     hcloud:reset                           the instance, the plug, coming back
 #     cluster:stop                           the cluster: etcd, then halt
 #     cluster:reboot                         the cluster, coming back by itself
+#
+# Read down the reboot rungs and the escalation is the point: cluster:reboot
+# needs Talos to answer, hcloud:reboot needs only the kernel, hcloud:reset
+# needs neither.
 #
 # Which to reach for follows from the level. Stopping a CLUSTER is a Talos
 # operation — `talosctl shutdown` brings etcd down cleanly and can cordon and
@@ -18,12 +24,27 @@ version: "3"
 # then needs hcloud:poweron. Stopping an INSTANCE is this file, and it says
 # nothing to Kubernetes at all.
 #
-# What is deliberately not here: everything outside the power group. `hcloud
-# server` alone also has rebuild, change-type, rescue mode, ISO attachment,
-# backups, snapshots, a VNC console, RDNS and metrics, and a wrapper per API
-# call would be a second, worse CLI to keep in step with the first. These
-# tasks are a convenience for what this repository does daily; for anything
-# else use the CLI, with the token this repository already holds:
+# What is here: the power group, and the one diagnostic that is only reachable
+# when nothing else is — the console. A task earns a place by acting on the
+# whole cluster through its label selector, or by being what an operator needs
+# at the moment the cluster has stopped answering. `console` is the second
+# kind, and it is the counterpart to `reset`: resetting a node blind and
+# looking at why it will not boot are the same incident.
+#
+# This paragraph used to list the console among what was deliberately absent.
+# It is here now because `reset` was already here, and a reset with no way to
+# watch the result is half a tool.
+#
+# What stays out: rebuild, change-type, rescue mode, ISO attachment, backups,
+# snapshots, RDNS. Each fights Pulumi for ownership of the server, or means
+# nothing against Talos — `ssh` and `reset-password` have nothing to talk to,
+# and a disk backup restored onto a new server cannot unlock volumes keyed to
+# the old server's UUID. Metrics stays out for a different reason: hcloud
+# marks it ALPHA, and this repository does not build on pre-release surfaces.
+#
+# A wrapper per API call would be a second, worse CLI to keep in step with the
+# first. For anything else use the CLI, with the token this repository already
+# holds:
 #
 #     export HCLOUD_TOKEN="$(go run ./tools/token dev)"
 #     hcloud server --help
@@ -49,9 +70,9 @@ vars:
   # `ps` would show it to every other user on the machine.
   _HC_TOKEN: 'HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._HC_STACK}}")"'
 
-  # The four power tasks all act on every server of the cluster, and all four
-  # must refuse an empty match rather than loop zero times and report success.
-  # One spelling, here.
+  # The fleet-wide tasks all act on every server of the cluster, and all of
+  # them must refuse an empty match rather than loop zero times and report
+  # success. One spelling, here.
   _HC_EACH_SERVER: |
     servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
     test -n "$servers"
@@ -133,6 +154,33 @@ tasks:
           echo
           echo "{{._OK}} hcloud · shutdown · sent — back up with task hcloud:poweron stack={{._HC_STACK}}"
 
+  reboot:
+    desc: "ACPI reboot of the instance — for a node whose kernel lives but whose apid does not"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
+    prompt: "Send an ACPI reboot to every server of {{._HC_STACK}}?"
+    cmds:
+      # The middle rung. `cluster:reboot` asks Talos and is the one to prefer;
+      # `hcloud:reset` cuts the power and is the one to fall back to. This
+      # asks the kernel, which is what is left when apid has stopped
+      # answering but the machine has not stopped running — and it is the
+      # difference between etcd closing its log and recovering it.
+      - cmd: |
+          set -euo pipefail
+          export {{._HC_TOKEN}}
+
+          {{._HC_EACH_SERVER}}
+
+          for server in $servers; do
+            hcloud server reboot "$server"
+          done
+
+          echo
+          echo "{{._OK}} hcloud · reboot · sent — task cluster:status stack={{._HC_STACK}} once the API answers"
+
   poweroff:
     desc: "Cut power without a clean shutdown — for when Talos cannot answer"
     preconditions:
@@ -180,3 +228,56 @@ tasks:
           for server in $servers; do
             hcloud server reset "$server"
           done
+
+  console:
+    desc: "Open a VNC console on one node — the only way to see a node that will not boot (server=<name>)"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
+    cmds:
+      # The one task here that takes a server rather than the whole cluster,
+      # because a console for five nodes at once is not a thing. The name is
+      # checked against the cluster's own selector first: the project may hold
+      # servers this repository did not create, and opening a console on one
+      # of those is a mistake the API is happy to make.
+      #
+      # The URL and password it prints are a credential — console access to
+      # the node, which is root on a machine holding etcd. Hetzner expires
+      # them shortly, and there is no way to use one without a person reading
+      # it, so this prints where secrets-export refuses to. Do not paste it
+      # into anything that keeps a log.
+      - cmd: |
+          set -euo pipefail
+          export {{._HC_TOKEN}}
+
+          {{._HC_EACH_SERVER}}
+
+          if [ -z "{{.server}}" ]; then
+            echo "{{._ERR}} hcloud · console · needs a server. This cluster has:" >&2
+            printf '  %s\n' $servers >&2
+            echo >&2
+            echo "  task hcloud:console stack={{._HC_STACK}} server=<name>" >&2
+            exit 1
+          fi
+
+          # A presence test against the list, not a call that fails: `hcloud
+          # server request-console` on a server outside the cluster works
+          # perfectly, which is the failure worth preventing.
+          found=no
+          for server in $servers; do
+            if [ "$server" = "{{.server}}" ]; then
+              found=yes
+            fi
+          done
+
+          if [ "$found" = no ]; then
+            echo "{{._ERR}} hcloud · console · {{.server}} is not a server of this cluster. It has:" >&2
+            printf '  %s\n' $servers >&2
+            exit 1
+          fi
+
+          echo "{{._WARN}} hcloud · console · the url and password below are console access — short-lived, and root"
+          echo
+          hcloud server request-console "{{.server}}"

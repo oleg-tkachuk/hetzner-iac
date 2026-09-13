@@ -292,6 +292,47 @@ func TestTasks_ThatChangeInfrastructureAskFirst(t *testing.T) {
 		"fewer applying or destroying tasks found than exist; the pattern has drifted")
 }
 
+// interruptsANode matches the hcloud verbs that take a running node away.
+//
+// poweron and request-console are absent on purpose: one starts a machine that
+// was already stopped, the other reads. Neither interrupts anything.
+var interruptsANode = regexp.MustCompile(`hcloud server (shutdown|poweroff|reset|reboot)\b`)
+
+// TestTasks_ThatInterruptANodeAskFirst is the same guard as above for the
+// other API.
+//
+// The pulumi one cannot cover these: no `pulumi up` appears in them, and yet
+// `hcloud server poweroff` against a single-control-plane cluster is the most
+// destructive thing in this repository that does not delete anything — etcd's
+// log is cut mid-write, and the operator finds out by the API not answering.
+func TestTasks_ThatInterruptANodeAskFirst(t *testing.T) {
+	t.Parallel()
+
+	var checked int
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for name, body := range tasksIn(string(raw)) {
+			if !interruptsANode.MatchString(body) {
+				continue
+			}
+
+			checked++
+
+			assert.Contains(t, body, "prompt:",
+				"%s: %s takes a node away with no confirmation",
+				filepath.Base(path), name)
+		}
+	}
+
+	// Four today: shutdown, poweroff, reboot, reset. The floor is what stops
+	// a renamed verb from leaving this test asserting nothing.
+	assert.GreaterOrEqual(t, checked, 4,
+		"fewer node-interrupting tasks found than exist; the pattern has drifted")
+}
+
 // documentedTask matches a task named in prose or a table: `task cluster:plan`.
 var documentedTask = regexp.MustCompile("`task ([a-z][a-z0-9:_-]*)")
 
