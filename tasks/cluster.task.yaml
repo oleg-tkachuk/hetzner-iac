@@ -204,6 +204,42 @@ tasks:
           cd "{{._CL_DIR}}"
           pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes --ignore-protect
 
+  stop:
+    desc: "Shut the cluster down cleanly through Talos — it keeps existing, and keeps being billed"
+    deps: [talosconfig]
+    prompt: "Shut down every node of {{._CL_STACK}}? The API stops answering until it is powered on again."
+    cmds:
+      # The CLUSTER's stop, which is a different operation from the
+      # instance's: it brings etcd down cleanly and can cordon and evict
+      # first, where `hcloud:shutdown` only presses the power button and tells
+      # Kubernetes nothing. Halting the machine is its consequence, so getting
+      # back is an instance operation — `task hcloud:poweron`.
+      #
+      # No --drain on purpose. Draining evicts pods so they can start
+      # elsewhere, and on a single-node cluster there is no elsewhere — the
+      # drain waits out its timeout and changes nothing. Add it by hand when
+      # there is more than one node and only one is going down.
+      - cmd: |
+          set -euo pipefail
+          export TALOSCONFIG="{{.ROOT}}/talosconfig"
+          talosctl shutdown
+          echo
+          echo "stopped, and still billed — only cluster:destroy stops that."
+          echo "back up with: task hcloud:poweron stack={{._CL_STACK}}"
+
+  reboot:
+    desc: "Reboot the cluster's nodes through Talos"
+    deps: [talosconfig]
+    prompt: "Reboot every node of {{._CL_STACK}}?"
+    cmds:
+      # Talos again, for the same reason, and it comes back on its own — no
+      # poweron needed, because the machine never loses power. The hard
+      # equivalent, for when Talos cannot answer, is `task hcloud:reset`.
+      - cmd: |
+          set -euo pipefail
+          export TALOSCONFIG="{{.ROOT}}/talosconfig"
+          talosctl reboot
+
   # ---------------------------------------------------------------------------
   # Credentials and inspection
   # ---------------------------------------------------------------------------
@@ -471,141 +507,6 @@ tasks:
             echo "    task platform:apply-all stack={{.stack}}"                   >&2
             exit 1
           fi
-
-  # ---------------------------------------------------------------------------
-  # Power
-  #
-  # Two APIs, and which one to use is not a preference.
-  #
-  # Talos stops a node: `talosctl shutdown` is a clean shutdown of a machine
-  # whose whole interface is an API, and on more than one node it can cordon
-  # and evict first. The Hetzner API cannot do any of that — its `shutdown` is
-  # an ACPI signal and its `poweroff` is the plug.
-  #
-  # Hetzner starts a node: nothing else can. A powered-off machine runs no
-  # apid for talosctl to reach, so `poweron` is the only way back, which is
-  # the asymmetry these tasks exist to hide.
-  #
-  # None of this saves money. A Hetzner server is billed while it EXISTS, not
-  # while it runs — "all servers that have finished their creation process
-  # will be billed until they are deleted, regardless of their state". To stop
-  # paying, destroy it: `task cluster:destroy`.
-  #
-  # What stopping buys is a cluster that is not reachable and not changing,
-  # with its disks — now LUKS, see cluster:encryption-check — at rest.
-  # ---------------------------------------------------------------------------
-
-  power-status:
-    desc: "Power state of every server in this cluster"
-    preconditions:
-      - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
-      - sh: command -v hcloud >/dev/null
-        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
-    cmds:
-      # Read-only, and the only one of these that is.
-      - cmd: |
-          set -euo pipefail
-          HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._CL_STACK}}")" \
-            hcloud server list -l "{{._CL_SELECTOR}}" \
-              -o columns=name,status,type,location,ipv4,private_net
-
-  stop:
-    desc: "Shut the cluster down cleanly through Talos — it keeps existing, and keeps being billed"
-    deps: [talosconfig]
-    prompt: "Shut down every node of {{._CL_STACK}}? The API stops answering until cluster:start."
-    cmds:
-      # Talos, not `hcloud server shutdown`: this is a clean shutdown of the
-      # machine rather than an ACPI signal at it, and it is the path that
-      # leaves etcd consistent.
-      #
-      # No --drain on purpose. Draining evicts pods so they can start
-      # elsewhere, and on a single-node cluster there is no elsewhere — the
-      # drain waits out its timeout and changes nothing. Add it by hand when
-      # there is more than one node and only one is going down.
-      - cmd: |
-          set -euo pipefail
-          export TALOSCONFIG="{{.ROOT}}/talosconfig"
-          talosctl shutdown
-          echo
-          echo "stopped. it is still billed — `task cluster:destroy` is what stops that."
-          echo "back up with: task cluster:start stack={{._CL_STACK}}"
-
-  start:
-    desc: "Power the cluster's servers back on through the Hetzner API"
-    preconditions:
-      - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
-      - sh: command -v hcloud >/dev/null
-        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
-    cmds:
-      # The one direction talosctl cannot do: a powered-off machine runs no
-      # apid to receive the request.
-      #
-      # Per server rather than one call, because `poweron` takes a name and
-      # the selector is what makes this work on three control planes as well
-      # as one.
-      #
-      # Encrypted disks do not change this. The LUKS key derives from the
-      # node's own UUID, which a power cycle keeps, so the volumes unlock
-      # without an operator — unlike `static`, which would have put a
-      # passphrase in the machine config.
-      - cmd: |
-          set -euo pipefail
-          export HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._CL_STACK}}")"
-
-          servers="$(hcloud server list -l "{{._CL_SELECTOR}}" -o noheader -o columns=name)"
-          test -n "$servers"
-
-          for server in $servers; do
-            hcloud server poweron "$server"
-          done
-
-          echo
-          echo "powered on. the API needs a moment; watch it with:"
-          echo "    task cluster:status stack={{._CL_STACK}}"
-
-  reboot:
-    desc: "Reboot the cluster's nodes through Talos"
-    deps: [talosconfig]
-    prompt: "Reboot every node of {{._CL_STACK}}?"
-    cmds:
-      # Talos again, for the same reason, and it comes back on its own — no
-      # poweron needed, because the machine never loses power.
-      - cmd: |
-          set -euo pipefail
-          export TALOSCONFIG="{{.ROOT}}/talosconfig"
-          talosctl reboot
-
-  power-off:
-    desc: "Pull the plug through the Hetzner API — for when Talos cannot answer"
-    preconditions:
-      - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
-      - sh: command -v hcloud >/dev/null
-        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
-    prompt: "Cut power to every server of {{._CL_STACK}} without a clean shutdown? etcd may need to recover."
-    cmds:
-      # Separate from cluster:stop, and named for what it is. `poweroff` is
-      # the plug: etcd's write-ahead log is cut mid-write and the node
-      # recovers on next boot rather than starting clean. Use it when
-      # talosctl cannot reach the node, which is the only time it is the
-      # better option.
-      #
-      # `hcloud server reset` is the hard REBOOT of the same kind and is
-      # deliberately not wrapped: a hard reboot is this, then cluster:start,
-      # and spelling it in two steps makes the operator notice which half
-      # they are in.
-      - cmd: |
-          set -euo pipefail
-          export HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._CL_STACK}}")"
-
-          servers="$(hcloud server list -l "{{._CL_SELECTOR}}" -o noheader -o columns=name)"
-          test -n "$servers"
-
-          for server in $servers; do
-            hcloud server poweroff "$server"
-          done
 
   # ---------------------------------------------------------------------------
   # Day 2

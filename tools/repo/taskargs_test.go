@@ -18,6 +18,25 @@ var taskName = regexp.MustCompile(`^  ([a-zA-Z_][\w:-]*):\s*$`)
 // message instead of a command aimed at nothing.
 const stackGuard = `- sh: '[ -n "{{.stack}}" ]'`
 
+// taskfiles is every taskfile in the repository: the root one and each
+// include.
+//
+// Derived from the directory rather than listed, because both tests below
+// walked a hardcoded list of three — so a new taskfile would not have been
+// checked and nothing would have said so. That is the failure mode these
+// tests exist to prevent, one level up.
+func taskfiles(t *testing.T) []string {
+	t.Helper()
+
+	root := filepath.Join("..", "..")
+
+	includes, err := filepath.Glob(filepath.Join(root, "tasks", "*.task.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, includes, "no taskfiles under tasks/")
+
+	return append([]string{filepath.Join(root, "Taskfile.yaml")}, includes...)
+}
+
 // TestTasks_ThatNeedAStackSaySoWhenItIsMissing closes the gap left by removing
 // the dev default.
 //
@@ -43,17 +62,9 @@ const stackGuard = `- sh: '[ -n "{{.stack}}" ]'`
 func TestTasks_ThatNeedAStackSaySoWhenItIsMissing(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
-
-	files := []string{
-		filepath.Join(root, "Taskfile.yaml"),
-		filepath.Join(root, "tasks", "cluster.task.yaml"),
-		filepath.Join(root, "tasks", "platform.task.yaml"),
-	}
-
 	var checked int
 
-	for _, path := range files {
+	for _, path := range taskfiles(t) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -254,15 +265,9 @@ var changesTheCluster = regexp.MustCompile(`pulumi[^\n]*\b(up|destroy)\b`)
 func TestTasks_ThatChangeInfrastructureAskFirst(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
-
 	var checked int
 
-	for _, path := range []string{
-		filepath.Join(root, "Taskfile.yaml"),
-		filepath.Join(root, "tasks", "cluster.task.yaml"),
-		filepath.Join(root, "tasks", "platform.task.yaml"),
-	} {
+	for _, path := range taskfiles(t) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 

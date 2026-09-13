@@ -1,0 +1,180 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+# Operations on the Hetzner INSTANCE, as opposed to the cluster running on it.
+#
+# The split is by provider, so the namespace says which API answers: `hcloud:`
+# is the Hetzner Cloud API, and Talos operations stay under `cluster:`. Those
+# are two levels, not two halves — each is complete on its own terms:
+#
+#     hcloud:shutdown  →  hcloud:poweron     the instance, ACPI and power
+#     hcloud:poweroff  →  hcloud:poweron     the instance, the plug
+#     cluster:stop                           the cluster: etcd, then halt
+#     cluster:reboot                         the cluster, coming back by itself
+#
+# Which to reach for follows from the level. Stopping a CLUSTER is a Talos
+# operation — `talosctl shutdown` brings etcd down cleanly and can cordon and
+# evict first — and it halts the machine as a consequence, so the instance
+# then needs hcloud:poweron. Stopping an INSTANCE is this file, and it says
+# nothing to Kubernetes at all.
+#
+# What is deliberately not here: everything outside the power group. `hcloud
+# server` alone also has rebuild, change-type, rescue mode, ISO attachment,
+# backups, snapshots, a VNC console, RDNS and metrics, and a wrapper per API
+# call would be a second, worse CLI to keep in step with the first. These
+# tasks are a convenience for what this repository does daily; for anything
+# else use the CLI, with the token this repository already holds:
+#
+#     export HCLOUD_TOKEN="$(go run ./tools/token dev)"
+#     hcloud server --help
+#
+# None of these save money. A Hetzner server is billed while it EXISTS, not
+# while it runs, so stopping one changes nothing on the invoice — only
+# `task cluster:destroy` does.
+
+silent: true
+
+vars:
+  _HC_STACK: '{{.stack}}'
+  _HC_TOPOLOGY: '{{.ROOT}}/infra/cluster/cluster.{{.stack}}.yaml'
+
+  # The label every server of a cluster carries — pkg/hetzner stamps it and
+  # the firewall selects on it. Read through the real parser rather than
+  # grepped out of the yaml: an empty selector matches EVERY server in the
+  # project, which for a power command is the difference between one cluster
+  # and all of them.
+  _HC_SELECTOR: 'cluster=$(go run "{{.ROOT}}/tools/topology" get cluster-name "{{._HC_TOPOLOGY}}")'
+
+  # The token goes into the environment, never into an argument vector where
+  # `ps` would show it to every other user on the machine.
+  _HC_TOKEN: 'HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._HC_STACK}}")"'
+
+tasks:
+  servers:
+    desc: "Power state of every server in this cluster"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
+    cmds:
+      # The only read-only task in this file.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}} hcloud server list -l "{{._HC_SELECTOR}}" \
+            -o columns=name,status,type,location,ipv4,private_net
+
+  poweron:
+    desc: "Power the instances on — nothing else can, a stopped machine runs no apid"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
+    cmds:
+      # Per server rather than one call, because `poweron` takes a name and
+      # the selector is what makes this work on three control planes as well
+      # as one.
+      #
+      # Encrypted disks do not change this. The LUKS key derives from the
+      # node's own UUID, which a power cycle keeps, so the volumes unlock
+      # without an operator — unlike `static`, which would have put a
+      # passphrase in the machine config beside the data.
+      - cmd: |
+          set -euo pipefail
+          export {{._HC_TOKEN}}
+
+          servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
+          test -n "$servers"
+
+          for server in $servers; do
+            hcloud server poweron "$server"
+          done
+
+          echo
+          echo "powered on. the API needs a moment; watch it with:"
+          echo "    task cluster:status stack={{._HC_STACK}}"
+
+  shutdown:
+    desc: "ACPI shutdown of the instance — the guest decides what to do with it"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
+    prompt: "Send an ACPI shutdown to every server of {{._HC_STACK}}?"
+    cmds:
+      # The instance equivalent of pressing the power button: Hetzner sends
+      # the ACPI event and the guest decides. Talos acts on it and shuts down
+      # rather than ignoring it, so this is graceful at the machine level —
+      # but it is the machine asking, not the cluster deciding, so nothing
+      # cordons or drains and Kubernetes learns about it only by the node
+      # going away.
+      #
+      # `task cluster:stop` is the cluster-level equivalent and the one to
+      # prefer when Talos is answering. This is here because the instance has
+      # a soft stop of its own and a file about instances that lacked it would
+      # be an odd file.
+      - cmd: |
+          set -euo pipefail
+          export {{._HC_TOKEN}}
+
+          servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
+          test -n "$servers"
+
+          for server in $servers; do
+            hcloud server shutdown "$server"
+          done
+
+          echo
+          echo "shutdown sent. back up with: task hcloud:poweron stack={{._HC_STACK}}"
+
+  poweroff:
+    desc: "Cut power without a clean shutdown — for when Talos cannot answer"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
+    prompt: "Cut power to every server of {{._HC_STACK}} without a clean shutdown? etcd may need to recover."
+    cmds:
+      # The plug. etcd's write-ahead log is cut mid-write and the node
+      # recovers on next boot rather than starting clean, so this is the right
+      # command only when talosctl cannot reach the node — otherwise
+      # `task cluster:stop` is.
+      - cmd: |
+          set -euo pipefail
+          export {{._HC_TOKEN}}
+
+          servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
+          test -n "$servers"
+
+          for server in $servers; do
+            hcloud server poweroff "$server"
+          done
+
+          echo
+          echo "power cut. back up with: task hcloud:poweron stack={{._HC_STACK}}"
+
+  reset:
+    desc: "Hard reset — a power cut and a start in one, for an unresponsive node"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
+    prompt: "Hard reset every server of {{._HC_STACK}}? No clean shutdown, so etcd may need to recover."
+    cmds:
+      # `cluster:reboot` is the graceful one and does not need this file at
+      # all. This is for the node that has stopped answering, where the
+      # alternative is poweroff followed by poweron.
+      - cmd: |
+          set -euo pipefail
+          export {{._HC_TOKEN}}
+
+          servers="$(hcloud server list -l "{{._HC_SELECTOR}}" -o noheader -o columns=name)"
+          test -n "$servers"
+
+          for server in $servers; do
+            hcloud server reset "$server"
+          done
