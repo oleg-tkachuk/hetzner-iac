@@ -1,9 +1,12 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractTag(t *testing.T) {
@@ -73,6 +76,10 @@ func TestIsTopologyFile(t *testing.T) {
 		"cluster.prod.yml":      false,
 		"cluster.prod.old.yaml": false,
 		"Pulumi.yaml":           false,
+		// The committed template counts, so cluster:config-check validates
+		// it against talosctl too — a broken example is found here rather
+		// than by whoever copies it.
+		"cluster.example.yaml": true,
 	} {
 		assert.Equal(t, want, isTopologyFile(name), name)
 	}
@@ -84,4 +91,60 @@ func TestIndent(t *testing.T) {
 	// Talos error output is multi-line; indenting it keeps the tool's own
 	// message distinguishable from what Talos said.
 	assert.Equal(t, "      one\n      two", indent("one\ntwo\n"))
+}
+
+func TestTopologyFiles_ListsOnlyStackTopologies(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	for _, name := range []string{
+		"cluster.dev.yaml",
+		"cluster.prod.yaml",
+		"Pulumi.yaml",
+		"main.go",
+		"cluster.dev.yaml.bak",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600))
+	}
+
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "cluster.nested.yaml"), 0o750))
+
+	paths, err := topologyFiles(dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		filepath.Join(dir, "cluster.dev.yaml"),
+		filepath.Join(dir, "cluster.prod.yaml"),
+	}, paths, "a directory named like a topology is not one")
+
+	// Sorted, because os.ReadDir sorts: the order stacks are validated in is
+	// the order they are reported in, and a set would make the output move
+	// between runs.
+	assert.IsNonDecreasing(t, paths)
+}
+
+func TestTopologyFiles_RefusesADirectoryWithNoStacks(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("x"), 0o600))
+
+	_, err := topologyFiles(dir)
+
+	// Zero files checked must not read as a clean validation: running this
+	// from the repository root would otherwise report success.
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no cluster.<stack>.yaml files")
+}
+
+func TestTopologyFiles_NamesADirectoryItCannotRead(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), "nowhere")
+
+	_, err := topologyFiles(missing)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), missing)
 }
