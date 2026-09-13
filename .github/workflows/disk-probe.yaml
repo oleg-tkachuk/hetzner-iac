@@ -26,9 +26,9 @@ jobs:
       - name: Baseline, before anything
         run: |
           set -euo pipefail
-          printf '%s\n' "=== baseline ==="
+          avail=$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)
+          printf '| baseline | %s MB |\n' "$avail" | tee -a "$GITHUB_STEP_SUMMARY"
           df -h /
-          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -47,8 +47,8 @@ jobs:
       - name: After the toolchain
         run: |
           set -euo pipefail
-          printf '%s\n' "=== after toolchain ==="
-          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
+          avail=$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)
+          printf '| after toolchain | %s MB |\n' "$avail" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The same reader the composite action uses, with the same key.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -66,9 +66,9 @@ jobs:
           BUILD: ${{ steps.go-paths.outputs.build }}
         run: |
           set -euo pipefail
-          printf '%s\n' "=== after cache restore ==="
-          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
-          du -sm "$MOD" "$BUILD" 2>/dev/null || true
+          avail=$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)
+          printf '| after cache restore | %s MB |\n' "$avail" | tee -a "$GITHUB_STEP_SUMMARY"
+          du -sm "$MOD" "$BUILD" 2>/dev/null | awk '{printf "| %s | %s MB |\n", $2, $1}' | tee -a "$GITHUB_STEP_SUMMARY" || true
 
       # The work a reader job actually does, each followed by the space left.
       # `go build` first because it is what fills $WORK, which is where the
@@ -77,8 +77,8 @@ jobs:
         run: |
           set -euo pipefail
           go build -o bin/ ./...
-          printf '%s\n' "=== after go build ==="
-          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
+          avail=$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)
+          printf '| after go build | %s MB |\n' "$avail" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: go test, then space
         env:
@@ -86,14 +86,14 @@ jobs:
         run: |
           set -euo pipefail
           go test -count=1 ./... >/dev/null
-          printf '%s\n' "=== after go test ==="
-          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
-          du -sm "$BUILD" 2>/dev/null || true
+          avail=$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)
+          printf '| after go test | %s MB |\n' "$avail" | tee -a "$GITHUB_STEP_SUMMARY"
+          du -sm "$BUILD" 2>/dev/null | awk '{printf "| build cache after test | %s MB |\n", $1}' | tee -a "$GITHUB_STEP_SUMMARY" || true
 
       - name: e2e type-check, then space
         run: |
           set -euo pipefail
           go vet -tags e2e ./test/...
-          printf '%s\n' "=== after e2e vet ==="
+          avail=$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)
+          printf '| after e2e vet | %s MB |\n' "$avail" | tee -a "$GITHUB_STEP_SUMMARY"
           df -h /
-          df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb
