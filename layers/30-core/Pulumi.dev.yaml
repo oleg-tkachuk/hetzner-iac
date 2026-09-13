@@ -1,2 +1,0 @@
-config:
-  core:clusterStackRef: oleg-tkachuk/hetzner-cluster/dev

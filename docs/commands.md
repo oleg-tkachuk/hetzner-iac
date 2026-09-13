@@ -25,7 +25,7 @@ a typo is caught before anything runs:
 
     $ task platform:plan stack=dev layer=30-cor
     task: ... layer has an invalid value : '30-cor'
-      (allowed values : [10-node-platform 20-network-policy 30-core 40-ingress 50-gitops])
+      (allowed values : [10-node-platform 20-network-policy 30-cluster-services 40-ingress 50-gitops])
 
 `task platform:init` needs `ref=`.
 

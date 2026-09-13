@@ -31,7 +31,7 @@ The stack files themselves are **not** committed, for that one field.
 | `<layer>:clusterStackRef` | every [layer](../layers) | `<org>/hetzner-cluster/<stack>` |
 | `node-platform:hcloudToken` | [`10-node-platform`](../layers/10-node-platform) | optional; overrides the token the cluster stack exports (secret) |
 | `network-policy:enabled` | [`20-network-policy`](../layers/20-network-policy) | create the policies; `false` by default, see [design.md](design.md#the-default-deny-is-opt-in) |
-| `core:acmeEmail` | [`30-core`](../layers/30-core) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
+| `cluster-services:acmeEmail` | [`30-cluster-services`](../layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | [`40-ingress`](../layers/40-ingress) | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | [`50-gitops`](../layers/50-gitops) | publishes Argo CD through ingress; omit it and there is no Ingress |
 

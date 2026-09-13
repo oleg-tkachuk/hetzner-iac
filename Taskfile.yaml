@@ -43,15 +43,16 @@ vars:
   # lives: platform:apply-all walks it, and CI derives its preview matrix from
   # `task platform:layers`. A hand-maintained second copy is how a matrix ends
   # up previewing directories that no longer exist.
-  # The CNI comes before the cloud controller manager, and the reason is a
-  # deadlock rather than a preference. A CNI-less node carries
-  # The order layers are applied in. Only 30-core onwards is a preference;
-  # everything 10-node-platform needs to do in sequence is a DependsOn inside
-  # that one stack, where the engine enforces it.
+  #
+  # Only 30-cluster-services onwards is a preference. What comes before it is
+  # not: a CNI-less node stays NotReady, so the cloud controller manager
+  # cannot be scheduled to clear the taint that would make it Ready. That
+  # ordering is a DependsOn inside 10-node-platform, where the engine enforces
+  # it — this list only says which stack runs first.
   LAYERS: >-
     10-node-platform
     20-network-policy
-    30-core
+    30-cluster-services
     40-ingress
     50-gitops
 

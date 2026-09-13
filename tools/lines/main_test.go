@@ -147,10 +147,10 @@ func TestReverseWords_LastFirst(t *testing.T) {
 	// The layer list arrives as one space-separated string from the Taskfile,
 	// so tokens rather than lines: piping it through `tr` first would be the
 	// pipeline this op exists to remove.
-	out, code := run(t, "reverse-words", "10-node-platform 30-core 40-ingress")
+	out, code := run(t, "reverse-words", "10-node-platform 30-cluster-services 40-ingress")
 
 	assert.Equal(t, 0, code)
-	assert.Equal(t, "40-ingress\n30-core\n10-node-platform", strings.TrimSpace(out))
+	assert.Equal(t, "40-ingress\n30-cluster-services\n10-node-platform", strings.TrimSpace(out))
 }
 
 func TestReverseWords_TakesSeveralLinesToo(t *testing.T) {
