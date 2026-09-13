@@ -29,8 +29,6 @@ BEGIN {
     }
 
     known["avail-mb"] = 1
-    known["count-rows"] = 1
-    known["any-row"] = 1
     known["cache-writers"] = 1
     known["reverse-words"] = 1
     known["staged-binaries"] = 1
@@ -112,19 +110,6 @@ op == "avail-mb" && NR > 1 {
     exit
 }
 
-# count-rows: how many non-blank lines arrived.
-#
-# Replaces `grep -c .`, which exits 1 when the answer is zero and so needs a
-# `|| true` under `set -e`. Zero is an answer here, not a failure.
-op == "count-rows" && NF > 0 { rows++ }
-
-# any-row: exit 0 if at least one non-blank line arrived, 1 if none.
-#
-# Replaces `grep -q .` with the same contract and without the exit-code
-# surprise: grep's 1 means "no match", which is indistinguishable from an
-# error when a pipeline swallows stderr.
-op == "any-row" && NF > 0 { rows++ }
-
 # cache-writers: the workflow lines that can make a job write the shared Go
 # cache, with the file and line number.
 #
@@ -146,15 +131,10 @@ END {
         exit 0
     }
 
-    if (op == "count-rows" || op == "cache-writers") {
-        if (op == "count-rows") print rows + 0
-        else print "count=" rows + 0
+    if (op == "cache-writers") {
+        print "count=" rows + 0
 
         exit 0
-    }
-
-    if (op == "any-row") {
-        exit rows > 0 ? 0 : 1
     }
 
     if (op == "staged-binaries") {
