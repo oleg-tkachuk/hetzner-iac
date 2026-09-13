@@ -89,8 +89,8 @@ var Components = layer.Components{
 		Chart:   "hcloud-ccm",
 		Release: "hcloud-cloud-controller-manager",
 		After:   []string{CNIComponent, CredentialsSecret},
-		ValuesYAML: func(r *layer.Runner) pulumi.AssetOrArchiveArrayInput {
-			return values.Asset("hcloud-ccm", CCMData(r.Cluster.PodCIDR))
+		ValuesYAML: func(r *layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
+			return values.Asset("hcloud-ccm", CCMData(r.Cluster.PodCIDR)), nil
 		},
 	},
 	{

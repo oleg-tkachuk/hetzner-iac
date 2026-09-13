@@ -1,6 +1,7 @@
 package layer_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
@@ -163,10 +164,10 @@ func TestDeploy_HandsTheRenderedValuesToTheRelease(t *testing.T) {
 		_, err := runner.Deploy(layer.Components{
 			{
 				Chart: "cilium",
-				ValuesYAML: func(*layer.Runner) pulumi.AssetOrArchiveArrayInput {
+				ValuesYAML: func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
 					return pulumi.AssetOrArchiveArray{
 						pulumi.NewStringAsset("kubeProxyReplacement: true\n"),
-					}
+					}, nil
 				},
 			},
 		})
@@ -182,4 +183,27 @@ func TestDeploy_HandsTheRenderedValuesToTheRelease(t *testing.T) {
 	// its defaults with nothing said.
 	assert.True(t, releases[0]["valueYamlFiles"].HasValue(),
 		"the rendered values never reached the release")
+}
+
+func TestDeploy_AFailedRenderStopsTheRun(t *testing.T) {
+	// It used to log a warning and return nil, which installed the chart on
+	// its own defaults — the outcome the templates exist to prevent.
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	err := run(t, newMocks(), func(runner *layer.Runner) error {
+		_, err := runner.Deploy(layer.Components{
+			{
+				Chart: "cilium",
+				ValuesYAML: func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
+					return nil, errors.New("no such field in the data")
+				},
+			},
+		})
+
+		return err
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "values for cilium")
+	assert.Contains(t, err.Error(), "no such field")
 }
