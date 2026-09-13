@@ -24,6 +24,7 @@ bin/
 /orphans
 /stack
 /talos
+/token
 /topology
 /[0-9][0-9]-*
 
