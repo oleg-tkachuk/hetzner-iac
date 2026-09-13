@@ -251,6 +251,7 @@ tasks:
         msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
+          set -euo pipefail
           cd "{{._CL_DIR}}"
           pulumi --non-interactive --stack "{{._CL_STACK}}" stack output
 
