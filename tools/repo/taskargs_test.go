@@ -291,3 +291,84 @@ func TestTasks_ThatChangeInfrastructureAskFirst(t *testing.T) {
 	assert.GreaterOrEqual(t, checked, 5,
 		"fewer applying or destroying tasks found than exist; the pattern has drifted")
 }
+
+// documentedTask matches a task named in prose or a table: `task cluster:plan`.
+var documentedTask = regexp.MustCompile("`task ([a-z][a-z0-9:_-]*)")
+
+// declaredTask matches a task declaration inside a taskfile.
+var declaredTask = regexp.MustCompile(`(?m)^  ([a-z][a-z0-9:_-]*):\s*$`)
+
+// TestDocs_NameOnlyTasksThatExist guards the one documentation error that
+// wastes an operator's time rather than merely misleading them: a command
+// they copy, paste and watch fail.
+//
+// It is not hypothetical. Renaming a task is a two-file edit that looks like
+// one, and this repository has renamed several — cluster:power-status became
+// hcloud:servers in the same change that moved it. Nothing else compares the
+// two sides.
+//
+// Included tasks come from the shared library and are not declared here, so
+// their names are checked against `task --list` being available rather than
+// against a file. Anything namespaced by an include that this repository does
+// not declare is skipped: the alternative is running Task from a test.
+func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	declared := map[string]bool{}
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		namespace := ""
+		if base := filepath.Base(path); base != "Taskfile.yaml" {
+			namespace = strings.TrimSuffix(base, ".task.yaml") + ":"
+		}
+
+		for _, found := range declaredTask.FindAllStringSubmatch(string(raw), -1) {
+			declared[namespace+found[1]] = true
+		}
+	}
+
+	require.NotEmpty(t, declared, "no tasks found to compare against")
+
+	docs, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
+	require.NoError(t, err)
+
+	var checked int
+
+	for _, path := range append(docs, filepath.Join(root, "README.md")) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for _, found := range documentedTask.FindAllStringSubmatch(string(raw), -1) {
+			name := found[1]
+
+			// A namespace this repository does not own belongs to the shared
+			// library, whose tasks are not in any file here.
+			if namespace, _, found := strings.Cut(name, ":"); found && !ownsNamespace(declared, namespace) {
+				continue
+			}
+
+			checked++
+
+			assert.True(t, declared[name],
+				"%s names `task %s`, which no taskfile declares", filepath.Base(path), name)
+		}
+	}
+
+	assert.Positive(t, checked, "no documented task names found; the pattern has drifted")
+}
+
+// ownsNamespace reports whether this repository declares any task in it.
+func ownsNamespace(declared map[string]bool, namespace string) bool {
+	for name := range declared {
+		if strings.HasPrefix(name, namespace+":") {
+			return true
+		}
+	}
+
+	return false
+}
