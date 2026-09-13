@@ -39,12 +39,12 @@ version here carries a known vulnerability, that *is* in scope — say which pin
 Two things look like findings and are not, so a report about them will be
 closed:
 
-**The committed `secure:` ciphertext in `Pulumi.<stack>.yaml`.** Stack secrets
-are encrypted by the Pulumi Cloud backend, which holds the key; the repository
-does not. Committing them is Pulumi's documented model. Note the boundary: on a
-self-managed backend the same field is encrypted with
-`PULUMI_CONFIG_PASSPHRASE`, and *that* ciphertext must never be committed to a
-public repository.
+**The `secure:` ciphertext in `Pulumi.<stack>.yaml`.** Stack secrets are
+encrypted by the Pulumi Cloud backend, which holds the key; the repository does
+not. Those files are gitignored here regardless, because they carry one
+operator's environment. On a self-managed backend the same field is encrypted
+with `PULUMI_CONFIG_PASSPHRASE` instead — that ciphertext must never reach a
+public repository at all.
 
 **The perimeter design.** The firewall opens the Kubernetes and Talos APIs to
 `network.adminCIDRs` and nothing else, and the topology file naming those

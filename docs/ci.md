@@ -85,17 +85,16 @@ adds a caller, both green apart and broken together — so the merged tree is
 compiled and tested once, warm. The other checks stay pull-request-only
 because they read one tree rather than a combination.
 
-Neither the cluster tier nor the e2e suite is previewed in CI, and both
-absences are deliberate:
+Nothing is previewed or applied in CI, and no workflow holds a Pulumi token.
+A public repository that previewed one operator's stacks would need their
+credentials and their stack names in it; the checks here read the tree
+instead.
 
-- the cluster tier needs the gitignored topology file, which a runner does not
-  have;
-- the e2e suite needs to reach the Kubernetes API, which the firewall opens to
-  `network.adminCIDRs` only. GitHub's published runner ranges are 6980 CIDRs
-  of shared Azure that rotate, so allowing them would put everyone able to run
-  a workflow inside the perimeter.
-
-Both are checked by hand: `task cluster:plan` and `task e2e`.
+So drift is checked where the environment is — `task plan` for everything,
+`task cluster:plan` for the cluster tier, `task e2e` against a running
+cluster. The e2e suite could not run in CI regardless: the firewall opens the
+Kubernetes API to `network.adminCIDRs` only, and GitHub's published runner
+ranges are 6980 rotating CIDRs of shared Azure.
 
 ## Why the pipeline is not slow any more
 

@@ -140,7 +140,7 @@ layer deploys:
 | `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | [`50-gitops`](layers/50-gitops) | publishes Argo CD through ingress; omit it and there is no Ingress |
 
-Details, including why the token is committed encrypted and how to keep state
+Details, including where the encrypted token lives and how to keep state
 at Hetzner instead: [configuration.md](docs/configuration.md).
 
 ## Documentation

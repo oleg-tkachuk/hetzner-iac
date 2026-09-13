@@ -31,6 +31,12 @@ bin/
 # Pulumi. The backup files are the CLI's own; .pulumi/ is its local state when
 # a DIY backend is used instead of Pulumi Cloud.
 Pulumi.*.yaml.bak
+
+# Stack files. They hold one operator's environment — the org and stack their
+# layers point at, and the encrypted Hetzner token — so a public repository
+# should not ship them. `task cluster:token` and `task platform:init` write
+# them locally; Pulumi.yaml, the project file, stays tracked.
+Pulumi.*.yaml
 .pulumi/
 
 # Pulumi's go language host compiles each layer to a stable path under here, so
