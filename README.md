@@ -86,9 +86,9 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 | `jq` | two JSON field reads in the status tasks |
 
 On macOS, `brew bundle` installs all of it. Read the `talosctl` note in the
-`Brewfile` first: Homebrew ships a newer minor than the topology pins, and
-`task cluster:config-check` declines a mismatched binary rather than trusting
-it.
+[`Brewfile`](Brewfile) first: Homebrew ships a newer minor than the topology
+pins, and `task cluster:config-check` declines a mismatched binary rather than
+trusting it.
 
 Optional, and only for the tasks that name them: `golangci-lint`, `gitleaks`,
 `gosec`, `trivy`, `lefthook`. Each task says what to install rather than
