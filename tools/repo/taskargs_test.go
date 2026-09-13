@@ -372,3 +372,79 @@ func ownsNamespace(declared map[string]bool, namespace string) bool {
 
 	return false
 }
+
+// glyphVar matches a marker definition in the root taskfile, and goGlyph the
+// matching constant in the logger.
+var (
+	glyphVar = regexp.MustCompile(`(?m)^  _([A-Z]+): '\{\{if \.NO_COLOR\}\}(.)\{\{else\}\}\{\{"\\x1b\[(\d+)m(.)\\x1b\[0m"\}\}`)
+	goGlyph  = regexp.MustCompile(`(?m)^\t(Glyph\w+)\s+= "(.)"`)
+	goColour = regexp.MustCompile(`(?m)^\t(colour\w+)\s+= "\\x1b\[(\d+)m"`)
+)
+
+// TestTaskGlyphs_MatchThePulumiLogger holds the two halves of one vocabulary
+// equal.
+//
+// pkg/pulumilog says its glyphs match the taskfiles "exactly" and that
+// changing one without the other is how two tools stop looking like one — and
+// nothing checked it. A task and the program it runs print into one terminal.
+func TestTaskGlyphs_MatchThePulumiLogger(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	taskfile, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	logger, err := os.ReadFile(filepath.Join(root, "pkg", "pulumilog", "pulumilog.go"))
+	require.NoError(t, err)
+
+	glyphs := map[string]string{}
+	for _, found := range goGlyph.FindAllStringSubmatch(string(logger), -1) {
+		glyphs[found[1]] = found[2]
+	}
+
+	require.NotEmpty(t, glyphs, "no glyph constants in pulumilog")
+
+	colours := map[string]bool{}
+	for _, found := range goColour.FindAllStringSubmatch(string(logger), -1) {
+		colours[found[2]] = true
+	}
+
+	// The taskfile's marker name → the logger's constant. ERR has no pair:
+	// a layer reports failure by returning an error, which Pulumi formats
+	// itself, so pulumilog deliberately has no error glyph.
+	for marker, constant := range map[string]string{
+		"RUN":  "GlyphRunning",
+		"OK":   "GlyphOK",
+		"SKIP": "GlyphSkipped",
+		"WARN": "GlyphWarning",
+	} {
+		glyph, colour := glyphOf(t, string(taskfile), marker)
+
+		assert.Equal(t, glyphs[constant], glyph,
+			"_%s in the taskfile and %s in pulumilog are different glyphs", marker, constant)
+		assert.True(t, colours[colour],
+			"_%s is coloured \\x1b[%sm in the taskfile, which pulumilog does not use", marker, colour)
+	}
+}
+
+// glyphOf returns one marker's glyph and its ANSI colour code, and fails if
+// the plain and coloured halves of the definition disagree.
+func glyphOf(t *testing.T, taskfile, marker string) (glyph, colour string) {
+	t.Helper()
+
+	for _, found := range glyphVar.FindAllStringSubmatch(taskfile, -1) {
+		if found[1] != marker {
+			continue
+		}
+
+		require.Equal(t, found[2], found[4],
+			"_%s prints one glyph without colour and another with it", marker)
+
+		return found[2], found[3]
+	}
+
+	t.Fatalf("no _%s marker in the root taskfile", marker)
+
+	return "", ""
+}

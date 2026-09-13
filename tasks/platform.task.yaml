@@ -38,7 +38,7 @@ tasks:
       - cmd: |
           set -euo pipefail
           for layer in {{._PL_LAYERS}}; do
-            echo "══ preview ${layer}"
+            echo "{{._RUN}} platform · ${layer} · preview"
             ( cd "{{.ROOT}}/layers/${layer}" && \
               pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff )
           done
@@ -58,7 +58,7 @@ tasks:
           # nothing schedules before the CCM clears the uninitialized taint,
           # and nothing networks before the CNI.
           for layer in {{._PL_LAYERS}}; do
-            echo "══ apply ${layer}"
+            echo "{{._RUN}} platform · ${layer} · apply"
             ( cd "{{.ROOT}}/layers/${layer}" && \
               pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes )
           done
@@ -80,7 +80,7 @@ tasks:
           # existed only because neither is portable. awk is.
           for layer in $(awk -f "{{.ROOT}}/tools/lines/main.awk" -v op=reverse-words \
                          <<<"{{._PL_LAYERS}}"); do
-            echo "══ destroy ${layer}"
+            echo "{{._RUN}} platform · ${layer} · destroy"
             ( cd "{{.ROOT}}/layers/${layer}" && \
               pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes )
           done
@@ -105,7 +105,7 @@ tasks:
       - cmd: |
           set -euo pipefail
 
-          echo "stack {{._PL_STACK}} → cluster {{.ref}}"
+          echo "{{._RUN}} platform · init · stack {{._PL_STACK}} → cluster {{.ref}}"
           echo
           printf '{{._PL_ROW}}\n' LAYER STACK "CLUSTER REF"
 
@@ -139,7 +139,7 @@ tasks:
           done
 
           echo
-          echo "next: task platform:plan-all stack={{._PL_STACK}}"
+          echo "{{._OK}} platform · init · next: task platform:plan-all stack={{._PL_STACK}}"
 
   plan:
     desc: "Preview one layer — task platform:plan stack=dev layer=10-node-platform"

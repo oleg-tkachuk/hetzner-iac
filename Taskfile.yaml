@@ -39,6 +39,19 @@ vars:
 
     Every layer reads the kubeconfig through it; `pulumi whoami` gives the org.
 
+  # Status markers, the same vocabulary pkg/pulumilog prints from Go and the
+  # shared library prints from shell. The shape carries the meaning, so a line
+  # still reads in a monochrome log; the colour drops out under NO_COLOR.
+  #
+  # Held equal to pkg/pulumilog's constants by
+  # TestTaskGlyphs_MatchThePulumiLogger — two vocabularies in one terminal
+  # session is what this replaces.
+  _RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
+  _OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
+  _SKIP: '{{if .NO_COLOR}}○{{else}}{{"\x1b[90m○\x1b[0m"}}{{end}}'
+  _WARN: '{{if .NO_COLOR}}▲{{else}}{{"\x1b[33m▲\x1b[0m"}}{{end}}'
+  _ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+
   # The layers, in dependency order. This list is the only place the order
   # lives: platform:apply-all walks it, and CI derives its preview matrix from
   # `task platform:layers`. A hand-maintained second copy is how a matrix ends
@@ -171,7 +184,7 @@ tasks:
       # layers/ and infra/ directory names — which is how a 52 MB layer binary
       # came to be committed once, and how two more reached the tree since.
       - go build -o {{.ROOT}}/bin/ ./...
-      - cmd: 'echo "built into bin/ — $(ls {{.ROOT}}/bin | wc -l | tr -d " ") programs"'
+      - cmd: 'echo "{{._OK}} hetzner-iac · build · $(ls {{.ROOT}}/bin | wc -l | tr -d " ") programs into bin/"'
         silent: true
 
   verify:
@@ -239,7 +252,7 @@ tasks:
       - cmd: |
           set -euo pipefail
           [ -f "{{.ROOT}}/kubeconfig" ] || {
-            echo "no ./kubeconfig — run: task cluster:kubeconfig stack=<name>" >&2
+            echo "{{._ERR}} hetzner-iac · e2e · no ./kubeconfig — run: task cluster:kubeconfig stack=<name>" >&2
             exit 1
           }
           # The suite verifies the cluster this repository built, so it runs

@@ -163,35 +163,32 @@ pinned Talos minor, and a running Docker.
 
 ## What a run prints
 
-Every layer logs through [pkg/pulumilog](../pkg/pulumilog), which borrows its
-vocabulary from the [taskfiles](https://github.com/oleg-tkachuk/taskfiles)
-repository so that `task` and `pulumi up` read as one tool:
+One vocabulary, printed from two places: [pkg/pulumilog](../pkg/pulumilog) in
+the layers and the taskfiles' own lines, both borrowed from the
+[taskfiles](https://github.com/oleg-tkachuk/taskfiles) library so that `task`
+and `pulumi up` read as one tool.
 
-| glyph | means | survives the run |
-|-------|-------|------------------|
+| glyph | means | survives a pulumi run |
+|-------|-------|-----------------------|
 | `◉` | work starting | no |
 | `✔` | work finished | no |
 | `○` | deliberately not done | **yes** |
 | `▲` | configured, and will not do what it looks like | **yes** |
+| `✖` | failed — tasks only | — |
 
-The last two are the point. A layer that installs cert-manager and no
-ClusterIssuer is the most confusing thing this repository can do — so those
-lines go to Pulumi's permanent diagnostics and are still on screen when the
-run ends. Progress lines are ephemeral, or the summary is one line per release
-and nobody reads it.
+The line is `<glyph> <scope> · <area> · <what happened>`, with `→` for "became"
+or "went to". `✖` has no Go counterpart on purpose: a layer reports failure by
+returning an error, which Pulumi formats itself.
 
-The loudest of them today is Alertmanager. The chart's default route ends at a
-receiver named `null`, so alerts are grouped, inhibited and then dropped:
-Prometheus stores metrics, rules evaluate, alerts fire, and they reach nobody.
-Every apply says so until a receiver exists.
+The last two glyphs are the point. A layer that installs cert-manager and no
+ClusterIssuer is the most confusing thing this repository can do, so those
+lines go to Pulumi's permanent diagnostics and are still on screen when the run
+ends. Progress lines are ephemeral, or the summary is one line per release and
+nobody reads it.
 
-What is *not* wrong, checked rather than assumed: the four scrape targets
-Talos does not expose are disabled, and the chart removes their alert rules
-along with them. Rendering with and without proves it — `KubeSchedulerDown`,
-`KubeControllerManagerDown`, `KubeProxyDown` and `etcdMembersDown` are in the
-chart's default output and absent from ours, and `absent()` drops from five
-expressions to one (the API server, which should keep it). There are no
-permanently firing alerts to silence.
+`TestTaskGlyphs_MatchThePulumiLogger` holds the two halves equal. The Go side
+had said its glyphs match the taskfiles "exactly" since it was written, and
+nothing checked it.
 
 `NO_COLOR` drops the escape codes and keeps the glyphs. A TTY check would be
 wrong rather than merely unhelpful: a Pulumi program's output is captured by
