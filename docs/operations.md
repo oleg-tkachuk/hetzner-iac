@@ -89,6 +89,7 @@ so "nothing to report" cannot read the same as "nothing was read".
 | `task cluster:upgrade-talos` | upgrade Talos, one node at a time; asks first |
 | `task cluster:upgrade-k8s` | upgrade Kubernetes in place; asks first |
 | `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
+| `task cluster:secrets-export` | print the Talos secrets bundle, to pipe into a password store |
 
 Both upgrades are Talos operations and both ask before they start. The Talos
 version comes from the topology, not the task: bump `talos.version`, run
@@ -96,8 +97,28 @@ version comes from the topology, not the task: bump `talos.version`, run
 version label, so a bump without a bake fails at plan time rather than
 halfway.
 
-The etcd snapshot writes to the operator's machine, on no schedule, with no
-copy anywhere else. That is a gap, not a design.
+### The two halves of a backup
+
+An etcd snapshot on its own restores nothing. `talosctl` accepts one only
+against the same cluster secrets, and the `secrets` resource inside it is
+ciphertext under the secretbox key that lives in those secrets. The bundle is
+not an accessory to the snapshot; it is what makes the snapshot mean anything.
+
+The bundle exists in exactly one place — Pulumi's state — where `Protect`
+stops a destroy from taking it. That is not a second copy, and losing access
+to the state backend loses the cluster's root of trust with it.
+
+    task cluster:secrets-export stack=dev | pass insert -m hetzner/dev/talos-secrets
+
+It prints to stdout and nothing else, and refuses a terminal: the one thing
+worse than having no copy of a certificate authority is having one in
+scrollback. Store it where the Hetzner token already lives.
+
+Re-export it only if the bundle is ever regenerated, which nothing but
+`task cluster:destroy-secrets` does.
+
+The etcd snapshot still writes to the operator's machine, on no schedule, with
+no copy anywhere else. That half is a gap, not a design.
 
 ## Reaching the cluster with a plain kubectl
 

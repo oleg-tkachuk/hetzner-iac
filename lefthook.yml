@@ -60,6 +60,25 @@ pre-commit:
             echo "ERROR: $f looks like a talosconfig — it can reset nodes and read etcd" >&2
             exit 1
           fi
+          # The Talos secrets bundle, which cluster:secrets-export produces
+          # and which the two patterns above do not match — measured, and so
+          # does gitleaks, which finds nothing in one. It is the cluster's
+          # root of trust: every certificate descends from it, and the
+          # secretbox key decrypts every Secret in an etcd snapshot.
+          #
+          # The secretbox key is the signal because it also appears in a raw
+          # machine configuration, which is equally unfit to commit. No
+          # tracked file carries either string.
+          #
+          # The bracketed letter is deliberate and must stay: without it this
+          # file matches its own pattern and refuses every commit that
+          # touches it. The same trick as `ps | grep '[s]shd'`. It changes
+          # nothing about what is matched in any other file.
+          if grep -q 'secretbox[E]ncryptionSecret' "$f" 2>/dev/null \
+             || grep -q '"machine[S]ecrets"' "$f" 2>/dev/null; then
+            echo "ERROR: $f carries Talos cluster secrets — every certificate in the cluster descends from them" >&2
+            exit 1
+          fi
         done
 
     # Compiled artefacts bloat every clone forever and no review can read them.

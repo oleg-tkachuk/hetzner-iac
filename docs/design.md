@@ -22,6 +22,7 @@ flowchart TB
     classDef talos fill:#fff0e0,stroke:#ff7300,stroke-width:1px,color:#1f2328
     classDef kube fill:#e7effc,stroke:#326ce5,stroke-width:1px,color:#1f2328
     classDef derived fill:#f6f8fa,stroke:#8c959f,stroke-width:1px,stroke-dasharray:4 3,color:#1f2328
+    classDef state fill:#f6ecf7,stroke:#8a3391,stroke-width:2px,color:#1f2328
 
     subgraph hetzner["☁️ Hetzner Cloud project — infra/cluster is the only thing that writes here"]
         direction TB
@@ -55,6 +56,9 @@ flowchart TB
         argons["argocd<br/>layers/50-gitops"]
     end
 
+    trust[("Pulumi state<br/>the cluster CA lives only here")]
+
+    trust -.->|"every certificate descends from it"| talos
     servers ==> talos
     talos ==> k8s
     ks -.->|"the CCM asks for it"| inglb
@@ -63,6 +67,7 @@ flowchart TB
     class apilb,inglb derived
     class etcd,api talos
     class ks,pol,cmns,tns,argons kube
+    class trust state
 
     style hetzner fill:#fffafb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
     style servers fill:#fde8eb,stroke:#d50c2d,stroke-dasharray:3 3,color:#1f2328
@@ -74,6 +79,13 @@ The ingress load balancer is the one resource that crosses the seam, and it
 crosses from the wrong side on purpose: a layer asks Kubernetes for a Service,
 and the cloud controller manager turns that into a Hetzner resource. No layer
 holds a Hetzner credential to do it with.
+
+The box outside all three is the one worth staring at. Every certificate in
+the cluster descends from a secrets bundle that exists only in Pulumi's state:
+`Protect` stops a destroy from taking it, which is not the same as a second
+copy existing anywhere. It is also what makes an etcd snapshot restorable at
+all, so `task cluster:secrets-export` writes it somewhere else — see
+[operations.md](operations.md#the-two-halves-of-a-backup).
 
 ## Each layer is its own Pulumi project
 
