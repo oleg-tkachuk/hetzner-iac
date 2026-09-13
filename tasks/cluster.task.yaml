@@ -510,6 +510,18 @@ tasks:
   # Upgrades and backups
   # ---------------------------------------------------------------------------
 
+  secrets-export:
+    desc: "Print the cluster's Talos secrets bundle — pipe it into a password store. Without it an etcd snapshot restores nothing."
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    cmds:
+      # No prompt, and no `set -euo pipefail` wrapper: the tool writes to
+      # stdout and nothing else, so the caller's pipe is the whole interface.
+      # It refuses a terminal on its own and names the pipe to use — a
+      # certificate authority in scrollback outlives the session.
+      - cmd: go run {{.ROOT}}/tools/secrets "{{._CL_STACK}}"
+
   etcd-snapshot:
     desc: "Take an etcd snapshot into .backups/"
     deps: [talosconfig]
