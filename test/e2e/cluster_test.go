@@ -96,9 +96,9 @@ func TestClusterFoundation(t *testing.T) {
 	storageClassPresent := features.New("the CSI driver registered its storage class").
 		WithLabel("layer", "10-node-platform").
 		Assess("hcloud-volumes exists", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			// Every persistent component in the observability layer requests
-			// this class by name. Without it they stay Pending forever, which
-			// reads as a Prometheus problem rather than a CSI one.
+			// Every persistent workload in the cluster asks for this class by
+			// name. Without it a claim stays Pending for ever, which reads as
+			// a problem with whatever asked rather than with the CSI driver.
 			classes := &storagev1.StorageClassList{}
 			if err := cfg.Client().Resources().List(ctx, classes); err != nil {
 				t.Fatalf("list storage classes: %v", err)

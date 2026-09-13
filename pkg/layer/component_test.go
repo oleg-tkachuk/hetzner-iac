@@ -21,16 +21,16 @@ func chartKeys(components layer.Components) []string {
 func TestOrder_PutsDependenciesFirst(t *testing.T) {
 	t.Parallel()
 
-	// The shape 60-observability has: three components behind one.
+	// The shape 10-node-platform has: three components behind the CNI.
 	ordered, err := layer.OrderForTest(layer.Components{
-		{Chart: "loki", After: []string{"kube-prometheus-stack"}},
-		{Chart: "alloy", After: []string{"kube-prometheus-stack"}},
-		{Chart: "kube-prometheus-stack"},
-		{Chart: "tempo", After: []string{"kube-prometheus-stack"}},
+		{Chart: "hcloud-csi", After: []string{"cilium"}},
+		{Chart: "hcloud-ccm", After: []string{"cilium"}},
+		{Chart: "cilium"},
+		{Chart: "metrics-server", After: []string{"cilium"}},
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"kube-prometheus-stack", "alloy", "loki", "tempo"}, chartKeys(ordered),
+	assert.Equal(t, []string{"cilium", "hcloud-ccm", "hcloud-csi", "metrics-server"}, chartKeys(ordered),
 		"the dependency first, then the rest by chart key")
 }
 
@@ -41,19 +41,19 @@ func TestOrder_IsDeterministic(t *testing.T) {
 	// map would produce a different sequence per run — and every preview would
 	// show a diff that means nothing. Ties break by chart key.
 	first, err := layer.OrderForTest(layer.Components{
-		{Chart: "tempo"}, {Chart: "alloy"}, {Chart: "loki"},
+		{Chart: "metrics-server"}, {Chart: "hcloud-ccm"}, {Chart: "hcloud-csi"},
 	})
 	require.NoError(t, err)
 
 	for range 20 {
 		again, againErr := layer.OrderForTest(layer.Components{
-			{Chart: "tempo"}, {Chart: "alloy"}, {Chart: "loki"},
+			{Chart: "metrics-server"}, {Chart: "hcloud-ccm"}, {Chart: "hcloud-csi"},
 		})
 		require.NoError(t, againErr)
 		require.Equal(t, chartKeys(first), chartKeys(again))
 	}
 
-	assert.Equal(t, []string{"alloy", "loki", "tempo"}, chartKeys(first))
+	assert.Equal(t, []string{"hcloud-ccm", "hcloud-csi", "metrics-server"}, chartKeys(first))
 }
 
 func TestOrder_RefusesACycle(t *testing.T) {
@@ -62,8 +62,8 @@ func TestOrder_RefusesACycle(t *testing.T) {
 	// A cycle cannot be deployed in any order, and left to Pulumi it surfaces
 	// as a resource graph error naming URNs rather than charts.
 	_, err := layer.OrderForTest(layer.Components{
-		{Chart: "loki", After: []string{"tempo"}},
-		{Chart: "tempo", After: []string{"loki"}},
+		{Chart: "hcloud-ccm", After: []string{"hcloud-csi"}},
+		{Chart: "hcloud-csi", After: []string{"hcloud-ccm"}},
 	})
 
 	require.Error(t, err)
@@ -77,7 +77,7 @@ func TestOrder_RefusesADependencyOutsideTheSet(t *testing.T) {
 	// created with no dependency at all, which is exactly the race the After
 	// field exists to remove.
 	_, err := layer.OrderForTest(layer.Components{
-		{Chart: "loki", After: []string{"kube-prometheus-stack"}},
+		{Chart: "hcloud-csi", After: []string{"cilium"}},
 	})
 
 	require.Error(t, err)
@@ -100,7 +100,7 @@ func TestOrder_RefusesADuplicateChart(t *testing.T) {
 
 	// Two components for one chart would be two Helm releases with the same
 	// name, which Helm rejects halfway through an apply.
-	_, err := layer.OrderForTest(layer.Components{{Chart: "loki"}, {Chart: "loki"}})
+	_, err := layer.OrderForTest(layer.Components{{Chart: "cilium"}, {Chart: "cilium"}})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "twice")
@@ -122,7 +122,7 @@ func TestOrder_RefusesAComponentThatIsBoth(t *testing.T) {
 
 	// A component with both would deploy the chart and silently skip Create.
 	_, err := layer.OrderForTest(layer.Components{{
-		Chart:  "loki",
+		Chart:  "cilium",
 		Create: func(*layer.Runner, []pulumi.Resource) (pulumi.Resource, error) { return nil, nil },
 	}})
 

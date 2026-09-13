@@ -24,7 +24,6 @@ infra/cluster              the only project that talks to the Hetzner API
                             layers/30-core                cert-manager, ESO, metrics-server
                             layers/40-ingress             Traefik      
                             layers/50-gitops              Argo CD
-                            layers/60-observability       Prometheus, Grafana, Loki, Tempo, Alloy
 ```
 
 ## Quick start
@@ -129,8 +128,6 @@ layer deploys:
 | `core:acmeEmail` | `30-core` | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `ingress:loadBalancerType` | `40-ingress` | Hetzner load balancer type, default `lb11` |
 | `gitops:domain` | `50-gitops` | publishes Argo CD through ingress; omit it and there is no Ingress |
-| `observability:metricsRetention` | `60-observability` | default `30d` |
-| `observability:metricsVolumeSize` | `60-observability` | default `50Gi` |
 
 Details, including why the token is committed encrypted and how to keep state
 at Hetzner instead: [docs/configuration.md](docs/configuration.md).

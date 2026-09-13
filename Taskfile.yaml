@@ -54,7 +54,6 @@ vars:
     30-core
     40-ingress
     50-gitops
-    60-observability
 
 includes:
   # `excludes:` genuinely removes a task rather than hiding it, so what is left
@@ -119,7 +118,6 @@ includes:
   cluster: { taskfile: tasks/cluster.task.yaml, dir: . }
   platform: { taskfile: tasks/platform.task.yaml, dir: . }
   charts: { taskfile: tasks/charts.task.yaml, dir: . }
-  observability: { taskfile: tasks/observability.task.yaml, dir: . }
 
 tasks:
   default:
@@ -178,7 +176,6 @@ tasks:
       # Each states what to install if it is missing: a gate that skips itself
       # when a tool is absent is a gate that quietly stops running.
       - task: cluster:config-check
-      - task: observability:check
 
   # Named scan rather than security: `security` is already the include's
   # namespace, and two meanings for one word at the command line is a coin flip.

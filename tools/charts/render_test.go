@@ -99,9 +99,9 @@ func TestParseWorkloads_Empty(t *testing.T) {
 func TestWriteValues(t *testing.T) {
 	t.Parallel()
 
-	// Loki needs a nested schemaConfig the --set form cannot express, so its
-	// file must exist and be non-empty.
-	path, err := writeValues("loki")
+	// Traefik needs a nested proxyProtocol trust list per entry point, which
+	// the --set form cannot express, so its file must exist and be non-empty.
+	path, err := writeValues("traefik")
 	require.NoError(t, err)
 	require.NotEmpty(t, path)
 
@@ -109,8 +109,8 @@ func TestWriteValues(t *testing.T) {
 
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
-	assert.Contains(t, string(content), "SingleBinary")
-	assert.Contains(t, string(content), "schemaConfig")
+	assert.Contains(t, string(content), "proxyProtocol")
+	assert.Contains(t, string(content), "trustedIPs")
 }
 
 func TestWriteValues_NoFileMeansNoOverrides(t *testing.T) {

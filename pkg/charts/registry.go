@@ -25,8 +25,9 @@ type Chart struct {
 	// Repo is the chart repository URL.
 	Repo string
 	// Version is the CHART version, which is not always the application
-	// version — kube-prometheus-stack 90.0.0 ships Prometheus Operator
-	// v0.93.1, and confusing the two produces a chart that does not exist.
+	// version — cilium's chart 1.20.1 happens to match, argo-cd's 10.9.0
+	// ships app v3.5.2, and confusing the two produces a chart that does not
+	// exist.
 	Version string
 	// AppVersion is what the chart deploys, when anything needs to name it
 	// independently — a validation image, say, which must be the version that
@@ -107,37 +108,6 @@ var registry = map[string]Chart{
 		Version:    "10.9.0", // app v3.5.2
 		AppVersion: "v3.5.2",
 		Namespace:  "argocd",
-	},
-
-	// Layer 60 — observability. Metrics, logs and traces, with Alloy as the
-	// collector: Promtail is deprecated upstream and Alloy is its replacement.
-	"kube-prometheus-stack": {
-		Name:       "kube-prometheus-stack",
-		Repo:       "https://prometheus-community.github.io/helm-charts",
-		Version:    "90.0.0", // app v0.93.1 (Prometheus Operator)
-		AppVersion: "v0.93.1",
-		Namespace:  "observability",
-	},
-	"loki": {
-		Name:       "loki",
-		Repo:       "https://grafana.github.io/helm-charts",
-		Version:    "7.3.0", // app 3.6.12
-		AppVersion: "3.6.12",
-		Namespace:  "observability",
-	},
-	"tempo": {
-		Name:       "tempo",
-		Repo:       "https://grafana.github.io/helm-charts",
-		Version:    "1.24.4", // app 2.9.0
-		AppVersion: "2.9.0",
-		Namespace:  "observability",
-	},
-	"alloy": {
-		Name:       "alloy",
-		Repo:       "https://grafana.github.io/helm-charts",
-		Version:    "1.12.1", // app v1.19.2
-		AppVersion: "v1.19.2",
-		Namespace:  "observability",
 	},
 }
 

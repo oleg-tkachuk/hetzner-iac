@@ -91,8 +91,28 @@ func TestRendered_SkipsOperatorCreatedWorkloads(t *testing.T) {
 		assert.False(t, w.OperatorCreated, w.Name)
 	}
 
-	assert.Less(t, len(rendered), len(workloads.Expected),
-		"kube-prometheus-stack contributes at least two operator-created workloads")
+	// Counted against the table rather than against a number. This used to
+	// assert `len(rendered) < len(Expected)`, which held because
+	// kube-prometheus-stack contributed two operator-created workloads; with
+	// that chart gone the two lengths are equal and the assertion failed on
+	// correct code.
+	//
+	// Said plainly: no chart pinned today emits a custom resource an operator
+	// turns into a workload, so this cannot currently tell a working filter
+	// from a broken one. Rendered takes no input — it reads the table — so
+	// there is no seam to feed it a synthetic one. The contract is asserted;
+	// the data that would exercise it will come back with the first such
+	// chart.
+	var operatorCreated int
+
+	for _, w := range workloads.Expected {
+		if w.OperatorCreated {
+			operatorCreated++
+		}
+	}
+
+	assert.Len(t, rendered, len(workloads.Expected)-operatorCreated,
+		"Rendered must drop exactly the operator-created workloads")
 
 	names := map[string]bool{}
 	for _, w := range rendered {
@@ -131,7 +151,6 @@ func TestCharts_CoversEveryLayer(t *testing.T) {
 		"hcloud-ccm", "hcloud-csi", "cilium",
 		"cert-manager", "external-secrets", "metrics-server",
 		"traefik", "argo-cd",
-		"kube-prometheus-stack", "loki", "tempo", "alloy",
 	} {
 		assert.NotEmpty(t, workloads.ForChart(chart), "chart %q has no expected workloads", chart)
 	}
