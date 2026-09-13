@@ -3,13 +3,26 @@ description: >
   Removes preinstalled toolchains this repository never uses, to make room for
   a cold Go build.
 
-  A hosted runner starts with about 13.7 GB free. This repository's Go build
-  cache expands to 4.4 GB on its own, the module cache adds 810 MB, and the
-  toolchain and checkout follow — so every job that touches Go is already close
-  to the edge before it does any work of its own.
+  A hosted runner starts with 13.7 GB free, and this repository's cache no
+  longer fits in it. Measured on 2026-09-13, on a reader job with this action
+  deliberately absent:
 
-  It went over the edge twice, in two different jobs and with two different
-  faces:
+    baseline               13 720 MB
+    after the toolchain    13 087 MB
+    cache restore          died, no logs
+
+  Because the restore needs 15.6 GB: the build cache is 14 155 MB and the
+  module cache 1 452 MB. With this action the same job has 35 478 MB before
+  the restore and 19 873 MB after it, and finishes.
+
+  Those numbers used to read 4.4 GB and 810 MB. The build cache has tripled
+  since, which is worth knowing for two reasons: this action is now
+  load-bearing rather than defensive — removing it from a reader breaks the
+  job outright — and the guard below, which wants 20 GB, is 127 MB away from
+  firing on a successful run.
+
+  It first went over the edge twice, in two different jobs and with two
+  different faces:
 
     compile: writing output: write $WORK/b857/_pkg_.a: no space left on device
     failed to download vulnerability DB: write .../trivy.db: no space left on device
