@@ -43,6 +43,27 @@ func TestClusterSelector(t *testing.T) {
 	assert.Equal(t, "cluster=platform-hel", hetzner.ClusterSelector("platform-hel"))
 }
 
+func TestTalosImageSelector(t *testing.T) {
+	t.Parallel()
+
+	// Pinned to the literal, because this is what `cluster:image-bake` stamped
+	// on the snapshot already sitting in the project. Deriving it differently
+	// here would not fail here — it would find no image at plan time, with the
+	// remedy being to re-bake a snapshot that already exists.
+	assert.Equal(t, "os=talos,talos-version=v1.13.10", hetzner.TalosImageSelector("v1.13.10"))
+}
+
+func TestTalosImageSelector_CarriesNoArchitectureTerm(t *testing.T) {
+	t.Parallel()
+
+	// The architecture is a first-class Hetzner field, filtered by both sides
+	// separately. Were it a label term here too, the snapshot would hold the
+	// fact twice and the two copies would be free to disagree.
+	for _, arch := range hetzner.Architectures {
+		assert.NotContains(t, hetzner.TalosImageSelector("v1.13.10"), arch)
+	}
+}
+
 func TestBuildFirewallRules_Baseline(t *testing.T) {
 	t.Parallel()
 
