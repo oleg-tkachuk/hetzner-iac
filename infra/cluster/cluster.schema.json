@@ -124,7 +124,7 @@
             "x86",
             "arm"
           ],
-          "description": "arm selects the CAX server types. Default x86."
+          "description": "x86 or arm. Decides which image the factory builds, which server types can boot it, and what the serverType fields default to. Switching it needs task cluster:image-bake again: a snapshot is one architecture. Default x86, and arm costs more here, not less."
         },
         "imageSelector": {
           "type": "string",
@@ -154,7 +154,7 @@
         },
         "serverType": {
           "type": "string",
-          "description": "hcloud server type. Default cx23."
+          "description": "hcloud server type. Must match talos.architecture or it is refused at plan time. Default follows it: cx23 on x86, cax11 on arm."
         },
         "apiLoadBalancerType": {
           "type": "string",
@@ -183,7 +183,7 @@
           },
           "serverType": {
             "type": "string",
-            "description": "Default cx33."
+            "description": "hcloud server type. Default follows talos.architecture: cx33 on x86, cax21 on arm."
           },
           "labels": {
             "type": "object",
