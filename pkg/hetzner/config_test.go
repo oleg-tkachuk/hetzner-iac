@@ -213,6 +213,29 @@ func TestValidate_Rejects(t *testing.T) {
 			wantMsg: "is not a CIDR",
 		},
 		{
+			// A single label is a hostname. Let's Encrypt refuses an order for
+			// one, and it refuses it after the Ingress is already in place.
+			name:    "domain is a single label",
+			mutate:  func(top *hetzner.Topology) { top.Metadata.Domain = "platform" },
+			wantMsg: "is not a DNS name",
+		},
+		{
+			// The records would be written into a zone that does not serve the
+			// name. Hetzner accepts them and nothing resolves.
+			name: "domain is outside its dns zone",
+			mutate: func(top *hetzner.Topology) {
+				top.Metadata.Domain = "platform.example.com"
+				top.Metadata.DNSZone = "example.net"
+			},
+			wantMsg: "is not inside metadata.dnsZone",
+		},
+		{
+			// A field that does nothing, reading as though DNS is managed.
+			name:    "a dns zone with no domain",
+			mutate:  func(top *hetzner.Topology) { top.Metadata.DNSZone = "example.com" },
+			wantMsg: "there is no record to create",
+		},
+		{
 			name:    "even control plane count",
 			mutate:  func(top *hetzner.Topology) { top.ControlPlane.Count = 2 },
 			wantMsg: "an even count costs more without tolerating more failures",
@@ -330,6 +353,42 @@ func TestValidate_Rejects(t *testing.T) {
 			err := topology.Validate()
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+// TestValidate_AcceptsTheDomainStatesThatAreNormal keeps the rejections above
+// from becoming a requirement.
+//
+// A cluster with no domain is the normal state of a new environment, and a
+// domain whose DNS is hosted somewhere else is a supported arrangement — the
+// records are then somebody else's to write. Neither may be an error.
+func TestValidate_AcceptsTheDomainStatesThatAreNormal(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(*hetzner.Topology){
+		"no domain at all": func(*hetzner.Topology) {},
+		"a domain with its dns hosted elsewhere": func(top *hetzner.Topology) {
+			top.Metadata.Domain = "platform.example.com"
+		},
+		"a domain inside a zone here": func(top *hetzner.Topology) {
+			top.Metadata.Domain = "platform.example.com"
+			top.Metadata.DNSZone = "example.com"
+		},
+		"a domain that is the zone": func(top *hetzner.Topology) {
+			top.Metadata.Domain = "example.com"
+			top.Metadata.DNSZone = "example.com"
+		},
+	}
+
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			topology := mustParse(t, validYAML)
+			mutate(topology)
+
+			assert.NoError(t, topology.Validate())
 		})
 	}
 }
