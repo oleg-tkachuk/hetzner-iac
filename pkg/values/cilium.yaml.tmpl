@@ -96,6 +96,40 @@ securityContext:
       - SYS_ADMIN
       - SYS_RESOURCE
 
+# Resources. Requests are measured, limits are memory-only.
+#
+# Measured on the three-node dev cluster on 2026-09-14 with `kubectl top pods
+# --containers`, highest value across nodes. Requests round those up; memory
+# limits sit several times above, so ordinary operation is never near one and a
+# leak still cannot take a node that also runs etcd and kube-apiserver.
+#
+# NO CPU LIMITS, here or anywhere in this repository. A node has two cores and
+# runs etcd beside these: throttling would cost control-plane latency to bound
+# something requests already bound by scheduling.
+
+# The agent, on every node. 367Mi and 46m measured — the largest chart-managed
+# consumer in the cluster, and the one this policy exists for.
+#
+# The limit is deliberate and has a cost worth knowing: exceed 768Mi and the
+# agent is OOMKilled, which restarts the CNI on that node. Cilium survives an
+# agent restart — the datapath stays in BPF — and the alternative is an agent
+# that grows until it takes etcd with it. 768Mi is 2.1x what it measured.
+resources:
+  requests:
+    cpu: 100m
+    memory: 384Mi
+  limits:
+    memory: 768Mi
+
+# 55Mi and 3m measured, also on every node.
+envoy:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 192Mi
+
 operator:
   # Two replicas so reconciliation of Cilium's own custom resources survives a
   # node failure — but only where two can run: each binds a host port, so on a
@@ -108,6 +142,13 @@ operator:
     # exist, and the layer would fail on a cluster without it.
     serviceMonitor:
       enabled: false
+  # 47Mi and 10m measured.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 192Mi
 
 prometheus:
   enabled: true
@@ -118,8 +159,31 @@ hubble:
   enabled: true
   relay:
     enabled: true
+    # 12Mi and 1m measured.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
   ui:
     enabled: true
+    backend:
+      # 59Mi and 1m measured.
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 192Mi
+    frontend:
+      # 10Mi and 1m measured.
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
   metrics:
     enabled:
       - dns
