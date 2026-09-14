@@ -67,6 +67,20 @@ var tokenShape = regexp.MustCompile(`\b[A-Za-z0-9]{` + strconv.Itoa(hetznerToken
 // This is a backstop, not a licence. The right handling for a value known to
 // be secret is not to log it — a redacted line still says a secret was in
 // scope at that point in the code.
+//
+// # Why the SDK does not already do this
+//
+// Pulumi's secretness lives on Outputs: ToSecret, IsSecret, encryption in
+// state, and `[secret]` in place of a resource property or a stack output.
+// None of it reaches a log message. In sdk/v3@v3.262.0, logState._log makes
+// exactly one transformation to what it was given —
+//
+//	Message: strings.ToValidUTF8(message, "\uFFFD"),
+//
+// — and sends it to the engine, which keeps it in the update's diagnostics.
+// The words redact, mask and scrub appear zero times in go/pulumi/log.go, and
+// so does secret. Resolving a secret Output inside an ApplyT gives a plain
+// string, and nothing downstream knows where it came from.
 func redact(line string) string {
 	for _, r := range redactions {
 		line = r.pattern.ReplaceAllString(line, r.with)
