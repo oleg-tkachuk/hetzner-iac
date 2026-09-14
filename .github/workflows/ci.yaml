@@ -374,11 +374,16 @@ jobs:
     #
     # Measured on exactly such a pull request: `Tests and vet`, which does the
     # same compilation, took 10m52s against its usual 4m, and survived on its
-    # 20-minute bound. gosec died twice on 15 — once after the cache-key bump
-    # and once on the deps update — because it pays 2m08s restoring the cache
-    # and 1m18s on `go install gosec` BEFORE the compilation `Tests and vet`
-    # spends its whole budget on. Locally the work is 1 916 CPU-seconds; four
-    # slower vCPUs is where the minutes come from.
+    # 20-minute bound. `Go lint` took 9m35s on the same 20. gosec died twice on
+    # 15 — once after the cache-key bump and once on the deps update — because
+    # it pays 2m08s restoring the cache and 1m18s on `go install gosec` BEFORE
+    # the compilation those two spend their whole budget on.
+    #
+    # Where the minutes come from: locally the work is 1 916 CPU-seconds. A
+    # standard runner on a PRIVATE repository has TWO cores — four is what a
+    # public one gets — so 1916/2 is 958s, which is the 15m58s that a 15-minute
+    # bound cannot fit. The step below prints the runner's actual cores, so the
+    # next reader measures this instead of looking it up.
     #
     # So this is the same margin `Tests and vet` has, plus that overhead. A
     # tighter bound does not make it faster, it only hides the cause behind
@@ -392,6 +397,15 @@ jobs:
         with:
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # What this job's runtime is a function of, printed once. Both times this
+      # job was killed the log said only "exit status 143" — nothing about
+      # cores, memory, or whether the cache had matched. One second of output
+      # turns the next occurrence into a reading rather than an investigation.
+      - name: Runner size
+        run: |
+          printf 'cores: %s\n' "$(nproc)"
+          printf 'memory: %s\n' "$(free -h | awk '/^Mem:/ {print $2}')"
+
       - run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
       # Suppressions are written as #nosec, which both this and the gosec
       # inside golangci-lint honour — //nolint:gosec would satisfy the lint job
