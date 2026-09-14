@@ -18,20 +18,116 @@ The pieces that make that work, and the reason each one is there:
   nothing, and a pull request made entirely of them produces no release at all
   — silently. CI checks them with the same expression as the local commit-msg
   hook, which is opt-in per clone; the CI check is not.
-- **Release is a job of the CI workflow**, gated by `needs:` on every check.
-  Its steps live in `release.yaml` and CI calls them, which is presentation
-  rather than structure: `workflow_call` runs inside the caller's run, so the
-  gating below is exactly what it was. It used to be a workflow *triggered* on
-  push, running in parallel with the checks — and v1.0.2 was cut from a commit
-  whose CI was failing. The
-  commit-message check is deliberately *not* in that `needs:` list: it only
-  runs on pull requests, and a skipped dependency would skip the release along
-  with it. It is enforced as a required check on the branch instead.
+- **Release is [`release.yaml`](../.github/workflows/release.yaml)**, dispatched
+  by CI once every check on `main` has passed. It has been all three shapes and
+  the history is the argument: as a workflow on `push` it ran in parallel with
+  the checks and v1.0.2 was cut from a commit whose CI was failing; as a
+  `workflow_call` job of CI it could not ship from a red pipeline but could
+  never accumulate a run of its own, because a called workflow executes inside
+  its caller. CI now dispatches it, so the gate stays in `needs:` and the
+  release gets its own run. The commit-message check is not part of that
+  guarantee: it runs only on pull requests, so it is a required check on the
+  branch instead.
 - **`main` requires linear history** and refuses force pushes, so the commit a
   release points at is the commit that was tested.
 
 Release notes are generated from the commit history by semantic-release; there
 is no changelog file to keep in step.
+
+## Why a dependency update is the slow case
+
+No job writes a build cache on a pull request — `prime` is push-only, because a
+cache written on a pull request is scoped to that pull request's ref and no
+other branch could read it. So every pull-request job restores the last cache
+from `main`.
+
+That is free until `go.sum` changes. Then the exact key misses, the restore-key
+prefix hands back the *previous* dependencies, and anything that type-checks the
+module has to compile the difference — which on a `task go:deps:update` pull
+request is close to a full rebuild. Measured on one:
+
+| Job | Usually | On a deps update | Bound |
+|---|---|---|---|
+| `Tests and vet` | ~4m | **10m52s** | 20m |
+| `Go lint` | ~2m | **9m35s** | 20m |
+| `Insecure patterns` (gosec) | ~5m, of which gosec is 23s | **killed twice** | 15m → **25m** |
+
+gosec's cost is not gosec. It type-checks the whole transitive graph, so its
+runtime is whatever the cache does not hold — 23 seconds warm, and the same
+work as `Tests and vet` cold. It also pays 2m08s restoring the cache and 1m18s
+on `go install gosec` before that compilation starts, which is why 15 minutes
+was enough for the other two jobs and not for this one. It now has the same
+proportional margin they do.
+
+Raising the bound does not make it faster; it makes the cause readable. Both
+failures arrived as `exit status 143` with a truncated log, which says nothing
+about a cache — so the job now prints the runner's cores and memory before it
+starts.
+
+### gosec is downloaded, not compiled
+
+`go install` built gosec from source on every run: **1m06s, 1m08s, 1m16s warm
+and 1m22s cold**, measured across four runs — against a gosec step that is
+23-27s. The install cost three times the analysis it enabled.
+
+It never got faster with a warm cache, and the reason is specific: the cache
+holds *this* module's build. gosec's own dependencies are not in this module's
+graph, so nothing that primes the cache ever compiles them and they are rebuilt
+every time.
+
+The verification is replaced rather than dropped. `go install` checked the
+module against Go's checksum database; the download checks the tarball against
+the release's own `checksums.txt`. That is weaker — it binds the artifact to
+that release manifest rather than to an out-of-band trust root — and still
+stricter than the two downloads already here, since `kubeconform` and
+`talosctl` are fetched with a bare `curl` and verified against nothing. gosec
+also publishes a Sigstore bundle, which is stronger and needs `cosign` on the
+runner.
+
+### The version stays pinned
+
+`GOSEC_VERSION` is a pin, and fetching "whatever is newest" each run would be a
+worse idea here than for most tools. gosec is a linter: a new release adds
+rules, so a pull request would go red with no change of its author's, and
+nothing in the failure would say which. This repository already made that
+argument about a different tool, in `ci.yaml` — "`latest` would let a
+kubeconform release change what CI accepts with no commit of ours".
+
+Checked on 2026-09-14: `GOSEC_VERSION` v2.29.0 and `KUBECONFORM_VERSION` 0.8.0
+are both the current upstream releases, so nothing is stale. Nothing keeps them
+that way either — Renovate has one custom manager, for the chart registry, and
+these `*_VERSION` values are bumped by hand. A second manager would be the
+right home for them, which is a change of its own: `tools/charts` asserts there
+is exactly one.
+
+### Two cores, not four
+
+The work is 1 916 CPU-seconds, measured locally. What turns that into sixteen
+minutes is the runner: a standard GitHub-hosted Linux runner has **2 cores and
+8 GB on a private repository**, and 4 cores with 16 GB on a public one. 1916/2
+is 958s — 15m58s, against a bound of 15.
+
+This also fixed a live misconfiguration. `GOSEC_FLAGS` was `-concurrency=4`
+with a comment saying four "is the CI runner's core count, so this costs
+nothing there". It is not: on two cores that cap oversubscribed them twofold,
+which cannot add throughput and can only add memory pressure on 8 GB — the
+opposite of what the flag is for. It is now `min(4, cores)`, computed, so
+neither machine is assumed.
+
+Would a different runner help? It is the one lever that would, and the sizes
+above are the whole answer:
+
+| | cores | scaled from 1 916 CPU-s | available here |
+|---|---|---|---|
+| `ubuntu-slim` | 1 | ~32m | yes, and worse |
+| `ubuntu-latest`, private repo | 2 | ~16m | **today** |
+| `ubuntu-latest`, public repo | 4 | ~8m | on going public — free and unlimited |
+| larger runner, 8 core | 8 | ~4m | no — organisations on Team or Enterprise only |
+
+Larger runners are not open to a personal account, so for this repository the
+only real choice is the second row or the third. Scaling by cores assumes the
+work parallelises, which Go compilation largely does; treat the figures as the
+shape of the answer rather than a promise.
 
 ## Security scanning
 
@@ -75,17 +171,45 @@ half golangci-lint cannot: that job runs gosec under `--new-from-merge-base`,
 so a finding already on `main` is invisible to it for good. The two also
 disagree on rules, which is what the `#nosec G204` in `tools/stack` is for.
 
-A push to `main` runs almost nothing: the priming job, the scanners, `Tests
-and vet`, and the release.
+A push to `main` runs almost nothing: the priming job, the scanners, `Tests and
+vet`, and a job whose only work is to dispatch the release. The release itself
+follows as a run of its own.
 
-The release is a workflow of its own, [`release.yaml`](../.github/workflows/release.yaml),
-called by CI rather than triggered beside it. `workflow_call` keeps the gating
-where it was — the same `needs:`, the same `if:`, the same position inside
-CI's run, so a red pipeline still cannot ship. What it buys is that the
-release appears in GitHub's workflow list, which is per file: a job cannot
-appear there however it is named. `workflow_run` would have given it its own
-run count instead, at the price of firing after CI, carrying full permissions,
-and never reaching the commit's check list.
+The release is [`release.yaml`](../.github/workflows/release.yaml), triggered by
+a `repository_dispatch` that CI sends after the checks pass.
+
+That indirection exists to satisfy three requirements at once, and every
+simpler answer fails one of them.
+
+| | own run | red pipeline can't ship | no dangerous trigger | no extra credential |
+|---|---|---|---|---|
+| `push` (the original) | ✔ | ✖ — v1.0.2 shipped red | ✔ | ✔ |
+| `workflow_call` job of CI | ✖ | ✔ | ✔ | ✔ |
+| `workflow_run` | ✔ | ✔ | ✖ — zizmor high | ✔ |
+| tag push from CI | ✔ | ✔ | ✔ | ✖ — needs a PAT |
+| **`repository_dispatch`** | ✔ | ✔ | ✔ | ✔ |
+
+Two rows need their reasons stated.
+
+`workflow_run` is the obvious answer and is refused. zizmor's
+`dangerous-triggers` audit flags it categorically, and its documentation says no
+guard satisfies it — "checking `github.repository` is not effective on
+`workflow_run`, since a `workflow_run` always runs in the context of the target
+repository". That would mean this repository's first silenced *high* finding,
+bought for a populated page. `.github/zizmor.yml` turns off exactly one audit
+today, for a style rule that could not be verified; that is the bar.
+
+A tag pushed from CI looks like it should chain a `push: tags:` workflow and
+does not. GitHub does not start a workflow run from an event triggered by
+`GITHUB_TOKEN`, which is what makes the usual advice a long-lived PAT —
+`repository_dispatch` is one of the two documented exceptions that always
+create a run, so CI can dispatch with the token it already holds.
+
+The gate is unchanged and still in `ci.yaml`: the dispatching job carries
+`needs: [prime, security, build]` and the push-to-`main` `if:`, so it never
+starts on a red pipeline and the dispatch is never sent. `release.yaml`
+deliberately has **no** `workflow_dispatch` — a button that releases from an
+untested `main` is how v1.0.2 happened.
 
 `Tests and vet` is there because branch protection does **not** require a
 branch to be current before it merges. That requirement cost a second full run

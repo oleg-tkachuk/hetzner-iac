@@ -78,6 +78,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA, which is protected |
 | `task cluster:destroy-secrets` | delete the cluster CA as well; unrecoverable |
 | `task cluster:kubeconfig` | write `./kubeconfig` |
+| `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer |
 | `task cluster:kubeconfig-add` | add this cluster to `~/.kube/config`, so a plain `kubectl` reaches it |
 | `task cluster:talosconfig` | write `./talosconfig` |
 | `task cluster:outputs` | stack outputs, secrets redacted |
@@ -94,6 +95,17 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:etcd-restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
 | `task cluster:upgrade-talos` | upgrade Talos, one node at a time |
 | `task cluster:upgrade-k8s` | upgrade Kubernetes in place |
+
+### Policy
+
+| Task | Does |
+|------|------|
+| `task policy:check` | run the CrossGuard pack over the cluster tier and every layer; changes nothing |
+| `task policy:cluster` | run it over the cluster tier only |
+| `task policy:layer` | run it over one layer — `layer=40-ingress` |
+
+Why a policy pack when the components validate: see
+[configuration.md](configuration.md#what-the-policy-pack-enforces).
 
 ## Hetzner instances
 

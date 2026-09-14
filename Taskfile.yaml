@@ -118,9 +118,25 @@ includes:
       # Kubernetes SDK, so one worker's graph is already large; fourteen of
       # them on a developer laptop exhausts memory and the machine swaps.
       #
-      # Four is the CI runner's core count, so this costs nothing there and
-      # caps peak memory at roughly a quarter on a bigger machine.
-      GOSEC_FLAGS: "-concurrency=4"
+      # Computed rather than fixed, because the fixed value was wrong about the
+      # machine it claimed to suit. It said 4 "is the CI runner's core count,
+      # so this costs nothing there" — a standard runner on a PRIVATE
+      # repository has TWO cores and 8 GB, four being what a public one gets.
+      # So on CI the cap was not a cap at all: it oversubscribed two cores
+      # twofold, which cannot add throughput and can only add memory pressure,
+      # the exact opposite of what it is for.
+      #
+      # min(4, cores) keeps the laptop capped and lets the runner use what it
+      # actually has, with no belief about either encoded here.
+      GOSEC_FLAGS:
+        sh: |
+          cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '%s' 2)"
+          [ "$cores" -gt 4 ] && cores=4
+          # The value as an ARGUMENT to %s, never as the format: it begins
+          # with a dash, and Task's embedded shell reads `printf --` with the
+          # dashes as the format string itself — which silently produced the
+          # flag "--" on the first attempt, and gosec would have taken it.
+          printf '%s' "-concurrency=$cores"
     excludes:
       # No protobuf here.
       - proto:breaking
@@ -148,6 +164,7 @@ includes:
   cluster: { taskfile: tasks/cluster.task.yaml, dir: . }
   platform: { taskfile: tasks/platform.task.yaml, dir: . }
   charts: { taskfile: tasks/charts.task.yaml, dir: . }
+  policy: { taskfile: tasks/policy.task.yaml, dir: . }
 
 tasks:
   default:

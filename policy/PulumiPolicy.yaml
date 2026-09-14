@@ -1,0 +1,8 @@
+name: hetzner-iac
+runtime: go
+description: >
+  CrossGuard policy pack for hetzner-iac. It enforces the invariants a
+  component's own validation cannot guarantee, because a caller can always
+  bypass the component and reach for the provider SDK directly. Run it with
+  `task policy:check`, or per program with
+  `pulumi preview --policy-pack ../../policy`.

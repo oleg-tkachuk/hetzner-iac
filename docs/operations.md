@@ -108,6 +108,58 @@ the API server that would have told the CSI driver to delete a volume — 160
 GiB were found that way. It prints what it examined as well as what it found,
 so "nothing to report" cannot read the same as "nothing was read".
 
+## Does the cluster actually work?
+
+`pulumi up` going green is a different claim from "this cluster can run a
+workload", and the gap is not hypothetical here: it went green on a three-node
+cluster whose hcloud CSI controller was in CrashLoopBackOff. Every resource
+created, every pod Running, and no volume obtainable — because nothing had
+asked for one.
+
+```bash
+task cluster:smoke stack=dev
+```
+
+Three checks, each proving a different piece of cluster-tier wiring is working
+rather than merely installed:
+
+| Check | Proves |
+|---|---|
+| every node is `Ready` | the CNI — Talos leaves a node `NotReady` until one is installed |
+| a claim on `hcloud-volumes` reaches `Bound` | the CSI driver, end to end through the Hetzner API |
+| every LoadBalancer Service has an address | the cloud controller manager |
+
+The storage check applies a claim and a pod, waits for `Bound`, and deletes
+both — including when the wait fails, which is when cleanup is usually
+forgotten. It schedules a pod because `hcloud-volumes` is
+`WaitForFirstConsumer`: a bare claim stays `Pending` forever on a perfectly
+healthy cluster, so a check that applied only a claim would report a working
+driver as broken.
+
+### Skipped is not passed
+
+A check that cannot run reports `○ skipped`, never a green tick. With no
+LoadBalancer Service in the cluster there is nothing for the controller manager
+to have done, and calling that success would be a green line that inspected an
+empty list. The summary counts them apart:
+
+```
+✔ every node is Ready — 3 Ready
+✖ a claim on hcloud-volumes reaches Bound — claim is Pending after 2m0s. Last event: …
+○ every LoadBalancer Service has an address — no Service of type LoadBalancer exists…
+
+3 checks, 1 skipped
+```
+
+That is real output from the dev cluster, and the middle line is the open CSI
+fault.
+
+Exit codes are `2` for "the checks ran and the cluster failed" and `1` for "the
+checks could not run" — a missing kubeconfig, an unreachable API server. Both
+`go run` and `task` flatten any non-zero child to their own `1`, so a caller
+that needs the difference has to build the binary:
+`go build -o smoke ./tools/smoke`.
+
 ## Upgrades and backups
 
 | Task | Does |

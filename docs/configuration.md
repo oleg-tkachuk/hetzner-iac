@@ -114,6 +114,44 @@ The Arm **dedicated** line is a different product and out of scope here: RX170
 and RX220 are Ampere Altra machines on Hetzner's robot side, not the Cloud API
 this repository provisions through.
 
+## What the policy pack enforces
+
+Component validation binds only the callers that go through the component, and
+this repository has a measured example of the gap.
+`pkg/hetzner.BuildFirewallRules` refuses an empty `network.adminCIDRs` — that is
+what `ErrEmptyAdminCIDRs` is for — and then appends `FirewallRuleOptions.Extra`
+verbatim. Its per-rule check looks at the protocol, the port, and that the
+source list is non-empty. It never looks at what the sources *are*, so an extra
+rule opening `6443` to `0.0.0.0/0` is accepted by the validator whose entire
+purpose is to refuse one.
+
+[`policy/`](../policy) closes that with CrossGuard, which runs over the
+resources a program declares rather than the constructors it called:
+
+| Policy | Refuses |
+|---|---|
+| `hcloud-admin-ports-not-world-open` | `6443` or `50000` reachable from `0.0.0.0/0` or `::/0` |
+| `hcloud-server-joins-private-network` | a server with no network attachment — etcd and kubelet ride `network.nodeSubnet` |
+| `helm-release-pins-chart-version` | a release that resolves to whatever the repository serves today |
+
+```bash
+task policy:check stack=dev
+```
+
+It previews the cluster tier and every layer, changes nothing, and is written
+in Go so CI needs no Node or Python runtime for it.
+
+### It is a gate, not yet a control
+
+`pulumi preview --policy-pack` is **local** enforcement: a policy is skipped by
+omitting the flag, so this catches mistakes rather than preventing them.
+
+Unlike a `file://` backend, this repository's state is in Pulumi Cloud, so the
+mode that cannot be skipped *is* available — organisation policy groups, which
+apply to every stack in the organisation with no flag to forget. Turning that on
+is an account setting rather than a repository change, which is why the pack
+ships as a task here and the decision stays with whoever owns the organisation.
+
 ## Stack config
 
 | Key | Where | Meaning |

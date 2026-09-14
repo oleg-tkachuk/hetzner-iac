@@ -355,17 +355,40 @@ jobs:
     # findings that appear without anyone touching the code. gosec's are a pure
     # function of the code at a pinned version.
     #
-    # Free on the wall clock, measured rather than assumed: 4m15s, beside a
-    # `Tests and vet` that takes thirteen minutes. It was nightly on the belief
-    # that it cost fifteen — locally it is 2m42s from a cold build cache and 7s
+    # Free on the wall clock when the cache is warm, measured rather than
+    # assumed: the gosec step itself is 23-27s across recent runs, inside a job
+    # of about five minutes. Locally it is 2m42s from a cold build cache and 7s
     # from a warm one.
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes, security]
     runs-on: ubuntu-latest
-    # Well above the measurement and far below the 40 minutes it had nightly: a
-    # runner that once took 21 minutes over this was killed with nothing to
-    # read, and a tighter bound would at least have said when.
-    timeout-minutes: 15
+    # 25, and the number is the point. gosec's cost is not gosec: it type-checks
+    # the whole transitive graph, so its runtime is whatever the build cache
+    # does not already hold.
+    #
+    # No job writes a cache on a pull request — `prime` is push-only, for the
+    # reason stated on it — so a pull request that changes go.sum misses the
+    # exact key, restores the PREVIOUS dependencies through the restore-key
+    # prefix, and has to compile the difference. On a `task go:deps:update`
+    # pull request that is close to a full rebuild.
+    #
+    # Measured on exactly such a pull request: `Tests and vet`, which does the
+    # same compilation, took 10m52s against its usual 4m, and survived on its
+    # 20-minute bound. `Go lint` took 9m35s on the same 20. gosec died twice on
+    # 15 — once after the cache-key bump and once on the deps update — because
+    # it pays 2m08s restoring the cache and 1m18s on `go install gosec` BEFORE
+    # the compilation those two spend their whole budget on.
+    #
+    # Where the minutes come from: locally the work is 1 916 CPU-seconds. A
+    # standard runner on a PRIVATE repository has TWO cores — four is what a
+    # public one gets — so 1916/2 is 958s, which is the 15m58s that a 15-minute
+    # bound cannot fit. The step below prints the runner's actual cores, so the
+    # next reader measures this instead of looking it up.
+    #
+    # So this is the same margin `Tests and vet` has, plus that overhead. A
+    # tighter bound does not make it faster, it only hides the cause behind
+    # "exit status 143" — which is how it read both times.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -374,7 +397,57 @@ jobs:
         with:
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+      # What this job's runtime is a function of, printed once. Both times this
+      # job was killed the log said only "exit status 143" — nothing about
+      # cores, memory, or whether the cache had matched. One second of output
+      # turns the next occurrence into a reading rather than an investigation.
+      - name: Runner size
+        run: |
+          printf 'cores: %s\n' "$(nproc)"
+          printf 'memory: %s\n' "$(free -h | awk '/^Mem:/ {print $2}')"
+
+      # Downloaded, not compiled. `go install` built gosec from source on every
+      # run — 1m06s, 1m08s, 1m16s warm and 1m22s cold, measured across four
+      # runs, against a gosec step that is 23-27s. It never got faster because
+      # the build cache holds OUR module: gosec's own dependencies are not in
+      # this module's graph, so nothing that primes the cache ever compiles
+      # them, and they are built fresh every time.
+      #
+      # The verification `go install` gave up is replaced rather than dropped.
+      # It checked the module against the checksum database; this checks the
+      # tarball against the release's own checksums file, which is weaker —
+      # it binds the artifact to that release manifest rather than to an
+      # out-of-band trust root. gosec also publishes a Sigstore bundle, which
+      # is the stronger option and needs cosign on the runner; worth moving to
+      # if this repository ever installs cosign for something else.
+      #
+      # It is still stricter than the two downloads already here: kubeconform
+      # and talosctl are fetched with a bare `curl` and verified against
+      # nothing at all.
+      - name: Install gosec
+        env:
+          # Without the leading v, which is how the release assets are named
+          # while the tag carries it.
+          VERSION: ${{ env.GOSEC_VERSION }}
+        run: |
+          set -euo pipefail
+
+          plain="${VERSION#v}"
+          base="https://github.com/securego/gosec/releases/download/${VERSION}"
+          tarball="gosec_${plain}_linux_amd64.tar.gz"
+
+          cd "${RUNNER_TEMP}"
+          curl -sSfL -O "${base}/${tarball}"
+          curl -sSfL -O "${base}/gosec_${plain}_checksums.txt"
+
+          # --ignore-missing, because the checksums file covers every platform's
+          # asset and only one was downloaded. Without it sha256sum fails on
+          # the absent ones and the real verdict is lost in the noise.
+          sha256sum --check --ignore-missing "gosec_${plain}_checksums.txt"
+
+          tar -xzf "${tarball}" gosec
+          install -m 0755 gosec /usr/local/bin/gosec
+          gosec --version
       # Suppressions are written as #nosec, which both this and the gosec
       # inside golangci-lint honour — //nolint:gosec would satisfy the lint job
       # and fail this one.
@@ -556,40 +629,82 @@ jobs:
             exit 1
           fi
 
-  # Release is a job of CI, not a workflow beside it, so a red pipeline
-  # cannot ship. It used to be its own workflow triggered on push: it ran in
-  # parallel with the checks and several releases went out green while CI was
-  # red.
+  # Dispatches the release; the release itself is
+  # .github/workflows/release.yaml.
   #
-  # `needs:` rather than a workflow_run trigger. workflow_run carries full
-  # permissions and is the usual way people accidentally build untrusted code;
-  # a job dependency states the same requirement with none of that surface,
-  # and states it where the checks themselves are visible.
+  # The gate is here, unchanged: `needs:` on every job that also runs on a push
+  # to main, plus the push-to-main `if:`. What changed is that this job no
+  # longer RUNS the release — it asks release.yaml to, with a
+  # repository_dispatch, so that workflow gets a run and a history of its own.
   #
-  # Its steps live in release.yaml, called from here. That is presentation
-  # only — GitHub's workflow list is per file, so a job cannot appear in it —
-  # and the gating below is unchanged, which is the reason it is a call and
-  # not a trigger.
+  # Read the two objections, because both come from this repository's history.
+  #
+  # 1. A RED PIPELINE MUST NOT SHIP. The release was once its own workflow on
+  #    `push`, running in parallel with the checks, and v1.0.2 was cut from a
+  #    commit whose CI was failing. The fix was `needs:`, and `needs:` is still
+  #    what stands here — the dispatch cannot be sent from a red pipeline
+  #    because this job never starts.
+  #
+  # 2. WHY NOT workflow_run, THE OBVIOUS ANSWER. zizmor's dangerous-triggers
+  #    audit refuses it categorically and no guard satisfies it; its docs say
+  #    checking the repository "is not effective on workflow_run". Populating a
+  #    page is not worth this repository's first silenced high finding.
+  #
+  # repository_dispatch avoids both. GITHUB_TOKEN-triggered events do not start
+  # workflow runs — which is why a tag pushed from CI chains nothing, and why
+  # the usual workaround is a long-lived PAT — and repository_dispatch is one of
+  # the two documented exceptions that always create a run. So this needs no
+  # credential beyond the token the job already has.
   release:
     name: Release
-    # Only jobs that also run on a push to main. A skipped dependency skips
-    # its dependents, so listing a pull-request-only job here — `commits`,
-    # `lint`, `charts` — would mean the release never fires at all. Those are
-    # enforced where they belong, as required checks on the branch.
+    # Only jobs that also run on a push to main. A skipped dependency skips its
+    # dependents, so listing a pull-request-only job here — `commits`, `lint`,
+    # `charts` — would mean the release never fires at all. Those are enforced
+    # where they belong, as required checks on the branch.
     #
-    # `build` is in the list because it now runs here too, and it is the one
-    # check that sees the merged tree. Without it a combination that compiles
-    # in neither pull request could be tagged and released.
+    # `build` is in the list because it runs here too, and it is the one check
+    # that sees the merged tree. Without it a combination that compiles in
+    # neither pull request could be tagged and released.
     needs: [prime, security, build]
-    # Only from a push to main. On a pull request the checks still run; there
-    # is simply nothing to release.
+    # Only from a push to main. On a pull request the checks still run; there is
+    # simply nothing to release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
-      # semantic-release pushes the tag and the release notes; the issues and
-      # pull-requests scopes are for its comment plugins. Scoped to this job,
-      # so every other job in this workflow stays read-only — and a called
-      # workflow cannot widen what is granted here.
+      # POST /repos/{owner}/{repo}/dispatches needs write. Nothing else here
+      # does, and the release's own scopes are declared in release.yaml, which
+      # is where they are used.
       contents: write
-      issues: write
-      pull-requests: write
-    uses: ./.github/workflows/release.yaml
+    runs-on: ubuntu-latest
+    # Seconds of work. Bounded low so a hung API call fails rather than holds a
+    # runner for the default six hours.
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # --input rather than -f, because client_payload is nested and the
+          # form syntax cannot express that. The values are a commit sha and a
+          # run id — both generated by Actions, neither from a contributor — and
+          # they arrive as environment variables rather than as an Actions
+          # expression inside this script, so nothing here is interpolated
+          # before the shell sees it.
+          #
+          # Note for whoever edits this comment: an Actions expression is
+          # substituted anywhere in a run block, a shell comment included. The
+          # first draft of these lines spelled the brace syntax out as an
+          # example and actionlint rejected the file — correctly, because
+          # GitHub would have tried to evaluate it.
+          gh api "repos/${GITHUB_REPOSITORY}/dispatches" --input - <<JSON
+          {
+            "event_type": "release",
+            "client_payload": {
+              "sha": "${GITHUB_SHA}",
+              "ci_run_id": "${GITHUB_RUN_ID}"
+            }
+          }
+          JSON
+
+          printf '%s\n' "dispatched release for ${GITHUB_SHA}"
