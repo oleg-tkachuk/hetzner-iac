@@ -406,7 +406,48 @@ jobs:
           printf 'cores: %s\n' "$(nproc)"
           printf 'memory: %s\n' "$(free -h | awk '/^Mem:/ {print $2}')"
 
-      - run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+      # Downloaded, not compiled. `go install` built gosec from source on every
+      # run — 1m06s, 1m08s, 1m16s warm and 1m22s cold, measured across four
+      # runs, against a gosec step that is 23-27s. It never got faster because
+      # the build cache holds OUR module: gosec's own dependencies are not in
+      # this module's graph, so nothing that primes the cache ever compiles
+      # them, and they are built fresh every time.
+      #
+      # The verification `go install` gave up is replaced rather than dropped.
+      # It checked the module against the checksum database; this checks the
+      # tarball against the release's own checksums file, which is weaker —
+      # it binds the artifact to that release manifest rather than to an
+      # out-of-band trust root. gosec also publishes a Sigstore bundle, which
+      # is the stronger option and needs cosign on the runner; worth moving to
+      # if this repository ever installs cosign for something else.
+      #
+      # It is still stricter than the two downloads already here: kubeconform
+      # and talosctl are fetched with a bare `curl` and verified against
+      # nothing at all.
+      - name: Install gosec
+        env:
+          # Without the leading v, which is how the release assets are named
+          # while the tag carries it.
+          VERSION: ${{ env.GOSEC_VERSION }}
+        run: |
+          set -euo pipefail
+
+          plain="${VERSION#v}"
+          base="https://github.com/securego/gosec/releases/download/${VERSION}"
+          tarball="gosec_${plain}_linux_amd64.tar.gz"
+
+          cd "${RUNNER_TEMP}"
+          curl -sSfL -O "${base}/${tarball}"
+          curl -sSfL -O "${base}/gosec_${plain}_checksums.txt"
+
+          # --ignore-missing, because the checksums file covers every platform's
+          # asset and only one was downloaded. Without it sha256sum fails on
+          # the absent ones and the real verdict is lost in the noise.
+          sha256sum --check --ignore-missing "gosec_${plain}_checksums.txt"
+
+          tar -xzf "${tarball}" gosec
+          install -m 0755 gosec /usr/local/bin/gosec
+          gosec --version
       # Suppressions are written as #nosec, which both this and the gosec
       # inside golangci-lint honour — //nolint:gosec would satisfy the lint job
       # and fail this one.
