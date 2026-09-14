@@ -59,7 +59,7 @@ var registry = map[string]Chart{
 	"hcloud-ccm": {
 		Name:      "hcloud-cloud-controller-manager",
 		Repo:      "https://charts.hetzner.cloud",
-		Version:   "1.36.0",
+		Version:   "1.37.0",
 		Namespace: "kube-system",
 	},
 	"hcloud-csi": {
