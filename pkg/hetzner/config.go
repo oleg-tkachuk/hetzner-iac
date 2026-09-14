@@ -236,7 +236,7 @@ var Architectures = []string{ArchitectureX86, ArchitectureARM}
 // for a choice the operator never made.
 //
 // Same shape on both sides, so switching architecture changes the bill and
-// nothing else. Read from the API in hel1 on 2026-09-14, monthly gross:
+// nothing else. Read from the API in hel1, monthly gross:
 //
 //	cx23    2 cores    4 GB    x86    5.49
 //	cax11   2 cores    4 GB    arm    5.99

@@ -71,7 +71,7 @@ runs:
         echo "version=$(go env GOVERSION)" >>"$GITHUB_OUTPUT"
 
     # The `go2-` generation. An Actions cache key is immutable, so the old
-    # `go-` entries hold what they held: measured on 2026-09-13, 14 235 MB of
+    # `go-` entries hold what they held: measured at 14 235 MB of
     # build cache where a complete cold build produces 4 635 MB. Two thirds of
     # what every reader restored was stale — Go trims entries untouched for
     # five days, and a cache restored fresh on every run never ages.

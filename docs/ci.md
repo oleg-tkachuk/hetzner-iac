@@ -93,8 +93,8 @@ nothing in the failure would say which. This repository already made that
 argument about a different tool, in `ci.yaml` — "`latest` would let a
 kubeconform release change what CI accepts with no commit of ours".
 
-Checked on 2026-09-14: all nine pinned tool versions were the current upstream
-releases, so nothing was stale. Keeping them that way is now Renovate's job.
+Checked when they were pinned: all nine tool versions were the current
+upstream releases, so nothing was stale. Keeping them that way is now Renovate's job.
 
 A second custom manager watches `.github/workflows/*.yaml`, and each pin carries
 the annotation it reads:
@@ -161,8 +161,8 @@ it may *do* once running. Getting that pair wrong is silent, and it was:
 - the workflow's cron is `0 6 * * *` — **06:00 UTC**, exactly as that window
   shuts.
 
-GitHub runs scheduled workflows best-effort on shared runners. The Monday pass
-on 2026-09-14 started at **11:49 UTC**, five hours and forty-nine minutes late,
+GitHub runs scheduled workflows best-effort on shared runners. One Monday pass
+started at **11:49 UTC**, five hours and forty-nine minutes late,
 found three updates and filed all three under *Awaiting Schedule*. Renovate had
 opened no pull request in this repository, ever.
 

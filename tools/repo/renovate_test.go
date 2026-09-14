@@ -108,7 +108,7 @@ func pinnedToolVersions(t *testing.T) []workflowPin {
 // registry has the same test: change the shape of a pin, or add one without an
 // annotation, and Renovate does not error — it opens no pull request for that
 // tool, for ever, and the only symptom is a version that never moves. Every
-// pin here was verified current on 2026-09-14, so nothing being stale today is
+// pin here was verified current when it was added, so nothing being stale today is
 // exactly what makes the silence hard to notice tomorrow.
 func TestRenovateMatchesEveryPinnedTool(t *testing.T) {
 	t.Parallel()
@@ -248,7 +248,7 @@ func TestRenovateStripsTheVWhereThePinOmitsIt(t *testing.T) {
 // manager reports a step's INPUTS as dependencies too, with depType
 // `uses-with` — and a version input has no digest.
 //
-// Measured on 2026-09-14 from Renovate's own debug log. With the rule on the
+// Measured from Renovate's own debug log. With the rule on the
 // whole manager it tried to write helm/helm's commit into azure/setup-helm's
 // `version: v4.3.0`, then could not read it back:
 //

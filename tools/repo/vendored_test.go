@@ -44,7 +44,7 @@ var vendored = []struct {
 // The check below fetches upstream and SKIPS when it cannot, which was a
 // deliberate choice — a gate that goes red because github.com is unreachable
 // is a gate people switch off. But a skip is a pass: in a runner with no
-// egress, or during the twenty minutes on 2026-09-14 when GitHub's own
+// egress, or during the twenty minutes when GitHub's own
 // downloads returned 504, a hand edit to this file would have gone through
 // with the suite green and nothing said.
 //
