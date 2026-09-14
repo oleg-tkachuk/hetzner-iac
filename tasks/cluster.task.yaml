@@ -471,7 +471,7 @@ tasks:
           hubble --server "$server" observe --last "{{.last}}"
 
   orphans:
-    desc: "Hetzner resources nothing in the cluster claims any more — volumes, load balancers, servers, addresses, snapshots"
+    desc: "Hetzner resources nothing claims any more — volumes, load balancers, servers, addresses, snapshots. Works after a teardown too"
     deps: [kubeconfig]
     cmds:
       # Read-only, and it never deletes. Two silent ways this platform loses
@@ -482,6 +482,11 @@ tasks:
       #     volumes behind. 160 GiB were found that way.
       #   - destroying a cluster destroys the API server that would have told
       #     the CSI driver to delete a volume.
+      #
+      # Which is why it answers with no cluster at all: no server carrying the
+      # cluster's label means no cluster, so nothing can claim anything and
+      # every remaining resource really is orphaned. `task destroy` runs it
+      # last for exactly that reason.
       #
       # The token comes from the stack the same way every other task's does.
       - cmd: |

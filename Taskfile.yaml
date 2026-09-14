@@ -238,12 +238,13 @@ tasks:
       # describing resources that no longer exist.
       - task: platform:destroy-all
       - task: cluster:destroy
-      # What is left, and how to look. `cluster:orphans` cannot answer here —
-      # it reads the cluster to know what is claimed, and there is no longer a
-      # cluster, which is exactly when somebody wants to check.
+      # What is left, and then the check that says whether anything was. The
+      # ordering is the point: orphans reads the Hetzner project, and with no
+      # server carrying the cluster's label it knows the cluster is gone and
+      # judges against empty claims rather than refusing.
       - cmd: |
           printf '%s\n' "{{._SKIP}} hetzner-iac · destroy · kept: the Talos secrets bundle, the project snapshot, and this stack's Pulumi history"
-          printf '%s\n' "{{._SKIP}} hetzner-iac · destroy · what remains in the project: task hcloud:servers stack={{.stack}} — cluster:orphans needs a live cluster"
+      - task: cluster:orphans
 
   plan:
     desc: "Preview the cluster and every layer without changing anything"
