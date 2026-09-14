@@ -99,6 +99,12 @@ var Components = layer.Components{
 		// register against.
 		Chart: "hcloud-csi",
 		After: []string{CredentialsSecret, "hcloud-ccm"},
+		// Until this, the chart ran on its defaults — which set no resources,
+		// so all eight of its containers were unbounded on a node that also
+		// runs etcd. The values carry measured requests and memory limits.
+		ValuesYAML: func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
+			return values.Static("hcloud-csi", nil)
+		},
 	},
 }
 

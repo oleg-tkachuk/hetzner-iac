@@ -94,6 +94,9 @@ var probes = map[string]any{
 	"metrics-server":   MetricsServer{AddressTypes: "--kubelet-preferred-address-types=InternalIP", Replicas: 2},
 	"cert-manager":     nil,
 	"external-secrets": nil,
+	// Static, like the two above: the chart's resources are measured numbers
+	// rather than anything a cluster supplies.
+	"hcloud-csi": nil,
 	// A domain on purpose: the Ingress block is conditional, and rendering
 	// without one would leave the branch that publishes the UI unchecked.
 	"argo-cd": ArgoCD{
