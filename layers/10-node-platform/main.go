@@ -130,7 +130,7 @@ func createCNI(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource
 	return r.Release(layer.ReleaseArgs{
 		Chart:          chosen.Chart,
 		TimeoutSeconds: CiliumTimeoutSeconds,
-		ValuesYAML:     values.Asset(chosen.Chart, CiliumData(r.Cluster.PodCIDR, r.Cluster.ControlPlaneCount)),
+		ValuesYAML:     values.Asset(chosen.Chart, CiliumData(r.Cluster.PodCIDR, r.Cluster.ControlPlaneCount, r.Cluster.RoutingMode)),
 	}, layer.DependsOn(dependencies)...)
 }
 
@@ -228,13 +228,18 @@ func operatorReplicas(controlPlaneCount int) int {
 //
 // Separated from the component so a test can render the template without a
 // Pulumi run.
-func CiliumData(podCIDR pulumi.StringInput, controlPlaneCount pulumi.IntInput) pulumi.Output {
-	return pulumi.All(podCIDR, controlPlaneCount).ApplyT(func(resolved []any) any {
+func CiliumData(
+	podCIDR pulumi.StringInput,
+	controlPlaneCount pulumi.IntInput,
+	routingMode pulumi.StringInput,
+) pulumi.Output {
+	return pulumi.All(podCIDR, controlPlaneCount, routingMode).ApplyT(func(resolved []any) any {
 		return values.Cilium{
 			PodCIDR:          resolved[0].(string),
 			APIHost:          KubePrismHost,
 			APIPort:          chartsettings.KubePrismPort,
 			OperatorReplicas: operatorReplicas(resolved[1].(int)),
+			RoutingMode:      resolved[2].(string),
 		}
 	})
 }

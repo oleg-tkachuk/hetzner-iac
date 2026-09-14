@@ -10,6 +10,7 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
@@ -36,8 +37,18 @@ import (
 func ciliumValues(t *testing.T, controlPlaneCount int) map[string]any {
 	t.Helper()
 
+	return ciliumValuesFor(t, controlPlaneCount, hetzner.RoutingModeNative)
+}
+
+// ciliumValuesFor renders with an explicit routing mode, because the mode is
+// now a topology choice and both halves of it reach Helm from here.
+func ciliumValuesFor(t *testing.T, controlPlaneCount int, routingMode string) map[string]any {
+	t.Helper()
+
 	return render(t, "cilium", CiliumData(
-		pulumi.String(testPodCIDR), pulumi.Int(controlPlaneCount)))
+		pulumi.String(testPodCIDR),
+		pulumi.Int(controlPlaneCount),
+		pulumi.String(routingMode)))
 }
 
 func ccmValues(t *testing.T) map[string]any {
@@ -103,14 +114,39 @@ func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
 func TestCiliumValues_UsesNativeRoutingOverThePodCIDR(t *testing.T) {
 	t.Parallel()
 
-	// Native routing depends on the CCM's route controller from this layer.
+	// Native routing depends on the CCM's route controller from this layer and
+	// on the gateway route the cluster tier writes into every machine config.
 	// The pod CIDR has to be the cluster's actual one: a wrong value here
 	// masquerades traffic that should be routed.
 	rendered := ciliumValues(t, 3)
 
-	assert.Equal(t, "native", rendered["routingMode"])
+	assert.Equal(t, hetzner.RoutingModeNative, rendered["routingMode"])
 	assert.Equal(t, testPodCIDR, rendered["ipv4NativeRoutingCIDR"])
-	assert.Equal(t, true, rendered["autoDirectNodeRoutes"])
+}
+
+func TestCiliumValues_CarryTheRoutingModeTheTopologyChose(t *testing.T) {
+	t.Parallel()
+
+	// Both modes reach Helm from here, so both are rendered. A mode that
+	// silently fell back to the other would be a datapath nobody chose.
+	for _, mode := range hetzner.RoutingModes {
+		assert.Equal(t, mode, ciliumValuesFor(t, 3, mode)["routingMode"], mode)
+	}
+}
+
+func TestCiliumValues_NeverAskForDirectNodeRoutes(t *testing.T) {
+	t.Parallel()
+
+	// false in BOTH modes, and this is the regression. autoDirectNodeRoutes
+	// asks Cilium to route a peer's pod CIDR via that peer's address, and a
+	// Hetzner private network gives each server a /32 with only the gateway
+	// on-link. Cilium refuses — "must be directly reachable" — so pod-to-pod
+	// across nodes had no route at all while it was true. A single-node
+	// cluster hid it completely, because nothing crossed a node.
+	for _, mode := range hetzner.RoutingModes {
+		assert.Equal(t, false, ciliumValuesFor(t, 3, mode)["autoDirectNodeRoutes"],
+			"%s: autoDirectNodeRoutes cannot work on a Hetzner private network", mode)
+	}
 }
 
 func TestCiliumValues_AccommodatesTalosCgroups(t *testing.T) {
@@ -270,6 +306,7 @@ func (m stackMocks) outputs() resource.PropertyMap {
 		resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty("hel1"),
 		resource.PropertyKey(clusterref.OutputHcloudToken):       resource.NewStringProperty(m.exported),
 		resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
+		resource.PropertyKey(clusterref.OutputRoutingMode):       resource.NewStringProperty(hetzner.RoutingModeNative),
 	}
 }
 

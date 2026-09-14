@@ -68,6 +68,7 @@ const (
 	OutputLocation          = "location"
 	OutputHcloudToken       = "hcloudToken"
 	OutputControlPlaneCount = "controlPlaneCount"
+	OutputRoutingMode       = "routingMode"
 )
 
 // Declared is every output the cluster tier must export, in one list so the
@@ -90,6 +91,7 @@ var Declared = []string{
 	OutputLocation,
 	OutputHcloudToken,
 	OutputControlPlaneCount,
+	OutputRoutingMode,
 }
 
 // Cluster is the resolved view of the cluster tier's outputs.
@@ -125,6 +127,12 @@ type Cluster struct {
 	// Empty when the tier itself has no token in stack config — a cluster
 	// built from an environment variable. A consumer that needs it says so.
 	HcloudToken pulumi.StringOutput
+
+	// RoutingMode is how the topology says pod traffic crosses nodes: native or
+	// tunnel. The CNI layer needs it because Cilium is what implements the
+	// choice, and the cluster tier is where it is declared — the two must agree
+	// or the cluster has a datapath nobody configured.
+	RoutingMode pulumi.StringOutput
 
 	// ControlPlaneCount is how many control-plane nodes the topology declares.
 	// A consumer needs it to size anything that cannot put two replicas on one
@@ -179,6 +187,7 @@ func Resolve(ctx *pulumi.Context, ref string) (*Cluster, error) {
 		Location:          stack.GetStringOutput(pulumi.String(OutputLocation)),
 		HcloudToken:       stack.GetStringOutput(pulumi.String(OutputHcloudToken)),
 		ControlPlaneCount: stack.GetIntOutput(pulumi.String(OutputControlPlaneCount)),
+		RoutingMode:       stack.GetStringOutput(pulumi.String(OutputRoutingMode)),
 	}, nil
 }
 
