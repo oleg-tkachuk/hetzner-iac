@@ -116,6 +116,7 @@ func run() (int, error) {
 	}
 
 	failures += checkEffects(ctx)
+	failures += checkResources(ctx)
 
 	return failures, nil
 }
