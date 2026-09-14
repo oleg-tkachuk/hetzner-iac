@@ -112,7 +112,7 @@ func TestRun_ReportsAllThreeChecksEvenWhenOneFails(t *testing.T) {
 
 	report := r.Run(context.Background())
 
-	require.Len(t, report, 3, "a check that returns nothing is a check nobody notices")
+	require.Len(t, report, 4, "a check that returns nothing is a check nobody notices")
 	assert.True(t, report.Failed())
 
 	assert.Equal(t, clustersmoke.StatusPassed, resultFor(t, report, "node is Ready").Status)
@@ -123,17 +123,19 @@ func TestRun_ReportsAllThreeChecksEvenWhenOneFails(t *testing.T) {
 func TestRun_PassesOnAHealthyClusterAndSkipsWhatItCannotJudge(t *testing.T) {
 	t.Parallel()
 
-	// The dev cluster's actual shape: three Ready nodes, a late-binding class,
-	// and no LoadBalancer Service at all.
-	r := runner(t, []runtime.Object{
-		node("cp-0", true), node("cp-1", true), node("cp-2", true),
-		storageClass(storagev1.VolumeBindingWaitForFirstConsumer),
-	}, bindClaimsOn)
+	// The dev cluster's actual shape: three Ready nodes, cluster DNS on two of
+	// them, a late-binding storage class, and no LoadBalancer Service at all.
+	r := runner(t, threeNodeCluster(), proberExits(0))
 
 	report := r.Run(context.Background())
 
 	assert.False(t, report.Failed())
+	// One skip, and only one: the load balancer check, which has nothing to
+	// look at. The cross-node check must NOT be skipping here — a cluster of
+	// three nodes with DNS on two is exactly where it can run.
 	assert.Equal(t, 1, report.Skipped())
+	assert.Equal(t, clustersmoke.StatusPassed,
+		resultFor(t, report, "another node").Status)
 
 	storage := resultFor(t, report, "reaches Bound")
 	assert.Equal(t, clustersmoke.StatusPassed, storage.Status)
@@ -259,4 +261,185 @@ func TestCheckNodes_TreatsAMissingReadyConditionAsNotReady(t *testing.T) {
 
 	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
 	assert.Contains(t, result.Detail, "silent")
+}
+
+// dnsPod is a cluster-DNS pod on a node, as the cross-node plan looks for it.
+func dnsPod(name, node string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "kube-system",
+			Labels:    map[string]string{"k8s-app": "kube-dns"},
+		},
+		Spec: corev1.PodSpec{NodeName: node},
+	}
+}
+
+// proberExits makes the fake clientset answer as a prober that terminated with
+// the given code, which is the only thing the check reads off it.
+func proberExits(code int32) func(*fake.Clientset) {
+	return func(client *fake.Clientset) {
+		bindClaimsOn(client)
+
+		client.PrependReactor("create", "pods",
+			func(action k8stesting.Action) (bool, runtime.Object, error) {
+				pod, ok := action.(k8stesting.CreateAction).GetObject().(*corev1.Pod)
+				if !ok || pod.Name != "cluster-smoke-crossnode" {
+					return false, nil, nil
+				}
+
+				pod.Status.Phase = corev1.PodSucceeded
+				pod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+					Name: "prober",
+					State: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{ExitCode: code},
+					},
+				}}
+
+				return false, pod, nil
+			})
+	}
+}
+
+// threeNodeCluster is the dev cluster's shape: three Ready nodes and cluster
+// DNS on two of them.
+func threeNodeCluster() []runtime.Object {
+	return []runtime.Object{
+		node("cp-0", true), node("cp-1", true), node("cp-2", true),
+		storageClass(storagev1.VolumeBindingWaitForFirstConsumer),
+		dnsPod("coredns-a", "cp-0"),
+		dnsPod("coredns-b", "cp-1"),
+	}
+}
+
+func TestCheckCrossNode_FailsWhenThePathIsBroken(t *testing.T) {
+	t.Parallel()
+
+	// THE CHECK THIS PACKAGE GAINED A FOURTH ENTRY FOR. On the real cluster
+	// this failure looked like nothing: every node Ready, every pod Running,
+	// and pod-to-pod across nodes with no route at all. The prober's non-zero
+	// exit is what turns that into one line.
+	r := runner(t, threeNodeCluster(), proberExits(1))
+
+	result := resultFor(t, r.Run(context.Background()), "another node")
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "cilium-health status")
+}
+
+func TestCheckCrossNode_PassesAndProbesFromTheDNSFreeNode(t *testing.T) {
+	t.Parallel()
+
+	var probedOn string
+
+	client := fake.NewSimpleClientset(threeNodeCluster()...)
+	proberExits(0)(client)
+
+	client.PrependReactor("create", "pods",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if pod, ok := action.(k8stesting.CreateAction).GetObject().(*corev1.Pod); ok &&
+				pod.Name == "cluster-smoke-crossnode" {
+				probedOn = pod.Spec.NodeName
+			}
+
+			return false, nil, nil
+		})
+
+	smoke := clustersmoke.NewWithClient(client, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+		BindTimeout:  testBindTimeout,
+	})
+
+	result := resultFor(t, smoke.Run(context.Background()), "another node")
+
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
+	// cp-2 is the only Ready node without a DNS replica. Anywhere else and the
+	// query could be answered locally, proving nothing about crossing a node.
+	assert.Equal(t, "cp-2", probedOn)
+}
+
+func TestCheckCrossNode_SkipsOnASingleNodeCluster(t *testing.T) {
+	t.Parallel()
+
+	// Skipped, not passed — and this is the case that let the real failure
+	// survive: one node has no cross-node path to be broken.
+	r := runner(t, []runtime.Object{
+		node("cp-0", true),
+		storageClass(storagev1.VolumeBindingImmediate),
+		dnsPod("coredns-a", "cp-0"),
+	}, proberExits(0))
+
+	result := resultFor(t, r.Run(context.Background()), "another node")
+
+	assert.Equal(t, clustersmoke.StatusSkipped, result.Status)
+	assert.Contains(t, result.Detail, "no cross-node path")
+}
+
+func TestCheckCrossNode_DeletesItsProberEitherWay(t *testing.T) {
+	t.Parallel()
+
+	// The failing path is where cleanup is forgotten, and a leftover prober on
+	// a pinned node is one the next run has to reason around.
+	client := fake.NewSimpleClientset(threeNodeCluster()...)
+	proberExits(1)(client)
+
+	var deleted []string
+
+	client.PrependReactor("delete", "pods",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if d, ok := action.(k8stesting.DeleteAction); ok {
+				deleted = append(deleted, d.GetName())
+			}
+
+			return false, nil, nil
+		})
+
+	smoke := clustersmoke.NewWithClient(client, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+		BindTimeout:  testBindTimeout,
+	})
+
+	require.True(t, smoke.Run(context.Background()).Failed())
+	assert.Contains(t, deleted, "cluster-smoke-crossnode")
+}
+
+func TestProberPod_SatisfiesTheRestrictedPodSecurityStandard(t *testing.T) {
+	t.Parallel()
+
+	// A probe that has to be exempted from the cluster's own baseline stops
+	// working the day that baseline is enforced, and its warning trains the
+	// reader to ignore this output. The storage probe learned this from a
+	// four-clause warning on its first real run.
+	var created *corev1.Pod
+
+	client := fake.NewSimpleClientset(threeNodeCluster()...)
+	proberExits(0)(client)
+	client.PrependReactor("create", "pods",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if pod, ok := action.(k8stesting.CreateAction).GetObject().(*corev1.Pod); ok &&
+				pod.Name == "cluster-smoke-crossnode" {
+				created = pod
+			}
+
+			return false, nil, nil
+		})
+
+	clustersmoke.NewWithClient(client, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+		BindTimeout:  testBindTimeout,
+	}).Run(context.Background())
+
+	require.NotNil(t, created, "no prober was created")
+	require.NotNil(t, created.Spec.SecurityContext)
+	assert.Equal(t, true, *created.Spec.SecurityContext.RunAsNonRoot)
+	require.NotNil(t, created.Spec.SecurityContext.RunAsUser,
+		"runAsNonRoot needs a numeric user: busybox declares none and the kubelet will not guess")
+	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault,
+		created.Spec.SecurityContext.SeccompProfile.Type)
+
+	require.Len(t, created.Spec.Containers, 1)
+	security := created.Spec.Containers[0].SecurityContext
+	require.NotNil(t, security)
+	assert.Equal(t, false, *security.AllowPrivilegeEscalation)
+	assert.Equal(t, []corev1.Capability{"ALL"}, security.Capabilities.Drop)
 }

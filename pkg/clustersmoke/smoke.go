@@ -1,13 +1,19 @@
 // Package clustersmoke answers one question about a cluster this repository
 // built: can it actually run a workload?
 //
-// Three checks, each proving that a different piece of cluster-tier wiring is
-// not merely installed but working — nodes Ready proves the CNI, a claim
+// Four checks, each proving that a different piece of cluster-tier wiring is
+// not merely installed but working — nodes Ready proves the CNI is installed, a
+// pod reaching a pod on another node proves it actually routes, a claim
 // reaching Bound proves the CSI, an address on a LoadBalancer Service proves
-// the cloud controller manager. A cluster can report every component Running
-// and fail all three, which is not hypothetical here: `pulumi up` went green
-// on a three-node cluster whose CSI controller was in CrashLoopBackOff, and
-// nothing said so, because nothing asked for a volume.
+// the cloud controller manager.
+//
+// A cluster can report every component Running and fail all four, and this
+// repository has now watched it happen twice. `pulumi up` went green on a
+// three-node cluster whose CSI controller was in CrashLoopBackOff, because
+// nothing asked for a volume. And the cause of THAT was pod-to-pod traffic
+// across nodes having no route at all — every node Ready, every pod Running,
+// and a third of DNS queries timing out — which is why the second check
+// exists and why it is the one a single-node cluster cannot exercise.
 //
 // The judgements are pure functions and the execution is client-go. That split
 // is the point: deciding whether "Ready Ready NotReady" is a healthy cluster is
@@ -214,4 +220,101 @@ func ExternalAddresses(services []LoadBalancerState) (Result, error) {
 	result.Detail = fmt.Sprintf("%d with an address", len(services))
 
 	return result, nil
+}
+
+// ProberImage is the container the cross-node check runs.
+//
+// busybox because it has nslookup and an exit code; the check reads that exit
+// code off the pod's status rather than exec-ing in, so nothing here parses a
+// stream. Pinned, for the reason the policy pack states about every image.
+const ProberImage = "busybox:1.37"
+
+// CrossNodePlan is where the cross-node check can run, or why it cannot.
+type CrossNodePlan struct {
+	// ProbeNode is the node to schedule the prober on: Ready, and holding no
+	// cluster-DNS replica, so every DNS backend it can reach is on another
+	// node and the query has to cross a node boundary to be answered.
+	ProbeNode string
+	// Skip is the reason there is nothing to prove, empty when there is.
+	Skip string
+}
+
+// PlanCrossNode decides where to probe from.
+//
+// The judgement, separated from the doing: which node makes the test mean
+// something is a rule worth a test of its own, and getting it wrong produces a
+// check that passes on a cluster whose cross-node traffic is dead — by asking a
+// DNS replica that happens to be local.
+//
+// Skipped rather than failed in both directions it cannot run. One node cannot
+// have a cross-node path at all, and a cluster whose DNS sits on every Ready
+// node leaves nowhere to ask from.
+func PlanCrossNode(nodes []NodeState, dnsNodes []string) CrossNodePlan {
+	ready := make([]string, 0, len(nodes))
+
+	for _, node := range nodes {
+		if node.Ready {
+			ready = append(ready, node.Name)
+		}
+	}
+
+	if len(ready) < 2 {
+		return CrossNodePlan{Skip: fmt.Sprintf(
+			"%d node is Ready, so there is no cross-node path to test", len(ready))}
+	}
+
+	if len(dnsNodes) == 0 {
+		return CrossNodePlan{Skip: "no cluster-DNS pod found, so there is nothing to ask across a node"}
+	}
+
+	hasDNS := make(map[string]bool, len(dnsNodes))
+	for _, node := range dnsNodes {
+		hasDNS[node] = true
+	}
+
+	// Sorted, so two runs on the same cluster probe from the same node and a
+	// failure is comparable rather than a coin toss.
+	sort.Strings(ready)
+
+	for _, node := range ready {
+		if !hasDNS[node] {
+			return CrossNodePlan{ProbeNode: node}
+		}
+	}
+
+	return CrossNodePlan{Skip: fmt.Sprintf(
+		"every one of the %d Ready nodes runs a cluster-DNS replica, so a query "+
+			"could be answered locally and would prove nothing about crossing a node", len(ready))}
+}
+
+// CrossNodeVerdict turns the prober's exit code into a result.
+//
+// Zero means a DNS reply came back from a replica on another node, which is
+// the whole claim: a pod reached a pod across a node boundary. Anything else is
+// the failure this check exists for, and it is the one that hid for thirteen
+// hours — every component Running, and a third of DNS queries timing out.
+func CrossNodeVerdict(probeNode string, exitCode int32, detail string) Result {
+	result := Result{Name: "a pod reaches a pod on another node"}
+
+	if exitCode == 0 {
+		result.Status = StatusPassed
+		result.Detail = "cluster DNS answered from another node, asked from " + probeNode
+
+		return result
+	}
+
+	result.Status = StatusFailed
+	result.Detail = fmt.Sprintf(
+		"from %s the cluster DNS on another node did not answer (exit %d). "+
+			"Pod-to-pod across nodes is the first thing to check: "+
+			"`kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-health status` "+
+			"reports node and endpoint reachability separately, and endpoints at 0/1 "+
+			"with nodes at 1/1 means the hosts route and the pods do not",
+		probeNode, exitCode)
+
+	if strings.TrimSpace(detail) != "" {
+		result.Detail += ". Prober said: " + strings.TrimSpace(detail)
+	}
+
+	return result
 }

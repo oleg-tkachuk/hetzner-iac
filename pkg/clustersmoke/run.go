@@ -118,6 +118,7 @@ func NewWithClient(client kubernetes.Interface, opts Options) *Runner {
 func (r *Runner) Run(ctx context.Context) Report {
 	return Report{
 		r.checkNodes(ctx),
+		r.checkCrossNode(ctx),
 		r.checkStorage(ctx),
 		r.checkLoadBalancers(ctx),
 	}
@@ -398,5 +399,169 @@ func (r *Runner) cleanupStorageProbe(ctx context.Context, late bool) {
 	if err := r.client.CoreV1().PersistentVolumeClaims(probeNamespace).
 		Delete(ctx, probeClaim, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		r.opts.Logf("could not delete claim %s/%s: %v", probeNamespace, probeClaim, err)
+	}
+}
+
+// The cross-node prober.
+const (
+	proberPod = "cluster-smoke-crossnode"
+
+	// dnsSelector finds the cluster's DNS pods. k8s-app=kube-dns is the label
+	// CoreDNS has carried since it replaced kube-dns, and what Talos ships.
+	dnsSelector = "k8s-app=kube-dns"
+
+	// proberName is what the prober resolves. Always present, and resolved by
+	// the cluster's own DNS rather than an upstream — so a reply proves the
+	// query reached a CoreDNS pod, which the plan has put on another node.
+	proberName = "kubernetes.default.svc.cluster.local"
+)
+
+// proberTimeout bounds the wait for the prober to finish. Short: a working
+// path answers in milliseconds, and a broken one is a timeout inside the
+// prober, not here.
+const proberTimeout = 60 * time.Second
+
+// checkCrossNode asks whether a pod can reach a pod on another node.
+//
+// The check this platform most needed and did not have. Every component can be
+// Running, every node Ready, and pod-to-pod across nodes still dead — which is
+// what `autoDirectNodeRoutes` on a Hetzner private network produced, for as
+// long as the cluster had more than one node. A single-node cluster cannot
+// exhibit it at all, which is why it survived every earlier check.
+func (r *Runner) checkCrossNode(ctx context.Context) Result {
+	name := "a pod reaches a pod on another node"
+
+	nodes, err := r.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return Result{Name: name, Status: StatusFailed, Detail: "listing nodes: " + err.Error()}
+	}
+
+	states := make([]NodeState, 0, len(nodes.Items))
+	for _, node := range nodes.Items {
+		states = append(states, NodeState{Name: node.Name, Ready: nodeReady(node)})
+	}
+
+	dns, err := r.client.CoreV1().Pods(metav1.NamespaceSystem).
+		List(ctx, metav1.ListOptions{LabelSelector: dnsSelector})
+	if err != nil {
+		return Result{Name: name, Status: StatusFailed, Detail: "listing cluster DNS pods: " + err.Error()}
+	}
+
+	dnsNodes := make([]string, 0, len(dns.Items))
+	for _, pod := range dns.Items {
+		if pod.Spec.NodeName != "" {
+			dnsNodes = append(dnsNodes, pod.Spec.NodeName)
+		}
+	}
+
+	plan := PlanCrossNode(states, dnsNodes)
+	if plan.Skip != "" {
+		return Result{Name: name, Status: StatusSkipped, Detail: plan.Skip}
+	}
+
+	defer r.deleteProber(ctx)
+
+	// Delete first too: a prober left by a killed run is pinned to a node, and
+	// would otherwise be read as this run's answer.
+	r.deleteProber(ctx)
+
+	if _, createErr := r.client.CoreV1().Pods(probeNamespace).
+		Create(ctx, proberFor(plan.ProbeNode), metav1.CreateOptions{}); createErr != nil {
+		return Result{Name: name, Status: StatusFailed,
+			Detail: fmt.Sprintf("create the prober on %s: %v", plan.ProbeNode, createErr)}
+	}
+
+	r.opts.Logf("prober %s/%s applied on %s", probeNamespace, proberPod, plan.ProbeNode)
+
+	code, detail, err := r.waitForProber(ctx)
+	if err != nil {
+		return Result{Name: name, Status: StatusFailed, Detail: err.Error()}
+	}
+
+	return CrossNodeVerdict(plan.ProbeNode, code, detail)
+}
+
+// proberFor builds the prober, pinned to one node.
+//
+// nodeName rather than an affinity rule: the choice is already made and an
+// affinity the scheduler could satisfy elsewhere would silently move the probe
+// onto a node where the answer means nothing.
+func proberFor(node string) *corev1.Pod {
+	noEscalation := false
+	nonRoot := true
+	// busybox's own user. runAsNonRoot needs a numeric id, because the image
+	// declares no USER and the kubelet refuses to guess.
+	var user int64 = 65534
+
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: proberPod},
+		Spec: corev1.PodSpec{
+			NodeName:      node,
+			RestartPolicy: corev1.RestartPolicyNever,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot:   &nonRoot,
+				RunAsUser:      &user,
+				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+			},
+			Tolerations: []corev1.Toleration{{
+				Key:      "node-role.kubernetes.io/control-plane",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}},
+			Containers: []corev1.Container{{
+				Name:  "prober",
+				Image: ProberImage,
+				// The default dnsPolicy sends this at the cluster's DNS, whose
+				// every replica the plan has placed on another node. nslookup's
+				// exit code is the whole result, so nothing parses output.
+				Command: []string{"nslookup", proberName},
+				SecurityContext: &corev1.SecurityContext{
+					AllowPrivilegeEscalation: &noEscalation,
+					Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+				},
+			}},
+		},
+	}
+}
+
+// waitForProber polls until the prober's container terminates, and returns its
+// exit code with whatever the pod says about why.
+func (r *Runner) waitForProber(ctx context.Context) (int32, string, error) {
+	deadline := time.Now().Add(proberTimeout)
+
+	for {
+		pod, err := r.client.CoreV1().Pods(probeNamespace).
+			Get(ctx, proberPod, metav1.GetOptions{})
+		if err != nil {
+			return 0, "", fmt.Errorf("read the prober: %w", err)
+		}
+
+		for _, status := range pod.Status.ContainerStatuses {
+			if done := status.State.Terminated; done != nil {
+				return done.ExitCode, done.Message, nil
+			}
+		}
+
+		if time.Now().After(deadline) {
+			// Pending past the deadline is its own answer, and a different one:
+			// the pod never ran, so nothing was measured.
+			return 0, "", fmt.Errorf("the prober was still %s after %s — it never ran, so "+
+				"nothing about cross-node traffic was measured", pod.Status.Phase, proberTimeout)
+		}
+
+		select {
+		case <-ctx.Done():
+			return 0, "", ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+func (r *Runner) deleteProber(ctx context.Context) {
+	ctx = context.WithoutCancel(ctx)
+
+	if err := r.client.CoreV1().Pods(probeNamespace).
+		Delete(ctx, proberPod, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		r.opts.Logf("could not delete pod %s/%s: %v", probeNamespace, proberPod, err)
 	}
 }
