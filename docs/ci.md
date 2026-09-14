@@ -151,6 +151,46 @@ only real choice is the second row or the third. Scaling by cores assumes the
 work parallelises, which Go compilation largely does; treat the figures as the
 shape of the answer rather than a promise.
 
+## Renovate runs when you ask it to
+
+Two triggers decide *how often* Renovate runs, and `renovate.json` decides what
+it may *do* once running. Getting that pair wrong is silent, and it was:
+
+- `schedule` in `renovate.json` was `before 09:00 on monday`, which with
+  `timezone: Europe/Kyiv` is **Sunday 21:00 to Monday 06:00 UTC**;
+- the workflow's cron is `0 6 * * *` — **06:00 UTC**, exactly as that window
+  shuts.
+
+GitHub runs scheduled workflows best-effort on shared runners. The Monday pass
+on 2026-09-14 started at **11:49 UTC**, five hours and forty-nine minutes late,
+found three updates and filed all three under *Awaiting Schedule*. Renovate had
+opened no pull request in this repository, ever.
+
+`renovate-config-validator` accepts the broken schedule and the working one
+identically — all four candidate forms pass — so validation was never going to
+catch it. The schedule is now the whole of Monday: batching updates into one
+weekly review is what the window was for, and the hour only made it depend on a
+cron being punctual. A test in `tools/repo` refuses an hour-narrow schedule.
+
+### A ticked checkbox acts at once
+
+Ticking a box on the Dependency Dashboard records a **request**; Renovate
+fulfils it on its next run. So the workflow also triggers on `issues: edited`,
+filtered to the dashboard.
+
+That trigger has a loop in it. Renovate rewrites the dashboard on every pass
+using `RENOVATE_TOKEN` — a personal access token, which it has to be, because a
+pull request opened with `GITHUB_TOKEN` does not trigger `pull_request`
+workflows and CI would never run on an upgrade. Events from a PAT **do** start
+workflow runs, so Renovate's own edit fires the trigger.
+
+Filtering by actor cannot close it: the PAT acts as the person who owns it, so
+Renovate's edit and a human's have the same sender. What separates them is what
+changed — a guard step proceeds only when a checkbox carrying a Renovate marker
+went from unchecked to checked, and Renovate un-ticks after acting, so its own
+rewrite never adds one. The guard was checked against all four cases, including
+Renovate re-rendering the dependency list and a tick on a non-Renovate line.
+
 ## Security scanning
 
 The scanners live in their own workflow, `.github/workflows/security.yaml`,

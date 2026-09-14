@@ -34,6 +34,29 @@ on:
         options: [info, debug]
         default: info
 
+  # A ticked checkbox on the Dependency Dashboard, acted on at once rather than
+  # at the next cron.
+  #
+  # Ticking a box only records a REQUEST: Renovate fulfils it on its next run,
+  # so without this the answer to "I ticked it and nothing happened" is "wait
+  # up to a day". Measured on 2026-09-14: the tick was read correctly — the log
+  # says "A user manually requested all awaiting schedule PRs via the
+  # Dependency Dashboard" — and nothing had run since it was made.
+  #
+  # THE LOOP THIS HAS TO AVOID. Renovate rewrites that same issue on every
+  # pass, with RENOVATE_TOKEN, which is a personal access token rather than
+  # GITHUB_TOKEN — see "Require the token" below for why it has to be. Events
+  # from a PAT do start workflow runs, so Renovate's own edit fires this
+  # trigger and would run Renovate again, for ever.
+  #
+  # Filtering by actor cannot close that: the PAT acts as the person who owns
+  # it, so Renovate's edit and a human's are the same sender. What separates
+  # them is WHAT CHANGED — the guard step below proceeds only when a checkbox
+  # carrying a Renovate marker went from unchecked to checked. Renovate
+  # un-ticks after acting, so its own rewrite never adds one.
+  issues:
+    types: [edited]
+
   schedule:
     # Daily, 06:00 UTC — and the two schedules here are not a contradiction.
     #
@@ -60,6 +83,11 @@ concurrency:
 jobs:
   renovate:
     name: Dependency updates
+    # The dashboard and nothing else. Every other issue in the repository edits
+    # without waking this up.
+    if: >-
+      github.event_name != 'issues' ||
+      github.event.issue.title == 'Dependency Dashboard'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -67,9 +95,46 @@ jobs:
         with:
           persist-credentials: false
 
+      # The brake on the loop described at the top of this file.
+      #
+      # Both bodies reach the shell as environment variables rather than as
+      # Actions expressions: they are issue text, so interpolating them into a
+      # script is the template-injection hole zizmor exists to find.
+      - name: A checkbox was newly ticked
+        id: tick
+        if: github.event_name == 'issues'
+        env:
+          BODY_BEFORE: ${{ github.event.changes.body.from }}
+          BODY_AFTER: ${{ github.event.issue.body }}
+        run: |
+          set -euo pipefail
+
+          printf '%s' "${BODY_BEFORE}" > "${RUNNER_TEMP}/before.md"
+          printf '%s' "${BODY_AFTER}"  > "${RUNNER_TEMP}/after.md"
+
+          # A Renovate checkbox carries an HTML-comment marker, which is what
+          # separates one from a stray checkbox in prose. Sorted, so the
+          # comparison is by content and not by position: Renovate reorders the
+          # list as updates come and go.
+          ticked() { awk '/^ *- \[x\]/ && /<!--/ {print}' "$1" | sort; }
+
+          added="$(comm -13 <(ticked "${RUNNER_TEMP}/before.md") \
+                            <(ticked "${RUNNER_TEMP}/after.md") | awk 'NF')"
+
+          if [ -z "${added}" ]; then
+            printf '%s\n' "no Renovate checkbox was newly ticked — nothing to do"
+            printf 'proceed=false\n' >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          printf '%s\n' "newly ticked:"
+          printf '%s\n' "${added}"
+          printf 'proceed=true\n' >> "${GITHUB_OUTPUT}"
+
       # Fail with a sentence rather than with Renovate's own authentication
       # error, which names neither the secret nor the scopes.
       - name: Require the token
+        if: github.event_name != 'issues' || steps.tick.outputs.proceed == 'true'
         env:
           RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
         run: |
@@ -97,6 +162,7 @@ jobs:
           fi
 
       - uses: renovatebot/github-action@c314dda4a9a93b08239ec978f2043b9a433b9ac4 # v46.3.0
+        if: github.event_name != 'issues' || steps.tick.outputs.proceed == 'true'
         env:
           # Repo configuration still comes from .github/renovate.json. Only
           # the settings that cannot live there — which repository to act on,
