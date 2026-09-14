@@ -61,7 +61,37 @@ proportional margin they do.
 
 Raising the bound does not make it faster; it makes the cause readable. Both
 failures arrived as `exit status 143` with a truncated log, which says nothing
-about a cache.
+about a cache — so the job now prints the runner's cores and memory before it
+starts.
+
+### Two cores, not four
+
+The work is 1 916 CPU-seconds, measured locally. What turns that into sixteen
+minutes is the runner: a standard GitHub-hosted Linux runner has **2 cores and
+8 GB on a private repository**, and 4 cores with 16 GB on a public one. 1916/2
+is 958s — 15m58s, against a bound of 15.
+
+This also fixed a live misconfiguration. `GOSEC_FLAGS` was `-concurrency=4`
+with a comment saying four "is the CI runner's core count, so this costs
+nothing there". It is not: on two cores that cap oversubscribed them twofold,
+which cannot add throughput and can only add memory pressure on 8 GB — the
+opposite of what the flag is for. It is now `min(4, cores)`, computed, so
+neither machine is assumed.
+
+Would a different runner help? It is the one lever that would, and the sizes
+above are the whole answer:
+
+| | cores | scaled from 1 916 CPU-s | available here |
+|---|---|---|---|
+| `ubuntu-slim` | 1 | ~32m | yes, and worse |
+| `ubuntu-latest`, private repo | 2 | ~16m | **today** |
+| `ubuntu-latest`, public repo | 4 | ~8m | on going public — free and unlimited |
+| larger runner, 8 core | 8 | ~4m | no — organisations on Team or Enterprise only |
+
+Larger runners are not open to a personal account, so for this repository the
+only real choice is the second row or the third. Scaling by cores assumes the
+work parallelises, which Go compilation largely does; treat the figures as the
+shape of the answer rather than a promise.
 
 ## Security scanning
 
