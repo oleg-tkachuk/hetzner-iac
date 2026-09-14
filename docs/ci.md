@@ -64,6 +64,42 @@ failures arrived as `exit status 143` with a truncated log, which says nothing
 about a cache — so the job now prints the runner's cores and memory before it
 starts.
 
+### gosec is downloaded, not compiled
+
+`go install` built gosec from source on every run: **1m06s, 1m08s, 1m16s warm
+and 1m22s cold**, measured across four runs — against a gosec step that is
+23-27s. The install cost three times the analysis it enabled.
+
+It never got faster with a warm cache, and the reason is specific: the cache
+holds *this* module's build. gosec's own dependencies are not in this module's
+graph, so nothing that primes the cache ever compiles them and they are rebuilt
+every time.
+
+The verification is replaced rather than dropped. `go install` checked the
+module against Go's checksum database; the download checks the tarball against
+the release's own `checksums.txt`. That is weaker — it binds the artifact to
+that release manifest rather than to an out-of-band trust root — and still
+stricter than the two downloads already here, since `kubeconform` and
+`talosctl` are fetched with a bare `curl` and verified against nothing. gosec
+also publishes a Sigstore bundle, which is stronger and needs `cosign` on the
+runner.
+
+### The version stays pinned
+
+`GOSEC_VERSION` is a pin, and fetching "whatever is newest" each run would be a
+worse idea here than for most tools. gosec is a linter: a new release adds
+rules, so a pull request would go red with no change of its author's, and
+nothing in the failure would say which. This repository already made that
+argument about a different tool, in `ci.yaml` — "`latest` would let a
+kubeconform release change what CI accepts with no commit of ours".
+
+Checked on 2026-09-14: `GOSEC_VERSION` v2.29.0 and `KUBECONFORM_VERSION` 0.8.0
+are both the current upstream releases, so nothing is stale. Nothing keeps them
+that way either — Renovate has one custom manager, for the chart registry, and
+these `*_VERSION` values are bumped by hand. A second manager would be the
+right home for them, which is a change of its own: `tools/charts` asserts there
+is exactly one.
+
 ### Two cores, not four
 
 The work is 1 916 CPU-seconds, measured locally. What turns that into sixteen
