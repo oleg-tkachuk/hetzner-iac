@@ -134,6 +134,7 @@ func exports(topology *hetzner.Topology, cluster *hetzner.Cluster, token pulumi.
 		// replicas bind a host port, so the second stays Pending for ever on a
 		// single-node cluster.
 		clusterref.OutputControlPlaneCount: pulumi.Int(topology.ControlPlane.Count),
+		clusterref.OutputRoutingMode:       pulumi.String(topology.Network.RoutingMode),
 
 		clusterref.OutputClusterName: pulumi.String(topology.Metadata.Name),
 		clusterref.OutputLocation:    pulumi.String(topology.Placement.Location),

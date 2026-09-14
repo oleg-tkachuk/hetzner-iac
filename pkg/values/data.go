@@ -39,6 +39,10 @@ type Cilium struct {
 	// OperatorReplicas is capped at one per control-plane node: each binds a
 	// host port, so a second cannot share a node.
 	OperatorReplicas int
+	// RoutingMode is native or tunnel, from the topology by way of the cluster
+	// tier's outputs. The template renders it directly, so an unexpected value
+	// would reach Cilium — hetzner.Validate is what refuses one.
+	RoutingMode string
 }
 
 // CCM is pkg/values/hcloud-ccm.yaml.tmpl.
