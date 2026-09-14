@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -37,6 +38,37 @@ func TestImageURL_IsWhatTheFactoryServes(t *testing.T) {
 	assert.Equal(t,
 		"https://factory.talos.dev/image/abc123/v1.13.10/hcloud-amd64.raw.xz",
 		imageURL("abc123", "v1.13.10", "amd64"))
+}
+
+func TestCreatedSchematic_AcceptsTheStatusTheFactoryActuallySends(t *testing.T) {
+	t.Parallel()
+
+	// 201 is the regression. Demanding exactly 200 made every bake fail with
+	// "image factory returned 201 Created", invisibly, for as long as the
+	// project already had a snapshot — the presence check returns before the
+	// factory is called.
+	for _, status := range []int{
+		http.StatusOK,
+		http.StatusCreated,
+		http.StatusAccepted,
+	} {
+		assert.True(t, createdSchematic(status), status)
+	}
+
+	// Everything that is not the factory handing back a schematic: a redirect
+	// to a login page, a rejected body, a broken factory. decodeSchematic
+	// cannot tell these apart from a valid response, so the status must.
+	for _, status := range []int{
+		http.StatusMultipleChoices,
+		http.StatusFound,
+		http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+	} {
+		assert.False(t, createdSchematic(status), status)
+	}
 }
 
 func TestRun_RejectsTheWrongNumberOfArguments(t *testing.T) {
