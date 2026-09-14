@@ -124,6 +124,20 @@ func (r *recorder) Call(args pulumi.MockCallArgs) (resource.PropertyMap, error) 
 		return resource.PropertyMap{
 			"talosConfig": resource.NewStringProperty("context: test\n"),
 		}, nil
+	case "hcloud:index/getZone:getZone":
+		// The zone is looked up, never created — a zone belongs to a
+		// delegation that outlives any cluster. The lookup answers with the
+		// name it was asked for, which is what the rrsets are anchored to.
+		name := ""
+		if asked := args.Args["name"]; asked.IsString() {
+			name = asked.StringValue()
+		}
+
+		return resource.PropertyMap{
+			"id":   resource.NewNumberProperty(1),
+			"name": resource.NewStringProperty(name),
+			"mode": resource.NewStringProperty("primary"),
+		}, nil
 	case "hcloud:index/getServerTypes:getServerTypes":
 		// Empty unless a test sets it. An empty list means "the lookup told us
 		// nothing", which ValidateServerTypes treats as unverified rather than
