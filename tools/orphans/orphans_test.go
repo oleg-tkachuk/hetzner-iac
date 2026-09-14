@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -165,7 +167,7 @@ func TestReport_SaysSoWhenThereIsNothing(t *testing.T) {
 
 	// "(none)" must not read the same as a failed lookup, which is why the
 	// empty case has words rather than an empty table.
-	got := Report(nil, Inventory{Volumes: []Volume{{Name: "pvc-kept"}}}.Examined())
+	got := Report(nil, Inventory{Volumes: []Volume{{Name: "pvc-kept"}}}.Examined(), "")
 
 	assert.Contains(t, got, "no orphans")
 	assert.NotContains(t, got, "KIND")
@@ -185,7 +187,7 @@ func TestReport_TotalsOnlyProvisionedStorage(t *testing.T) {
 		Snapshots: []Snapshot{{Description: "old", SizeGB: 0.2, Labels: map[string]string{TalosVersionLabel: "v1.0.0"}}},
 	}
 
-	got := Report(Orphans(inventory, claims()), inventory.Examined())
+	got := Report(Orphans(inventory, claims()), inventory.Examined(), "")
 
 	assert.Contains(t, got, "50 GiB of provisioned volumes")
 	// Both sizes still show per row, in a form each is readable in.
@@ -193,4 +195,99 @@ func TestReport_TotalsOnlyProvisionedStorage(t *testing.T) {
 	assert.Contains(t, got, "0.2 Gi")
 	assert.Equal(t, 2, strings.Count(got, "Gi\n")+strings.Count(got, "Gi "),
 		"one size per row, and one in the total")
+}
+
+// TestClusterServers_OnlyThisClustersOwn is the decision that lets this check
+// run at all without a cluster.
+//
+// A shared Hetzner project can hold another cluster's servers, and counting
+// those would make a destroyed cluster look alive — so the check would refuse
+// to run for the same wrong reason, with a different cause.
+func TestClusterServers_OnlyThisClustersOwn(t *testing.T) {
+	t.Parallel()
+
+	inventory := Inventory{Servers: []Server{
+		{Name: "platform-dev-control-plane-0", Labels: map[string]string{hetzner.LabelCluster: "platform-dev"}},
+		{Name: "platform-prod-control-plane-0", Labels: map[string]string{hetzner.LabelCluster: "platform-prod"}},
+		// Somebody else's server, or one from before this repository existed.
+		{Name: "unlabelled"},
+	}}
+
+	mine := ClusterServers(inventory, "platform-dev")
+
+	require.Len(t, mine, 1)
+	assert.Equal(t, "platform-dev-control-plane-0", mine[0].Name)
+
+	assert.Empty(t, ClusterServers(inventory, "platform-staging"),
+		"a cluster with no servers must read as gone, not as somebody else's")
+	assert.Empty(t, ClusterServers(Inventory{}, "platform-dev"),
+		"an empty project holds no cluster")
+}
+
+// TestOrphans_WithNoClusterReportsEverythingItLeftBehind is the report an
+// operator wants after `task destroy` and could not previously get.
+//
+// Empty claims are the truth once the cluster is gone, and the judgement
+// needed no change for it — what changed is that the check now knows when it
+// may trust them.
+func TestOrphans_WithNoClusterReportsEverythingItLeftBehind(t *testing.T) {
+	t.Parallel()
+
+	// What a teardown can leave: a volume whose PVC outlived its deletion, a
+	// load balancer the CCM made for a Service that no longer exists, and an
+	// address nothing is assigned to.
+	inventory := Inventory{
+		Volumes:       []Volume{{Name: "pvc-left-behind", SizeGB: 50}},
+		LoadBalancers: []LoadBalancer{{Name: "platform-dev-ingress", Labels: map[string]string{ServiceUIDLabel: "uid-1"}}},
+		PrimaryIPs:    []PrimaryIP{{Name: "addr-1", IP: "203.0.113.5"}},
+		Snapshots: []Snapshot{{
+			Description: "talos", SizeGB: 0.2,
+			Labels: map[string]string{TalosVersionLabel: "v1.13.10"},
+		}},
+	}
+
+	gone := Claims{
+		PersistentVolumes: map[string]bool{},
+		ServiceUIDs:       map[string]bool{},
+		Nodes:             map[string]bool{},
+		// The topology still pins a version, so the snapshot every rebuild
+		// boots from is NOT an orphan. Deleting it would cost a re-bake and
+		// save a quarter of a cent a month.
+		TalosVersion: "v1.13.10",
+	}
+
+	found := Orphans(inventory, gone)
+
+	kinds := map[string]string{}
+	for _, f := range found {
+		kinds[f.Kind] = f.Name
+	}
+
+	assert.Equal(t, "pvc-left-behind", kinds[KindVolume])
+	assert.Equal(t, "platform-dev-ingress", kinds[KindLoadBalancer])
+	assert.Equal(t, "addr-1", kinds[KindPrimaryIP])
+	assert.NotContains(t, kinds, KindSnapshot,
+		"the pinned snapshot is what a rebuild boots from; reporting it invites deleting it")
+}
+
+// TestReport_ExplainsAJudgementMadeWithoutACluster keeps the alarming version
+// of a correct report from being the one an operator reads.
+//
+// Every volume and every load balancer listed as claimed by nothing is right
+// after a teardown and looks like a catastrophe. The note goes first.
+func TestReport_ExplainsAJudgementMadeWithoutACluster(t *testing.T) {
+	t.Parallel()
+
+	inventory := Inventory{Volumes: []Volume{{Name: "pvc-left-behind", SizeGB: 50}}}
+
+	got := Report(Orphans(inventory, Claims{}), inventory.Examined(), ClusterGoneNote)
+
+	assert.Contains(t, got, "the cluster is gone")
+	assert.Contains(t, got, "left behind")
+	// Before the table, not after it.
+	assert.Less(t, strings.Index(got, "the cluster is gone"), strings.Index(got, "KIND"))
+
+	// And the ordinary report does not carry it.
+	assert.NotContains(t, Report(Orphans(inventory, Claims{}), inventory.Examined(), ""),
+		"the cluster is gone")
 }

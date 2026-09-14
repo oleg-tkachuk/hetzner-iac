@@ -76,16 +76,39 @@ func run() (clean bool, err error) {
 		return false, err
 	}
 
-	claims, err := readClaims(ctx, kubeconfig)
-	if err != nil {
-		return false, err
+	// Ask the cluster only when it can exist.
+	//
+	// readClaims fails on an unreachable cluster rather than returning an
+	// empty set, because empty claims would report every volume in the
+	// project as an orphan. That is right while the cluster's servers are
+	// still there — and wrong once they are not, which is exactly when an
+	// operator runs this check: straight after a teardown, to see what it
+	// left behind. The old behaviour was to refuse, and the refusal named
+	// the reason for a rule that no longer applied.
+	claims := Claims{
+		PersistentVolumes: map[string]bool{},
+		ServiceUIDs:       map[string]bool{},
+		Nodes:             map[string]bool{},
+	}
+
+	note := ClusterGoneNote
+
+	if servers := ClusterServers(inventory, topology.Metadata.Name); len(servers) > 0 {
+		note = ""
+
+		claims, err = readClaims(ctx, kubeconfig)
+		if err != nil {
+			return false, fmt.Errorf("%w\n\n%d server(s) still carry %s=%s, so the cluster "+
+				"should answer. If it is gone, its servers are not — and they are billed",
+				err, len(servers), hetzner.LabelCluster, topology.Metadata.Name)
+		}
 	}
 
 	claims.TalosVersion = topology.Talos.Version
 
 	found := Orphans(inventory, claims)
 
-	fmt.Print(Report(found, inventory.Examined()))
+	fmt.Print(Report(found, inventory.Examined(), note))
 
 	return len(found) == 0, nil
 }
@@ -134,7 +157,7 @@ func readInventory(ctx context.Context, token string) (Inventory, error) {
 	}
 
 	for _, server := range servers {
-		found := Server{Name: server.Name}
+		found := Server{Name: server.Name, Labels: server.Labels}
 		if server.ServerType != nil {
 			found.Type = server.ServerType.Name
 		}
