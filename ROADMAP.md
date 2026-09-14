@@ -78,11 +78,12 @@ Nothing checks provenance at admission.
 The ingress and the certificate machinery are deployed, and nothing uses them.
 **Blocked on:** a domain.
 
-### DNS is a resource, not a console tab
+### Something is reachable from outside — the parts that are not the domain
 
-The records an ingress needs are Pulumi's to own — Hetzner Cloud Zones, on the
-token this repository already holds. The domain may be registered anywhere.
-**Blocked on:** a domain.
+`40-ingress` creates the `A` and `AAAA` records for `metadata.domain` in
+`metadata.dnsZone`, looking the zone up rather than creating it, and
+`30-cluster-services` orders the certificate — staging or production, by
+config. What is left is a domain to put in the topology.
 
 ### A server keeps its address when it is replaced
 
