@@ -5,6 +5,8 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumiopts"
+
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -160,7 +162,7 @@ func NewIngressLoadBalancer(
 			Type:           pulumi.String("label_selector"),
 			LabelSelector:  pulumi.Sprintf("%s=%s", LabelCluster, args.ClusterName),
 			UsePrivateIp:   pulumi.Bool(true),
-		}, append(opts, pulumi.DependsOn([]pulumi.Resource{attachment}))...); err != nil {
+		}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{attachment}))...); err != nil {
 		return pulumi.StringOutput{}, fmt.Errorf("hcloud ingress load balancer target: %w", err)
 	}
 

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumiopts"
+
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
@@ -279,7 +281,7 @@ func apiEndpointAddress(
 	attachment, err := hcloud.NewLoadBalancerNetwork(ctx, name+"-api-network", &hcloud.LoadBalancerNetworkArgs{
 		LoadBalancerId: idToInt(loadBalancer.ID()),
 		NetworkId:      network.NetworkID,
-	}, append(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet}))...)
+	}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet}))...)
 	if err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer network: %w", err)
 	}
@@ -320,7 +322,7 @@ func apiEndpointAddress(
 		LabelSelector: pulumi.String(fmt.Sprintf("%s,%s=%s",
 			ClusterSelector(topology.Metadata.Name), LabelRole, RoleControlPlane)),
 		UsePrivateIp: pulumi.Bool(true),
-	}, append(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet, attachment}))...); err != nil {
+	}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet, attachment}))...); err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer target: %w", err)
 	}
 
