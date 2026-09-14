@@ -134,10 +134,11 @@ and apply said "run `task cluster:image-bake`".
 
 The bake also runs in the topology's `placement.location`, not
 `hcloud-upload-image`'s default of `fsn1`. It works by creating a real server,
-so the location has to be one that offers the server type — which matters for
-Arm, where the `cax` line is not in every location. See
-[configuration.md](configuration.md#cpu-architecture) for what Arm costs and
-for the project-level availability check to run first.
+so the location has to be one that offers the server type — and for Arm the
+default was the wrong one: Hetzner reports the `cax` line as *supported but not
+available* in `fsn1`, while `hel1` and `nbg1` report it available. See
+[configuration.md](configuration.md#cpu-architecture) for what Arm costs, which
+locations have it, and the probe to run before planning an Arm cluster.
 
 ### The two halves of a backup
 

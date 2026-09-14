@@ -61,34 +61,58 @@ cert-manager, external-secrets, metrics-server, Traefik and Argo CD, checked
 on 2026-09-14. So nothing in the platform is the obstacle; the reason to pick
 `arm` is wanting Arm nodes, not saving money.
 
-### Availability is per project, and the API will not tell you
+### Which locations have Arm, and why that is not the blocker here
 
-The `cax` line is sold in `fsn1`, `hel1` and `nbg1` — and a project can still
-be unable to create one. On the project this repository was developed against,
-every `cax` create is refused in every location:
+Arm is regional. Hetzner's own
+[locations table](https://docs.hetzner.com/cloud/general/locations/) lists
+**Cloud Shared `AMPERE`** — the `cax` line — in three locations only:
+
+| | `fsn1` | `nbg1` | `hel1` | `ash` | `hil` | `sin` |
+|---|---|---|---|---|---|---|
+| Cloud Shared `AMPERE` | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+
+So an Arm topology has to sit in Falkenstein, Nuremberg or Helsinki. Anything in
+`ash`, `hil` or `sin` cannot be Arm at all, and that is a property of the
+location rather than of an account.
+
+The live API agrees about the region and then refuses anyway. It reports `cax11`
+as *available* in `hel1-dc2` and `nbg1-dc3`, and *supported but not available*
+in `fsn1-dc14` — yet every create in all three is refused:
 
 ```
 unsupported location for server type (invalid_input)
 ```
 
-straight from the API, not from the CLI or from a mismatched image. There is no
-endpoint that predicts it: `/v1/locations` carries no per-type availability,
-and `/v1/datacenters` — deprecated since 2025-12-16 — still reports `cax11`
-as *available* in the same locations that refuse it.
+That is not a mismatched image and not the CLI: it comes back the same from the
+raw API with an Arm image by id. Nor is it the location or the project's
+standing, which one pair of requests settles — same project, same location, same
+request shape:
 
-So `arm` is implemented and unit-tested but cannot be proven on that project.
-Before planning an Arm cluster, try one server by hand — an Arm image by id,
+```
+cx23  nbg1  CREATED
+cax11 nbg1  unsupported location for server type
+```
+
+So the refusal follows the architecture, not the region. Hetzner's API is
+contradicting its own availability data, and nothing outside the account can
+say whether that is an entitlement or a defect — `/v1/locations` carries no
+per-type availability, and `/v1/datacenters` has been deprecated since
+2025-12-16. **It needs a support ticket, not a wait for capacity.**
+
+Before planning an Arm cluster, probe one server by hand — an Arm image by id,
 not by name, because Hetzner answers an x86 image on an Arm type with the *same*
-message and the name resolves to whichever architecture the CLI picks:
+message and a name resolves to whichever architecture the CLI picks:
 
 ```bash
 hcloud image list --type system --architecture arm -o columns=id,name
 hcloud server create --name arch-probe --type cax11 --image <id> --location hel1
 ```
 
-If that is refused with an Arm image, the project's quota is the blocker rather
-than anything in this repository. Delete the probe if it succeeds — a server
-costs from the moment it exists.
+Delete the probe if it succeeds — a server costs from the moment it exists.
+
+The Arm **dedicated** line is a different product and out of scope here: RX170
+and RX220 are Ampere Altra machines on Hetzner's robot side, not the Cloud API
+this repository provisions through.
 
 ## Stack config
 
