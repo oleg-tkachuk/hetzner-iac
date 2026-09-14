@@ -15,19 +15,67 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// vendored is a file copied from upstream at a tag, with the URL it came from.
+// vendored is a file copied from upstream at a tag, with the URL it came from
+// and the digest its body had when it was copied.
 //
 // Recorded here rather than beside each file because there is one list to read
-// when asking "what did we copy in, and from where".
+// when asking "what did we copy in, from where, and as what".
+//
+// The digest is what makes the check work with no network. Print a new one for
+// a deliberate update with:
+//
+//	go test ./tools/repo -run TestVendored_MatchesItsRecordedDigest -v
 var vendored = []struct {
-	path string
-	url  string
+	path   string
+	url    string
+	digest string
 }{
 	{
 		path: "../../layers/30-cluster-services/manifests/kubelet-serving-cert-approver.yaml",
 		url: "https://raw.githubusercontent.com/alex1989hu/kubelet-serving-cert-approver/" +
 			"v0.12.0/deploy/standalone-install.yaml",
+		digest: "3ec71eeb521b1f32b015f3d9a8972744dbcfabae0b7cc73c1856a5abdb3fa776",
 	},
+}
+
+// TestVendored_MatchesItsRecordedDigest is the half that needs no network, and
+// it is the half that was missing.
+//
+// The check below fetches upstream and SKIPS when it cannot, which was a
+// deliberate choice — a gate that goes red because github.com is unreachable
+// is a gate people switch off. But a skip is a pass: in a runner with no
+// egress, or during the twenty minutes on 2026-09-14 when GitHub's own
+// downloads returned 504, a hand edit to this file would have gone through
+// with the suite green and nothing said.
+//
+// A digest recorded in the repository separates the two questions. Has this
+// copy been edited since it was vendored? — answerable here, offline, and so
+// this test FAILS rather than skips. Has upstream changed at that tag? — that
+// genuinely needs the network, and that is the one allowed to skip.
+//
+// carvel-dev/vendir was the obvious tool for this and does not do it: for an
+// `http` source its lock file records `http: {}` — no digest and no resolved
+// ref — measured on 0.46.2. Its sync also replaces the managed directory
+// wholesale, which would strip the Apache-2.0 provenance header this copy
+// carries for redistribution.
+func TestVendored_MatchesItsRecordedDigest(t *testing.T) {
+	t.Parallel()
+
+	for _, file := range vendored {
+		local, err := os.ReadFile(file.path)
+		require.NoError(t, err, file.path)
+
+		got := digest(afterHeader(string(local)))
+
+		// Printed on every run, so a deliberate update has the value to paste
+		// without anyone computing a sha256 by hand.
+		t.Logf("%s\n  recorded %s\n  actual   %s", file.path, file.digest, got)
+
+		assert.Equal(t, file.digest, got,
+			"%s has been edited since it was vendored from %s.\n"+
+				"If the edit is deliberate, update the tag, the header and the digest above.",
+			file.path, file.url)
+	}
 }
 
 // TestVendored_MatchesUpstreamAtItsTag catches a hand edit to a copied file.
@@ -56,6 +104,14 @@ func TestVendored_MatchesUpstreamAtItsTag(t *testing.T) {
 		if err != nil {
 			t.Skipf("cannot reach %s: %v", file.url, err)
 		}
+
+		// Against the recorded digest as well as the file, so a run with
+		// network answers both questions: whether the copy drifted, and
+		// whether the record itself is still what upstream serves.
+		assert.Equal(t, digest(upstream), file.digest,
+			"%s serves something other than the digest recorded for it. Upstream re-tagged, "+
+				"or the record is wrong — either way this is not a local edit",
+			file.url)
 
 		assert.Equal(t, digest(upstream), digest(body),
 			"%s no longer matches %s — if the edit is deliberate, update the tag and the header",
