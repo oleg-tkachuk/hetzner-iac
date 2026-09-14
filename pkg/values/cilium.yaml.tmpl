@@ -17,12 +17,40 @@ kubeProxyReplacement: true
 k8sServiceHost: {{ .APIHost }}
 k8sServicePort: {{ .APIPort }}
 
-# Native routing rather than an overlay: the CCM programmes a route per node
-# inside the private network, so pod traffic needs no encapsulation. One fewer
-# header, and readable packet captures.
-routingMode: native
+# How pod traffic crosses nodes, from network.routingMode in the topology.
+#
+# native is the default: pod packets go to the private network's gateway, which
+# routes them by the per-node routes the hcloud CCM programmes. One fewer
+# header, and packet captures a human can read. The cluster tier puts the route
+# to that gateway in every node's machine config — without it the packets match
+# the default route and leave through the public interface.
+#
+# tunnel wraps them in VXLAN between node addresses instead. It needs nothing
+# from the private network's routing, which makes it the answer when that
+# routing is what is under suspicion. Costs ~50 bytes a packet and the MTU that
+# goes with them.
+routingMode: {{ .RoutingMode }}
 ipv4NativeRoutingCIDR: {{ .PodCIDR }}
-autoDirectNodeRoutes: true
+
+# NEVER true here, in either mode.
+#
+# It asks Cilium to route a peer's pod CIDR via that peer's address, and a
+# Hetzner private network gives each server a /32 with only the gateway
+# on-link. Cilium refuses and says exactly that:
+#
+#   Unable to install direct node route … route to destination 10.0.1.4
+#   contains gateway 10.0.0.1, must be directly reachable
+#
+# It was true, and pod-to-pod across nodes therefore had no route at all for as
+# long as the cluster had more than one node. Everything downstream followed:
+# CoreDNS unreachable from another node, the CSI controller unable to resolve
+# api.hetzner.cloud, its driver killed by its own liveness probe every twenty
+# seconds. A single-node cluster hid all of it, because nothing crossed a node.
+#
+# The flag that error suggests, direct-routing-skip-unreachable, is not the fix
+# — it only stops Cilium retrying a route that cannot work, and leaves the
+# traffic with nowhere to go.
+autoDirectNodeRoutes: false
 endpointRoutes:
   enabled: true
 bpf:
