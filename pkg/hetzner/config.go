@@ -45,6 +45,32 @@ type MetadataSpec struct {
 	// Name is the Talos cluster name, the server-name prefix and the value
 	// of the label every resource in the cluster carries.
 	Name string `json:"name"`
+	// Domain is the public DNS name this environment is reached at, empty
+	// until there is one.
+	//
+	// Here rather than in a layer's config because two layers must spell it
+	// identically: 40-ingress points DNS records at its load balancer, and
+	// 50-gitops gives Argo CD its hostname. A value two stacks each hold
+	// their own copy of is a value that drifts, and the drift is silent — an
+	// Ingress for one name behind a record for another is accepted by
+	// everything and serves nothing.
+	//
+	// Optional, and the layers say so when it is unset rather than failing:
+	// a cluster with no domain is the normal state of a new environment.
+	Domain string `json:"domain,omitempty"`
+	// DNSZone is the zone as delegated to Hetzner, when Hetzner holds the
+	// authoritative DNS for Domain.
+	//
+	// A second field because the zone cut cannot be derived from a name:
+	// `platform.example.com` could be a record in `example.com` or a zone of
+	// its own, and `example.co.uk` is a zone whose registrable part is not
+	// its last two labels. Guessing it would mean writing records into
+	// somebody else's zone or failing to find one that exists.
+	//
+	// Empty is a supported state even with Domain set: the domain may be
+	// hosted anywhere, and 40-ingress then creates no records and says so.
+	// Domain must equal this or be a subdomain of it.
+	DNSZone string `json:"dnsZone,omitempty"`
 }
 
 // PlacementSpec says where in Hetzner's estate the cluster lives.
@@ -354,6 +380,12 @@ var (
 	// server-name prefix and an hcloud label value, both of which are stricter
 	// than a free string.
 	dns1123 = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	// domainName is a public DNS name: two or more dns1123 labels joined by
+	// dots. Deliberately stricter than dns1123, which accepts a single label
+	// — `platform` is a valid cluster name and not a domain, and an ACME
+	// order for a single label is refused after the Ingress is already in
+	// place.
+	domainName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$`)
 	// semverish accepts the vX.Y.Z spelling Talos and Kubernetes both use.
 	semverish = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 	// taintPattern is key=value:Effect. Value may be empty (key=:NoSchedule).
@@ -458,6 +490,43 @@ func (t *Topology) Validate() error {
 	return fmt.Errorf("invalid cluster topology:\n  - %s", strings.Join(problems, "\n  - "))
 }
 
+// validateDNSZone holds the relationship between the two DNS fields.
+//
+// Both failures it catches are silent at apply time and expensive later. A
+// zone that is not a suffix of the domain means the records are written into
+// the wrong zone — Hetzner accepts them, and the name they serve is not the
+// name anything asks for. A zone with no domain is a field that does nothing,
+// which reads like DNS is managed and it is not.
+func (t *Topology) validateDNSZone() []string {
+	var problems []string
+
+	if t.Metadata.DNSZone == "" {
+		return problems
+	}
+
+	if !domainName.MatchString(t.Metadata.DNSZone) {
+		problems = append(problems, fmt.Sprintf(
+			"metadata.dnsZone %q is not a DNS name", t.Metadata.DNSZone))
+	}
+
+	if t.Metadata.Domain == "" {
+		problems = append(problems, "metadata.dnsZone is set and metadata.domain is not: "+
+			"there is no record to create")
+
+		return problems
+	}
+
+	if t.Metadata.Domain != t.Metadata.DNSZone &&
+		!strings.HasSuffix(t.Metadata.Domain, "."+t.Metadata.DNSZone) {
+		problems = append(problems, fmt.Sprintf(
+			"metadata.domain %q is not inside metadata.dnsZone %q: the records would go into "+
+				"a zone that does not serve the name",
+			t.Metadata.Domain, t.Metadata.DNSZone))
+	}
+
+	return problems
+}
+
 func (t *Topology) validateIdentity() []string {
 	var problems []string
 
@@ -480,6 +549,22 @@ func (t *Topology) validateIdentity() []string {
 	case !dns1123.MatchString(t.Metadata.Name):
 		problems = append(problems, fmt.Sprintf("metadata.name %q must be lowercase alphanumeric with internal hyphens", t.Metadata.Name))
 	}
+
+	// Only when set: a cluster with no domain is the normal state of a new
+	// environment, and every consumer says so rather than failing.
+	//
+	// Checked at all because the failure is silent in both directions. A
+	// record for one name behind an Ingress for another is accepted by
+	// Kubernetes, by Traefik and by Hetzner and serves nothing; and Let's
+	// Encrypt refuses an order for a name that is not a domain, after the
+	// Ingress is already in place.
+	if t.Metadata.Domain != "" && !domainName.MatchString(t.Metadata.Domain) {
+		problems = append(problems, fmt.Sprintf(
+			"metadata.domain %q is not a DNS name: expected labels separated by dots, "+
+				"such as platform.example.com", t.Metadata.Domain))
+	}
+
+	problems = append(problems, t.validateDNSZone()...)
 
 	return problems
 }

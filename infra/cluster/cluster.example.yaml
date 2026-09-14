@@ -26,6 +26,14 @@ kind: Cluster
 
 metadata:
   name: platform-dev
+  # Public DNS name this environment is reached at. Absent until there is one,
+  # which is the normal state of a new environment: 40-ingress then creates no
+  # DNS records and 50-gitops no Ingress, and both say so on every apply.
+  #
+  # Two or more labels. A single one is a hostname, and Let's Encrypt refuses
+  # an order for it — after the Ingress is already in place.
+  #
+  # domain: platform.example.com
 
 placement:
   location: hel1

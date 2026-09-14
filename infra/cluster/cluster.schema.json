@@ -32,6 +32,16 @@
           "description": "Talos cluster name, server-name prefix and the label every resource carries. A DNS-1123 label, because it has to be all three.",
           "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
           "maxLength": 47
+        },
+        "domain": {
+          "type": "string",
+          "description": "Public DNS name this environment is reached at. Two or more labels, because a single one is a hostname and not a domain and Let's Encrypt refuses an order for it. Empty or absent until there is one: 40-ingress creates no DNS records and 50-gitops no Ingress, and both say so on every apply.",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$"
+        },
+        "dnsZone": {
+          "type": "string",
+          "description": "Zone as delegated to Hetzner, when Hetzner holds the authoritative DNS for `domain`. A second field because the zone cut cannot be derived from a name. Empty is supported even with a domain set \u2014 the DNS may be hosted anywhere, and 40-ingress then creates no records. `domain` must equal this or be a subdomain of it.",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$"
         }
       }
     },
