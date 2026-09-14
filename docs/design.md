@@ -227,6 +227,15 @@ through the load balancer. The load balancer is told to send a PROXY header;
 Traefik accepts one only from addresses it is told to trust, and its default is
 to trust nobody.
 
+The load balancer is created by `layers/40-ingress` through the Hetzner
+provider, not by the cloud controller manager. A Service of type LoadBalancer
+would hand the job to the CCM, and on 2026-09-14 that was measured to cost
+two things: the load balancer was invisible to `plan` and `destroy` and showed
+up only in the bill, and it had no targets at all — the CCM will not target a
+node carrying `node.kubernetes.io/exclude-from-external-load-balancers`, which
+Talos puts on every control-plane node. So the Service is a `NodePort` on
+pinned ports and the load balancer selects its targets by cluster label.
+
 ```mermaid
 flowchart LR
     %% Same palette as the diagram above, and the same reason for spelling the
@@ -237,18 +246,18 @@ flowchart LR
     classDef gate fill:#fff0e0,stroke:#ff7300,stroke-width:2px,color:#1f2328
 
     client(["client"])
-    lb["Hetzner load balancer<br/>public IPv4 and IPv6"]
+    lb["Hetzner load balancer<br/>public IPv4 and IPv6<br/>created by Pulumi, targets by cluster label"]
 
     subgraph private["🔒 private network — network.nodeSubnet"]
         direction LR
-        node["node<br/>private address only"]
+        node["node<br/>private address only<br/>nodePort 30080 / 30443"]
         traefik["Traefik<br/>entry points: web, websecure<br/>trusts the PROXY header from network.nodeSubnet"]
         svc["Service"]
         pod(["pod"])
     end
 
     client -->|"tcp/80, tcp/443"| lb
-    lb ==>|"PROXY header<br/>use-private-ip: true"| node
+    lb ==>|"PROXY header<br/>private target, pinned nodePort"| node
     node --> traefik
     traefik --> svc
     svc --> pod

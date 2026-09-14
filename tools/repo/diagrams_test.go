@@ -4,11 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,11 +166,16 @@ func TestRequestPathDiagram_UsesTheEntryPointNamesTraefikIsGiven(t *testing.T) {
 	}
 }
 
-// TestRequestPathDiagram_NamesTheAnnotationTheCCMReads pins the one label in
-// the diagram that is a contract with another component: the annotation is
-// read by the cloud controller manager, and a wrong one produces a load
-// balancer that exists and routes to nothing.
-func TestRequestPathDiagram_NamesTheAnnotationTheCCMReads(t *testing.T) {
+// TestRequestPathDiagram_ShowsThePinnedNodePorts pins the numbers in the
+// diagram that are a contract between two programs.
+//
+// It used to pin the cloud controller manager's `use-private-ip` annotation.
+// That annotation is gone: the load balancer is Pulumi's now, and the contract
+// that replaced it is the pair of node ports — pkg/platform names them,
+// pkg/hetzner points the load balancer at them, and the values template asks
+// Kubernetes for them. A diagram showing a port nothing forwards to is the
+// same class of wrong the annotation test existed for.
+func TestRequestPathDiagram_ShowsThePinnedNodePorts(t *testing.T) {
 	t.Parallel()
 
 	diagram := diagramContaining(t, "PROXY header")
@@ -176,13 +183,17 @@ func TestRequestPathDiagram_NamesTheAnnotationTheCCMReads(t *testing.T) {
 	template, err := os.ReadFile(filepath.Join("..", "..", "pkg", "values", "traefik.yaml.tmpl"))
 	require.NoError(t, err)
 
-	// The short form the diagram has room for, held against the template that
-	// actually sets it.
-	const shown = "use-private-ip"
+	// The template interpolates them rather than spelling them, which is the
+	// point — so it is checked for the placeholder, and the numbers are
+	// checked against the constants both sides read.
+	assert.Contains(t, string(template), "{{ .NodePortHTTP }}",
+		"the values template no longer asks for a pinned node port")
 
-	assert.Contains(t, diagram, shown)
-	assert.Contains(t, string(template), shown,
-		"the diagram shows %q but the values template does not set it", shown)
+	for _, port := range []int{platform.IngressNodePortHTTP, platform.IngressNodePortHTTPS} {
+		assert.Contains(t, diagram, strconv.Itoa(port),
+			"the request path does not show node port %d, which is what the load balancer "+
+				"forwards to", port)
+	}
 }
 
 // TestHandoverDiagram_NamesTheLayerThatEndsNotReady is the claim worth
