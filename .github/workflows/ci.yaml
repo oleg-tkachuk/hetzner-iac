@@ -29,12 +29,24 @@ env:
   # refuses to load the config: "the Go language version (go1.26) used to build
   # golangci-lint is lower than the targeted Go version (1.27.1)". 2.13.2 is
   # built with go1.27.
+  # Each pin carries a `renovate:` annotation so a bot proposes the bump in a
+  # pull request rather than a pin quietly rotting. The annotation is the whole
+  # source of truth for where a version comes from — one regex manager in
+  # .github/renovate.json reads these lines and nothing else — and a tool
+  # without one is a tool nobody will ever upgrade.
+  #
+  # extractVersion appears where the pin omits the `v` its upstream tag carries.
+  # Without it Renovate compares "0.8.0" against a list of "v0.8.0" tags.
+  # renovate: datasource=github-releases depName=golangci/golangci-lint
   GOLANGCI_VERSION: "v2.13.2"
+  # renovate: datasource=github-releases depName=securego/gosec
   GOSEC_VERSION: "v2.29.0"
+  # renovate: datasource=pypi depName=checkov
   CHECKOV_VERSION: "3.3.17"
 
   # Same reason: a kubeconform release changing which schemas it accepts would
   # turn CI red with no commit of ours in between.
+  # renovate: datasource=github-releases depName=yannh/kubeconform extractVersion=^v(?<version>.+)$
   KUBECONFORM_VERSION: "0.8.0"
 
 jobs:

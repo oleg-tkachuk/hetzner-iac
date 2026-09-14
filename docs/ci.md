@@ -93,12 +93,34 @@ nothing in the failure would say which. This repository already made that
 argument about a different tool, in `ci.yaml` — "`latest` would let a
 kubeconform release change what CI accepts with no commit of ours".
 
-Checked on 2026-09-14: `GOSEC_VERSION` v2.29.0 and `KUBECONFORM_VERSION` 0.8.0
-are both the current upstream releases, so nothing is stale. Nothing keeps them
-that way either — Renovate has one custom manager, for the chart registry, and
-these `*_VERSION` values are bumped by hand. A second manager would be the
-right home for them, which is a change of its own: `tools/charts` asserts there
-is exactly one.
+Checked on 2026-09-14: all nine pinned tool versions were the current upstream
+releases, so nothing was stale. Keeping them that way is now Renovate's job.
+
+A second custom manager watches `.github/workflows/*.yaml`, and each pin carries
+the annotation it reads:
+
+```yaml
+# renovate: datasource=github-releases depName=securego/gosec
+GOSEC_VERSION: "v2.29.0"
+```
+
+The annotation holds the datasource because the nine are not homogeneous —
+GitHub releases for five, PyPI for `checkov` and `zizmor`, Go modules for
+`govulncheck` and `actionlint` — and one pattern reading a comment beats one
+pattern knowing nine special cases.
+
+`extractVersion` appears on the three whose pin omits the `v` their upstream
+tag carries: `kubeconform`, `gitleaks` and `trivy` are pinned as `0.8.0` while
+the tags read `v0.8.0`, because the workflows add the `v` themselves in the
+download URL. Without it Renovate compares `0.8.0` against a list of `v…` and
+finds nothing to do — a bot that looks broken while working exactly as told.
+
+Three tests in `tools/repo` guard it, for the same reason the chart manager has
+one: the failure is silent. Renovate does not error on a pin it cannot match —
+it opens no pull request, for ever. They run Renovate's own regex out of its own
+configuration and assert that every pin is matched, that every datasource is one
+of the three, and that `extractVersion` is present exactly where the `v` is
+missing. Each was checked by breaking it on purpose.
 
 ### Two cores, not four
 
