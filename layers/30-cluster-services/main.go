@@ -29,10 +29,31 @@ import (
 // IssuerName is the ClusterIssuer other layers reference by annotation.
 const IssuerName = "letsencrypt"
 
-// LetsEncryptDirectory is the production ACME endpoint. The staging endpoint
-// issues untrusted certificates, so using it "to be safe" produces browser
-// warnings that look like a misconfiguration.
-const LetsEncryptDirectory = "https://acme-v02.api.letsencrypt.org/directory"
+// The two ACME endpoints, and the account key each registers against.
+//
+// Production is the default: staging issues untrusted certificates, so using
+// it "to be safe" produces browser warnings that look like a
+// misconfiguration.
+//
+// Staging exists for one reason, and it is a real one. Let's Encrypt
+// rate-limits certificates per registered domain, and a misconfigured Ingress
+// burns those attempts — an HTTP-01 order that cannot be validated because
+// DNS points somewhere else, or because the ingress class is wrong, fails and
+// counts. The staging endpoint's limits are far higher, so the first attempt
+// at a new domain belongs there.
+//
+// The account key is named per endpoint, which is not cosmetic: an ACME
+// account is registered with one directory, and a key registered against
+// staging is not an account at production. Sharing one secret between them
+// leaves cert-manager re-registering on every switch, and the failure reads
+// as an authorization problem rather than as the wrong key.
+const (
+	LetsEncryptProduction = "https://acme-v02.api.letsencrypt.org/directory"
+	LetsEncryptStaging    = "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+	accountKeyProduction = "letsencrypt-account-key"
+	accountKeyStaging    = "letsencrypt-staging-account-key"
+)
 
 // MetricsServerReplicas is how many metrics-server pods to run.
 const MetricsServerReplicas = 2
@@ -108,7 +129,14 @@ func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulum
 		return nil, nil
 	}
 
-	r.Log.Step("cluster-issuer", "acmeEmail set, orders go to Let's Encrypt")
+	staging := r.Cfg.GetBool("acmeStaging")
+
+	endpoint := "production"
+	if staging {
+		endpoint = "staging — certificates will not be trusted by a browser"
+	}
+
+	r.Log.Step("cluster-issuer", "acmeEmail set, orders go to Let's Encrypt "+endpoint)
 
 	// An untyped CustomResource because the CRD is installed by cert-manager,
 	// which this component follows: a generated, typed SDK would have to come
@@ -118,7 +146,7 @@ func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulum
 		Kind:       pulumi.String("ClusterIssuer"),
 		Metadata:   &metav1.ObjectMetaArgs{Name: pulumi.String(IssuerName)},
 		OtherFields: map[string]any{
-			"spec": IssuerSpec(email),
+			"spec": IssuerSpec(email, staging),
 		},
 	}, r.With(layer.DependsOn(dependencies)...)...)
 }
@@ -164,13 +192,18 @@ func static(chart string, data any) func(*layer.Runner) (pulumi.AssetOrArchiveAr
 // have sat pending for ever with nothing reporting an error. The same literal
 // had already been fixed once, in the gitops layer — pkg/platform exists
 // because of it — and this copy survived in a second place.
-func IssuerSpec(email string) pulumi.Map {
+func IssuerSpec(email string, staging bool) pulumi.Map {
+	directory, accountKey := LetsEncryptProduction, accountKeyProduction
+	if staging {
+		directory, accountKey = LetsEncryptStaging, accountKeyStaging
+	}
+
 	return pulumi.Map{
 		"acme": pulumi.Map{
-			"server": pulumi.String(LetsEncryptDirectory),
+			"server": pulumi.String(directory),
 			"email":  pulumi.String(email),
 			"privateKeySecretRef": pulumi.Map{
-				"name": pulumi.String("letsencrypt-account-key"),
+				"name": pulumi.String(accountKey),
 			},
 			"solvers": pulumi.Array{
 				pulumi.Map{

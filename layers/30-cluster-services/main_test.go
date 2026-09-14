@@ -77,12 +77,43 @@ func TestMetricsServerValues_SurvivesANodeFailure(t *testing.T) {
 func TestIssuerSpec_UsesTheProductionACMEEndpoint(t *testing.T) {
 	t.Parallel()
 
-	// The staging endpoint issues untrusted certificates, so reaching for it
-	// "to be safe" produces browser warnings that read as a misconfiguration.
-	acme := acmeSection(t, IssuerSpec("ops@example.test"))
+	// The default, because the staging endpoint issues untrusted certificates
+	// and reaching for it "to be safe" produces browser warnings that read as
+	// a misconfiguration.
+	acme := acmeSection(t, IssuerSpec("ops@example.test", false))
 
-	assert.Equal(t, pulumi.String(LetsEncryptDirectory), acme["server"])
-	assert.Contains(t, string(LetsEncryptDirectory), "acme-v02.api.letsencrypt.org")
+	assert.Equal(t, pulumi.String(LetsEncryptProduction), acme["server"])
+	assert.Contains(t, LetsEncryptProduction, "acme-v02.api.letsencrypt.org")
+}
+
+// TestIssuerSpec_StagingIsAWholeSwitch covers the half that is easy to get
+// wrong: an ACME account is registered with ONE directory, so a key
+// registered against staging is not an account at production.
+//
+// Sharing one account-key secret between the endpoints leaves cert-manager
+// re-registering on every switch, and the failure reads as an authorization
+// problem rather than as the wrong key.
+func TestIssuerSpec_StagingIsAWholeSwitch(t *testing.T) {
+	t.Parallel()
+
+	staging := acmeSection(t, IssuerSpec("ops@example.test", true))
+	production := acmeSection(t, IssuerSpec("ops@example.test", false))
+
+	assert.Equal(t, pulumi.String(LetsEncryptStaging), staging["server"])
+	assert.Contains(t, LetsEncryptStaging, "acme-staging-v02.api.letsencrypt.org")
+
+	stagingKey, ok := staging["privateKeySecretRef"].(pulumi.Map)
+	require.True(t, ok)
+	productionKey, ok := production["privateKeySecretRef"].(pulumi.Map)
+	require.True(t, ok)
+
+	assert.NotEqual(t, productionKey["name"], stagingKey["name"],
+		"both endpoints register against the same account key secret")
+
+	// Everything else is the same issuer: the solver still validates over the
+	// class 40-ingress registers, so switching endpoints does not quietly
+	// change how an order is validated.
+	assert.Equal(t, production["solvers"], staging["solvers"])
 }
 
 func TestIssuerSpec_CarriesTheContactEmail(t *testing.T) {
@@ -90,7 +121,7 @@ func TestIssuerSpec_CarriesTheContactEmail(t *testing.T) {
 
 	// Let's Encrypt rejects an order with no contact, and sends expiry
 	// warnings to this address.
-	acme := acmeSection(t, IssuerSpec("ops@example.test"))
+	acme := acmeSection(t, IssuerSpec("ops@example.test", false))
 
 	assert.Equal(t, pulumi.String("ops@example.test"), acme["email"])
 }
@@ -107,7 +138,7 @@ func TestIssuerSpec_SolvesOverTheClassTheIngressLayerRegisters(t *testing.T) {
 	// and the order would sit pending for ever with no error anywhere. It now
 	// reads the class from pkg/platform, which is the only thing that cannot
 	// drift from what 40-ingress registers.
-	acme := acmeSection(t, IssuerSpec("ops@example.test"))
+	acme := acmeSection(t, IssuerSpec("ops@example.test", false))
 
 	solvers, ok := acme["solvers"].(pulumi.Array)
 	require.True(t, ok)
