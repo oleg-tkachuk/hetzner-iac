@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,6 +41,41 @@ func TestImageURL_IsWhatTheFactoryServes(t *testing.T) {
 	assert.Equal(t,
 		"https://factory.talos.dev/image/abc123/v1.13.10/hcloud-amd64.raw.xz",
 		imageURL("abc123", "v1.13.10", "amd64"))
+}
+
+func TestUploadArgs_BakesInTheTopologysLocation(t *testing.T) {
+	t.Parallel()
+
+	// --location is the fix. hcloud-upload-image defaults to fsn1, and it
+	// bakes by creating a real server, so the default decided where — and the
+	// cax line is not offered everywhere. A cluster in hel1 could have its
+	// image baked in a location that cannot hold the server type.
+	assert.Equal(t, []string{
+		"upload",
+		"--image-url", "https://factory.talos.dev/image/abc123/v1.13.10/hcloud-arm64.raw.xz",
+		"--compression", "xz",
+		"--architecture", "arm",
+		"--location", "hel1",
+		"--labels", "os=talos,talos-version=v1.13.10",
+	}, uploadArgs(
+		"https://factory.talos.dev/image/abc123/v1.13.10/hcloud-arm64.raw.xz",
+		"arm", "hel1", "os=talos,talos-version=v1.13.10"))
+}
+
+func TestUploadArgs_LabelsWithTheSelectorTheLookupUses(t *testing.T) {
+	t.Parallel()
+
+	// The labels written here are what lookupTalosImage selects on. Stated as
+	// its own case because the two programs never call each other: a snapshot
+	// labelled differently is invisible to the cluster that needs it, and the
+	// failure is "no available Talos snapshot" against an image that exists.
+	args := uploadArgs("https://example.test/i.raw.xz", "arm", "hel1",
+		hetzner.TalosImageSelector("v1.13.10"))
+
+	position := slices.Index(args, "--labels")
+	require.NotEqual(t, -1, position)
+	require.Less(t, position+1, len(args))
+	assert.Equal(t, hetzner.TalosImageSelector("v1.13.10"), args[position+1])
 }
 
 func TestCreatedSchematic_AcceptsTheStatusTheFactoryActuallySends(t *testing.T) {
