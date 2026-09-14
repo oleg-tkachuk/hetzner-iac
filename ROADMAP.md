@@ -78,6 +78,18 @@ Nothing checks provenance at admission.
 The ingress and the certificate machinery are deployed, and nothing uses them.
 **Blocked on:** a domain.
 
+### DNS is a resource, not a console tab
+
+The records an ingress needs are Pulumi's to own — Hetzner Cloud Zones, on the
+token this repository already holds. The domain may be registered anywhere.
+**Blocked on:** a domain.
+
+### A server keeps its address when it is replaced
+
+Public addresses are implicit and deleted with their server, and servers here
+are replaced delete-first. An explicit primary IP survives that; it does not
+make a load balancer's address stable, which is the one DNS would point at.
+
 ### Workloads arrive through GitOps
 
 Argo CD runs and reconciles nothing. The goal is that adding a workload is a

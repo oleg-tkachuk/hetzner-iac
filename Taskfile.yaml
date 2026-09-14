@@ -62,6 +62,7 @@ vars:
     30-cluster-services
     40-ingress
     50-gitops
+    60-backup
 
 includes:
   # `excludes:` genuinely removes a task rather than hiding it, so what is left
