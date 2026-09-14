@@ -50,6 +50,31 @@ func ClusterSelector(cluster string) string {
 	return fmt.Sprintf("%s=%s", LabelCluster, cluster)
 }
 
+// Labels stamped on the Talos snapshot, and the value of the first.
+//
+// These are a contract between two programs that never call each other:
+// `task cluster:image-bake` writes them, and lookupTalosImage selects on them.
+// They were a format string in each — spelled identically by luck — until this
+// file was given the single copy both now build from.
+const (
+	LabelOS           = "os"
+	LabelTalosVersion = "talos-version"
+
+	OSTalos = "talos"
+)
+
+// TalosImageSelector is the label selector that finds the baked snapshot for a
+// Talos version.
+//
+// Deliberately no architecture term. The architecture is not a label on the
+// snapshot: Hetzner records it as a first-class field, which both sides filter
+// on separately — `hcloud image list --architecture` when baking, and
+// GetImage's WithArchitecture when looking up. A label would be a second copy
+// of a fact the API already holds, free to disagree with it.
+func TalosImageSelector(version string) string {
+	return fmt.Sprintf("%s=%s,%s=%s", LabelOS, OSTalos, LabelTalosVersion, version)
+}
+
 // Ports opened on the public interface of a Talos node.
 const (
 	PortKubeAPI   = 6443  // kube-apiserver
