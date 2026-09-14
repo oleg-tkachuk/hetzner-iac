@@ -18,7 +18,11 @@
 // its own copy of the key would pass while the layer misspells it.
 package chartsettings
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
+)
 
 // Cilium keys. The cluster tier disables kube-proxy in the Talos machine
 // config, so the replacement is not an optimisation here — without it there is
@@ -50,6 +54,17 @@ const (
 	TraefikEntryPointTLS = "websecure"
 	TraefikProxyProtocol = "proxyProtocol"
 	TraefikTrustedIPs    = "trustedIPs"
+	// TraefikNodePort asks Kubernetes for a specific node port instead of
+	// letting it allocate one. The Pulumi-managed load balancer forwards to a
+	// fixed number, so an unpinned port makes it health-check a closed one.
+	TraefikNodePort = "nodePort"
+	// TraefikServiceSpec and TraefikServiceType are where this chart puts the
+	// Service type — under `service.spec`, not `service.type`, which is the
+	// spelling the chart's own values.yaml uses and not the one most charts do.
+	TraefikServiceSpec = "spec"
+	TraefikServiceType = "type"
+	// TraefikService is the top-level key both of those hang from.
+	TraefikService = "service"
 )
 
 // TraefikProxyProtocolSet is the --set expression for one entry point, built
@@ -125,6 +140,25 @@ var Effects = []Effect{
 		Set:    []string{TraefikProxyProtocolSet(TraefikEntryPointTLS, ProxyProtocolProbeCIDR)},
 		Expect: "--entryPoints." + TraefikEntryPointTLS + ".proxyProtocol.trustedIPs=" + ProxyProtocolProbeCIDR,
 		Why:    "the TLS entry point is behind the same load balancer and needs the same trust, and forgetting it breaks only HTTPS",
+	},
+	{
+		Chart: "traefik", Release: "traefik", Namespace: "traefik",
+		Set: []string{
+			TraefikService + "." + TraefikServiceSpec + "." + TraefikServiceType + "=NodePort",
+		},
+		Expect: "type: NodePort",
+		Why: "the chart's default is LoadBalancer, which asks the cloud controller manager for a " +
+			"load balancer that Pulumi already manages — both would reconcile one object",
+	},
+	{
+		Chart: "traefik", Release: "traefik", Namespace: "traefik",
+		Set: []string{
+			TraefikPorts + "." + TraefikEntryPointWeb + "." + TraefikNodePort + "=" +
+				strconv.Itoa(platform.IngressNodePortHTTP),
+		},
+		Expect: "nodePort: " + strconv.Itoa(platform.IngressNodePortHTTP),
+		Why: "the Pulumi-managed load balancer forwards to this exact port; unpinned, Kubernetes " +
+			"allocates another and every target reports unhealthy against a closed one",
 	},
 	{
 		Chart: "metrics-server", Release: "metrics-server", Namespace: "kube-system",
