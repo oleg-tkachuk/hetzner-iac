@@ -120,14 +120,29 @@ asked for one.
 task cluster:smoke stack=dev
 ```
 
-Three checks, each proving a different piece of cluster-tier wiring is working
+Four checks, each proving a different piece of cluster-tier wiring is working
 rather than merely installed:
 
 | Check | Proves |
 |---|---|
-| every node is `Ready` | the CNI — Talos leaves a node `NotReady` until one is installed |
+| every node is `Ready` | the CNI is installed — Talos leaves a node `NotReady` until one is |
+| a pod reaches a pod on another node | the CNI actually **routes** |
 | a claim on `hcloud-volumes` reaches `Bound` | the CSI driver, end to end through the Hetzner API |
 | every LoadBalancer Service has an address | the cloud controller manager |
+
+The second one was added after the failure it would have caught. Pod-to-pod
+traffic across nodes had no route at all for thirteen hours, and nothing said
+so: every node `Ready`, every pod `Running`, and about a third of DNS queries
+timing out. It surfaced as the CSI controller crash-looping — see
+[design.md](design.md#how-pod-traffic-crosses-a-node-boundary) for the chain.
+
+It works by asking the cluster's DNS from a node that runs **no** DNS replica,
+so every backend it can reach is on another node and the query has to cross a
+boundary to be answered. Choosing that node is the load-bearing part: ask from
+a node with a local replica and the check passes on a cluster whose cross-node
+traffic is dead, which is worse than not having it. On a single-node cluster
+there is no such path, so it reports skipped — which is exactly why a
+single-node cluster could not have exhibited the original failure.
 
 The storage check applies a claim and a pod, waits for `Bound`, and deletes
 both — including when the wait fails, which is when cleanup is usually

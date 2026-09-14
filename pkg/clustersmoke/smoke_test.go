@@ -137,3 +137,120 @@ func TestStatusGlyph_MatchesTheLoggerVocabulary(t *testing.T) {
 	assert.Equal(t, "✖", clustersmoke.StatusFailed.Glyph())
 	assert.Equal(t, "○", clustersmoke.StatusSkipped.Glyph())
 }
+
+func TestPlanCrossNode_ProbesFromTheNodeWithNoDNSReplica(t *testing.T) {
+	t.Parallel()
+
+	// The whole point of the plan. Ask from a node that runs a DNS replica and
+	// the query can be answered locally — the check would pass on a cluster
+	// whose cross-node traffic is dead, which is worse than not having it.
+	plan := clustersmoke.PlanCrossNode([]clustersmoke.NodeState{
+		{Name: "cp-0", Ready: true},
+		{Name: "cp-1", Ready: true},
+		{Name: "cp-2", Ready: true},
+	}, []string{"cp-0", "cp-1"})
+
+	assert.Empty(t, plan.Skip)
+	assert.Equal(t, "cp-2", plan.ProbeNode)
+}
+
+func TestPlanCrossNode_IsDeterministic(t *testing.T) {
+	t.Parallel()
+
+	// Sorted, so two runs on one cluster probe from the same node. A coin toss
+	// makes an intermittent failure impossible to compare against the last run.
+	nodes := []clustersmoke.NodeState{
+		{Name: "cp-2", Ready: true},
+		{Name: "cp-1", Ready: true},
+		{Name: "cp-0", Ready: true},
+	}
+
+	assert.Equal(t, "cp-0", clustersmoke.PlanCrossNode(nodes, []string{"cp-2"}).ProbeNode)
+	assert.Equal(t, "cp-0", clustersmoke.PlanCrossNode(nodes, []string{"cp-2"}).ProbeNode)
+}
+
+func TestPlanCrossNode_SkipsWhereThereIsNothingToProve(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		nodes    []clustersmoke.NodeState
+		dnsNodes []string
+		says     string
+	}{
+		// A single-node cluster has no cross-node path, which is exactly why
+		// it hid this failure for as long as the platform had one node.
+		"one node": {
+			[]clustersmoke.NodeState{{Name: "cp-0", Ready: true}},
+			[]string{"cp-0"},
+			"no cross-node path",
+		},
+		// Three nodes but two NotReady is the same situation.
+		"one Ready of three": {
+			[]clustersmoke.NodeState{
+				{Name: "cp-0", Ready: true},
+				{Name: "cp-1"},
+				{Name: "cp-2"},
+			},
+			[]string{"cp-0"},
+			"no cross-node path",
+		},
+		// Nowhere to ask from: every candidate could answer locally.
+		"dns everywhere": {
+			[]clustersmoke.NodeState{
+				{Name: "cp-0", Ready: true},
+				{Name: "cp-1", Ready: true},
+			},
+			[]string{"cp-0", "cp-1"},
+			"would prove nothing",
+		},
+		"no dns at all": {
+			[]clustersmoke.NodeState{
+				{Name: "cp-0", Ready: true},
+				{Name: "cp-1", Ready: true},
+			},
+			nil,
+			"nothing to ask",
+		},
+	} {
+		plan := clustersmoke.PlanCrossNode(tc.nodes, tc.dnsNodes)
+
+		assert.Empty(t, plan.ProbeNode, name)
+		assert.Contains(t, plan.Skip, tc.says, name)
+	}
+}
+
+func TestCrossNodeVerdict_FailsOnANonZeroExitAndSaysWhereToLook(t *testing.T) {
+	t.Parallel()
+
+	// The failing case, which is the one that hid for thirteen hours: every
+	// component Running and a third of DNS queries timing out. During the
+	// incident this exact query — nslookup kubernetes.default from a pod —
+	// answered "no servers could be reached", which is this non-zero exit.
+	result := clustersmoke.CrossNodeVerdict("cp-2", 1, "")
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "cp-2")
+	// The remedy, because "it failed" without the command that separates node
+	// reachability from endpoint reachability sends the reader back to guessing.
+	assert.Contains(t, result.Detail, "cilium-health status")
+	assert.Contains(t, result.Detail, "0/1")
+}
+
+func TestCrossNodeVerdict_PassesOnZeroAndSaysWhereItAskedFrom(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.CrossNodeVerdict("cp-2", 0, "")
+
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
+	assert.Contains(t, result.Detail, "cp-2",
+		"a pass has to name the node it asked from, or two runs cannot be compared")
+}
+
+func TestCrossNodeVerdict_CarriesWhatTheProberSaid(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.CrossNodeVerdict("cp-2", 1, "  connection timed out  ")
+
+	assert.Contains(t, result.Detail, "connection timed out")
+	assert.NotContains(t, result.Detail, "  connection", "the message is not trimmed")
+}
