@@ -95,6 +95,17 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:upgrade-talos` | upgrade Talos, one node at a time |
 | `task cluster:upgrade-k8s` | upgrade Kubernetes in place |
 
+### Policy
+
+| Task | Does |
+|------|------|
+| `task policy:check` | run the CrossGuard pack over the cluster tier and every layer; changes nothing |
+| `task policy:cluster` | run it over the cluster tier only |
+| `task policy:layer` | run it over one layer — `layer=40-ingress` |
+
+Why a policy pack when the components validate: see
+[configuration.md](configuration.md#what-the-policy-pack-enforces).
+
 ## Hetzner instances
 
 From the shared library's `hcloud` module, not this repository. `console` takes
