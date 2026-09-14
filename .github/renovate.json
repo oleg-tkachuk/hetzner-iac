@@ -104,8 +104,9 @@
       "groupName": "go module graph"
     },
     {
-      "description": "Actions are pinned to commit shas with a version comment; Renovate maintains both.",
+      "description": "Actions are pinned to commit shas with a version comment; Renovate maintains both. Scoped to depType `action` — the `uses:` reference itself — because the same manager also reports a step's INPUTS as dependencies, with depType `uses-with`, and a version input has no digest to pin. Pinning the whole manager made Renovate try to write helm/helm's commit sha into azure/setup-helm's `version:` input, fail to read it back, and report `Error updating branch: update failure` on the dashboard on every run.",
       "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
       "pinDigests": true,
       "groupName": "github actions"
     }
