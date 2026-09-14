@@ -43,6 +43,39 @@ func TestImageURL_IsWhatTheFactoryServes(t *testing.T) {
 		imageURL("abc123", "v1.13.10", "amd64"))
 }
 
+func TestListArgs_ScopesTheCheckToTheArchitecture(t *testing.T) {
+	t.Parallel()
+
+	// The bug this pins: the labels carry the Talos version but not the
+	// architecture, so without --architecture the check matched a snapshot of
+	// either. An Arm topology found the x86 one, image-bake reported "already
+	// present" and exited 0, and apply then failed telling the operator to run
+	// image-bake — the two steps pointing at each other with no way through.
+	assert.Equal(t, []string{
+		"image", "list",
+		"--type", "snapshot",
+		"--selector", "os=talos,talos-version=v1.13.10",
+		"--architecture", "arm",
+		"-o", "json",
+	}, listArgs("os=talos,talos-version=v1.13.10", "arm"))
+}
+
+func TestListArgs_AsksForTheArchitectureItWasGiven(t *testing.T) {
+	t.Parallel()
+
+	// Separate from the vector above so a reordering of the flags does not
+	// hide the one property that matters: whatever architecture came from the
+	// topology is the one Hetzner filters on.
+	for _, arch := range []string{"x86", "arm"} {
+		args := listArgs("os=talos,talos-version=v1.13.10", arch)
+
+		position := slices.Index(args, "--architecture")
+		require.NotEqual(t, -1, position, "no --architecture flag for %s", arch)
+		require.Less(t, position+1, len(args), "--architecture is the last argument")
+		assert.Equal(t, arch, args[position+1])
+	}
+}
+
 func TestUploadArgs_BakesInTheTopologysLocation(t *testing.T) {
 	t.Parallel()
 

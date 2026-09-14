@@ -92,7 +92,7 @@ func run(ctx context.Context) error {
 
 	selector := hetzner.TalosImageSelector(version)
 
-	present, err := snapshotExists(ctx, token, selector)
+	present, err := snapshotExists(ctx, token, selector, arch)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func run(ctx context.Context) error {
 	// resolves, so re-baking would cost money and leave two candidates behind
 	// for `mostRecent` to choose between.
 	if present {
-		fmt.Printf("snapshot already present for %s — nothing to do\n", selector)
+		fmt.Printf("snapshot already present for %s (%s) — nothing to do\n", selector, arch)
 
 		return nil
 	}
@@ -148,16 +148,47 @@ type hcloudImage struct {
 	Description string `json:"description"`
 }
 
-// snapshotExists asks whether the selector already matches a snapshot.
+// listArgs is the hcloud invocation that answers "is it already baked?".
+//
+// --architecture is the load-bearing part, and it was missing. The labels
+// carry the Talos version but not the architecture, so the selector alone
+// matched a snapshot of EITHER, and an Arm topology found the x86 one:
+//
+//	$ hcloud image list --type snapshot --selector os=talos,talos-version=v1.13.10
+//	430516130   snapshot 2026-09-11T00:18:18Z   x86
+//	$ … --architecture arm
+//	[]
+//
+// which made `cluster:image-bake` print "snapshot already present — nothing
+// to do" and exit 0, after which `cluster:apply` failed with "no available
+// Talos snapshot matches selector … for architecture arm — run
+// `task cluster:image-bake`". The remedy it named was the command that had
+// just refused to run, so the two steps pointed at each other and no Arm
+// image could ever be baked.
+//
+// Filtered by the API rather than over the decoded list: architecture is a
+// field Hetzner indexes, and a flag it validates against x86|arm is one fewer
+// place to spell the pair.
+func listArgs(selector, arch string) []string {
+	return []string{
+		"image", "list",
+		"--type", "snapshot",
+		"--selector", selector,
+		"--architecture", arch,
+		"-o", "json",
+	}
+}
+
+// snapshotExists asks whether the selector already matches a snapshot of this
+// architecture.
 //
 // `-o json` and encoding/json rather than `-o noheader` piped into awk: the
 // pipeline could not tell an empty list from a failed call, because grep and
 // awk both answer "no rows" with exit 1.
-func snapshotExists(ctx context.Context, token, selector string) (bool, error) {
-	// #nosec G204 -- the selector is built here from the topology's Talos
-	// version, and the arguments are a vector rather than a shell string.
-	cmd := exec.CommandContext(ctx, "hcloud", "image", "list",
-		"--type", "snapshot", "--selector", selector, "-o", "json")
+func snapshotExists(ctx context.Context, token, selector, arch string) (bool, error) {
+	// #nosec G204 -- the arguments are built here from the committed topology,
+	// and passed as a vector rather than a shell string.
+	cmd := exec.CommandContext(ctx, "hcloud", listArgs(selector, arch)...)
 
 	cmd.Env = append(os.Environ(), "HCLOUD_TOKEN="+token)
 
