@@ -43,20 +43,30 @@ var Components = layer.Components{
 		Chart:          "argo-cd",
 		TimeoutSeconds: ArgoCDTimeoutSeconds,
 		ValuesYAML: func(r *layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
-			return values.Static("argo-cd", ArgoCDData(r.Cfg.Get("domain")))
+			return values.Asset("argo-cd", r.Cluster.Domain.ApplyT(ArgoCDData)), nil
 		},
 	},
 }
 
 func main() {
 	layer.Run(func(r *layer.Runner) error {
-		// Logged before the contract runs, because it explains what the values
-		// below will and will not contain.
-		if domain := r.Cfg.Get("domain"); domain == "" {
-			r.Log.Skipped("ingress", "domain unset, reach the UI with kubectl port-forward")
-		} else {
-			r.Log.Step("ingress", "domain "+domain)
-		}
+		// The domain comes from the cluster tier, not from this layer's
+		// config. Two layers must spell it identically — 40-ingress points DNS
+		// records at its load balancer and this one gives Argo CD a hostname —
+		// and a value each stack held its own copy of would drift silently: an
+		// Ingress for one name behind a record for another is accepted by
+		// everything and serves nothing.
+		//
+		// Inside an apply, so the line appears with what it explains.
+		r.Cluster.Domain.ApplyT(func(domain string) string {
+			if domain == "" {
+				r.Log.Skipped("ingress", "metadata.domain unset, reach the UI with kubectl port-forward")
+			} else {
+				r.Log.Step("ingress", "metadata.domain "+domain)
+			}
+
+			return domain
+		})
 
 		deployed, err := r.Deploy(Components)
 		if err != nil {
