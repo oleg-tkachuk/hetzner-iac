@@ -62,6 +62,9 @@ type LoadBalancer struct {
 type Server struct {
 	Name string
 	Type string
+	// Labels, for the cluster label alone. It decides whether this check may
+	// trust an empty set of claims — see ClusterServers.
+	Labels map[string]string
 }
 
 // PrimaryIP is a reservable public address, which is billed while it exists
@@ -94,6 +97,36 @@ type Claims struct {
 	// TalosVersion is the version the topology pins. A snapshot for another
 	// version is not wrong, only unused — and still billed.
 	TalosVersion string
+}
+
+// ClusterServers are the servers labelled as belonging to one cluster.
+//
+// This is the question the check could not previously answer, and everything
+// else here depended on it. `Claims` comes from the cluster over kubectl, and
+// an unreachable cluster returns nothing — which is indistinguishable from a
+// cluster that is genuinely empty, so the check refused to run rather than
+// call every volume in the project an orphan. Correct, and it made the tool
+// useless at the one moment it is wanted: straight after `task destroy`,
+// when the question is precisely "what did that leave behind".
+//
+// The label answers it without a cluster and without Pulumi state. No server
+// carries this cluster's label, so no cluster exists, so an empty set of
+// claims is not a failure to ask — it is the truth, and every remaining
+// resource really is orphaned.
+//
+// Labelled rather than counted across the project: a shared Hetzner project
+// can hold another cluster's servers, and those must not make this one look
+// alive.
+func ClusterServers(inventory Inventory, cluster string) []Server {
+	var mine []Server
+
+	for _, server := range inventory.Servers {
+		if server.Labels[hetzner.LabelCluster] == cluster {
+			mine = append(mine, server)
+		}
+	}
+
+	return mine
 }
 
 // Finding is one resource nothing accounts for.
@@ -213,16 +246,36 @@ func (i Inventory) Examined() string {
 		len(i.Volumes), len(i.LoadBalancers), len(i.Servers), len(i.PrimaryIPs), len(i.Snapshots))
 }
 
+// ClusterGoneNote is the header printed when the judgement was made without a
+// cluster.
+//
+// Without it the report is alarming and unexplained: every volume and every
+// load balancer is listed as claimed by nothing, which is correct and reads
+// like a catastrophe. Saying why first turns the same list into an inventory
+// of what a teardown left behind.
+const ClusterGoneNote = "no server carries this cluster's label, so the cluster is gone and " +
+	"nothing can claim anything.\nEverything below is what the teardown left behind."
+
 // Report renders the findings against what was examined.
-func Report(found []Finding, examined string) string {
+//
+// note is printed before the table when there is one to print — see
+// ClusterGoneNote.
+func Report(found []Finding, examined, note string) string {
+	header := ""
+	if note != "" {
+		header = note + "\n\n"
+	}
+
 	if len(found) == 0 {
-		return "examined " + examined + "\nno orphans: every one of them is claimed\n"
+		return header + "examined " + examined + "\nno orphans: every one of them is claimed\n"
 	}
 
 	var (
 		out         strings.Builder
 		provisioned int
 	)
+
+	out.WriteString(header)
 
 	fmt.Fprintf(&out, "%-14s %-46s %9s  %s\n", "KIND", "NAME", "SIZE", "WHY")
 
