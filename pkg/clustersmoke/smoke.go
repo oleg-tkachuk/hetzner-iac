@@ -109,7 +109,29 @@ type NodeState struct {
 	// Ready is the node's Ready condition being True. A node with no Ready
 	// condition at all is not Ready — the zero value is the safe reading.
 	Ready bool
+	// ExcludedFromLoadBalancers is the node carrying
+	// node.kubernetes.io/exclude-from-external-load-balancers. Talos puts it on
+	// every control-plane node, and a cloud controller manager will not make
+	// such a node a target of an external load balancer.
+	ExcludedFromLoadBalancers bool
 }
+
+// CheckExternalAddresses names the load balancer check.
+//
+// Named because three places spell it: the check itself, the error path in the
+// runner when listing fails, and docs/operations.md. Two of them already
+// disagreed — the runner's listing error still said "every LoadBalancer
+// Service has an address" after the check itself started asking about targets,
+// so one check reported under two names depending on how it failed.
+const CheckExternalAddresses = "every LoadBalancer Service has an address and somewhere to send it"
+
+// LabelExcludeFromExternalLoadBalancers is the upstream label that keeps a node
+// out of every external load balancer's target list.
+//
+// Named rather than spelled twice: the runner reads it off the node and this
+// package reasons about it, and a misspelling in either place would read as
+// "no node is excluded" — the answer that hides the failure.
+const LabelExcludeFromExternalLoadBalancers = "node.kubernetes.io/exclude-from-external-load-balancers"
 
 // ErrNoNodes is returned when the cluster reports no nodes. Distinct from
 // "some node is not Ready": an empty list means the question was not answered,
@@ -186,8 +208,8 @@ type LoadBalancerState struct {
 // route controller may be running perfectly and there is simply nothing for it
 // to have done. Saying "passed" there would be a green line that looked at an
 // empty list.
-func ExternalAddresses(services []LoadBalancerState) (Result, error) {
-	result := Result{Name: "every LoadBalancer Service has an address"}
+func ExternalAddresses(services []LoadBalancerState, nodes []NodeState) (Result, error) {
+	result := Result{Name: CheckExternalAddresses}
 
 	if len(services) == 0 {
 		result.Status = StatusSkipped
@@ -195,6 +217,25 @@ func ExternalAddresses(services []LoadBalancerState) (Result, error) {
 			"about the cloud controller manager"
 
 		return result, nil
+	}
+
+	// An address on its own is not reachability, and this is the half that was
+	// missing. Measured on 2026-09-14: the load balancer came up on
+	// 77.42.14.120 with its services on 80 and 443 and ZERO targets, because
+	// every node in a control-plane-only cluster carries the exclusion label.
+	// The old check passed on it. The cloud controller manager said so in its
+	// own log and nothing here read it:
+	//
+	//	There are no available nodes for LoadBalancer
+	//	"ensure Load Balancer" service="traefik" nodes=[]
+	if eligible := loadBalancerTargets(nodes); len(nodes) > 0 && eligible == 0 {
+		result.Status = StatusFailed
+		result.Detail = fmt.Sprintf("%d Service(s) of type LoadBalancer, and not one of the %d "+
+			"nodes can be a target: every node carries %s, which Talos puts on control-plane "+
+			"nodes. The load balancer answers and forwards to nothing — add a worker pool",
+			len(services), len(nodes), LabelExcludeFromExternalLoadBalancers)
+
+		return result, errors.New("no node is eligible to be a load balancer target")
 	}
 
 	var pending []string
@@ -217,9 +258,29 @@ func ExternalAddresses(services []LoadBalancerState) (Result, error) {
 	}
 
 	result.Status = StatusPassed
-	result.Detail = fmt.Sprintf("%d with an address", len(services))
+	result.Detail = fmt.Sprintf("%d with an address, %d node(s) eligible as targets",
+		len(services), loadBalancerTargets(nodes))
 
 	return result, nil
+}
+
+// loadBalancerTargets counts the nodes a cloud controller manager may put
+// behind an external load balancer.
+//
+// Readiness is deliberately not part of it. A node that is temporarily
+// NotReady is still a target the CCM keeps; the exclusion label is the
+// permanent condition, and conflating the two would turn a transient reboot
+// into this check's verdict.
+func loadBalancerTargets(nodes []NodeState) int {
+	eligible := 0
+
+	for _, node := range nodes {
+		if !node.ExcludedFromLoadBalancers {
+			eligible++
+		}
+	}
+
+	return eligible
 }
 
 // ProberImage is the container the cross-node check runs.
