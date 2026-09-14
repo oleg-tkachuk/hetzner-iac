@@ -88,6 +88,13 @@
           "type": "string",
           "description": "Service network. Default 10.96.0.0/12."
         },
+        "routingMode": {
+          "enum": [
+            "native",
+            "tunnel"
+          ],
+          "description": "How pod traffic crosses nodes. native sends it to the private network's gateway, which routes by the per-node routes the hcloud CCM programmes; the machine config carries the route to that gateway. tunnel wraps it in VXLAN between node addresses and needs nothing from that routing, at ~50 bytes a packet. Default native. Switching restarts every Cilium agent, so it is a maintenance operation, not a toggle."
+        },
         "adminCIDRs": {
           "type": "array",
           "description": "The only sources allowed to reach tcp/6443 and tcp/50000. MUST include the host running the apply, which pushes Talos machine configuration over the Talos API. No default: an empty list is refused rather than widened to 0.0.0.0/0.",

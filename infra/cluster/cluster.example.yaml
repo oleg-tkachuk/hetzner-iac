@@ -54,6 +54,26 @@ network:
   # Open ping from adminCIDRs. Off unless something is being debugged.
   allowICMP: false
 
+  # How pod traffic crosses nodes: native or tunnel. Default native.
+  #
+  # native sends a pod packet for another node to the private network's
+  # gateway, which routes it by the per-node routes the hcloud CCM programmes.
+  # No encapsulation, and packet captures a human can read. The cluster tier
+  # puts the route to that gateway into every node's machine config — a node
+  # has none of its own, because its private NIC is a /32 whose only on-link
+  # peer is the gateway.
+  #
+  # tunnel wraps the packet in VXLAN between node addresses instead. It asks
+  # nothing of the private network's routing, which is what makes it the answer
+  # when that routing is the thing under suspicion. It costs about 50 bytes a
+  # packet and the MTU that goes with them.
+  #
+  # Switching is a maintenance operation, not a toggle: every Cilium agent
+  # restarts and pod traffic breaks while they do. It is one value and no Talos
+  # apply, because the gateway route is installed in both modes — under tunnel
+  # it is simply unused, since Cilium's own per-node routes are more specific.
+  routingMode: native
+
 talos:
   # Bump this and re-run `task cluster:image-bake`. The image selector keys off
   # the version label, so a bump without a bake fails at plan time with "no

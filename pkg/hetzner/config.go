@@ -69,6 +69,14 @@ type NetworkSpec struct {
 	PodCIDR string `json:"podCIDR"`
 	// ServiceCIDR is the cluster service network.
 	ServiceCIDR string `json:"serviceCIDR"`
+	// RoutingMode is how pod traffic crosses nodes: native or tunnel.
+	//
+	// native sends pod packets to the private network's gateway, which routes
+	// them by the per-node routes the hcloud CCM programmes. tunnel wraps them
+	// in VXLAN between node addresses instead. See docs/design.md for which to
+	// pick; the default is native.
+	RoutingMode string `json:"routingMode,omitempty"`
+
 	// AdminCIDRs are the only sources allowed to reach the Kubernetes API
 	// (tcp/6443) and the Talos API (tcp/50000).
 	//
@@ -164,6 +172,28 @@ const (
 	ArchitectureARM = "arm"
 )
 
+// How pod traffic crosses nodes.
+//
+// Both work on Hetzner and the choice is a real trade-off, so it is a field
+// rather than a constant — see docs/design.md. What does NOT work here is
+// Cilium's autoDirectNodeRoutes, in either mode: it installs a route to a peer
+// node's pod CIDR via that node's address, and a Hetzner private network gives
+// each server a /32 with only the gateway on-link. Cilium says so and gives up:
+//
+//	Unable to install direct node route … route to destination 10.0.1.4
+//	contains gateway 10.0.0.1, must be directly reachable
+//
+// which left pod-to-pod traffic across nodes with no route at all for as long
+// as the cluster had more than one node.
+const (
+	RoutingModeNative = "native"
+	RoutingModeTunnel = "tunnel"
+)
+
+// RoutingModes is every accepted value, so the validator and its message
+// cannot name different sets.
+var RoutingModes = []string{RoutingModeNative, RoutingModeTunnel}
+
 // Architectures is every accepted value, so the validator and its message
 // cannot name different sets. Both used to spell them out — the pair as
 // literals in the comparison and again as prose in the error.
@@ -226,6 +256,11 @@ const (
 	DefaultServiceCIDR  = "10.96.0.0/12"
 	DefaultArchitecture = ArchitectureX86
 	DefaultAPILBType    = "lb11"
+
+	// DefaultRoutingMode is native: one fewer header, and packet captures a
+	// human can read. tunnel is the fallback when the private network's routing
+	// is what is under suspicion.
+	DefaultRoutingMode = RoutingModeNative
 
 	// DefaultKubernetesVersion is pinned rather than left to Talos.
 	//
@@ -354,6 +389,7 @@ func (t *Topology) ApplyDefaults() {
 	setIfEmpty(&t.Network.NodeSubnet, DefaultNodeSubnet)
 	setIfEmpty(&t.Network.PodCIDR, DefaultPodCIDR)
 	setIfEmpty(&t.Network.ServiceCIDR, DefaultServiceCIDR)
+	setIfEmpty(&t.Network.RoutingMode, DefaultRoutingMode)
 	setIfEmpty(&t.Talos.Architecture, DefaultArchitecture)
 	setIfEmpty(&t.Kubernetes.Version, DefaultKubernetesVersion)
 
@@ -535,6 +571,12 @@ func (t *Topology) validateVersions() []string {
 		problems = append(problems, fmt.Sprintf(
 			"kubernetes.version %q must look like v1.36.4, or be empty to take the pinned default",
 			t.Kubernetes.Version))
+	}
+
+	if !slices.Contains(RoutingModes, t.Network.RoutingMode) {
+		problems = append(problems, fmt.Sprintf(
+			"network.routingMode is %q: must be %s",
+			t.Network.RoutingMode, strings.Join(RoutingModes, " or ")))
 	}
 
 	if !slices.Contains(Architectures, t.Talos.Architecture) {

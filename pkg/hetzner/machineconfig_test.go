@@ -53,6 +53,7 @@ func TestBuildClusterPatch(t *testing.T) {
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
+		IPRange:     "10.0.0.0/16",
 	})
 	require.NoError(t, err)
 
@@ -73,6 +74,7 @@ func TestBuildClusterPatch_LeavesTheCNIToItsOwnLayer(t *testing.T) {
 	// intended, rather than two CNIs briefly fighting.
 	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
 		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+		IPRange: "10.0.0.0/16",
 	})
 	require.NoError(t, err)
 
@@ -91,6 +93,7 @@ func TestBuildClusterPatch_DisablesKubeProxyForCilium(t *testing.T) {
 	// two components programming the same service dataplane.
 	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
 		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+		IPRange: "10.0.0.0/16",
 	})
 	require.NoError(t, err)
 
@@ -109,6 +112,7 @@ func TestBuildClusterPatch_HandsNodeLifecycleToTheCCM(t *testing.T) {
 	// stops workloads landing on a node before its routes exist.
 	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
 		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+		IPRange: "10.0.0.0/16",
 	})
 	require.NoError(t, err)
 
@@ -137,6 +141,7 @@ func TestBuildClusterPatch_PinsKubeletToThePrivateNetwork(t *testing.T) {
 	// metered, and exposed.
 	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
 		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+		IPRange: "10.0.0.0/16",
 	})
 	require.NoError(t, err)
 
@@ -154,6 +159,7 @@ func TestBuildClusterPatch_SchedulingOnControlPlanes(t *testing.T) {
 	for _, allow := range []bool{true, false} {
 		patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
 			PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
+			IPRange:                        "10.0.0.0/16",
 			AllowSchedulingOnControlPlanes: allow,
 		})
 		require.NoError(t, err)
@@ -174,17 +180,17 @@ func TestBuildClusterPatch_Rejects(t *testing.T) {
 	}{
 		{
 			name:    "no pod CIDR",
-			args:    hetzner.ClusterPatchArgs{ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24"},
+			args:    hetzner.ClusterPatchArgs{ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24", IPRange: "10.0.0.0/16"},
 			wantMsg: "podCIDR and serviceCIDR are required",
 		},
 		{
 			name:    "no service CIDR",
-			args:    hetzner.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", NodeSubnet: "10.0.1.0/24"},
+			args:    hetzner.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", NodeSubnet: "10.0.1.0/24", IPRange: "10.0.0.0/16"},
 			wantMsg: "podCIDR and serviceCIDR are required",
 		},
 		{
 			name:    "no node subnet",
-			args:    hetzner.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12"},
+			args:    hetzner.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", IPRange: "10.0.0.0/16"},
 			wantMsg: "nodeSubnet is required",
 		},
 	}
@@ -375,6 +381,7 @@ func TestBuildClusterPatch_DoesNotPassCloudProviderToTheAPIServer(t *testing.T) 
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
+		IPRange:     "10.0.0.0/16",
 	})
 	require.NoError(t, err)
 
@@ -436,6 +443,7 @@ func TestBuildClusterPatch_EncryptsBothSystemVolumes(t *testing.T) {
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
+		IPRange:     "10.0.0.0/16",
 	})
 	require.NoError(t, err)
 
@@ -480,6 +488,7 @@ func TestBuildClusterPatch_DoesNotMixTheLegacyEncryptionForm(t *testing.T) {
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
+		IPRange:     "10.0.0.0/16",
 	})
 	require.NoError(t, err)
 
@@ -532,6 +541,7 @@ func TestBuildClusterPatch_CarriesNoEtcdSection(t *testing.T) {
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
+		IPRange:     "10.0.0.0/16",
 	})
 	require.NoError(t, err)
 
@@ -540,4 +550,118 @@ func TestBuildClusterPatch_CarriesNoEtcdSection(t *testing.T) {
 
 	assert.NotContains(t, cluster, "etcd",
 		"the patch every role shares must not carry a control-plane-only section")
+}
+
+func TestNetworkGateway_IsTheFirstAddressOfTheRange(t *testing.T) {
+	t.Parallel()
+
+	// Derived rather than the literal "10.0.0.1", which is right only while
+	// network.ipRange keeps its default. A topology that moved the range would
+	// have got a route pointing into a network its nodes are not on.
+	for ipRange, want := range map[string]string{
+		"10.0.0.0/16":    "10.0.0.1",
+		"10.1.0.0/16":    "10.1.0.1",
+		"172.16.0.0/12":  "172.16.0.1",
+		"192.168.0.0/24": "192.168.0.1",
+		// Masked first: /16 written from a host address still means the
+		// network's gateway, not the next address after that host.
+		"10.0.5.7/16": "10.0.0.1",
+	} {
+		got, err := hetzner.NetworkGateway(ipRange)
+		require.NoError(t, err, ipRange)
+		assert.Equal(t, want, got, ipRange)
+	}
+}
+
+func TestNetworkGateway_RefusesWhatItCannotDerive(t *testing.T) {
+	t.Parallel()
+
+	for _, bad := range []string{"", "10.0.0.0", "not-a-cidr", "10.0.0.0/33"} {
+		_, err := hetzner.NetworkGateway(bad)
+		require.Error(t, err, bad)
+	}
+}
+
+func TestBuildClusterPatch_RoutesThePodNetworkThroughThePrivateGateway(t *testing.T) {
+	t.Parallel()
+
+	// The route this platform could not work without, and did not have. A node
+	// has no route for another node's pod CIDR — eth1 is a /32 whose only
+	// on-link peer is the gateway — so without this a pod packet for another
+	// node matches the DEFAULT route and leaves through the public interface.
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+		NodeSubnet:  "10.0.1.0/24",
+		IPRange:     "10.0.0.0/16",
+	})
+	require.NoError(t, err)
+
+	machine, _ := decode(t, patch)["machine"].(map[string]any)
+	network, _ := machine["network"].(map[string]any)
+
+	list, ok := network["interfaces"].([]any)
+	require.True(t, ok, "machine.network.interfaces is not a list")
+	require.Len(t, list, 1)
+
+	iface, ok := list[0].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, hetzner.PrivateInterface, iface["interface"])
+
+	// DHCP stays on. Hetzner serves the private address over it, and declaring
+	// the interface without this turns it off — taking the private address,
+	// and every path that depends on it, with it.
+	assert.Equal(t, true, iface["dhcp"], "declaring the interface must not disable DHCP")
+
+	routes, ok := iface["routes"].([]any)
+	require.True(t, ok, "no routes on the private interface")
+	require.Len(t, routes, 1)
+
+	route, ok := routes[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "10.244.0.0/16", route["network"], "the route must cover the pod network")
+	assert.Equal(t, "10.0.0.1", route["gateway"], "the route must point at the private network's gateway")
+}
+
+func TestBuildClusterPatch_DerivesTheGatewayFromTheTopologysRange(t *testing.T) {
+	t.Parallel()
+
+	// A non-default range has to move the gateway with it. Pinned separately
+	// from the case above so a hardcoded 10.0.0.1 fails here rather than
+	// passing everywhere the default happens to be used.
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+		NodeSubnet:  "172.16.1.0/24",
+		IPRange:     "172.16.0.0/12",
+	})
+	require.NoError(t, err)
+
+	machine, _ := decode(t, patch)["machine"].(map[string]any)
+	network, _ := machine["network"].(map[string]any)
+	list, _ := network["interfaces"].([]any)
+	require.Len(t, list, 1)
+
+	iface, _ := list[0].(map[string]any)
+	routes, _ := iface["routes"].([]any)
+	require.Len(t, routes, 1)
+
+	route, _ := routes[0].(map[string]any)
+	assert.Equal(t, "172.16.0.1", route["gateway"])
+}
+
+func TestBuildClusterPatch_RefusesATopologyWithNoRange(t *testing.T) {
+	t.Parallel()
+
+	// Refused rather than defaulted. A patch with no route is a cluster whose
+	// pods cannot reach each other across nodes, and that failure is three
+	// layers away from anything that names a network.
+	_, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+		NodeSubnet:  "10.0.1.0/24",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ipRange")
 }
