@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -94,11 +95,18 @@ func TestIssuerSpec_CarriesTheContactEmail(t *testing.T) {
 	assert.Equal(t, pulumi.String("ops@example.test"), acme["email"])
 }
 
-func TestIssuerSpec_SolvesOverTheNginxIngressClass(t *testing.T) {
+func TestIssuerSpec_SolvesOverTheClassTheIngressLayerRegisters(t *testing.T) {
 	t.Parallel()
 
-	// HTTP-01 validation is served by the ingress controller from 40-ingress.
-	// A different class name here means orders that never validate.
+	// HTTP-01 validation is served by the ingress controller from 40-ingress,
+	// so a different class name here means orders that never validate.
+	//
+	// This test used to say exactly that and then assert the literal "nginx",
+	// which is how it locked the bug in rather than catching it: cert-manager
+	// would create an Ingress for the challenge, no controller would own it,
+	// and the order would sit pending for ever with no error anywhere. It now
+	// reads the class from pkg/platform, which is the only thing that cannot
+	// drift from what 40-ingress registers.
 	acme := acmeSection(t, IssuerSpec("ops@example.test"))
 
 	solvers, ok := acme["solvers"].(pulumi.Array)
@@ -114,7 +122,7 @@ func TestIssuerSpec_SolvesOverTheNginxIngressClass(t *testing.T) {
 	ingress, ok := http01["ingress"].(pulumi.Map)
 	require.True(t, ok)
 
-	assert.Equal(t, pulumi.String("nginx"), ingress["ingressClassName"])
+	assert.Equal(t, pulumi.String(platform.IngressClass), ingress["ingressClassName"])
 }
 
 func TestExternalSecretsValues_InstallsItsCRDs(t *testing.T) {
