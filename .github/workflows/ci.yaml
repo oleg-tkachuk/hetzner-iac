@@ -678,6 +678,61 @@ jobs:
             printf '%s\n' "See:    https://www.conventionalcommits.org/en/v1.0.0/"       >&2
             exit 1
           fi
+      # The type has to match what the commit touched.
+      #
+      # semantic-release reads nothing but the subject: feat becomes a minor,
+      # fix and perf become a patch. So a change to CI written as `fix` cuts a
+      # version and writes release notes for something no consumer of this
+      # repository receives. Measured: `fix(ci): let renovate's schedule
+      # actually fire` produced v4.4.2 on 2026-09-14, and the release contained
+      # a workflow and its test.
+      #
+      # Two rules, and both are about a type that already exists being the
+      # right one:
+      #
+      #   prose only            → docs, which releases nothing
+      #   contributor-only only → not feat/fix/perf; ci, test or chore
+      #
+      # "Contributor-only" is deliberately narrow: .github, Go tests and the
+      # dotfile tool configs. The taskfiles and tools/ are NOT in it — somebody
+      # who checks out a tag gets those, so a new task is a real feat.
+      #
+      # awk rather than grep: one pass, and no exit-code-as-answer, which is
+      # how the first version of this gate reported every commit as prose.
+      - name: Commit types match what they touch
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r sha; do
+            [ -n "$sha" ] || continue
+            subject="$(git log -1 --format=%s "$sha")"
+            case "$subject" in Merge*|Revert*) continue ;; esac
+            type="${subject%%[(:!]*}"
+            want="$(git show --name-only --format= "$sha" | awk -v type="$type" '
+              NF { n++
+                if ($0 ~ /\.md$/ || $0 ~ /^docs\//) prose++
+                if ($0 ~ /^\.github\// || $0 ~ /_test\.go$/ ||
+                    $0 ~ /^\.[a-z]+[a-z.]*\.(yaml|yml|json|toml)$/ || $0 ~ /^lefthook\.yml$/) internal++ }
+              END { if (n == 0) exit
+                if (prose == n && type != "docs") { print "docs"; exit }
+                if (prose + internal == n && type ~ /^(feat|fix|perf)$/) { print "ci, test or chore"; exit } }')"
+            if [ -z "$want" ]; then
+              printf '%s\n' "ok   ${sha:0:8}  $subject"
+              continue
+            fi
+            printf '%s\n' "::error::${sha:0:8} is typed $type and touches only ${want%% *}-shaped paths: $subject"
+            printf '%s\n' "       use: $want"
+            git show --name-only --format= "$sha" | sed 's/^/       /'
+            failed=1
+          done < <(git rev-list "$BASE..$HEAD")
+          if [ "$failed" -ne 0 ]; then
+            printf '%s\n' "feat, fix and perf make semantic-release cut a version and write notes." >&2
+            printf '%s\n' "A change no consumer of this repository receives should not." >&2
+            exit 1
+          fi
 
   # Dispatches the release; the release itself is
   # .github/workflows/release.yaml.

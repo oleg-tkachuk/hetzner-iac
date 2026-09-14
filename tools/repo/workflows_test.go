@@ -282,3 +282,51 @@ func TestDocsLinkTask_ChecksFragmentsOffline(t *testing.T) {
 			"the docs:links task no longer passes %s", flag)
 	}
 }
+
+// commitTypeRule lifts the awk program out of the workflow, so what this test
+// exercises is the expression CI runs rather than a paraphrase of it.
+var commitTypeRule = regexp.MustCompile(`(?s)awk -v type="\$type" '(.*?)'\)"`)
+
+// TestCI_CommitTypeGateKeepsTasksAndToolsDeployable pins the one boundary the
+// gate gets to draw.
+//
+// The rule refuses feat/fix/perf on a commit that touches only
+// contributor-facing paths, because semantic-release reads the subject alone
+// and would cut a version for something no consumer receives —
+// `fix(ci): let renovate's schedule actually fire` produced v4.4.2 that way.
+//
+// The boundary has to stay narrow. The taskfiles and tools/ are part of what
+// somebody gets by checking out a tag, so a new task IS a feat; putting either
+// in the contributor-only list would push real features into `chore` and make
+// the release notes worse than no gate at all.
+func TestCI_CommitTypeGateKeepsTasksAndToolsDeployable(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", ciWorkflow))
+	require.NoError(t, err)
+
+	found := commitTypeRule.FindStringSubmatch(string(raw))
+	require.Len(t, found, 2, "no commit-type awk rule in %s", ciWorkflow)
+
+	rule := found[1]
+
+	for _, contributorOnly := range []string{`^\.github\/`, `_test\.go$`} {
+		assert.Contains(t, rule, contributorOnly,
+			"the gate no longer treats %s as contributor-only, so a release type on it passes",
+			contributorOnly)
+	}
+
+	// The paths that must NOT be in it, named individually so a failure says
+	// which one was added.
+	for _, deployable := range []string{"Taskfile", "^tools", "^tasks", "^layers", "^pkg"} {
+		assert.NotContains(t, rule, deployable,
+			"the gate treats %s as contributor-only; a change there is something a consumer "+
+				"of this repository receives, so it may be a feat", deployable)
+	}
+
+	// And only the three types semantic-release turns into a version are
+	// refused: widening this to every type would make the gate an opinion
+	// about vocabulary rather than about releases.
+	assert.Contains(t, rule, `type ~ /^(feat|fix|perf)$/`,
+		"the gate no longer refuses exactly the release types")
+}
