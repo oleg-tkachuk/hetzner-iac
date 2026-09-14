@@ -15,11 +15,14 @@ import (
 
 // renovateConfig is the part of .github/renovate.json this test cares about.
 type renovateConfig struct {
-	CustomManagers []struct {
-		ManagerFilePatterns []string `json:"managerFilePatterns"`
-		MatchStrings        []string `json:"matchStrings"`
-		Datasource          string   `json:"datasourceTemplate"`
-	} `json:"customManagers"`
+	CustomManagers []customManager `json:"customManagers"`
+}
+
+// customManager is one entry of Renovate's customManagers array.
+type customManager struct {
+	ManagerFilePatterns []string `json:"managerFilePatterns"`
+	MatchStrings        []string `json:"matchStrings"`
+	Datasource          string   `json:"datasourceTemplate"`
 }
 
 // TestRenovatePatternMatchesEveryChart runs Renovate's own regex, read out of
@@ -43,9 +46,8 @@ func TestRenovatePatternMatchesEveryChart(t *testing.T) {
 
 	var config renovateConfig
 	require.NoError(t, json.Unmarshal(raw, &config))
-	require.Len(t, config.CustomManagers, 1, "one custom manager, for the chart registry")
 
-	manager := config.CustomManagers[0]
+	manager := chartManager(t, config)
 	assert.Equal(t, "helm", manager.Datasource)
 	require.Len(t, manager.MatchStrings, 1)
 
@@ -99,9 +101,30 @@ func TestRenovateWatchesTheRegistryFile(t *testing.T) {
 
 	var config renovateConfig
 	require.NoError(t, json.Unmarshal(raw, &config))
-	require.Len(t, config.CustomManagers, 1)
 
 	assert.Equal(t,
 		[]string{"/^pkg/charts/registry\\.go$/"},
-		config.CustomManagers[0].ManagerFilePatterns)
+		chartManager(t, config).ManagerFilePatterns)
+}
+
+// chartManager picks the registry's manager out of the configuration by the
+// datasource it declares, rather than by position.
+//
+// It used to be CustomManagers[0] behind a `require.Len(…, 1)`. A second
+// manager — the workflow tool pins — then failed both tests for the wrong
+// reason, and had it been added in FRONT the assertions would have quietly
+// started checking it instead. Neither is a way to learn that the chart
+// pattern broke.
+func chartManager(t *testing.T, config renovateConfig) customManager {
+	t.Helper()
+
+	for _, manager := range config.CustomManagers {
+		if manager.Datasource == "helm" {
+			return manager
+		}
+	}
+
+	t.Fatal("no custom manager with the helm datasource — chart upgrades are proposed by nobody")
+
+	return customManager{}
 }
