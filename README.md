@@ -50,7 +50,7 @@ instead: [configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-b
 
 Everything below creates **billable**
 [Hetzner resources](https://www.hetzner.com/cloud#pricing);
-`task cluster:destroy` and `task platform:destroy-all` remove them.
+`task destroy` removes them — every layer, then the cluster.
 
 ```bash
 # 1. Describe the cluster. Set network.adminCIDRs to the address you apply
@@ -75,7 +75,7 @@ task cluster:apply stack=dev
 #    CCM and the CSI driver read the one from step 2, through the same stack
 #    reference that carries the kubeconfig.
 task platform:init stack=dev
-task platform:apply-all stack=dev
+task platform:apply layer=all stack=dev
 
 # 6. Check what you built.
 task cluster:kubeconfig stack=dev

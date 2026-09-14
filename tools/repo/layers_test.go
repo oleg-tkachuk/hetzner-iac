@@ -181,3 +181,32 @@ func TestBackupLayer_ExportsThePasswordAsASecret(t *testing.T) {
 		"the backup layer exports the password without pulumi.ToSecret, so "+
 			"`pulumi stack output` prints the credential")
 }
+
+// TestNoLayerIsNamedAll keeps the selector unambiguous.
+//
+// `all` is a value of the same enum the layer names are in, so a layer
+// directory called `all` would make `layer=all` mean two things: that layer,
+// or every layer. Task would accept it and the loop would do whichever the
+// code happened to check first.
+//
+// Cheap to guard and impossible to notice otherwise: the enum would still
+// validate, the task would still run, and the wrong set of stacks would be
+// applied.
+func TestNoLayerIsNamedAll(t *testing.T) {
+	t.Parallel()
+
+	entries, err := os.ReadDir(filepath.Join("..", "..", "layers"))
+	require.NoError(t, err)
+
+	var names []string
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+
+	require.NotEmpty(t, names, "no layers found; this test is checking nothing")
+	assert.NotContains(t, names, "all",
+		"a layer directory named `all` collides with the whole-platform selector")
+}

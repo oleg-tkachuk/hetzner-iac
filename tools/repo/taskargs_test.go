@@ -40,7 +40,7 @@ func taskfiles(t *testing.T) []string {
 // TestTasks_ThatNeedAStackSaySoWhenItIsMissing closes the gap left by removing
 // the dev default.
 //
-// The default was the danger: `task platform:destroy-all` with a forgotten
+// The default was the danger: `task platform:destroy layer=all` with a forgotten
 // stack= meant dev, and the once that is wrong is the once it matters.
 //
 // Removing the default is not enough on its own, and the reason is worse than
@@ -207,7 +207,15 @@ func TestLayerEnum_MatchesTheLayerList(t *testing.T) {
 	list := layerList.FindStringSubmatch(string(rootfile))
 	require.NotNil(t, list, "no LAYERS list in the root taskfile")
 
-	assert.Equal(t, strings.Fields(list[1]), splitEnum(enum[1]),
+	// `all` is the selector, not a layer, and it is in the enum so that
+	// requires.vars keeps validating what was given — see the comment above
+	// the anchor. Everything after it has to be the layer list exactly.
+	values := splitEnum(enum[1])
+	require.NotEmpty(t, values)
+	assert.Equal(t, layerSelectorAll, values[0],
+		"the enum's first value is not the whole-platform selector")
+
+	assert.Equal(t, strings.Fields(list[1]), values[1:],
 		"the layer enum and LAYERS disagree — one of them is missing a layer, or naming one that is gone")
 }
 
@@ -248,6 +256,14 @@ func splitEnum(items string) []string {
 
 	return out
 }
+
+// layerSelectorAll is the enum value that means every layer.
+//
+// A word in the enum rather than an optional variable: requires.vars only
+// validates what is given, so making `layer=` optional would drop the
+// validation AND make a forgotten argument select the whole platform. The
+// shortest command must not be the widest.
+const layerSelectorAll = "all"
 
 // changesTheCluster matches a task whose command writes — to infrastructure or
 // to the state that describes it.
@@ -552,7 +568,7 @@ func TestDestroy_AsksAndSaysWhatSurvives(t *testing.T) {
 	// prefix of `cluster:destroy-secrets`, which the prompt names above the
 	// commands — so a plain search finds the wrong occurrence and reports the
 	// order backwards. It did, the first time this test ran.
-	layers := strings.Index(body, "- task: platform:destroy-all")
+	layers := strings.Index(body, "- task: platform:destroy")
 	cluster := strings.Index(body, "- task: cluster:destroy\n")
 
 	require.Positive(t, layers, "`destroy` does not destroy the layers")

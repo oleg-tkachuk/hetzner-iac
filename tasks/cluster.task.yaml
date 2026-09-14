@@ -544,7 +544,7 @@ tasks:
             printf '\n' >&2
             printf '%s\n' "    task cluster:destroy stack={{.stack}}"                      >&2
             printf '%s\n' "    task cluster:apply   stack={{.stack}}"                      >&2
-            printf '%s\n' "    task platform:apply-all stack={{.stack}}"                   >&2
+            printf '%s\n' "    task platform:apply layer=all stack={{.stack}}"                   >&2
             exit 1
           fi
 

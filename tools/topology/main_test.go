@@ -296,7 +296,7 @@ func projectPaths(t *testing.T) []string {
 // remedy, and a schema that fails first replaces all of it with a list of key
 // names.
 //
-// It cost two `platform:plan-all` runs — two layers in a row, each stopped by
+// It cost two `platform:plan layer=all` runs — two layers in a row, each stopped by
 // its own schema — so the guard is a test rather than a comment.
 // An intentionally required key belongs in requiredConfig below, with the
 // reason; the point is that requiring one is a decision, not an omission.
