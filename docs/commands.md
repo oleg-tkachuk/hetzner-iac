@@ -89,7 +89,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:hubble` | print recent pod flows through Hubble; `last=<n>` to widen |
 | `task cluster:config-check` | Talos accepts the machine-config patches |
 | `task cluster:encryption-check` | the system volumes are really encrypted, not just configured to be |
-| `task cluster:orphans` | Hetzner resources nothing in the cluster claims; read-only |
+| `task cluster:orphans` | Hetzner resources nothing claims, with or without a live cluster; read-only |
 | `task cluster:stop` | bring the cluster down cleanly through Talos; the instances keep existing |
 | `task cluster:reboot` | reboot the nodes through Talos; they come back by themselves |
 | `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
