@@ -215,7 +215,7 @@ tasks:
         silent: true
 
   verify:
-    desc: "Everything checkable without a cluster — needs helm, talosctl and docker"
+    desc: "Everything checkable without a cluster — needs helm, talosctl, docker and lychee"
     cmds:
       - task: fmt-check
       - task: go:test
@@ -223,6 +223,7 @@ tasks:
       - task: go:vuln
       - task: charts:validate
       - task: charts:render-check
+      - task: docs:links
       # The checks that ask the real tool rather than trusting our own tests.
       # Each states what to install if it is missing: a gate that skips itself
       # when a tool is absent is a gate that quietly stops running.
@@ -254,6 +255,32 @@ tasks:
           else
             pipx run "checkov==${CHECKOV_VERSION:-3.3.17}" --config-file "{{.ROOT}}/.checkov.yaml"
           fi
+
+  docs:links:
+    desc: "Do the documentation's own links point at files and headings that exist? — needs lychee"
+    preconditions:
+      - sh: command -v lychee >/dev/null
+        msg: "lychee is not installed — brew install lychee, or take the pinned version from .github/workflows/ci.yaml"
+    cmds:
+      # Offline on purpose, and that is the whole design. This answers "does
+      # what the documentation points at exist", which is a property of this
+      # tree; whether some vendor's marketing page is up today is not, and a
+      # gate that fails on somebody else's outage is a gate people learn to
+      # re-run rather than read. GitHub's own release downloads returned 504
+      # for twenty minutes while this was being written.
+      #
+      # --include-fragments=full is the half a path check misses: a heading
+      # renamed in docs/operations.md leaves every `#anchor` pointing at it
+      # silently wrong, and GitHub renders that as the top of the page rather
+      # than as an error.
+      #
+      # Two globs because lychee expands them itself and `**` does not descend
+      # into a dot directory, so .github/SECURITY.md needs naming.
+      - cmd: |
+          set -euo pipefail
+          cd "{{.ROOT}}"
+          lychee --offline --include-fragments=full --include-mail=false --no-progress \
+            '**/*.md' '.github/**/*.md'
 
   fmt-check:
     desc: "Fail if any Go file is not gofmt-clean"
