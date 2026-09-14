@@ -34,6 +34,35 @@ The pieces that make that work, and the reason each one is there:
 Release notes are generated from the commit history by semantic-release; there
 is no changelog file to keep in step.
 
+## Why a dependency update is the slow case
+
+No job writes a build cache on a pull request — `prime` is push-only, because a
+cache written on a pull request is scoped to that pull request's ref and no
+other branch could read it. So every pull-request job restores the last cache
+from `main`.
+
+That is free until `go.sum` changes. Then the exact key misses, the restore-key
+prefix hands back the *previous* dependencies, and anything that type-checks the
+module has to compile the difference — which on a `task go:deps:update` pull
+request is close to a full rebuild. Measured on one:
+
+| Job | Usually | On a deps update | Bound |
+|---|---|---|---|
+| `Tests and vet` | ~4m | **10m52s** | 20m |
+| `Go lint` | ~2m | **9m35s** | 20m |
+| `Insecure patterns` (gosec) | ~5m, of which gosec is 23s | **killed twice** | 15m → **25m** |
+
+gosec's cost is not gosec. It type-checks the whole transitive graph, so its
+runtime is whatever the cache does not hold — 23 seconds warm, and the same
+work as `Tests and vet` cold. It also pays 2m08s restoring the cache and 1m18s
+on `go install gosec` before that compilation starts, which is why 15 minutes
+was enough for the other two jobs and not for this one. It now has the same
+proportional margin they do.
+
+Raising the bound does not make it faster; it makes the cause readable. Both
+failures arrived as `exit status 143` with a truncated log, which says nothing
+about a cache.
+
 ## Security scanning
 
 The scanners live in their own workflow, `.github/workflows/security.yaml`,

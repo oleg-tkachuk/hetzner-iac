@@ -355,17 +355,35 @@ jobs:
     # findings that appear without anyone touching the code. gosec's are a pure
     # function of the code at a pinned version.
     #
-    # Free on the wall clock, measured rather than assumed: 4m15s, beside a
-    # `Tests and vet` that takes thirteen minutes. It was nightly on the belief
-    # that it cost fifteen — locally it is 2m42s from a cold build cache and 7s
+    # Free on the wall clock when the cache is warm, measured rather than
+    # assumed: the gosec step itself is 23-27s across recent runs, inside a job
+    # of about five minutes. Locally it is 2m42s from a cold build cache and 7s
     # from a warm one.
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes, security]
     runs-on: ubuntu-latest
-    # Well above the measurement and far below the 40 minutes it had nightly: a
-    # runner that once took 21 minutes over this was killed with nothing to
-    # read, and a tighter bound would at least have said when.
-    timeout-minutes: 15
+    # 25, and the number is the point. gosec's cost is not gosec: it type-checks
+    # the whole transitive graph, so its runtime is whatever the build cache
+    # does not already hold.
+    #
+    # No job writes a cache on a pull request — `prime` is push-only, for the
+    # reason stated on it — so a pull request that changes go.sum misses the
+    # exact key, restores the PREVIOUS dependencies through the restore-key
+    # prefix, and has to compile the difference. On a `task go:deps:update`
+    # pull request that is close to a full rebuild.
+    #
+    # Measured on exactly such a pull request: `Tests and vet`, which does the
+    # same compilation, took 10m52s against its usual 4m, and survived on its
+    # 20-minute bound. gosec died twice on 15 — once after the cache-key bump
+    # and once on the deps update — because it pays 2m08s restoring the cache
+    # and 1m18s on `go install gosec` BEFORE the compilation `Tests and vet`
+    # spends its whole budget on. Locally the work is 1 916 CPU-seconds; four
+    # slower vCPUs is where the minutes come from.
+    #
+    # So this is the same margin `Tests and vet` has, plus that overhead. A
+    # tighter bound does not make it faster, it only hides the cause behind
+    # "exit status 143" — which is how it read both times.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
