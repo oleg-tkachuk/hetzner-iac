@@ -576,3 +576,37 @@ func TestDestroy_AsksAndSaysWhatSurvives(t *testing.T) {
 	assert.Less(t, layers, cluster,
 		"`destroy` destroys the cluster before its layers")
 }
+
+// TestHelmUninstall_IsNotAvailable holds an exclusion whose failure is silent.
+//
+// Every Helm release on this cluster is created by Pulumi. Uninstalling one
+// with Helm leaves Pulumi state claiming it exists, so the next `up` reports
+// no changes while the cluster is empty — which is why the helm include
+// excludes the uninstall task.
+//
+// `excludes` naming a task the module does not have removes nothing and says
+// nothing. The task was `uninstall-all` until taskfiles v6.0.0 renamed it to
+// `uninstall`, so the bump that carried the rename would have quietly handed
+// this repository a helm uninstall it must not have. Nothing else would have
+// noticed: the task list would simply have grown by one.
+func TestHelmUninstall_IsNotAvailable(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	body := string(raw)
+
+	// The include block, so the assertion is about the helm module rather than
+	// about the word appearing anywhere in the file.
+	helm := regexp.MustCompile(`(?ms)^  helm:\n(.*?)(?:^  [a-z#])`).FindStringSubmatch(body)
+	require.Len(t, helm, 2, "no helm include in Taskfile.yaml")
+
+	// Anchored to the end of the line, not `\b`: a word boundary sits between
+	// `uninstall` and the hyphen in `uninstall-all`, so the obvious pattern
+	// matches the stale name it exists to reject. Caught by trying to make
+	// this test fail.
+	assert.Regexp(t, `(?m)excludes:[\s\S]*?- uninstall *$`, helm[1],
+		"the helm include no longer excludes the uninstall task, or excludes a name the "+
+			"module does not have — either way Helm can now remove a release Pulumi owns")
+}
