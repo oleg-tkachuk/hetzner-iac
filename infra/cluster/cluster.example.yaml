@@ -69,11 +69,35 @@ talos:
   # Move this when a newer pulumi-talos carries 1.14 machinery, then install
   # the matching talosctl and re-run `task cluster:config-check`.
   version: v1.13.10
+
+  # x86 or arm, and it decides three things at once: which image the factory
+  # builds (amd64 or arm64), which server types can boot it, and which types
+  # the fields below default to when left out. Switching it means re-running
+  # `task cluster:image-bake` — the snapshot is one architecture, and the bake
+  # now scopes its "already present?" check to this value rather than finding
+  # the other architecture's snapshot and doing nothing.
+  #
+  # arm is supported end to end, and it is NOT the cheaper option here. From
+  # the API in hel1 on 2026-09-14, monthly gross:
+  #
+  #   cx23    2 cores    4 GB    x86    5.49
+  #   cax11   2 cores    4 GB    arm    5.99
+  #   cx33    4 cores    8 GB    x86    8.49
+  #   cax21   4 cores    8 GB    arm   10.49
+  #
+  # Every image this platform installs — Cilium, both hcloud drivers,
+  # cert-manager, external-secrets, metrics-server, Traefik, Argo CD — publishes
+  # linux/arm64 at the versions pinned in pkg/charts, checked on 2026-09-14. So
+  # the reason to pick arm is wanting arm nodes, not saving money.
   architecture: x86
 
   # Override the snapshot selector. Empty derives
   # "os=talos,talos-version=<version>" — the labels `task cluster:image-bake`
   # writes — which is what you want unless a snapshot was baked by hand.
+  #
+  # Note what is deliberately absent: the architecture. Hetzner records it as a
+  # field rather than a label, and both the bake and the lookup filter on that
+  # field, so putting it in the selector too would store the same fact twice.
   imageSelector: ""
 
 kubernetes:
@@ -104,12 +128,17 @@ controlPlane:
   #
   #   cpx11   2 cores    2 GB    5.49    the cheapest, and too little
   #   cx23    2 cores    4 GB    5.49    the same price, twice the memory
-  #   cax11   2 cores    4 GB    5.99    arm, so a different Talos image
+  #   cax11   2 cores    4 GB    5.99    the same machine on arm, 50c more
   #
   # cx23 rather than cpx11 because the price is identical and 2 GB is not a
   # control plane: kube-apiserver alone measured 725 Mi on this platform, and
   # etcd, the controller manager, the scheduler and the Cilium agent all sit
   # beside it on every member.
+  #
+  # Leaving this out takes the default for talos.architecture above — cx23 on
+  # x86, cax11 on arm. Naming a type from the wrong architecture is refused at
+  # plan time rather than at boot: "cx23 is x86, but the baked Talos image is
+  # arm — a mismatched type will not boot".
   #
   # Measured before choosing: the whole platform uses 2 847 Mi across 34 pods.
   # Spread over three members, each carries the control plane — about 1.9 GB —
