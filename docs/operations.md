@@ -108,6 +108,13 @@ the API server that would have told the CSI driver to delete a volume — 160
 GiB were found that way. It prints what it examined as well as what it found,
 so "nothing to report" cannot read the same as "nothing was read".
 
+It also answers when the cluster is already gone, which is when it is usually
+wanted. No server carrying the cluster's label means no cluster, so an empty
+set of claims is the truth rather than a failure to ask, and the report says
+so before listing what the teardown left behind. While the servers are still
+there, an unreachable cluster is still an error — empty claims would then be a
+lie that invites deleting live volumes.
+
 ## Does the cluster actually work?
 
 `pulumi up` going green is a different claim from "this cluster can run a
