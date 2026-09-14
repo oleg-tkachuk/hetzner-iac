@@ -50,7 +50,14 @@ import (
 // nodes over the private network — so the ingress layer needs the subnet the
 // nodes sit in, and deriving it from a default would be a second copy of a
 // value the topology already decides.
-const ContractVersion = 2
+//
+// v3 added domain and dnsZone, for the same reason one step further out. Two layers must
+// spell it identically — 40-ingress points DNS records at its load balancer
+// and 50-gitops gives Argo CD its hostname — and a value each stack holds its
+// own copy of is a value that drifts. The drift is silent: an Ingress for one
+// name behind a record for another is accepted by everything and serves
+// nothing.
+const ContractVersion = 3
 
 // Output names exported by the cluster tier. Renaming one is a breaking change
 // to every layer, which is why they are constants rather than literals.
@@ -69,6 +76,8 @@ const (
 	OutputHcloudToken       = "hcloudToken"
 	OutputControlPlaneCount = "controlPlaneCount"
 	OutputRoutingMode       = "routingMode"
+	OutputDomain            = "domain"
+	OutputDNSZone           = "dnsZone"
 )
 
 // Declared is every output the cluster tier must export, in one list so the
@@ -92,6 +101,8 @@ var Declared = []string{
 	OutputHcloudToken,
 	OutputControlPlaneCount,
 	OutputRoutingMode,
+	OutputDomain,
+	OutputDNSZone,
 }
 
 // Cluster is the resolved view of the cluster tier's outputs.
@@ -133,6 +144,15 @@ type Cluster struct {
 	// choice, and the cluster tier is where it is declared — the two must agree
 	// or the cluster has a datapath nobody configured.
 	RoutingMode pulumi.StringOutput
+	// Domain is the public DNS name this environment is reached at, empty
+	// until the topology names one. Every consumer says so when it is empty
+	// rather than failing: a cluster with no domain is the normal state of a
+	// new environment.
+	Domain pulumi.StringOutput
+	// DNSZone is the zone as delegated to Hetzner, empty when the domain's
+	// authoritative DNS is somewhere else — a supported state, and one the
+	// ingress layer reports rather than failing on.
+	DNSZone pulumi.StringOutput
 
 	// ControlPlaneCount is how many control-plane nodes the topology declares.
 	// A consumer needs it to size anything that cannot put two replicas on one
@@ -188,6 +208,8 @@ func Resolve(ctx *pulumi.Context, ref string) (*Cluster, error) {
 		HcloudToken:       stack.GetStringOutput(pulumi.String(OutputHcloudToken)),
 		ControlPlaneCount: stack.GetIntOutput(pulumi.String(OutputControlPlaneCount)),
 		RoutingMode:       stack.GetStringOutput(pulumi.String(OutputRoutingMode)),
+		Domain:            stack.GetStringOutput(pulumi.String(OutputDomain)),
+		DNSZone:           stack.GetStringOutput(pulumi.String(OutputDNSZone)),
 	}, nil
 }
 
