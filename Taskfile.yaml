@@ -189,6 +189,44 @@ tasks:
       - task: cluster:apply
       - task: platform:apply-all
 
+  down:
+    desc: "Destroy everything this repository created: every layer, then the cluster. Asks first."
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    # The inverse of `up`, and unlike `up` it carries its own prompt.
+    #
+    # `up` deliberately has none: its two children each ask, and a third
+    # question would add nothing to a decision the operator already made twice.
+    # A teardown is not symmetrical with that. The children's prompts each name
+    # one half — "every platform layer", "every server" — and neither says what
+    # SURVIVES. That is the sentence somebody needs before answering, because
+    # the answer is irreversible and the leftovers are what a rebuild depends
+    # on. So the whole truth is in the prompt below, and Task then asks the two
+    # narrower questions as it runs each child.
+    prompt: >-
+      DESTROY the {{.stack}} cluster and everything on it? Every platform layer
+      goes first, then the servers, the API load balancer, the network, the
+      firewall and the placement group. An ingress load balancer, if one
+      exists, goes with its layer — the cloud controller manager owns it, not
+      Pulumi. KEPT: the Talos secrets bundle (the cluster CA is state, not a
+      billed resource; `task cluster:destroy-secrets stack={{.stack}}` removes
+      it and cannot be undone), the Talos snapshot in the Hetzner project, and
+      this stack's Pulumi history. Irreversible
+    cmds:
+      # Layers first. A cluster whose CNI has been removed under a running
+      # workload is the same ordering hazard `platform:destroy-all` documents,
+      # and destroying the servers first would leave every layer's state
+      # describing resources that no longer exist.
+      - task: platform:destroy-all
+      - task: cluster:destroy
+      # What is left, and how to look. `cluster:orphans` cannot answer here —
+      # it reads the cluster to know what is claimed, and there is no longer a
+      # cluster, which is exactly when somebody wants to check.
+      - cmd: |
+          printf '%s\n' "{{._SKIP}} hetzner-iac · down · kept: the Talos secrets bundle, the project snapshot, and this stack's Pulumi history"
+          printf '%s\n' "{{._SKIP}} hetzner-iac · down · what remains in the project: task hcloud:servers stack={{.stack}} — cluster:orphans needs a live cluster"
+
   plan:
     desc: "Preview the cluster and every layer without changing anything"
     preconditions:
