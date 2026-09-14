@@ -1,0 +1,86 @@
+# The Hetzner CSI driver.
+#
+# This file exists because the chart was installed on its defaults, which set
+# no resources at all — every one of its eight containers ran unbounded on a
+# node that also runs etcd and kube-apiserver.
+#
+# WHY THE KEYS LOOK LIKE THIS. The chart does not take one `resources` block
+# per pod: it takes one per CONTAINER, under `controller.resources.<name>` and
+# `node.resources.<name>`, and the names are the chart's own spelling
+# (hcloudCSIDriver, not hcloud-csi-driver). Read out of `helm show values
+# hcloud-csi --version 2.23.0` rather than remembered, because Helm accepts an
+# unknown key, keeps its default, and says nothing — which is how a block like
+# this gets written once and never takes effect.
+#
+# THE NUMBERS ARE MEASURED, on the three-node dev cluster on 2026-09-14 with
+# `kubectl top pods --containers`, taking the highest value across nodes:
+#
+#   hcloud-csi-driver (controller)    21Mi   2m
+#   csi-attacher                       9Mi   2m
+#   csi-provisioner                   12Mi   3m
+#   csi-resizer                       10Mi   2m
+#   liveness-probe (controller)       26Mi   3m
+#   hcloud-csi-driver (node)          21Mi   2m
+#   csi-node-driver-registrar         20Mi   1m
+#   liveness-probe (node)             26Mi   3m
+#
+# Requests are rounded up from those; memory limits are several times them, so
+# ordinary operation is never near one and a leak still cannot take the node.
+#
+# NO CPU LIMITS, here or anywhere else in this repository. A node has two
+# cores and runs etcd beside these; CPU throttling would cost latency on the
+# control plane to bound a cost that requests already bound by scheduling.
+
+controller:
+  resources:
+    hcloudCSIDriver:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    csiAttacher:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    csiProvisioner:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    csiResizer:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    livenessProbe:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+
+node:
+  resources:
+    hcloudCSIDriver:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    csiNodeDriverRegistrar:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    livenessProbe:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi

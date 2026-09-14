@@ -116,9 +116,15 @@ func TestWriteValues(t *testing.T) {
 func TestWriteValues_NoFileMeansNoOverrides(t *testing.T) {
 	t.Parallel()
 
-	// A chart whose defaults already match renders with no values file, and
-	// that is not an error. hcloud-csi is one: nothing here configures it.
-	path, err := writeValues("hcloud-csi")
+	// No values template means the chart renders on its own defaults, and that
+	// is not an error — the caller passes the empty path to helm as "no -f".
+	//
+	// Asserted against a key with no template rather than a real chart: every
+	// chart in the registry now has one, because every chart now carries
+	// resource requests and limits. A test naming a real chart would have to
+	// be rewritten the next time that changes, and the branch it covers is
+	// about the absent file, not about which chart happens to lack one.
+	path, err := writeValues("a-chart-with-no-values-template")
 	require.NoError(t, err)
 	assert.Empty(t, path)
 }
