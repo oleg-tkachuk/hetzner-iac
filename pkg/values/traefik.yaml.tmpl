@@ -1,30 +1,31 @@
-# Traefik, behind a Hetzner load balancer.
+# Traefik, behind a Hetzner load balancer that Pulumi owns.
 #
-# The load balancer is not created here: Traefik asks for a Service of type
-# LoadBalancer and the hcloud cloud controller manager turns that into a real
-# one. The annotations below are read by the CCM, not by Traefik — a wrong one
-# produces a load balancer that exists and routes to nothing, with no error
-# from either component.
+# The load balancer is NOT asked for here, and that is the change. A Service of
+# type LoadBalancer hands the job to the hcloud cloud controller manager, which
+# cost two things measured on 2026-09-14: the load balancer was invisible to
+# `plan` and `destroy` and appeared only in the bill, and the CCM refused to
+# make any node a target — Talos labels every control-plane node
+# node.kubernetes.io/exclude-from-external-load-balancers, this cluster is
+# three of those, and the result was an address with no targets behind it.
+#
+# So this Service is a NodePort and layers/40-ingress creates the load balancer
+# through the Hetzner provider, selecting its targets by cluster label — a
+# Hetzner concept that knows nothing about that Kubernetes label.
 
 deployment:
   # Two, so losing one node does not take ingress with it.
   replicas: {{ .Replicas }}
 
 service:
-  annotations:
-    load-balancer.hetzner.cloud/name: {{ .Name }}
-    load-balancer.hetzner.cloud/location: {{ .Location }}
-    load-balancer.hetzner.cloud/type: {{ .LoadBalancerType }}
-    # Reach the nodes over the private network. Targeting public addresses
-    # would send traffic out of and back into Hetzner's network — metered,
-    # slower, and needing firewall rules that would otherwise not exist.
-    load-balancer.hetzner.cloud/use-private-ip: "true"
-    # One half of the PROXY protocol pair: this tells the load balancer to
-    # send the header. The other half is the trust list below.
-    load-balancer.hetzner.cloud/uses-proxyprotocol: "true"
   spec:
+    # NodePort, not LoadBalancer: nothing should ask the CCM for a load
+    # balancer that Pulumi already manages. Both would then reconcile one
+    # object.
+    type: NodePort
     # Local keeps the client address usable end to end by avoiding the extra
-    # hop that would rewrite it.
+    # hop that would rewrite it. It is also what makes the load balancer's
+    # health check meaningful: a node with no Traefik pod does not answer on
+    # the node port, so it fails the check and stops receiving requests.
     externalTrafficPolicy: Local
 
 # The other half of the PROXY protocol pair. Traefik accepts the header only
@@ -37,12 +38,21 @@ service:
 #
 # Both entry points need it. Forgetting websecure breaks only HTTPS, which is
 # the harder failure to notice.
+#
+# The node ports are PINNED. Kubernetes would otherwise allocate them from
+# 30000-32767, and a load balancer Pulumi creates cannot forward to a number
+# it learns afterwards. pkg/hetzner names both and this template interpolates
+# the same two constants, so the pair cannot drift — a mismatch would leave the
+# load balancer health-checking a closed port and reporting every target
+# unhealthy with nothing else wrong.
 ports:
   web:
+    nodePort: {{ .NodePortHTTP }}
     proxyProtocol:
       trustedIPs:
         - {{ .NodeSubnet }}
   websecure:
+    nodePort: {{ .NodePortHTTPS }}
     proxyProtocol:
       trustedIPs:
         - {{ .NodeSubnet }}
