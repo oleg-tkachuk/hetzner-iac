@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -122,19 +125,35 @@ func TestUnboundedContainers(t *testing.T) {
 	}
 }
 
-// TestUnmeasuredCharts_AreNotDeployed keeps the skip list honest.
+// TestUnmeasuredCharts_HaveNoMeasurementsToUse keeps the skip list honest, and
+// it is the test the earlier wording made impossible to write.
 //
-// A skip is a chart nobody is running, and the moment one is deployed the
-// numbers can be measured and the line deleted. A chart this platform installs
-// and also skips would be exempt from the gate for ever, with the skip line
-// reading as if that were deliberate.
-func TestUnmeasuredCharts_AreNotDeployed(t *testing.T) {
+// A skip claims one thing: no measured numbers are committed for this chart.
+// That is visible in the values template beside it. Once somebody measures a
+// chart and writes the numbers in, the skip becomes a lie — the gate goes on
+// passing, the numbers go unchecked, and the skip line still reads as a
+// deliberate exemption.
+//
+// The previous wording claimed the chart was NOT DEPLOYED, which no test could
+// check and which was false for cert-manager while it said so.
+func TestUnmeasuredCharts_HaveNoMeasurementsToUse(t *testing.T) {
 	t.Parallel()
 
 	require.NotEmpty(t, unmeasuredCharts)
 
 	for key, reason := range unmeasuredCharts {
 		assert.Equal(t, reasonUnmeasured, reason,
-			"%s is skipped for a different reason than the others; if it is deployed, measure it", key)
+			"%s is skipped for a different reason than the others", key)
+
+		raw, err := os.ReadFile(filepath.Join("..", "..", "pkg", "values", key+".yaml.tmpl"))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+
+		require.NoError(t, err)
+
+		assert.NotContains(t, string(raw), "resources:",
+			"%s sets resources in its values template, so it IS measured — "+
+				"delete its line from unmeasuredCharts and let the gate check it", key)
 	}
 }
