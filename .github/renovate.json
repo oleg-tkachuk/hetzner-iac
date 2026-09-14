@@ -34,6 +34,14 @@
       ],
       "datasourceTemplate": "helm",
       "versioningTemplate": "helm"
+    },
+    {
+      "description": "Pinned tool versions in the workflows. Nine of them, across ci.yaml and security.yaml, with mixed datasources — GitHub releases, PyPI and Go modules — so the `renovate:` comment above each pin carries the datasource and depName rather than this pattern knowing nine special cases. extractVersion appears on the pins that omit the `v` their upstream tag carries. A test in tools/repo reads this regex out of this file and asserts it still matches every annotated pin AND that every pin is annotated, because the failure mode is the same one the chart manager has: Renovate opens no pull request, for ever, and nothing says so.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+?)(?: versioning=(?<versioning>\\S+?))?(?: extractVersion=(?<extractVersion>\\S+?))?\\s+[A-Z0-9_]+_VERSION:\\s*\"(?<currentValue>[^\"]+)\""
+      ]
     }
   ],
 
@@ -67,6 +75,15 @@
       "matchManagers": ["gomod", "github-actions"],
       "semanticCommitType": "chore",
       "semanticCommitScope": "deps"
+    },
+    {
+      "description": "The pinned CI tools, same reasoning: they change what the checks are, never what is deployed. Scoped by datasource rather than by manager, because the other custom manager is the chart registry and its pull requests are releases.",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["github-releases", "pypi", "go"],
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "ci",
+      "labels": ["ci"],
+      "groupName": "ci tooling"
     },
     {
       "description": "go mod tidy after every update. Without it go.sum is left missing entries for packages imported only behind a build tag — test/e2e is one, and the priming job's `go vet -tags e2e` is what found it.",
