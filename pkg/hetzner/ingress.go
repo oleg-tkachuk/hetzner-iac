@@ -76,7 +76,7 @@ func NewIngressLoadBalancer(
 	name string,
 	args IngressLoadBalancerArgs,
 	opts ...pulumi.ResourceOption,
-) (pulumi.StringOutput, error) {
+) (*IngressLoadBalancer, error) {
 	labels := pulumi.StringMap{
 		LabelCluster:   args.ClusterName,
 		LabelManagedBy: pulumi.String(managedByValue),
@@ -89,7 +89,7 @@ func NewIngressLoadBalancer(
 		Labels:           labels,
 	}, opts...)
 	if err != nil {
-		return pulumi.StringOutput{}, fmt.Errorf("hcloud ingress load balancer: %w", err)
+		return nil, fmt.Errorf("hcloud ingress load balancer: %w", err)
 	}
 
 	// Kept: everything below reaches the nodes privately, and Hetzner refuses
@@ -104,7 +104,7 @@ func NewIngressLoadBalancer(
 			NetworkId:      args.NetworkID,
 		}, opts...)
 	if err != nil {
-		return pulumi.StringOutput{}, fmt.Errorf("hcloud ingress load balancer network: %w", err)
+		return nil, fmt.Errorf("hcloud ingress load balancer network: %w", err)
 	}
 
 	// Both entry points, and neither is optional: an ingress serving only 80
@@ -144,7 +144,7 @@ func NewIngressLoadBalancer(
 					Retries:  pulumi.Int(healthCheckRetries),
 				},
 			}, opts...); err != nil {
-			return pulumi.StringOutput{}, fmt.Errorf("hcloud ingress load balancer service %d: %w",
+			return nil, fmt.Errorf("hcloud ingress load balancer service %d: %w",
 				service.listenPort, err)
 		}
 	}
@@ -163,10 +163,21 @@ func NewIngressLoadBalancer(
 			LabelSelector:  pulumi.Sprintf("%s=%s", LabelCluster, args.ClusterName),
 			UsePrivateIp:   pulumi.Bool(true),
 		}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{attachment}))...); err != nil {
-		return pulumi.StringOutput{}, fmt.Errorf("hcloud ingress load balancer target: %w", err)
+		return nil, fmt.Errorf("hcloud ingress load balancer target: %w", err)
 	}
 
-	return loadBalancer.Ipv4, nil
+	return &IngressLoadBalancer{IPv4: loadBalancer.Ipv4, IPv6: loadBalancer.Ipv6}, nil
+}
+
+// IngressLoadBalancer is the load balancer's two public addresses.
+//
+// Both, because Hetzner gives every load balancer an IPv4 and an IPv6 and a
+// dual-stack load balancer behind an A record alone is a half-answer: an
+// IPv6-only client resolves nothing, which looks like the site being down
+// rather than like a missing record.
+type IngressLoadBalancer struct {
+	IPv4 pulumi.StringOutput
+	IPv6 pulumi.StringOutput
 }
 
 // ingressID is idToInt for a load balancer, named so the three call sites read
