@@ -239,3 +239,57 @@ func TestRenovateStripsTheVWhereThePinOmitsIt(t *testing.T) {
 		}
 	}
 }
+
+// TestRenovatePinsDigestsForActionsOnly holds the scope of the one rule that
+// turns a supply-chain control into a repository problem when it is too wide.
+//
+// Pinning a `uses:` to a commit is the control: a tag is mutable, and a moved
+// tag is a supply-chain change nothing would notice. But the github-actions
+// manager reports a step's INPUTS as dependencies too, with depType
+// `uses-with` — and a version input has no digest.
+//
+// Measured on 2026-09-14 from Renovate's own debug log. With the rule on the
+// whole manager it tried to write helm/helm's commit into azure/setup-helm's
+// `version: v4.3.0`, then could not read it back:
+//
+//	Digest is not updated
+//	  depName: "helm", manager: "github-actions"
+//	  expectedValue: "bec5b06ed841fe5269972d864d5177944fd5970f"
+//	  foundValue: undefined
+//	WARN: Error updating branch: update failure
+//
+// The dashboard carried that as a repository problem on every run, and the
+// update was retried for ever because it cannot succeed.
+func TestRenovatePinsDigestsForActionsOnly(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "renovate.json"))
+	require.NoError(t, err)
+
+	var config struct {
+		PackageRules []struct {
+			MatchManagers []string `json:"matchManagers"`
+			MatchDepTypes []string `json:"matchDepTypes"`
+			PinDigests    *bool    `json:"pinDigests"`
+		} `json:"packageRules"`
+	}
+
+	require.NoError(t, json.Unmarshal(raw, &config))
+
+	var checked int
+
+	for _, rule := range config.PackageRules {
+		if rule.PinDigests == nil || !*rule.PinDigests {
+			continue
+		}
+
+		checked++
+
+		assert.Equal(t, []string{"action"}, rule.MatchDepTypes,
+			"a pinDigests rule is not scoped to depType `action`; the same manager reports "+
+				"step inputs as `uses-with` dependencies, and a version input has no digest to pin")
+	}
+
+	assert.Equal(t, 1, checked,
+		"exactly one rule pins digests; the count changed and the scope above may not cover it")
+}
