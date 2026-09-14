@@ -91,7 +91,7 @@ talos:
   # terraform-provider-talos 0.11.0, which embeds Talos machinery v1.13.0. It
   # is the machinery that GENERATES the machine configuration, so a 1.14 pin
   # would boot 1.14 nodes with a configuration built by a 1.13 generator.
-  # Checked on 2026-09-11: Talos v1.14.0 is out, pulumi-talos v0.8.1 is still
+  # Checked: Talos v1.14.0 is out, pulumi-talos v0.8.1 is still
   # the newest, and terraform-provider-talos v0.11.0 — the one it bridges —
   # requires pkg/machinery v1.13.0. So 1.14 is not a caution, it is blocked.
   # Move this when a newer pulumi-talos carries 1.14 machinery, then install
@@ -106,7 +106,7 @@ talos:
   # the other architecture's snapshot and doing nothing.
   #
   # arm is supported end to end, and it is NOT the cheaper option here. From
-  # the API in hel1 on 2026-09-14, monthly gross:
+  # the API in hel1, monthly gross:
   #
   #   cx23    2 cores    4 GB    x86    5.49
   #   cax11   2 cores    4 GB    arm    5.99
@@ -115,7 +115,7 @@ talos:
   #
   # Every image this platform installs — Cilium, both hcloud drivers,
   # cert-manager, external-secrets, metrics-server, Traefik, Argo CD — publishes
-  # linux/arm64 at the versions pinned in pkg/charts, checked on 2026-09-14. So
+  # linux/arm64 at the versions pinned in pkg/charts, checked. So
   # the reason to pick arm is wanting arm nodes, not saving money.
   architecture: x86
 

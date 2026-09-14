@@ -70,8 +70,8 @@ one architecture, and the bake scopes its "already baked?" question to the
 architecture the topology asks for — so switching finds no snapshot and bakes
 one, rather than finding the other architecture's and doing nothing.
 
-**Arm is not the cheaper option on this provider.** From the API in `hel1` on
-2026-09-14, monthly gross:
+**Arm is not the cheaper option on this provider.** From the API in `hel1`,
+monthly gross:
 
 | | cores | memory | arch | EUR/month |
 |---|---|---|---|---|
@@ -82,8 +82,8 @@ one, rather than finding the other architecture's and doing nothing.
 
 Every image the platform installs publishes `linux/arm64` at the versions
 pinned in [`pkg/charts`](../pkg/charts) — Cilium, both hcloud drivers,
-cert-manager, external-secrets, metrics-server, Traefik and Argo CD, checked
-on 2026-09-14. So nothing in the platform is the obstacle; the reason to pick
+cert-manager, external-secrets, metrics-server, Traefik and Argo CD, all
+checked. So nothing in the platform is the obstacle; the reason to pick
 `arm` is wanting Arm nodes, not saving money.
 
 ### Which locations have Arm, and why that is not the blocker here
@@ -121,8 +121,8 @@ cax11 nbg1  unsupported location for server type
 So the refusal follows the architecture, not the region. Hetzner's API is
 contradicting its own availability data, and nothing outside the account can
 say whether that is an entitlement or a defect — `/v1/locations` carries no
-per-type availability, and `/v1/datacenters` has been deprecated since
-2025-12-16. **It needs a support ticket, not a wait for capacity.**
+per-type availability, and `/v1/datacenters` has been deprecated since 2025-12-16.
+**It needs a support ticket, not a wait for capacity.**
 
 Before planning an Arm cluster, probe one server by hand — an Arm image by id,
 not by name, because Hetzner answers an x86 image on an Arm type with the *same*

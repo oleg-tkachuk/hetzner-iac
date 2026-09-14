@@ -116,8 +116,8 @@ func TestIngressLoadBalancer_TargetsEveryNodeInTheClusterPrivately(t *testing.T)
 	// control-plane-only cluster. The cloud controller manager refuses to
 	// target a node carrying
 	// node.kubernetes.io/exclude-from-external-load-balancers, Talos puts that
-	// on every control-plane node, and the measured result on 2026-09-14 was a
-	// load balancer with an address and zero targets.
+	// on every control-plane node, and the measured result was a load balancer
+	// with an address and zero targets.
 	assert.Equal(t, "label_selector", got["type"].StringValue())
 	assert.Equal(t, hetzner.ClusterSelector(testCluster), got["labelSelector"].StringValue())
 

@@ -51,8 +51,8 @@ type IngressLoadBalancerArgs struct {
 //
 // Pulumi owns it rather than the cloud controller manager, and that is a
 // deliberate reversal. The CCM turns a Service of type LoadBalancer into a
-// real one, which is less code here — and it cost this repository two things
-// measured on 2026-09-14:
+// real one, which is less code here — and it cost this repository two things,
+// both measured:
 //
 //   - The load balancer was invisible to this repository. Nothing in `plan` or
 //     `destroy` mentioned it; it appeared only in Hetzner's bill, and
