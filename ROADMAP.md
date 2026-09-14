@@ -36,10 +36,15 @@ without touching the rest.
 `talos.architecture: arm` is implemented: the factory builds the `arm64` image,
 the bake asks for it per architecture, the server types and their defaults
 follow the field, and every chart the platform installs publishes `linux/arm64`.
-None of it has run on real hardware, because the development project cannot
-create a `cax` server in any location — the API refuses every one, and no
-endpoint predicts it.
-**Blocked on:** Arm capacity on the project, which is Hetzner's to grant.
+None of it has run on real hardware.
+
+The region is not the obstacle. Hetzner sells the `cax` line in `fsn1`, `nbg1`
+and `hel1`, this cluster already lives in `hel1`, and the API reports `cax11`
+as available there — and refuses every create anyway. One pair of requests
+places the fault: in the same project and location, `cx23` creates and `cax11`
+is refused, so it follows the architecture rather than the location.
+**Blocked on:** a Hetzner support answer for why `cax` is refused where their
+own API advertises it. Not on work here, and not on waiting for capacity.
 
 ## Security
 
