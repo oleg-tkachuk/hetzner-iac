@@ -15,3 +15,40 @@ prometheus:
   # deployed through Argo CD — so this would be a kind that does not exist.
   servicemonitor:
     enabled: false
+
+# Resources. Requests are measured, limits are memory-only.
+#
+# Measured on the three-node dev cluster on 2026-09-14 with `kubectl top pods
+# --containers`: controller 66Mi/1m, cainjector 50Mi/2m, webhook 9Mi/1m.
+#
+# NO CPU LIMITS, here or anywhere in this repository. A node has two cores and
+# runs etcd beside these: throttling would cost control-plane latency to bound
+# something requests already bound by scheduling.
+#
+# startupapicheck is left on the chart's defaults on purpose. It is a Helm hook
+# Job that makes one API call and is deleted when it succeeds, so there is
+# nothing to measure and nothing for a limit to protect the node from.
+
+# The controller.
+resources:
+  requests:
+    cpu: 10m
+    memory: 96Mi
+  limits:
+    memory: 256Mi
+
+cainjector:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 192Mi
+
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
