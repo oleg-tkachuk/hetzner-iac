@@ -18,14 +18,13 @@ import (
 // Traefik is pkg/values/traefik.yaml.tmpl.
 type Traefik struct {
 	Replicas int
-	// Name and Location are what the cloud controller manager builds the load
-	// balancer from.
-	Name     string
-	Location string
-	// LoadBalancerType is the Hetzner type, from stack config.
-	LoadBalancerType string
 	// NodeSubnet is the range Traefik trusts a PROXY protocol header from.
 	NodeSubnet string
+	// NodePortHTTP and NodePortHTTPS are the pinned node ports the
+	// Pulumi-managed load balancer forwards to. Both sides read one pair of
+	// constants from pkg/hetzner — see the template for what a mismatch does.
+	NodePortHTTP  int
+	NodePortHTTPS int
 }
 
 // Cilium is pkg/values/cilium.yaml.tmpl.
@@ -83,8 +82,12 @@ type ArgoCD struct {
 // cluster's addresses in a check would be a second place they live.
 var probes = map[string]any{
 	"traefik": Traefik{
-		Replicas: 2, Name: "probe-ingress", Location: "hel1",
-		LoadBalancerType: "lb11", NodeSubnet: "192.0.2.0/24",
+		Replicas: 2, NodeSubnet: "192.0.2.0/24",
+		// The real pinned ports, not placeholders: the render check asserts
+		// they reach the chart's output, which is the only place the pin is
+		// observable.
+		NodePortHTTP:  platform.IngressNodePortHTTP,
+		NodePortHTTPS: platform.IngressNodePortHTTPS,
 	},
 	"cilium": Cilium{
 		PodCIDR: "198.51.100.0/24", APIHost: "localhost", APIPort: 7445,
