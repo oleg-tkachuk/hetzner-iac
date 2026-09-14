@@ -500,3 +500,53 @@ func glyphOf(t *testing.T, taskfile, marker string) (glyph, colour string) {
 
 	return "", ""
 }
+
+// TestDown_AsksAndSaysWhatSurvives holds the teardown's own confirmation.
+//
+// `down` is the one task that removes everything, and it escapes
+// TestTasks_ThatChangeInfrastructureAskFirst by construction: that test looks
+// for `pulumi destroy` in a task body, and this one delegates instead. A
+// wrapper with no prompt would be the worst version of exactly what that test
+// guards — one command, no question, nothing left.
+//
+// The prompt also has to name what SURVIVES. Its two children each ask about
+// one half and neither mentions the secrets bundle, so without this the
+// operator confirms an irreversible teardown without being told that the
+// cluster CA is kept, or how to remove it on purpose.
+func TestDown_AsksAndSaysWhatSurvives(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	body, found := tasksIn(string(raw))["down"]
+	require.True(t, found, "no `down` task in Taskfile.yaml")
+
+	require.Contains(t, body, "prompt:", "`down` destroys everything with no confirmation")
+
+	for _, mention := range []string{
+		// The three the prompt must account for, because each is a thing
+		// somebody looks for afterwards and does not find.
+		"secrets bundle",
+		"snapshot",
+		"destroy-secrets",
+	} {
+		assert.Contains(t, body, mention,
+			"`down` confirms an irreversible teardown without saying what happens to the %s", mention)
+	}
+
+	// Order is the other half, and getting it wrong is not cosmetic: servers
+	// removed first leave every layer's state describing resources that are
+	// gone.
+	// Matched as task CALLS rather than as substrings. `cluster:destroy` is a
+	// prefix of `cluster:destroy-secrets`, which the prompt names above the
+	// commands — so a plain search finds the wrong occurrence and reports the
+	// order backwards. It did, the first time this test ran.
+	layers := strings.Index(body, "- task: platform:destroy-all")
+	cluster := strings.Index(body, "- task: cluster:destroy\n")
+
+	require.Positive(t, layers, "`down` does not destroy the layers")
+	require.Positive(t, cluster, "`down` does not destroy the cluster")
+	assert.Less(t, layers, cluster,
+		"`down` destroys the cluster before its layers")
+}
