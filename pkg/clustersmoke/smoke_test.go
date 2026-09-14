@@ -1,6 +1,7 @@
 package clustersmoke_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clustersmoke"
@@ -73,7 +74,7 @@ func TestExternalAddresses_SkipsRatherThanPassesWithNothingToLookAt(t *testing.T
 	// The distinction the whole three-state design exists for. The dev cluster
 	// has no LoadBalancer Service, so this check has nothing to prove — and
 	// "passed" there is a green line that inspected an empty list.
-	result, err := clustersmoke.ExternalAddresses(nil)
+	result, err := clustersmoke.ExternalAddresses(nil, eligibleNodes(3))
 
 	require.NoError(t, err)
 	assert.Equal(t, clustersmoke.StatusSkipped, result.Status)
@@ -87,11 +88,11 @@ func TestExternalAddresses_PassesOnAnAddressOfEitherKind(t *testing.T) {
 	result, err := clustersmoke.ExternalAddresses([]clustersmoke.LoadBalancerState{
 		{Namespace: "traefik", Name: "traefik", Addresses: []string{"203.0.113.10"}},
 		{Namespace: "other", Name: "svc", Addresses: []string{"lb.example.test"}},
-	})
+	}, eligibleNodes(2))
 
 	require.NoError(t, err)
 	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
-	assert.Equal(t, "2 with an address", result.Detail)
+	assert.Equal(t, "2 with an address, 2 node(s) eligible as targets", result.Detail)
 }
 
 func TestExternalAddresses_FailsAndPointsAtTheController(t *testing.T) {
@@ -101,7 +102,7 @@ func TestExternalAddresses_FailsAndPointsAtTheController(t *testing.T) {
 		{Namespace: "traefik", Name: "traefik", Addresses: []string{"203.0.113.10"}},
 		{Namespace: "b", Name: "pending-2"},
 		{Namespace: "a", Name: "pending-1"},
-	})
+	}, eligibleNodes(3))
 
 	require.Error(t, err)
 	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
@@ -253,4 +254,96 @@ func TestCrossNodeVerdict_CarriesWhatTheProberSaid(t *testing.T) {
 
 	assert.Contains(t, result.Detail, "connection timed out")
 	assert.NotContains(t, result.Detail, "  connection", "the message is not trimmed")
+}
+
+// eligibleNodes is a cluster whose nodes may all be load balancer targets —
+// the ordinary case, so the tests about addresses are not also about targets.
+func eligibleNodes(count int) []clustersmoke.NodeState {
+	nodes := make([]clustersmoke.NodeState, 0, count)
+
+	for i := range count {
+		nodes = append(nodes, clustersmoke.NodeState{
+			Name:  "worker-" + strconv.Itoa(i),
+			Ready: true,
+		})
+	}
+
+	return nodes
+}
+
+// TestExternalAddresses_FailsWhenNoNodeCanBeATarget is today's finding, kept.
+//
+// The cloud controller manager did everything right: it created the load
+// balancer, attached it to the private network, added services on 80 and 443,
+// and published the address. It also had nowhere to send traffic, because
+// Talos labels every control-plane node
+// node.kubernetes.io/exclude-from-external-load-balancers and this cluster is
+// three control-plane nodes.
+//
+// Measured on 2026-09-14 against the live cluster, where the earlier version
+// of this check reported "✔ 1 with an address" over a load balancer with zero
+// targets — 5.39 EUR a month answering on an address and forwarding to
+// nothing. The CCM had said it plainly and nothing here was reading:
+//
+//	There are no available nodes for LoadBalancer
+func TestExternalAddresses_FailsWhenNoNodeCanBeATarget(t *testing.T) {
+	t.Parallel()
+
+	controlPlaneOnly := []clustersmoke.NodeState{
+		{Name: "cp-0", Ready: true, ExcludedFromLoadBalancers: true},
+		{Name: "cp-1", Ready: true, ExcludedFromLoadBalancers: true},
+		{Name: "cp-2", Ready: true, ExcludedFromLoadBalancers: true},
+	}
+
+	result, err := clustersmoke.ExternalAddresses([]clustersmoke.LoadBalancerState{
+		{Namespace: "traefik", Name: "traefik", Addresses: []string{"203.0.113.10"}},
+	}, controlPlaneOnly)
+
+	require.Error(t, err)
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
+	// The label, so the reader can check it, and the remedy, so they can act.
+	assert.Contains(t, result.Detail, clustersmoke.LabelExcludeFromExternalLoadBalancers)
+	assert.Contains(t, result.Detail, "add a worker pool")
+}
+
+// TestExternalAddresses_OneEligibleNodeIsEnough keeps the check from being a
+// second opinion on cluster shape.
+//
+// It asks whether the load balancer has anywhere to send traffic, and one
+// node answers that. A cluster of three control-plane nodes and one worker is
+// exactly this repository's commented-out topology, and it must pass.
+func TestExternalAddresses_OneEligibleNodeIsEnough(t *testing.T) {
+	t.Parallel()
+
+	mixed := []clustersmoke.NodeState{
+		{Name: "cp-0", Ready: true, ExcludedFromLoadBalancers: true},
+		{Name: "cp-1", Ready: true, ExcludedFromLoadBalancers: true},
+		{Name: "general-0", Ready: true},
+	}
+
+	result, err := clustersmoke.ExternalAddresses([]clustersmoke.LoadBalancerState{
+		{Namespace: "traefik", Name: "traefik", Addresses: []string{"203.0.113.10"}},
+	}, mixed)
+
+	require.NoError(t, err)
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
+	assert.Contains(t, result.Detail, "1 node(s) eligible")
+}
+
+// TestExternalAddresses_NoNodesAtAllIsNotAnEligibilityVerdict guards the
+// vacuous reading.
+//
+// An empty node list means the question was not answered — a listing that
+// failed, a fake client with nothing in it — and answering "no node is
+// eligible" there would blame the cluster for the caller's gap. NodesReady is
+// the check that fails on no nodes, and it fails loudly.
+func TestExternalAddresses_NoNodesAtAllIsNotAnEligibilityVerdict(t *testing.T) {
+	t.Parallel()
+
+	result, err := clustersmoke.ExternalAddresses([]clustersmoke.LoadBalancerState{
+		{Namespace: "traefik", Name: "traefik", Addresses: []string{"203.0.113.10"}},
+	}, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
 }

@@ -133,12 +133,25 @@ func (r *Runner) checkNodes(ctx context.Context) Result {
 
 	states := make([]NodeState, 0, len(list.Items))
 	for _, node := range list.Items {
-		states = append(states, NodeState{Name: node.Name, Ready: nodeReady(node)})
+		states = append(states, NodeState{
+			Name:                      node.Name,
+			Ready:                     nodeReady(node),
+			ExcludedFromLoadBalancers: excludedFromLoadBalancers(node),
+		})
 	}
 
 	result, _ := NodesReady(states)
 
 	return result
+}
+
+// excludedFromLoadBalancers reads the label that keeps a node out of every
+// external load balancer's target list. Presence is what counts; the value is
+// not read, which is upstream's own rule for it.
+func excludedFromLoadBalancers(node corev1.Node) bool {
+	_, found := node.Labels[LabelExcludeFromExternalLoadBalancers]
+
+	return found
 }
 
 // nodeReady reads the Ready condition. A node with no Ready condition is not
@@ -156,7 +169,7 @@ func nodeReady(node corev1.Node) bool {
 func (r *Runner) checkLoadBalancers(ctx context.Context) Result {
 	list, err := r.client.CoreV1().Services("").List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return Result{Name: "every LoadBalancer Service has an address", Status: StatusFailed,
+		return Result{Name: CheckExternalAddresses, Status: StatusFailed,
 			Detail: "listing services: " + err.Error()}
 	}
 
@@ -174,7 +187,25 @@ func (r *Runner) checkLoadBalancers(ctx context.Context) Result {
 		})
 	}
 
-	result, _ := ExternalAddresses(states)
+	// The nodes decide whether an address means anything, so this check needs
+	// them too. A listing error is reported rather than treated as "no nodes":
+	// an empty list would make the eligibility question pass vacuously.
+	nodes, err := r.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return Result{Name: CheckExternalAddresses,
+			Status: StatusFailed, Detail: "listing nodes: " + err.Error()}
+	}
+
+	nodeStates := make([]NodeState, 0, len(nodes.Items))
+	for _, node := range nodes.Items {
+		nodeStates = append(nodeStates, NodeState{
+			Name:                      node.Name,
+			Ready:                     nodeReady(node),
+			ExcludedFromLoadBalancers: excludedFromLoadBalancers(node),
+		})
+	}
+
+	result, _ := ExternalAddresses(states, nodeStates)
 
 	return result
 }
@@ -438,7 +469,11 @@ func (r *Runner) checkCrossNode(ctx context.Context) Result {
 
 	states := make([]NodeState, 0, len(nodes.Items))
 	for _, node := range nodes.Items {
-		states = append(states, NodeState{Name: node.Name, Ready: nodeReady(node)})
+		states = append(states, NodeState{
+			Name:                      node.Name,
+			Ready:                     nodeReady(node),
+			ExcludedFromLoadBalancers: excludedFromLoadBalancers(node),
+		})
 	}
 
 	dns, err := r.client.CoreV1().Pods(metav1.NamespaceSystem).
