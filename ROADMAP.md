@@ -76,7 +76,21 @@ Nothing checks provenance at admission.
 ### Something is reachable from outside
 
 The ingress and the certificate machinery are deployed, and nothing uses them.
-**Blocked on:** a domain.
+**Blocked on:** a domain — and a worker node, which was not known until the
+ingress layer was applied to a live cluster on 2026-09-14.
+
+Talos labels every control-plane node
+`node.kubernetes.io/exclude-from-external-load-balancers`, and this cluster is
+three control-plane nodes and nothing else. So the cloud controller manager
+creates the load balancer, attaches it to the private network and adds its
+services, and then has nowhere to send traffic:
+
+    There are no available nodes for LoadBalancer
+    "ensure Load Balancer" service="traefik" nodes=[]
+
+The load balancer answers on its address with zero targets, which costs 5.39
+EUR a month to serve nothing. A worker pool is the fix, and
+`infra/cluster/cluster.example.yaml` already carries the block commented out.
 
 ### Workloads arrive through GitOps
 
