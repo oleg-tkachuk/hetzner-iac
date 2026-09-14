@@ -32,3 +32,21 @@ config:
       Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
       This layer reads the kubeconfig from it, which is what lets it be applied
       and destroyed without touching the cluster.
+
+  cluster-services:acmeEmail:
+    default: ""
+    description: |
+      Contact address for the Let's Encrypt account. Empty creates no
+      ClusterIssuer, and the layer says so on every apply — installing
+      cert-manager with no issuer leaves every Certificate pending with
+      nothing to satisfy it.
+
+  cluster-services:acmeStaging:
+    default: "false"
+    description: |
+      Order certificates from Let's Encrypt's staging endpoint. They are NOT
+      trusted by a browser, so this is not a safer default — it is where the
+      first attempt at a new domain belongs, because production rate-limits
+      per registered domain and an order that cannot be validated still
+      counts against them. The account key is separate per endpoint: an ACME
+      account is registered with one directory.
