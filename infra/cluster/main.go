@@ -136,6 +136,12 @@ func exports(topology *hetzner.Topology, cluster *hetzner.Cluster, token pulumi.
 		clusterref.OutputControlPlaneCount: pulumi.Int(topology.ControlPlane.Count),
 		clusterref.OutputRoutingMode:       pulumi.String(topology.Network.RoutingMode),
 
+		// Empty until the topology names one, and exported either way: the
+		// contract is total, so a consumer reads an empty string rather than
+		// handling an absent output.
+		clusterref.OutputDomain:  pulumi.String(topology.Metadata.Domain),
+		clusterref.OutputDNSZone: pulumi.String(topology.Metadata.DNSZone),
+
 		clusterref.OutputClusterName: pulumi.String(topology.Metadata.Name),
 		clusterref.OutputLocation:    pulumi.String(topology.Placement.Location),
 
