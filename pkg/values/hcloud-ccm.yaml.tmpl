@@ -21,3 +21,23 @@ env:
       secretKeyRef:
         name: {{ .SecretName }}
         key: network
+
+# Resources. Requests are measured, limits are memory-only.
+#
+# Measured on the three-node dev cluster on 2026-09-14 with `kubectl top pods
+# --containers`, highest value across nodes. Requests round those up; memory
+# limits sit several times above, so ordinary operation is never near one and a
+# leak still cannot take a node that also runs etcd and kube-apiserver.
+#
+# NO CPU LIMITS, here or anywhere in this repository. A node has two cores and
+# runs etcd beside these: throttling would cost control-plane latency to bound
+# something requests already bound by scheduling.
+
+# 14Mi and 2m measured. It watches nodes and programmes routes; it holds no
+# data, which is why so little is enough.
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
