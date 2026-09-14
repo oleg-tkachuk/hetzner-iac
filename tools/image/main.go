@@ -186,6 +186,26 @@ func snapshotMatched(raw []byte) (bool, error) {
 	return len(images) > 0, nil
 }
 
+// createdSchematic accepts any 2xx from POST /schematics.
+//
+// It used to demand exactly 200, and the factory answers 201 Created — which
+// is correct for a POST that creates a resource, and is what it returns even
+// for a repeat of an identical body, the id being content-addressed. So
+// `cluster:image-bake` could not bake anything at all:
+//
+//	error: image factory returned 201 Created
+//
+// Hidden for as long as the project had a snapshot, because the check for one
+// returns before the factory is ever called. The first thing to reach this
+// line in weeks was the first bake for a second architecture.
+//
+// A range rather than 200 or 201 spelled out: the status is the transport's
+// verdict on whether a schematic came back, and decodeSchematic is what
+// decides whether the body actually holds one.
+func createdSchematic(status int) bool {
+	return status >= http.StatusOK && status < http.StatusMultipleChoices
+}
+
 // schematicID posts the customisation and returns the content-addressed id.
 func schematicID(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, factoryTimeout)
@@ -206,7 +226,7 @@ func schematicID(ctx context.Context) (string, error) {
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	if response.StatusCode != http.StatusOK {
+	if !createdSchematic(response.StatusCode) {
 		return "", fmt.Errorf("image factory returned %s", response.Status)
 	}
 
