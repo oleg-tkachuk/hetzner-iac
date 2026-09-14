@@ -331,6 +331,105 @@ one field. See
 [configuration.md](configuration.md#cpu-architecture) for the costs and for
 why Arm availability has to be checked per project rather than assumed.
 
+## How pod traffic crosses a node boundary
+
+This is the one piece of the design that a single-node cluster cannot test, and
+it was wrong for as long as there was only one node to hide it.
+
+A Hetzner private network is **routed, not switched**. Each server's private NIC
+carries a `/32`, and the only on-link peer is the gateway:
+
+```
+eth1  inet 10.0.1.3/32
+10.0.0.0/16 via 10.0.0.1 dev eth1
+10.0.0.1 dev eth1 scope link
+```
+
+So a node has no way to reach another node's pod CIDR on its own. Two things can
+supply one, and `network.routingMode` picks between them.
+
+### native — the default
+
+The hcloud CCM's route controller programmes one route per node inside the
+Hetzner network:
+
+```
+10.244.0.0/24 -> 10.0.1.4
+10.244.1.0/24 -> 10.0.1.2
+10.244.2.0/24 -> 10.0.1.3
+```
+
+Those live in Hetzner's router, not in the node. For a pod packet to reach them
+the node must send it to the gateway, so the cluster tier writes exactly that
+into every machine config:
+
+```yaml
+machine:
+  network:
+    interfaces:
+      - interface: eth1
+        dhcp: true          # keeps the private address Hetzner hands out
+        routes:
+          - network: <podCIDR>
+            gateway: <first address of ipRange>
+```
+
+The gateway is derived from `network.ipRange` rather than written as
+`10.0.0.1`, which is correct only while the range keeps its default.
+
+### tunnel — VXLAN between node addresses
+
+`routingMode: tunnel` wraps pod packets in VXLAN, addressed node to node. It
+needs nothing from the private network's routing and nothing from the CCM's
+route controller — only that nodes can reach each other, which is the property
+that stayed true throughout the failure below.
+
+That makes it the right choice in two situations: when the private network's
+routing is itself under suspicion, and on any provider whose network does not
+route pod CIDRs at all. It also runs unfiltered here, because Hetzner Cloud
+firewalls apply to the public interface only.
+
+What it costs: about 50 bytes of header a packet, the MTU reduction that comes
+with them, and encapsulated captures.
+
+**Switching is a maintenance operation, not a toggle.** Every Cilium agent
+restarts and pod traffic breaks while they do. It is one Helm value and no Talos
+apply, because the gateway route is installed in *both* modes — under tunnel it
+is simply never used, Cilium's own per-node routes being more specific.
+
+### autoDirectNodeRoutes cannot work here, in either mode
+
+It asks Cilium to install a route to a peer's pod CIDR *via that peer's
+address*. On a `/32` with only the gateway on-link there is no such path, and
+Cilium says so rather than guessing:
+
+```
+Unable to install direct node route
+  route="{Dst: 10.244.0.0/24  Gw: 10.0.1.4}"
+  error="route to destination 10.0.1.4 contains gateway 10.0.0.1,
+         must be directly reachable"
+Failed to apply node handler during background sync.
+```
+
+It was set to `true`, and the result was that pod-to-pod traffic across nodes
+had **no route at all**. What that looked like, in order: CoreDNS on two nodes
+unreachable from the third, so roughly a third of DNS queries timed out; the
+hcloud CSI controller — scheduled on the node without a CoreDNS replica — unable
+to resolve `api.hetzner.cloud`, hanging before it opened its gRPC socket; its
+liveness probe therefore refused; kubelet killing it every twenty seconds
+(`initialDelaySeconds: 10` plus `periodSeconds: 2` × `failureThreshold: 5`);
+and its three sidecars exiting behind it with "Lost connection to CSI driver".
+706 restarts, and the only visible symptom was that no volume could be
+provisioned.
+
+The flag the error message suggests, `direct-routing-skip-unreachable`, is not
+a fix. It stops Cilium retrying a route that cannot work and leaves the traffic
+with nowhere to go — quieter logs, same broken cluster.
+
+The cheapest check that would have caught all of it is `cilium-health status`,
+which reported `1/3 reachable` with node-level reachability at `1/1` and
+endpoint-level at `0/1` for both peers — host paths fine, pod paths dead.
+
 ## The Hetzner token travels with the kubeconfig
 
 The cluster tier exports the token and every layer reads it through the same
