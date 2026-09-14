@@ -41,7 +41,7 @@ infra/cluster              the only project that talks to the Hetzner API
 
 ## Quick start
 
-You need three things: a Hetzner Cloud API token with read+write scope
+You need three things: a [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud) token with read+write scope
 ([how to create one](https://docs.hetzner.com/cloud/api/getting-started/generating-api-token/)), a
 [Pulumi Cloud](https://app.pulumi.com/signup) account for state — free for an
 individual, and `pulumi login` is how you get one on this machine — and the
