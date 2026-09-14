@@ -189,11 +189,29 @@ tasks:
       - task: cluster:apply
       - task: platform:apply-all
 
-  down:
+  destroy:
     desc: "Destroy everything this repository created: every layer, then the cluster. Asks first."
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
+    # Named `destroy`, not `down`, and the reason is the command surface rather
+    # than taste.
+    #
+    # This repository has exactly one verb for destruction — cluster:destroy,
+    # cluster:destroy-secrets, platform:destroy, platform:destroy-all — so
+    # `down` would be a second word for one action. `destroy-all` is worse
+    # still: `-all` already means "every layer in this namespace", and reusing
+    # it for "the cluster AND every layer" gives one suffix two scopes.
+    #
+    # `up` stays `up` and is not the same inconsistency: Pulumi's own pair is
+    # `pulumi up` and `pulumi destroy`, asymmetric upstream, so these two
+    # names are the tool's vocabulary rather than a borrowed one. `down` comes
+    # from docker compose, which this repository does not use anywhere.
+    #
+    # The practical half: somebody tearing an environment down runs
+    # `task --list | grep destroy`. Under the old name the one task that does
+    # the whole job was the only one that did not appear.
+    #
     # The inverse of `up`, and unlike `up` it carries its own prompt.
     #
     # `up` deliberately has none: its two children each ask, and a third
@@ -224,8 +242,8 @@ tasks:
       # it reads the cluster to know what is claimed, and there is no longer a
       # cluster, which is exactly when somebody wants to check.
       - cmd: |
-          printf '%s\n' "{{._SKIP}} hetzner-iac · down · kept: the Talos secrets bundle, the project snapshot, and this stack's Pulumi history"
-          printf '%s\n' "{{._SKIP}} hetzner-iac · down · what remains in the project: task hcloud:servers stack={{.stack}} — cluster:orphans needs a live cluster"
+          printf '%s\n' "{{._SKIP}} hetzner-iac · destroy · kept: the Talos secrets bundle, the project snapshot, and this stack's Pulumi history"
+          printf '%s\n' "{{._SKIP}} hetzner-iac · destroy · what remains in the project: task hcloud:servers stack={{.stack}} — cluster:orphans needs a live cluster"
 
   plan:
     desc: "Preview the cluster and every layer without changing anything"

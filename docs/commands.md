@@ -58,7 +58,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 |------|------|
 | `task up` | cluster, then every layer in dependency order; asks twice |
 | `task plan` | preview the cluster and every layer; change nothing |
-| `task down` | destroy everything: every layer, then the cluster. Asks first, and says what survives |
+| `task destroy` | destroy everything: every layer, then the cluster. Asks first, and says what survives |
 | `task build` | compile every program into `bin/` |
 | `task verify` | everything checkable without a cluster — needs helm, talosctl, docker and lychee |
 | `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |

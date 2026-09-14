@@ -501,9 +501,9 @@ func glyphOf(t *testing.T, taskfile, marker string) (glyph, colour string) {
 	return "", ""
 }
 
-// TestDown_AsksAndSaysWhatSurvives holds the teardown's own confirmation.
+// TestDestroy_AsksAndSaysWhatSurvives holds the teardown's own confirmation.
 //
-// `down` is the one task that removes everything, and it escapes
+// `destroy` is the one task that removes everything, and it escapes
 // TestTasks_ThatChangeInfrastructureAskFirst by construction: that test looks
 // for `pulumi destroy` in a task body, and this one delegates instead. A
 // wrapper with no prompt would be the worst version of exactly what that test
@@ -513,16 +513,16 @@ func glyphOf(t *testing.T, taskfile, marker string) (glyph, colour string) {
 // one half and neither mentions the secrets bundle, so without this the
 // operator confirms an irreversible teardown without being told that the
 // cluster CA is kept, or how to remove it on purpose.
-func TestDown_AsksAndSaysWhatSurvives(t *testing.T) {
+func TestDestroy_AsksAndSaysWhatSurvives(t *testing.T) {
 	t.Parallel()
 
 	raw, err := os.ReadFile(filepath.Join("..", "..", "Taskfile.yaml"))
 	require.NoError(t, err)
 
-	body, found := tasksIn(string(raw))["down"]
-	require.True(t, found, "no `down` task in Taskfile.yaml")
+	body, found := tasksIn(string(raw))["destroy"]
+	require.True(t, found, "no `destroy` task in Taskfile.yaml")
 
-	require.Contains(t, body, "prompt:", "`down` destroys everything with no confirmation")
+	require.Contains(t, body, "prompt:", "`destroy` destroys everything with no confirmation")
 
 	for _, mention := range []string{
 		// The three the prompt must account for, because each is a thing
@@ -532,7 +532,7 @@ func TestDown_AsksAndSaysWhatSurvives(t *testing.T) {
 		"destroy-secrets",
 	} {
 		assert.Contains(t, body, mention,
-			"`down` confirms an irreversible teardown without saying what happens to the %s", mention)
+			"`destroy` confirms an irreversible teardown without saying what happens to the %s", mention)
 	}
 
 	// Order is the other half, and getting it wrong is not cosmetic: servers
@@ -545,8 +545,8 @@ func TestDown_AsksAndSaysWhatSurvives(t *testing.T) {
 	layers := strings.Index(body, "- task: platform:destroy-all")
 	cluster := strings.Index(body, "- task: cluster:destroy\n")
 
-	require.Positive(t, layers, "`down` does not destroy the layers")
-	require.Positive(t, cluster, "`down` does not destroy the cluster")
+	require.Positive(t, layers, "`destroy` does not destroy the layers")
+	require.Positive(t, cluster, "`destroy` does not destroy the cluster")
 	assert.Less(t, layers, cluster,
-		"`down` destroys the cluster before its layers")
+		"`destroy` destroys the cluster before its layers")
 }
