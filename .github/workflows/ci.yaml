@@ -723,7 +723,7 @@ jobs:
               printf '%s\n' "ok   ${sha:0:8}  $subject"
               continue
             fi
-            printf '%s\n' "::error::${sha:0:8} is typed $type and touches only ${want%% *}-shaped paths: $subject"
+            printf '%s\n' "::error::${sha:0:8} is typed $type and every path it touches is documentation or contributor-only: $subject"
             printf '%s\n' "       use: $want"
             git show --name-only --format= "$sha" | sed 's/^/       /'
             failed=1
