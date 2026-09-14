@@ -295,6 +295,14 @@ tasks:
           chmod 600 "{{.ROOT}}/kubeconfig"
           printf '%s\n' "{{._OK}} cluster · kubeconfig · wrote ./kubeconfig — export KUBECONFIG={{.ROOT}}/kubeconfig"
 
+  smoke:
+    desc: "Ask whether the cluster can run a workload — nodes, a volume, a load balancer"
+    deps: [kubeconfig]
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          go run "{{.ROOT}}/tools/smoke" --kubeconfig "{{.ROOT}}/kubeconfig"
+
   kubeconfig-add:
     desc: "Add this cluster to ~/.kube/config, so a plain kubectl reaches it"
     preconditions:
