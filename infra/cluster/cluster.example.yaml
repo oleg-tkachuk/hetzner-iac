@@ -217,3 +217,46 @@ workerPools: []
 #   apiLoadBalancerType: ""
 #
 # workerPools: []
+
+# ─── Workers of their own, for when the platform outgrows three nodes ────────
+#
+# Nothing to implement: worker pools are built already — pkg/hetzner/workerpool
+# creates them, validation refuses duplicate pool names and a node subnet too
+# small for the pools asked for, and the server type defaults from
+# talos.architecture like the control plane's does. This block is the
+# configuration, and it is commented because the cluster does not need it yet.
+#
+# WHAT CHANGES THE MOMENT A POOL EXISTS, and it is not only the bill: the
+# control-plane taint comes back. It is dropped today precisely because
+# workerPools is empty and the control plane is the only place a pod can run —
+# pkg/hetzner passes allowSchedulingOnControlPlanes on exactly that condition.
+# Add a pool and every platform workload moves off the control plane, which is
+# the isolation this shape does not have: a container that leaks today shares a
+# node with etcd and kube-apiserver.
+#
+# 40.94 EUR/month against 23.96 — read from the API in hel1:
+#
+#   3 x cx23   16.47   the control plane, unchanged
+#   lb11        7.49   the API load balancer, unchanged
+#   2 x cx33   16.98   the pool
+#
+# Each pool owns a fixed 40-address slice of network.nodeSubnet, at a
+# non-overlapping offset, so adding a pool never renumbers an existing one —
+# renumbering would replace every node in it. A /24 therefore holds the control
+# plane plus five pools, and validation says so rather than letting apply find
+# out.
+#
+# labels and taints are per-pool, which is the point of a pool rather than a
+# node count: a GPU pool and a general pool differ in shape while sharing one
+# control plane.
+#
+# Uncomment from here:
+# controlPlane:
+#   count: 3
+#   serverType: cx23
+#   apiLoadBalancerType: lb11
+#
+# workerPools:
+#   - name: general
+#     count: 2
+#     serverType: cx33

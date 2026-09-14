@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -398,20 +399,34 @@ func TestGet_RefusesToPrintAnEmptyValue(t *testing.T) {
 // alternative and is now the default — and this test does not care which.
 const altMarker = "# Uncomment from here"
 
-// TestExampleTopology_TheCommentedAlternativeIsValid uncomments the example's
-// alternative block exactly the way its own instructions say to, and puts the
-// result through the real loader.
+// activeMarker is where the example's own active configuration begins. Named
+// beside altMarker rather than left as a literal in the test: the two are one
+// convention, and a block boundary spelled in only one of them is how the
+// splice below silently starts producing the wrong document.
+const activeMarker = "controlPlane:\n"
+
+// sectionRule is how the example separates its sections, and therefore where
+// one commented alternative stops and the next one's prose begins.
+const sectionRule = "# ───"
+
+// TestExampleTopology_EveryCommentedAlternativeIsValid uncomments each of the
+// example's alternative blocks exactly the way its own instructions say to, and
+// puts each through the real loader.
 //
-// A commented configuration nobody checks is a claim, and this one is the
-// copy-paste path for an operator changing the shape of a cluster — the
-// failure would otherwise arrive after `pulumi up` had started creating
-// servers.
+// A commented configuration nobody checks is a claim, and these are the
+// copy-paste path for an operator changing the shape of a cluster — the failure
+// would otherwise arrive after `pulumi up` had started creating servers.
 //
 // It caught its own first draft, which mixed prose and yaml at different
-// comment depths — stripping the prefix produced a document nothing could
-// parse. The block is pure yaml now, which is what makes "strip the leading
-// # " the whole edit.
-func TestExampleTopology_TheCommentedAlternativeIsValid(t *testing.T) {
+// comment depths: stripping the prefix produced a document nothing could parse.
+// Each block is pure yaml now, which is what makes "strip the leading # " the
+// whole edit.
+//
+// Every block, not the first one. There are two — a single node, and a control
+// plane with workers of its own — and a test that read only as far as the first
+// marker would have let the second rot unchecked, which is the exact thing this
+// test exists to prevent.
+func TestExampleTopology_EveryCommentedAlternativeIsValid(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join("..", "..", "infra", "cluster", "cluster.example.yaml")
@@ -421,52 +436,89 @@ func TestExampleTopology_TheCommentedAlternativeIsValid(t *testing.T) {
 
 	example := string(raw)
 
-	marker := strings.Index(example, altMarker)
-	require.Positive(t, marker, "no %q in the example: the alternative block has moved or gone", altMarker)
-
-	// Everything above the first topology key stays; the commented block
-	// replaces the active one. Checked rather than sliced blind: Index
-	// returns -1 when the key is gone, and example[:-1] panics with nothing
-	// saying which file lost a key.
-	active := strings.Index(example, "controlPlane:\n")
-	require.Positive(t, active, "the example has no active controlPlane block")
+	active := strings.Index(example, activeMarker)
+	require.NotEqual(t, -1, active, "no active controlPlane block in the example")
 
 	head := example[:active]
 
-	var uncommented []string
-
-	for _, line := range strings.Split(example[marker:], "\n") {
-		if !strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		body := strings.TrimPrefix(strings.TrimPrefix(line, "#"), " ")
-		if body == "" || strings.HasPrefix(body, altMarker[2:]) {
-			continue
-		}
-
-		uncommented = append(uncommented, body)
-	}
-
-	require.NotEmpty(t, uncommented, "the alternative block is empty")
-
-	written := filepath.Join(t.TempDir(), "cluster.alternative.yaml")
-	require.NoError(t, os.WriteFile(written, []byte(head+strings.Join(uncommented, "\n")+"\n"), 0o600))
+	blocks := alternativeBlocks(t, example)
+	require.Len(t, blocks, 2, "the example has two alternatives; a new one needs no test change, a removed one does")
 
 	// The same loader the program runs, so this cannot drift from it.
-	alternative, err := hetzner.LoadTopology(written)
-	require.NoError(t, err, "the example's own instructions produce a topology that does not load")
-
-	// And it is an alternative, not merely valid. A commented block that
-	// described the same shape as the active one would load, pass, and buy
-	// nobody anything — which is the failure this half catches. Asserted as a
-	// difference rather than as a count, because which shape is commented has
-	// already swapped once.
-	// activeTopology, not active: `active` is already the byte offset of the
-	// active block above.
 	activeTopology, err := hetzner.LoadTopology(path)
 	require.NoError(t, err, "the example's own active configuration does not load")
 
-	assert.NotEqual(t, activeTopology.ControlPlane.Count, alternative.ControlPlane.Count,
-		"the commented block describes the same control plane as the active one")
+	for i, block := range blocks {
+		written := filepath.Join(t.TempDir(), fmt.Sprintf("cluster.alternative.%d.yaml", i))
+		require.NoError(t, os.WriteFile(written, []byte(head+block+"\n"), 0o600))
+
+		alternative, err := hetzner.LoadTopology(written)
+		require.NoError(t, err,
+			"alternative %d: the example's own instructions produce a topology that does not load", i)
+
+		// And it is an alternative, not merely valid. A block describing the
+		// same shape as the active one would load, pass, and buy nobody
+		// anything — which is the failure this half catches.
+		//
+		// Two dimensions rather than one, because the two blocks differ in
+		// different ones: the single node in its control-plane count, the
+		// worker pool in having a pool at all. Which shape is commented has
+		// already swapped once, so neither is assumed.
+		sameControlPlane := activeTopology.ControlPlane.Count == alternative.ControlPlane.Count
+		samePools := len(activeTopology.WorkerPools) == len(alternative.WorkerPools)
+
+		assert.False(t, sameControlPlane && samePools,
+			"alternative %d describes the same cluster shape as the active configuration", i)
+	}
+}
+
+// alternativeBlocks returns each commented alternative as plain yaml, in file
+// order.
+//
+// A block runs from its marker to the next section rule or the end of the file.
+// The rule is the `# ───` heading the example already separates its sections
+// with, so this needs no vocabulary of its own — and getting the boundary wrong
+// is not theoretical: taking it to the NEXT MARKER instead swallowed the prose
+// heading of the following block, uncommented it, and produced
+// "yaml: line 140: could not find expected ':'".
+//
+// Everything in a block is a comment, and stripping the prefix is the whole
+// transformation — the same edit the instructions above each block tell an
+// operator to make by hand.
+func alternativeBlocks(t *testing.T, example string) []string {
+	t.Helper()
+
+	var blocks []string
+
+	lines := strings.Split(example, "\n")
+
+	for i, line := range lines {
+		if !strings.HasPrefix(line, altMarker) {
+			continue
+		}
+
+		var uncommented []string
+
+		for _, body := range lines[i+1:] {
+			// The section rule ends the block. Anything that is not a comment
+			// does too, which is what stops the last block at the end of the
+			// file without a terminator of its own.
+			if strings.HasPrefix(body, sectionRule) || !strings.HasPrefix(body, "#") {
+				break
+			}
+
+			stripped := strings.TrimPrefix(strings.TrimPrefix(body, "#"), " ")
+			if stripped == "" {
+				continue
+			}
+
+			uncommented = append(uncommented, stripped)
+		}
+
+		require.NotEmpty(t, uncommented, "the alternative block at line %d is empty", i+1)
+
+		blocks = append(blocks, strings.Join(uncommented, "\n"))
+	}
+
+	return blocks
 }
