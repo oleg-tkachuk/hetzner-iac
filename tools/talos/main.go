@@ -161,6 +161,7 @@ func validateTopology(ctx context.Context, path string, topology *hetzner.Topolo
 		PodCIDR:                        topology.Network.PodCIDR,
 		ServiceCIDR:                    topology.Network.ServiceCIDR,
 		NodeSubnet:                     topology.Network.NodeSubnet,
+		IPRange:                        topology.Network.IPRange,
 		AllowSchedulingOnControlPlanes: len(topology.WorkerPools) == 0,
 	})
 	if err != nil {

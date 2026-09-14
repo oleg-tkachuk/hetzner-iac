@@ -1,7 +1,9 @@
 package hetzner
 
 import (
+	"errors"
 	"fmt"
+	"net/netip"
 
 	"sigs.k8s.io/yaml"
 )
@@ -57,9 +59,46 @@ type ClusterPatchArgs struct {
 	// every intra-cluster connection leaves the private network.
 	NodeSubnet string
 
+	// IPRange is the private network's range. The route below needs its
+	// gateway, and Hetzner puts that at the range's first address.
+	IPRange string
+
 	// AllowSchedulingOnControlPlanes is required on a cluster with no worker
 	// pool, where the control plane is the only place a pod can run.
 	AllowSchedulingOnControlPlanes bool
+}
+
+// PrivateInterface is the NIC a Hetzner server gets its private address on.
+//
+// Hardcoded, because Talos offers no way to say "the interface on the private
+// network": deviceSelector matches on hardware, and both NICs here are virtio.
+// Hetzner attaches the public one first, so the private one is the second.
+//
+// If this is ever wrong the route below lands on the wrong interface and
+// pod-to-pod across nodes stops working — the exact failure this patch
+// exists to fix, which is why cluster:smoke now asks about it directly.
+const PrivateInterface = "eth1"
+
+// NetworkGateway is the gateway of a Hetzner private network: the first
+// address of its range.
+//
+// Derived rather than configured. It was going to be the literal "10.0.0.1",
+// which is right only while network.ipRange keeps its default — and a topology
+// that moves the range would have got a route pointing into a network it is not
+// on, with pod traffic silently leaving through the public interface.
+func NetworkGateway(ipRange string) (string, error) {
+	if ipRange == "" {
+		return "", errors.New("network.ipRange is required to derive the private network's gateway")
+	}
+
+	prefix, err := netip.ParsePrefix(ipRange)
+	if err != nil {
+		return "", fmt.Errorf("network.ipRange %q: %w", ipRange, err)
+	}
+
+	// Masked first: a range written as 10.0.0.5/16 means the 10.0.0.0/16
+	// network, and its gateway is 10.0.0.1 rather than 10.0.0.6.
+	return prefix.Masked().Addr().Next().String(), nil
 }
 
 // BuildClusterPatch renders the shared machine-config patch.
@@ -85,6 +124,11 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 
 	if args.NodeSubnet == "" {
 		return "", fmt.Errorf("cluster patch: nodeSubnet is required to pin kubelet's node IP to the private network")
+	}
+
+	gateway, err := NetworkGateway(args.IPRange)
+	if err != nil {
+		return "", fmt.Errorf("cluster patch: %w", err)
 	}
 
 	patch := map[string]any{
@@ -116,6 +160,49 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 				"nodeIP": map[string]any{
 					"validSubnets": []string{args.NodeSubnet},
 				},
+			},
+			"network": map[string]any{
+				"interfaces": []map[string]any{{
+					// The private NIC. Named rather than selected, because
+					// Talos's deviceSelector cannot say "the one on the private
+					// network" and Hetzner presents the public NIC first.
+					"interface": PrivateInterface,
+					// Kept, and load-bearing. Hetzner serves the private
+					// address over DHCP; declaring the interface without this
+					// turns it off and the node loses its private address —
+					// which is every path this repository depends on.
+					"dhcp": true,
+					"routes": []map[string]any{{
+						// THE ROUTE THIS WHOLE STANZA EXISTS FOR.
+						//
+						// Pod traffic to another node has to reach the private
+						// network's gateway, because the gateway is what holds
+						// the per-node routes the hcloud CCM programmes. The
+						// node's own table has none: eth1 is a /32 and the
+						// only on-link peer is the gateway, so without this a
+						// packet for another node's pod CIDR matches the
+						// DEFAULT route and leaves through the public
+						// interface, where it is dropped.
+						//
+						// This is what was missing. Cilium was asked to fill
+						// the gap with autoDirectNodeRoutes and could not —
+						// "must be directly reachable" — so for as long as the
+						// cluster had more than one node, pod-to-pod across
+						// nodes had no route at all. Everything downstream
+						// followed: CoreDNS unreachable from another node, the
+						// CSI controller unable to resolve api.hetzner.cloud,
+						// and a driver killed by its own liveness probe every
+						// twenty seconds.
+						//
+						// Installed in BOTH routing modes on purpose. Under
+						// tunnel it is inert — Cilium's per-node routes to
+						// cilium_vxlan are more specific and win — and keeping
+						// it there means switching modes is one Helm value
+						// rather than a Talos apply to every node.
+						"network": args.PodCIDR,
+						"gateway": gateway,
+					}},
+				}},
 			},
 			"features": map[string]any{
 				// Node-scoped kubelet credentials: a compromised node can read

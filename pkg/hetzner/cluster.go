@@ -125,6 +125,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		PodCIDR:     topology.Network.PodCIDR,
 		ServiceCIDR: topology.Network.ServiceCIDR,
 		NodeSubnet:  topology.Network.NodeSubnet,
+		IPRange:     topology.Network.IPRange,
 		// With no worker pool the control plane is the only place a pod can
 		// run, so scheduling has to be allowed there or nothing starts.
 		AllowSchedulingOnControlPlanes: totalWorkers(topology) == 0,
