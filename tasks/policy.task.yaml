@@ -1,0 +1,76 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+# CrossGuard over every Pulumi program in the repository.
+#
+# Its own namespace rather than an addition to `security:*`, because that
+# namespace comes wholesale from the shared taskfiles library. Wrapping the
+# library include to slip one task in would rename every task in it, and the
+# repo's own gates validate those names.
+
+silent: true
+
+vars:
+  _PO_STACK: '{{.stack}}'
+  _PO_PACK: '{{.ROOT}}/policy'
+  # Every program CrossGuard has something to say about: the cluster tier
+  # declares the firewall and the servers, the layers declare the Helm
+  # releases. A second form of the layer list is avoided by reading the one in
+  # Taskfile.yaml.
+  _PO_LAYERS: '{{.LAYERS}}'
+
+tasks:
+  check:
+    desc: "Run the policy pack over the cluster tier and every layer; changes nothing"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: test -f "{{._PO_PACK}}/PulumiPolicy.yaml"
+        msg: "no policy pack at {{._PO_PACK}}"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+
+          # --policy-pack takes a path, and preview runs from the program's own
+          # directory, so the path has to be absolute. ROOT is already that.
+          printf '%s\n' "{{._RUN}} policy · cluster · preview"
+          ( cd "{{.ROOT}}/infra/cluster" && \
+            pulumi --non-interactive --stack "{{._PO_STACK}}" preview \
+              --policy-pack "{{._PO_PACK}}" )
+
+          for layer in {{._PO_LAYERS}}; do
+            printf '%s\n' "{{._RUN}} policy · ${layer} · preview"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PO_STACK}}" preview \
+                --policy-pack "{{._PO_PACK}}" )
+          done
+
+          printf '%s\n' "{{._OK}} policy · all · no violations"
+
+  cluster:
+    desc: "Run the policy pack over the cluster tier only — task policy:cluster stack=dev"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{.ROOT}}/infra/cluster"
+          pulumi --non-interactive --stack "{{._PO_STACK}}" preview \
+            --policy-pack "{{._PO_PACK}}"
+
+  layer:
+    desc: "Run the policy pack over one layer — task policy:layer stack=dev layer=40-ingress"
+    requires:
+      vars:
+        - name: layer
+          enum: [10-node-platform, 20-network-policy, 30-cluster-services, 40-ingress, 50-gitops]
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{.ROOT}}/layers/{{.layer}}"
+          pulumi --non-interactive --stack "{{._PO_STACK}}" preview \
+            --policy-pack "{{._PO_PACK}}"

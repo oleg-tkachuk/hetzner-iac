@@ -148,6 +148,7 @@ includes:
   cluster: { taskfile: tasks/cluster.task.yaml, dir: . }
   platform: { taskfile: tasks/platform.task.yaml, dir: . }
   charts: { taskfile: tasks/charts.task.yaml, dir: . }
+  policy: { taskfile: tasks/policy.task.yaml, dir: . }
 
 tasks:
   default:
