@@ -13,26 +13,34 @@ import (
 )
 
 // unmeasuredCharts are the charts this check does not yet hold to the policy,
-// and the reason is the same for all three: they are not deployed, so nothing
-// has measured them.
+// because no measured numbers for them are committed.
 //
-// Numbers invented for a chart nobody is running is the worse failure. A limit
-// guessed too low does not show up in review — it shows up the first time
-// somebody deploys the chart, as an OOMKill during the deploy they were
-// watching for something else.
+// Numbers invented for a chart is the worse failure. A limit guessed too low
+// does not show up in review — it shows up the first time somebody deploys the
+// chart, as an OOMKill during the deploy they were watching for something
+// else.
+//
+// The reason is deliberately about THIS REPOSITORY and not about the cluster.
+// It first read "not deployed; no measurement exists", and that was a claim no
+// test could check: cert-manager sat on this list while `task platform:apply
+// stack=dev layer=30-cluster-services` was installing it, and the three
+// containers it left unbounded were found by looking at the cluster, not by
+// any gate here. Whether a chart is deployed depends on which stacks somebody
+// has applied, which this code cannot see. Whether its numbers are committed
+// is visible in the values template beside it — so that is what the skip says,
+// and TestUnmeasuredCharts_HaveNoMeasurementsToUse checks it.
 //
 // This list is expected to shrink. Deploy one of these, measure it with
 // `kubectl top pods --containers`, put the numbers in its values template, and
 // delete the line.
 var unmeasuredCharts = map[string]string{
-	"cert-manager": reasonUnmeasured,
-	"traefik":      reasonUnmeasured,
-	"argo-cd":      reasonUnmeasured,
+	"traefik": reasonUnmeasured,
+	"argo-cd": reasonUnmeasured,
 }
 
-// reasonUnmeasured is why each of those is skipped, in one place so the three
-// cannot drift into three different explanations of the same thing.
-const reasonUnmeasured = "not deployed; no measurement exists"
+// reasonUnmeasured is why each of those is skipped, in one place so they
+// cannot drift into different explanations of the same thing.
+const reasonUnmeasured = "no measured numbers committed for it"
 
 // The resource names this check reads. Kubernetes spells them, not this
 // repository: a typo here reports every container as unbounded, or none.
