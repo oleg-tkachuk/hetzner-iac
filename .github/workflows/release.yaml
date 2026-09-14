@@ -1,25 +1,47 @@
 name: Release
 
-# Called by CI, never triggered on its own.
+# Dispatched by CI once every check on main has passed.
 #
-# A workflow of its own so that it shows as one: GitHub's workflow list is per
-# FILE, and a job — which this was — can never appear there however it is
-# named. Nothing about when it fires changes, because the trigger is
-# workflow_call: CI still gates it with `needs:` and an `if:`, the release
-# still cannot ship from a red pipeline, and it still reports inside CI's own
-# run.
+# THREE SHAPES, AND THE REASON FOR THIS ONE. It began as a workflow on `push`,
+# which ran in parallel with the checks — v1.0.2 was cut from a commit whose CI
+# was failing. It became a `workflow_call` job of CI, which fixed that and cost
+# something nobody noticed for days: a called workflow executes inside its
+# caller, so GitHub attributed every release to CI and this file's page in the
+# Actions tab stayed permanently empty. v4.3.0 came out of CI run 34824923755,
+# where the job reads `Release / semantic-release` and this file appears only
+# under that run's referenced_workflows.
 #
-# workflow_call rather than workflow_run, and that is the whole point.
-# workflow_run would give this file its own runs and its own count in that
-# list, at the price of the guarantee: it fires AFTER CI rather than as part of
-# it, carries full permissions, and its result never reaches the commit's check
-# list. The reason the release is a job of CI is written where it is called.
+# workflow_run is the obvious third answer and is not available: zizmor's
+# dangerous-triggers audit refuses it categorically, and its documentation is
+# explicit that no guard satisfies the audit — "checking github.repository is
+# not effective on workflow_run, since a workflow_run always runs in the
+# context of the target repository". Silencing a high finding to populate a
+# page is not a trade this repository makes.
+#
+# repository_dispatch gets the run without either cost. GitHub's rule is that
+# events triggered by GITHUB_TOKEN do not start new workflow runs — which is
+# why pushing a tag from CI cannot chain a workflow, and why the usual advice
+# is a long-lived PAT — and repository_dispatch is one of the two documented
+# exceptions that "always create workflow runs". So CI dispatches this with its
+# own GITHUB_TOKEN: no extra credential, no dangerous trigger, and a run of its
+# own with a history.
+#
+# The gate stays where it always belonged. CI dispatches from a job that still
+# carries `needs: [prime, security, build]` and the push-to-main `if:`, so a
+# red pipeline never reaches this file.
+#
+# Deliberately no workflow_dispatch. It would let a maintainer release from an
+# untested main with one click, which is precisely how v1.0.2 happened. The
+# button is not worth re-opening that door.
 on:
-  workflow_call:
+  repository_dispatch:
+    types: [release]
 
-# Nothing at the top level. The one job below asks for what it needs, and the
-# caller must already hold it — a called workflow cannot grant itself more than
-# the workflow that called it.
+# Nothing at the top level. The job below asks for exactly what it needs.
+#
+# This mattered less under workflow_call, where the caller's grant was the
+# ceiling anyway. Nothing narrows it now, so this empty default is the only
+# thing keeping the rest of the file from inheriting write scope.
 permissions: {}
 
 jobs:
@@ -28,10 +50,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       # semantic-release pushes the tag and the release notes; the issues and
-      # pull-requests scopes are for its comment plugins. Declared here as well
-      # as at the call site: a callee's permissions can only narrow the
-      # caller's, so stating them twice cannot widen anything and says what
-      # this job actually uses.
+      # pull-requests scopes are for its comment plugins. This is now the only
+      # place they are granted — there is no caller above to narrow.
       contents: write
       issues: write
       pull-requests: write
@@ -39,10 +59,27 @@ jobs:
       # No persist-credentials: false here — semantic-release pushes the tag it
       # creates, so this is the one checkout in the repository that genuinely
       # needs its credentials.
+      # Deliberately no `ref:`. A repository_dispatch run checks out the head of
+      # the default branch, which is a BRANCH — and semantic-release has to be
+      # on one of its configured release branches to release at all. Checking
+      # out the dispatched sha would be more precise about which commit
+      # triggered this and would leave a detached HEAD, where semantic-release
+      # finds no release branch and does nothing. The sha is printed below
+      # instead, which is what it was wanted for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 # zizmor: ignore[artipacked]
         with:
           # semantic-release derives the next version from the commit history.
           fetch-depth: 0
+
+      # Which commit and which CI run asked for this release. A dispatched run
+      # is not linked to its trigger in the UI the way a workflow_run is, so
+      # without this line the run says nothing about where it came from.
+      - name: Say what dispatched this
+        env:
+          SHA: ${{ github.event.client_payload.sha }}
+          CI_RUN: ${{ github.event.client_payload.ci_run_id }}
+        run: |
+          printf 'dispatched by CI run %s for commit %s\n' "${CI_RUN:-unknown}" "${SHA:-unknown}"
 
       - uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6.0.0
         env:
