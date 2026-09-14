@@ -5,10 +5,10 @@
 that can be aimed at the wrong environment by forgetting a word, so running
 one without it prints the usage instead:
 
-    $ task platform:plan-all
-    task: platform:plan-all needs a stack, and there is no default.
+    $ task platform:plan layer=all
+    task: platform:plan needs a stack, and there is no default.
 
-        task platform:plan-all stack=dev
+        task platform:plan layer=all stack=dev
 
 There is no default because an empty one is not an error. `pulumi --stack ""`
 ignores the empty value and uses the stack selected in the workspace — local,
@@ -37,7 +37,7 @@ resource for any input that forces a replacement, and replacing the only
 control-plane server takes the cluster down. `--yes` skips the question, which
 is what a script should have to say out loud:
 
-    $ task platform:apply-all stack=dev
+    $ task platform:apply layer=all stack=dev
     Apply every platform layer on dev? [y/N]
 
 `task up` asks twice rather than three times — once for the servers, once for
@@ -129,15 +129,11 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 | Task | Does |
 |------|------|
 | `task platform:init` | create every layer's stack and point it at the cluster |
-| `task platform:plan-all` | preview every layer in order |
-| `task platform:apply-all` | apply every layer in dependency order; asks first |
-| `task platform:destroy-all` | destroy every layer, in reverse |
-| `task platform:refresh-all` | reconcile every layer's state with the cloud; asks first, and writes state |
-| `task platform:plan layer=10-node-platform` | preview one layer |
-| `task platform:apply layer=10-node-platform` | apply one layer; asks first |
-| `task platform:destroy layer=50-gitops` | destroy one layer |
-| `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud; asks first |
-| `task platform:outputs layer=50-gitops` | one layer's stack outputs |
+| `task platform:plan layer=10-node-platform` | preview one layer, or `layer=all` for every one in order |
+| `task platform:apply layer=10-node-platform` | apply one layer, or `layer=all` in dependency order; asks first |
+| `task platform:destroy layer=50-gitops` | destroy one layer, or `layer=all` in reverse; asks first |
+| `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
+| `task platform:outputs layer=50-gitops` | one layer's stack outputs, or `layer=all` |
 | `task platform:status` | which layers are deployed, and how large |
 | `task platform:layers` | the layer order; CI derives its matrix from this |
 | `task helm:list` | every Helm release on the cluster |
