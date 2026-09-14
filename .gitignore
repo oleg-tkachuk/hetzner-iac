@@ -24,6 +24,7 @@ bin/
 /image
 /orphans
 /secrets
+/smoke
 /stack
 /talos
 /token
