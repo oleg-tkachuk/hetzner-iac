@@ -18,6 +18,7 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumiopts"
 
 	kubernetes "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -176,9 +177,5 @@ func (r *Runner) StringOr(key, fallback string) string {
 // shared slice. Appending to r.Options directly would let one component's
 // DependsOn leak into every component created after it.
 func (r *Runner) With(extra ...pulumi.ResourceOption) []pulumi.ResourceOption {
-	out := make([]pulumi.ResourceOption, 0, len(r.Options)+len(extra))
-	out = append(out, r.Options...)
-	out = append(out, extra...)
-
-	return out
+	return pulumiopts.With(r.Options, extra...)
 }
