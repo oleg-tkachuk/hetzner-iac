@@ -90,7 +90,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	selector := "os=talos,talos-version=" + version
+	selector := hetzner.TalosImageSelector(version)
 
 	present, err := snapshotExists(ctx, token, selector)
 	if err != nil {

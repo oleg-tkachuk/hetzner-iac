@@ -336,7 +336,7 @@ func apiEndpointAddress(
 func lookupTalosImage(ctx *pulumi.Context, args *ClusterArgs) pulumi.StringOutput {
 	selector := args.ImageSelector
 	if selector == "" {
-		selector = fmt.Sprintf("os=talos,talos-version=%s", args.Topology.Talos.Version)
+		selector = TalosImageSelector(args.Topology.Talos.Version)
 	}
 
 	image := hcloud.GetImageOutput(ctx, hcloud.GetImageOutputArgs{
