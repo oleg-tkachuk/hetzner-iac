@@ -23,6 +23,73 @@ hangs with the port filtered.
 
 The stack files themselves are **not** committed, for that one field.
 
+## CPU architecture
+
+`talos.architecture` is `x86` or `arm`, and one field decides three things:
+
+| | `x86` | `arm` |
+|---|---|---|
+| image the factory builds | `hcloud-amd64.raw.xz` | `hcloud-arm64.raw.xz` |
+| server types that can boot it | `cx`, `cpx`, `ccx` | `cax` only |
+| default control plane / worker | `cx23` / `cx33` | `cax11` / `cax21` |
+
+Leave the server types out and they follow the architecture. Name one from the
+wrong side and it is refused at plan time, before anything is created:
+
+```
+cx23 is x86, but the baked Talos image is arm — a mismatched type will not boot
+```
+
+Switching the field means re-baking: `task cluster:image-bake`. A snapshot is
+one architecture, and the bake scopes its "already baked?" question to the
+architecture the topology asks for — so switching finds no snapshot and bakes
+one, rather than finding the other architecture's and doing nothing.
+
+**Arm is not the cheaper option on this provider.** From the API in `hel1` on
+2026-09-14, monthly gross:
+
+| | cores | memory | arch | EUR/month |
+|---|---|---|---|---|
+| `cx23` | 2 | 4 GB | x86 | 5.49 |
+| `cax11` | 2 | 4 GB | arm | 5.99 |
+| `cx33` | 4 | 8 GB | x86 | 8.49 |
+| `cax21` | 4 | 8 GB | arm | 10.49 |
+
+Every image the platform installs publishes `linux/arm64` at the versions
+pinned in [`pkg/charts`](../pkg/charts) — Cilium, both hcloud drivers,
+cert-manager, external-secrets, metrics-server, Traefik and Argo CD, checked
+on 2026-09-14. So nothing in the platform is the obstacle; the reason to pick
+`arm` is wanting Arm nodes, not saving money.
+
+### Availability is per project, and the API will not tell you
+
+The `cax` line is sold in `fsn1`, `hel1` and `nbg1` — and a project can still
+be unable to create one. On the project this repository was developed against,
+every `cax` create is refused in every location:
+
+```
+unsupported location for server type (invalid_input)
+```
+
+straight from the API, not from the CLI or from a mismatched image. There is no
+endpoint that predicts it: `/v1/locations` carries no per-type availability,
+and `/v1/datacenters` — deprecated since 2025-12-16 — still reports `cax11`
+as *available* in the same locations that refuse it.
+
+So `arm` is implemented and unit-tested but cannot be proven on that project.
+Before planning an Arm cluster, try one server by hand — an Arm image by id,
+not by name, because Hetzner answers an x86 image on an Arm type with the *same*
+message and the name resolves to whichever architecture the CLI picks:
+
+```bash
+hcloud image list --type system --architecture arm -o columns=id,name
+hcloud server create --name arch-probe --type cax11 --image <id> --location hel1
+```
+
+If that is refused with an Arm image, the project's quota is the blocker rather
+than anything in this repository. Delete the probe if it succeeds — a server
+costs from the moment it exists.
+
 ## Stack config
 
 | Key | Where | Meaning |

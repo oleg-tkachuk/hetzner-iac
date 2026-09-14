@@ -31,11 +31,15 @@ without touching the rest.
 
 ## Availability
 
-### More than one control-plane node
+### An Arm cluster is proven
 
-One node survives no failure, and the API address moves when that node is
-replaced. The goal is a control plane that outlives the loss of a member, at an
-address that does not move.
+`talos.architecture: arm` is implemented: the factory builds the `arm64` image,
+the bake asks for it per architecture, the server types and their defaults
+follow the field, and every chart the platform installs publishes `linux/arm64`.
+None of it has run on real hardware, because the development project cannot
+create a `cax` server in any location — the API refuses every one, and no
+endpoint predicts it.
+**Blocked on:** Arm capacity on the project, which is Hetzner's to grant.
 
 ## Security
 

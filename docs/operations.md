@@ -124,6 +124,21 @@ version comes from the topology, not the task: bump `talos.version`, run
 version label, so a bump without a bake fails at plan time rather than
 halfway.
 
+`talos.architecture` needs the same re-bake, and for a sharper reason. The
+version lives in a label; the architecture does not — Hetzner records it as a
+field on the image. The bake asks about both, so a project holding an x86
+snapshot and a topology asking for `arm` bakes a second one instead of
+reporting the first as good enough. It did the latter until this was fixed, and
+the pair of steps then pointed at each other: the bake said "already present"
+and apply said "run `task cluster:image-bake`".
+
+The bake also runs in the topology's `placement.location`, not
+`hcloud-upload-image`'s default of `fsn1`. It works by creating a real server,
+so the location has to be one that offers the server type — which matters for
+Arm, where the `cax` line is not in every location. See
+[configuration.md](configuration.md#cpu-architecture) for what Arm costs and
+for the project-level availability check to run first.
+
 ### The two halves of a backup
 
 An etcd snapshot on its own restores nothing. `talosctl` accepts one only

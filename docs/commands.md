@@ -70,7 +70,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 
 | Task | Does |
 |------|------|
-| `task cluster:image-bake` | bake the Talos snapshot named by the topology; idempotent |
+| `task cluster:image-bake` | bake the Talos snapshot named by the topology, per version **and** architecture; idempotent |
 | `task cluster:init` | create the Pulumi stack for this environment |
 | `task cluster:token` | store the Hetzner token in the stack, encrypted; prompts, or reads stdin |
 | `task cluster:plan` | show what applying would change |
