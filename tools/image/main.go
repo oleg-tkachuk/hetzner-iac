@@ -112,9 +112,11 @@ func run(ctx context.Context) error {
 	}
 
 	url := imageURL(schematic, version, factoryArch)
-	fmt.Printf("baking %s (%s) from %s\n", version, arch, url)
+	location := topology.Placement.Location
 
-	if err := upload(ctx, token, url, arch, selector); err != nil {
+	fmt.Printf("baking %s (%s) in %s from %s\n", version, arch, location, url)
+
+	if err := upload(ctx, token, url, arch, location, selector); err != nil {
 		return err
 	}
 
@@ -254,15 +256,38 @@ func decodeSchematic(body io.Reader) (string, error) {
 	return decoded.ID, nil
 }
 
-// upload runs hcloud-upload-image, streaming its output.
-func upload(ctx context.Context, token, url, arch, selector string) error {
-	// #nosec G204 -- url and arch are derived from the committed topology and
-	// validated above; the arguments are a vector, not a shell string.
-	cmd := exec.CommandContext(ctx, "hcloud-upload-image", "upload",
+// uploadArgs is the hcloud-upload-image invocation that bakes the snapshot.
+//
+// Separated from the call for the same reason imageURL is: nothing here fails
+// here. A missing or misspelled flag fails inside a subprocess minutes later,
+// after a server has already been created and paid for.
+//
+// --compression xz matches the factory's .raw.xz; the labels are what the
+// Pulumi lookup then selects on, so they are the selector itself rather than a
+// second spelling of it.
+func uploadArgs(url, arch, location, selector string) []string {
+	return []string{
+		"upload",
 		"--image-url", url,
 		"--compression", "xz",
 		"--architecture", arch,
-		"--labels", selector)
+		"--location", location,
+		"--labels", selector,
+	}
+}
+
+// upload runs hcloud-upload-image, streaming its output.
+//
+// --location is the topology's, not the tool's default of fsn1. It bakes by
+// creating a real server, so the location has to be one that can hold the
+// server type — and Arm is where that stops being academic: the cax line is
+// offered in some locations and not others, so a bake that ignored the
+// topology could fail in fsn1 for a cluster that lives in hel1. Baking where
+// the cluster lives also means the temporary server shares its network zone.
+func upload(ctx context.Context, token, url, arch, location, selector string) error {
+	// #nosec G204 -- every argument is derived from the committed topology and
+	// validated above; they are passed as a vector, not a shell string.
+	cmd := exec.CommandContext(ctx, "hcloud-upload-image", uploadArgs(url, arch, location, selector)...)
 
 	cmd.Env = append(os.Environ(), "HCLOUD_TOKEN="+token)
 	cmd.Stdout = os.Stdout
