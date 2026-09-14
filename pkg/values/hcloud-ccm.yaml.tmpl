@@ -24,7 +24,7 @@ env:
 
 # Resources. Requests are measured, limits are memory-only.
 #
-# Measured on the three-node dev cluster on 2026-09-14 with `kubectl top pods
+# Measured on the three-node dev cluster with `kubectl top pods
 # --containers`, highest value across nodes. Requests round those up; memory
 # limits sit several times above, so ordinary operation is never near one and a
 # leak still cannot take a node that also runs etcd and kube-apiserver.

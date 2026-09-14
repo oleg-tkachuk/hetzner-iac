@@ -39,7 +39,7 @@ type Chart struct {
 
 // Registry of every chart this platform installs.
 //
-// Verified against the upstream repositories on 2026-09-09. Each entry names
+// Verified against the upstream repositories. Each entry names
 // the application version it ships so a reader does not have to resolve the
 // chart to know what is running.
 var registry = map[string]Chart{

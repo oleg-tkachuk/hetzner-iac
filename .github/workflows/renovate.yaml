@@ -39,7 +39,7 @@ on:
   #
   # Ticking a box only records a REQUEST: Renovate fulfils it on its next run,
   # so without this the answer to "I ticked it and nothing happened" is "wait
-  # up to a day". Measured on 2026-09-14: the tick was read correctly — the log
+  # up to a day". Measured: the tick was read correctly — the log
   # says "A user manually requested all awaiting schedule PRs via the
   # Dependency Dashboard" — and nothing had run since it was made.
   #

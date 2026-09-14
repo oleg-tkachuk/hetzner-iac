@@ -8,7 +8,7 @@ import (
 )
 
 // DefaultStorageBoxType is the smallest Storage Box: 1 TB, 3.20 EUR a month
-// gross in hel1, measured against the API on 2026-09-14.
+// gross in hel1, measured against the API.
 //
 // An etcd snapshot of this cluster is a few megabytes, so the smallest type is
 // three orders of magnitude more than the thing it exists for. It is the
@@ -96,7 +96,7 @@ type StorageBox struct {
 // Storage Boxes are NOT on the Cloud API. `api.hetzner.cloud/v1/storage_boxes`
 // answers `api route not found`; they are on the unified Hetzner API at
 // `api.hetzner.com/v1/storage_boxes`, which the same project token reaches —
-// both measured on 2026-09-14. The provider handles the difference; this
+// both measured. The provider handles the difference; this
 // matters only when reaching for curl to check something.
 func NewStorageBox(
 	ctx *pulumi.Context,

@@ -123,20 +123,20 @@ and `AAAA` records, and the Storage Box with its subaccount.
 | A Talos or Kubernetes upgrade | `talosctl` | a procedure with an order, not a desired state |
 | Workloads | Argo CD | that is what the GitOps layer is for |
 
-**DNS records moved on 2026-09-14** and are now `40-ingress`'s, because that
-layer is where the load balancer's address is known. The zone is LOOKED UP,
-never created: a zone is delegated once, by pointing a registrar's `NS` records
-at Hetzner's nameservers, and that delegation outlives any cluster here — a
-zone this stack owned would be a zone `pulumi destroy` deletes, with every
-record in it. Both an `A` and an `AAAA`, because a Hetzner load balancer has
-both and an IPv4-only record fails for exactly the clients nobody tests from.
+**DNS records are `40-ingress`'s**, because that layer is where the load
+balancer's address is known. The zone is LOOKED UP, never created: a zone is
+delegated once, by pointing a registrar's `NS` records at Hetzner's
+nameservers, and that delegation outlives any cluster here — a zone this stack
+owned would be a zone `pulumi destroy` deletes, with every record in it. Both
+an `A` and an `AAAA`, because a Hetzner load balancer has both and an
+IPv4-only record fails for exactly the clients nobody tests from.
 
 The domain may be registered anywhere. What has to be at Hetzner is the
 authoritative DNS, and `metadata.dnsZone` may be left empty when it is not —
 the layer then says the records are somebody else's to write rather than
 staying silent.
 
-One thing could still move and has not, measured on 2026-09-14:
+One thing could still move and has not, and it is measured:
 
 - **Primary IPs.** Every public address today is implicit and carries
   `auto_delete: true`, so a server replacement takes its address with it — and
@@ -282,8 +282,7 @@ to trust nobody.
 
 The load balancer is created by `layers/40-ingress` through the Hetzner
 provider, not by the cloud controller manager. A Service of type LoadBalancer
-would hand the job to the CCM, and on 2026-09-14 that was measured to cost
-two things: the load balancer was invisible to `plan` and `destroy` and showed
+would hand the job to the CCM, and that was measured to cost two things: the load balancer was invisible to `plan` and `destroy` and showed
 up only in the bill, and it had no targets at all — the CCM will not target a
 node carrying `node.kubernetes.io/exclude-from-external-load-balancers`, which
 Talos puts on every control-plane node. So the Service is a `NodePort` on

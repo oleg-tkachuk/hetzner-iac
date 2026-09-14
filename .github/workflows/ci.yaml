@@ -684,7 +684,7 @@ jobs:
       # fix and perf become a patch. So a change to CI written as `fix` cuts a
       # version and writes release notes for something no consumer of this
       # repository receives. Measured: `fix(ci): let renovate's schedule
-      # actually fire` produced v4.4.2 on 2026-09-14, and the release contained
+      # actually fire` produced v4.4.2, and the release contained
       # a workflow and its test.
       #
       # Two rules, and both are about a type that already exists being the

@@ -280,7 +280,7 @@ func eligibleNodes(count int) []clustersmoke.NodeState {
 // node.kubernetes.io/exclude-from-external-load-balancers and this cluster is
 // three control-plane nodes.
 //
-// Measured on 2026-09-14 against the live cluster, where the earlier version
+// Measured against the live cluster, where the earlier version
 // of this check reported "✔ 1 with an address" over a load balancer with zero
 // targets — 5.39 EUR a month answering on an address and forwarding to
 // nothing. The CCM had said it plainly and nothing here was reading:

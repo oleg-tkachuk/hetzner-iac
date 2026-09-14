@@ -23,7 +23,7 @@ var hourConstrained = regexp.MustCompile(`(?i)\b(before|after)\b|^\S+\s+[^*\s]`)
 // best-effort on shared runners. The schedule was `before 09:00 on monday`,
 // which with `timezone: Europe/Kyiv` is Sunday 21:00 to Monday 06:00 UTC, while
 // the workflow's cron fires at 06:00 UTC — exactly as that window shuts. The
-// Monday pass on 2026-09-14 started at 11:49 UTC, five hours and forty-nine
+// Monday pass started at 11:49 UTC, five hours and forty-nine
 // minutes late, found three updates, and filed all three under "Awaiting
 // Schedule". Renovate had opened no pull request in this repository, ever.
 //

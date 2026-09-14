@@ -2,7 +2,7 @@
 #
 # The load balancer is NOT asked for here, and that is the change. A Service of
 # type LoadBalancer hands the job to the hcloud cloud controller manager, which
-# cost two things measured on 2026-09-14: the load balancer was invisible to
+# cost two things, both measured: the load balancer was invisible to
 # `plan` and `destroy` and appeared only in the bill, and the CCM refused to
 # make any node a target — Talos labels every control-plane node
 # node.kubernetes.io/exclude-from-external-load-balancers, this cluster is
