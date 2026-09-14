@@ -17,6 +17,7 @@ package main
 import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	apiextensions "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
@@ -151,9 +152,18 @@ func static(chart string, data any) func(*layer.Runner) (pulumi.AssetOrArchiveAr
 
 // IssuerSpec builds the ACME ClusterIssuer spec.
 //
-// HTTP-01 through the nginx ingress class, which means the issuer only works
-// once 40-ingress is applied. DNS-01 would remove that ordering but needs
+// HTTP-01 through the class 40-ingress registers, which means the issuer only
+// works once that layer is applied. DNS-01 would remove the ordering but needs
 // provider credentials this layer deliberately does not hold.
+//
+// The class comes from pkg/platform rather than a literal here, and that is
+// the whole lesson of this function: it WAS the literal "nginx", left behind
+// when Traefik replaced ingress-nginx. cert-manager would have created an
+// Ingress for the challenge, no controller would have owned it, Let'"'"'s Encrypt
+// would never have reached /.well-known/acme-challenge/, and the order would
+// have sat pending for ever with nothing reporting an error. The same literal
+// had already been fixed once, in the gitops layer — pkg/platform exists
+// because of it — and this copy survived in a second place.
 func IssuerSpec(email string) pulumi.Map {
 	return pulumi.Map{
 		"acme": pulumi.Map{
@@ -166,7 +176,7 @@ func IssuerSpec(email string) pulumi.Map {
 				pulumi.Map{
 					"http01": pulumi.Map{
 						"ingress": pulumi.Map{
-							"ingressClassName": pulumi.String("nginx"),
+							"ingressClassName": pulumi.String(platform.IngressClass),
 						},
 					},
 				},
