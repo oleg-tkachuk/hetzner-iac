@@ -5,6 +5,7 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -25,12 +26,8 @@ const testNodeSubnet = "10.0.1.0/24"
 func rendered(t *testing.T) map[string]any {
 	t.Helper()
 
-	data, err := internals.UnsafeAwaitOutput(t.Context(), IngressData(
-		pulumi.String("platform-prod"),
-		pulumi.String("hel1"),
-		pulumi.String(testNodeSubnet),
-		DefaultLoadBalancerType,
-	))
+	data, err := internals.UnsafeAwaitOutput(t.Context(),
+		IngressData(pulumi.String(testNodeSubnet)))
 	require.NoError(t, err)
 
 	text, err := values.Render(Chart, data.Value)
@@ -55,21 +52,12 @@ func nested(t *testing.T, in map[string]any, keys ...string) map[string]any {
 	return in
 }
 
-func annotations(t *testing.T) map[string]any {
-	t.Helper()
-
-	return nested(t, rendered(t), "service", "annotations")
-}
-
-func TestValues_ProxyProtocolIsSetOnBothSides(t *testing.T) {
+func TestValues_ProxyProtocolIsTrustedOnBothEntryPoints(t *testing.T) {
 	t.Parallel()
 
-	// The annotation tells the load balancer to send the PROXY header; the
-	// entry point has to be told which addresses may send one. Enabling one
-	// side alone fails every request, which is why this is a test rather than
-	// a comment.
-	assert.Equal(t, "true", annotations(t)["load-balancer.hetzner.cloud/uses-proxyprotocol"])
-
+	// One half of the pair. The load balancer is told to SEND the header in
+	// pkg/hetzner; here each entry point is told which addresses may send one.
+	// Either half alone fails every request, which is why both are tests.
 	for _, entryPoint := range []string{
 		chartsettings.TraefikEntryPointWeb,
 		chartsettings.TraefikEntryPointTLS,
@@ -99,35 +87,39 @@ func TestValues_DoesNotTrustForwardedHeaders(t *testing.T) {
 	}
 }
 
-func TestValues_ReachesNodesOverThePrivateNetwork(t *testing.T) {
+func TestValues_AskForANodePortRatherThanALoadBalancer(t *testing.T) {
 	t.Parallel()
 
-	// Public targets would route traffic out of and back into Hetzner's
-	// network, and would need firewall rules that otherwise do not exist.
-	assert.Equal(t, "true", annotations(t)["load-balancer.hetzner.cloud/use-private-ip"])
-}
+	// The chart's default is a Service of type LoadBalancer, which hands the
+	// job to the cloud controller manager. Pulumi owns the load balancer now,
+	// and leaving this at the default would have both reconciling one object.
+	spec := nested(t, rendered(t),
+		chartsettings.TraefikService, chartsettings.TraefikServiceSpec)
 
-func TestValues_KeepsTheClientAddress(t *testing.T) {
-	t.Parallel()
+	assert.Equal(t, "NodePort", spec[chartsettings.TraefikServiceType])
 
-	// The chart's service type is LoadBalancer by default, and the CCM only
-	// creates a load balancer for that type — so what this asserts is the
-	// part the layer sets.
-	spec := nested(t, rendered(t), "service", "spec")
-
+	// Local, so the client address survives without a second hop. It is also
+	// what makes the load balancer's health check meaningful: a node with no
+	// Traefik pod does not answer on the node port and drops out of rotation.
 	assert.Equal(t, "Local", spec["externalTrafficPolicy"])
 }
 
-func TestValues_PlacementFollowsTheCluster(t *testing.T) {
+func TestValues_PinTheNodePortsTheLoadBalancerForwardsTo(t *testing.T) {
 	t.Parallel()
 
-	// A load balancer in a different location than the nodes cannot use
-	// private-network targets.
-	got := annotations(t)
+	// The contract with pkg/hetzner, and the reason both sides read
+	// pkg/platform. Unpinned, Kubernetes allocates from 30000-32767 and the
+	// load balancer health-checks a port nothing listens on — every target
+	// unhealthy, with nothing else in the cluster looking wrong.
+	for entryPoint, want := range map[string]int{
+		chartsettings.TraefikEntryPointWeb: platform.IngressNodePortHTTP,
+		chartsettings.TraefikEntryPointTLS: platform.IngressNodePortHTTPS,
+	} {
+		port := nested(t, rendered(t), chartsettings.TraefikPorts, entryPoint)
 
-	assert.Equal(t, "hel1", got["load-balancer.hetzner.cloud/location"])
-	assert.Equal(t, "platform-prod-ingress", got["load-balancer.hetzner.cloud/name"])
-	assert.Equal(t, DefaultLoadBalancerType, got["load-balancer.hetzner.cloud/type"])
+		assert.Equal(t, float64(want), port[chartsettings.TraefikNodePort],
+			"entry point %q does not pin its node port", entryPoint)
+	}
 }
 
 func TestValues_LeaveTheDashboardOff(t *testing.T) {
