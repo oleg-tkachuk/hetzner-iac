@@ -23,6 +23,31 @@ hangs with the port filtered.
 
 The stack files themselves are **not** committed, for that one field.
 
+## How pod traffic crosses nodes
+
+`network.routingMode` is `native` or `tunnel`, and the default is `native`.
+
+| | native | tunnel |
+|---|---|---|
+| pod packet to another node | to the private gateway, routed by the CCM's per-node routes | wrapped in VXLAN, node address to node address |
+| needs the private network to route pod CIDRs | yes | no |
+| needs the CCM's route controller | yes | no |
+| overhead | none | ~50 bytes a packet, and the MTU |
+| packet captures | readable | encapsulated |
+
+Pick `tunnel` when the private network's routing is what you are debugging, or
+on a provider whose network does not route pod CIDRs. Otherwise `native`.
+
+Switching is a **maintenance operation**: every Cilium agent restarts and pod
+traffic breaks while they do. It is one value and no Talos apply, because the
+gateway route goes into the machine config in both modes — under `tunnel` it is
+never used, Cilium's own routes being more specific.
+
+`docs/design.md` has the mechanism, and the failure that made this a field
+rather than a constant: `autoDirectNodeRoutes` cannot work on a Hetzner private
+network in either mode, and while it was set, pod-to-pod traffic across nodes
+had no route at all.
+
 ## CPU architecture
 
 `talos.architecture` is `x86` or `arm`, and one field decides three things:
