@@ -78,6 +78,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA, which is protected |
 | `task cluster:destroy-secrets` | delete the cluster CA as well; unrecoverable |
 | `task cluster:kubeconfig` | write `./kubeconfig` |
+| `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer |
 | `task cluster:kubeconfig-add` | add this cluster to `~/.kube/config`, so a plain `kubectl` reaches it |
 | `task cluster:talosconfig` | write `./talosconfig` |
 | `task cluster:outputs` | stack outputs, secrets redacted |
