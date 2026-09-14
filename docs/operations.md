@@ -128,7 +128,7 @@ rather than merely installed:
 | every node is `Ready` | the CNI is installed — Talos leaves a node `NotReady` until one is |
 | a pod reaches a pod on another node | the CNI actually **routes** |
 | a claim on `hcloud-volumes` reaches `Bound` | the CSI driver, end to end through the Hetzner API |
-| every LoadBalancer Service has an address | the cloud controller manager |
+| every LoadBalancer Service has an address and somewhere to send it | the cloud controller manager |
 
 The second one was added after the failure it would have caught. Pod-to-pod
 traffic across nodes had no route at all for thirteen hours, and nothing said
@@ -161,7 +161,7 @@ empty list. The summary counts them apart:
 ```
 ✔ every node is Ready — 3 Ready
 ✖ a claim on hcloud-volumes reaches Bound — claim is Pending after 2m0s. Last event: …
-○ every LoadBalancer Service has an address — no Service of type LoadBalancer exists…
+○ every LoadBalancer Service has an address and somewhere to send it — no Service of type LoadBalancer exists…
 
 3 checks, 1 skipped
 ```
