@@ -49,6 +49,9 @@ env:
   # renovate: datasource=github-releases depName=yannh/kubeconform extractVersion=^v(?<version>.+)$
   KUBECONFORM_VERSION: "0.8.0"
 
+  # renovate: datasource=github-releases depName=lycheeverse/lychee extractVersion=^lychee-v(?<version>.+)$
+  LYCHEE_VERSION: "0.24.2"
+
 jobs:
   # Decides whether anything in this change can break a check below.
   #
@@ -333,6 +336,41 @@ jobs:
       # against a cluster, which is the worst moment to find a type error.
       - name: type-check the e2e suite
         run: go vet -tags e2e ./test/...
+
+  docs:
+    name: Documentation links
+    # NOT gated on changes.outputs.relevant, and that is deliberate.
+    #
+    # A link breaks from either end. Editing a document breaks it the obvious
+    # way — but so does moving the file it points at, or renaming a heading,
+    # and those changes are code changes with no .md in the diff. Documentation
+    # is in the inert list precisely so a prose-only change skips the heavy
+    # gates, which would skip this one exactly when it matters most.
+    #
+    # It is affordable at any rate: lychee is offline here, and answers in
+    # three milliseconds over fifteen files.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          # For the task below. The flags belong in the task an operator runs,
+          # not in a second copy of them here that drifts from it.
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install lychee
+        env:
+          LYCHEE_VERSION: ${{ env.LYCHEE_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/lychee-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
+      - name: Documentation links
+        run: task docs:links
 
   lint:
     name: Go lint
