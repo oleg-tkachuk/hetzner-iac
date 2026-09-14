@@ -157,3 +157,27 @@ func TestEveryLayerReference_PointsAtADirectoryThatExists(t *testing.T) {
 
 	assert.Positive(t, references, "no file names a layer by path — the pattern must be wrong")
 }
+
+// TestBackupLayer_ExportsThePasswordAsASecret is the one property of
+// layers/60-backup worth pinning in source, because getting it wrong is
+// silent and the consequence is a credential in plaintext.
+//
+// A stack output is what somebody copies. `pulumi stack output backupPassword`
+// on an unwrapped export prints the password; wrapped, it prints `[secret]`
+// and needs `--show-secrets`, which is a deliberate act. The rest of that
+// layer is wiring whose logic lives in pkg/hetzner, and is tested there.
+func TestBackupLayer_ExportsThePasswordAsASecret(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "layers", "60-backup", "main.go"))
+	require.NoError(t, err)
+
+	body := string(raw)
+
+	require.Contains(t, body, "OutputPassword",
+		"the backup layer no longer exports a password; this test is checking nothing")
+
+	assert.Regexp(t, `Export\(OutputPassword, pulumi\.ToSecret\(`, body,
+		"the backup layer exports the password without pulumi.ToSecret, so "+
+			"`pulumi stack output` prints the credential")
+}

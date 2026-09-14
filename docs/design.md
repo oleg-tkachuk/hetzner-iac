@@ -24,7 +24,7 @@ flowchart TB
     classDef derived fill:#f6f8fa,stroke:#8c959f,stroke-width:1px,stroke-dasharray:4 3,color:#1f2328
     classDef state fill:#f6ecf7,stroke:#8a3391,stroke-width:2px,color:#1f2328
 
-    subgraph hetzner["☁️ Hetzner Cloud project — infra/cluster is the only thing that writes here"]
+    subgraph hetzner["☁️ Hetzner Cloud project — infra/cluster, plus two layers that own one resource each"]
         direction TB
         net["private network<br/>+ subnet"]
         fw["firewall"]
@@ -38,7 +38,8 @@ flowchart TB
         end
 
         apilb(["load balancer for the API<br/>the endpoint every certificate names"])
-        inglb(["load balancer for ingress<br/>created by the CCM, not by Pulumi"])
+        inglb(["load balancer for ingress<br/>layers/40-ingress"])
+        box[("Storage Box + subaccount<br/>layers/60-backup")]
     end
 
     subgraph talos["Talos on those servers"]
@@ -61,10 +62,11 @@ flowchart TB
     trust -.->|"every certificate descends from it"| talos
     servers ==> talos
     talos ==> k8s
-    ks -.->|"the CCM asks for it"| inglb
+    inglb ==>|"tcp/80, tcp/443 to a pinned nodePort"| servers
+    etcd -.->|"task cluster:etcd-snapshot, over sftp"| box
 
-    class net,fw,pg,snap,cp,wk hetzner
-    class apilb,inglb derived
+    class net,fw,pg,snap,cp,wk,box hetzner
+    class apilb,inglb hetzner
     class etcd,api talos
     class ks,pol,cmns,tns,argons kube
     class trust state
@@ -99,6 +101,49 @@ cloud controller manager clears Talos's `uninitialized` taint, and nothing
 networks before the CNI. `task platform:apply-all` walks them in order; the
 order lives once, in the Taskfile, and CI derives its matrix from the same
 list.
+
+## What Pulumi owns, and what it deliberately does not
+
+The `pulumi-hcloud` provider offers 32 resource types. This repository uses
+eleven, and the gap is not all oversight — three quarters of it is a decision.
+
+Owned here: the network and its subnet, the firewall, the placement group, the
+servers, the API load balancer with its network attachment, service and
+label-selector target, the ingress load balancer with the same four, and the
+Storage Box with its subaccount.
+
+**Not owned, and not to be.** Each of these has one reason:
+
+| Thing | Who owns it | Why not Pulumi |
+|---|---|---|
+| Volumes behind a `PersistentVolumeClaim` | the CSI driver | dynamic provisioning is the point; Pulumi owning them means abandoning claims. `cluster:orphans` covers the gap |
+| A load balancer for a workload's `Service` | the CCM | the workload's Service owns it. The *ingress* one moved because the platform owns that one |
+| Objects inside a Helm release | Helm | Pulumi owns the Release. Owning both puts two reconcilers on one object |
+| The Talos snapshot | `task cluster:image-bake` | Hetzner has no image-upload API. `hcloud.Snapshot` takes a `ServerId`, so Pulumi could take the snapshot but not write the disk — the imperative half stays either way |
+| A Talos or Kubernetes upgrade | `talosctl` | a procedure with an order, not a desired state |
+| Workloads | Argo CD | that is what the GitOps layer is for |
+
+Two things could move and have not, both measured on 2026-09-14:
+
+- **DNS records.** `zone` and `zoneRrset` are Hetzner Cloud Zones, and
+  `api.hetzner.cloud/v1/zones` answers with the project token this repository
+  already holds — no second credential. The domain may be registered anywhere;
+  what has to be at Hetzner is the authoritative DNS, by pointing the
+  registrar's `NS` records at theirs. Waiting on a domain, not on work.
+- **Primary IPs.** Every public address today is implicit and carries
+  `auto_delete: true`, so a server replacement takes its address with it — and
+  servers here are `DeleteBeforeReplace`, so that happens on any replacing
+  change, not only on a teardown. An explicit `hcloud.PrimaryIp` survives it,
+  at the same cost while attached, and keeps billing while it is not. It does
+  **not** help the address DNS would point at: that is a load balancer's, and
+  an LB IPv4 is neither a primary nor a floating IP — `floatingIpAssignment`
+  takes a `ServerId` and nothing else.
+
+One API note worth keeping, because it costs an afternoon otherwise: Hetzner
+serves these from two bases. Storage Boxes are on the unified API —
+`api.hetzner.com/v1/storage_boxes` — and answer `api route not found` on
+`api.hetzner.cloud/v1`. Zones are the other way round. The same project token
+reaches both.
 
 ## The cluster is a committed file
 
