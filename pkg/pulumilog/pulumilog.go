@@ -152,5 +152,9 @@ func (l *Logger) line(glyph, colour, component, detail string) string {
 		}
 	}
 
-	return line
+	// Last, so nothing can be logged around it. A caller deciding per site
+	// whether its detail is sensitive is a caller that gets it wrong once, and
+	// a Pulumi diagnostic is kept in the update's history where an operator
+	// cannot unsee it.
+	return redact(line)
 }
