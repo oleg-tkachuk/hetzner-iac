@@ -105,8 +105,8 @@ var registry = map[string]Chart{
 	"argo-cd": {
 		Name:       "argo-cd",
 		Repo:       "https://argoproj.github.io/argo-helm",
-		Version:    "10.9.1", // app v3.5.2
-		AppVersion: "v3.5.2",
+		Version:    "10.9.1", // app v3.5.3
+		AppVersion: "v3.5.3",
 		Namespace:  "argocd",
 	},
 }
