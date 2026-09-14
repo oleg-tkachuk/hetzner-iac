@@ -322,6 +322,15 @@ Upgrading Talos means bumping `talos.version` in the topology, re-running
 upgraded in place and never replaced, which is why the server resource ignores
 changes to its image.
 
+`talos.architecture` is the other half of the same pin, and it is a replace
+rather than an upgrade: `x86` and `arm` are different images on different
+server types, so switching means a new snapshot and new nodes. The topology is
+the single place that says which — the factory URL, the server types the
+validator will accept, and the defaults those types fall back to all read that
+one field. See
+[configuration.md](configuration.md#cpu-architecture) for the costs and for
+why Arm availability has to be checked per project rather than assumed.
+
 ## The Hetzner token travels with the kubeconfig
 
 The cluster tier exports the token and every layer reads it through the same
