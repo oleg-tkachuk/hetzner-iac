@@ -76,25 +76,7 @@ Nothing checks provenance at admission.
 ### Something is reachable from outside
 
 The ingress and the certificate machinery are deployed, and nothing uses them.
-**Blocked on:** a domain. Nothing else.
-
-It was also blocked on a worker node for one afternoon, and that is worth
-keeping because the fix changed who owns the load balancer. Applying the
-ingress layer to a live cluster on 2026-09-14 produced a load balancer with an
-address and zero targets: Talos labels every control-plane node
-`node.kubernetes.io/exclude-from-external-load-balancers`, this cluster is
-three of those, and the cloud controller manager said so plainly —
-
-    There are no available nodes for LoadBalancer
-    "ensure Load Balancer" service="traefik" nodes=[]
-
-— while the smoke check reported a pass, because an address is not
-reachability. Both halves are fixed: the check now fails when no node can be a
-target, and `layers/40-ingress` creates the load balancer through the Hetzner
-provider instead of asking the CCM for one. A `label_selector` target is a
-Hetzner concept and knows nothing about that Kubernetes label, so ingress works
-on a control-plane-only cluster and the load balancer is visible to `plan` and
-`destroy` rather than only to the bill.
+**Blocked on:** a domain.
 
 ### Workloads arrive through GitOps
 
