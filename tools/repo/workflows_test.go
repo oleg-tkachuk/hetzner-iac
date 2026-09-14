@@ -216,3 +216,69 @@ func TestCI_ClassifiesDocumentationAsInert(t *testing.T) {
 		assert.Equal(t, inert, pattern.MatchString(path), "%q", path)
 	}
 }
+
+// TestCI_DocumentationLinkGateIgnoresRelevance holds the one thing about the
+// docs job that a tidy-up would get wrong.
+//
+// Every other check in ci.yaml is gated on `changes.outputs.relevant`, and
+// adding that `&&` here reads like consistency. It would disable the gate in
+// the case it exists for. Documentation is INERT by design — see
+// TestCI_ClassifiesDocumentationAsInert — so a prose-only change reports
+// relevant=false, and a link gate that honours relevance would never run on a
+// change to the documents whose links it checks.
+//
+// The other direction is covered too, and it is the less obvious half: a link
+// breaks when the file it points at MOVES, or when a heading is renamed. Those
+// are code and documentation changes with nothing broken in their own diff.
+// The gate has to run on both, which means on everything.
+func TestCI_DocumentationLinkGateIgnoresRelevance(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", ciWorkflow))
+	require.NoError(t, err)
+
+	// The job's own `if:`, taken from the block that starts at `  docs:` and
+	// ends where the next job begins.
+	block := regexp.MustCompile(`(?ms)^  docs:\n(.*?)(?:^  [a-z][a-z0-9-]*:\n)`).
+		FindStringSubmatch(string(raw))
+	require.Len(t, block, 2, "no docs job in %s", ciWorkflow)
+
+	condition := regexp.MustCompile(`(?m)^\s*if:\s*(.+)$`).FindStringSubmatch(block[1])
+	require.Len(t, condition, 2, "the docs job has no if: condition")
+
+	assert.NotContains(t, condition[1], "relevant",
+		"the documentation link gate is gated on changed-path relevance. Documentation is "+
+			"inert, so that switches the gate off for exactly the changes it checks:\n  if: %s",
+		condition[1])
+
+	// And it still has to be a pull-request job rather than running on every
+	// push, which is how every other job in this workflow is scoped.
+	assert.Contains(t, condition[1], "pull_request",
+		"the documentation link gate runs outside a pull request:\n  if: %s", condition[1])
+}
+
+// TestDocsLinkTask_ChecksFragmentsOffline pins the two flags that decide what
+// the gate is worth.
+//
+// Neither is cosmetic and neither fails loudly if dropped. Without
+// --include-fragments the gate stops checking anchors, and a renamed heading
+// leaves every link to it pointing at the top of the page — which is how
+// GitHub renders a fragment it cannot find, with no error anywhere. Without
+// --offline the gate starts depending on other people's uptime: GitHub's own
+// release downloads returned 504 for twenty minutes while this was written,
+// which would have failed a run that had nothing to do with them.
+func TestDocsLinkTask_ChecksFragmentsOffline(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	block := regexp.MustCompile(`(?ms)^  docs:links:\n(.*?)(?:^  [a-z][a-z0-9:-]*:\n)`).
+		FindStringSubmatch(string(raw))
+	require.Len(t, block, 2, "no docs:links task in Taskfile.yaml")
+
+	for _, flag := range []string{"--offline", "--include-fragments"} {
+		assert.Contains(t, block[1], flag,
+			"the docs:links task no longer passes %s", flag)
+	}
+}

@@ -59,11 +59,12 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task up` | cluster, then every layer in dependency order; asks twice |
 | `task plan` | preview the cluster and every layer; change nothing |
 | `task build` | compile every program into `bin/` |
-| `task verify` | everything checkable without a cluster — needs helm, talosctl and docker |
+| `task verify` | everything checkable without a cluster — needs helm, talosctl, docker and lychee |
 | `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
 | `task e2e` | verify a running cluster; read-only |
 | `task fmt` | format and tidy |
 | `task fmt-check` | fail if `gofmt -s` would change anything; the library's gate, and what CI runs |
+| `task docs:links` | do the documentation's own links point at files and headings that exist? — needs lychee |
 | `task clean` | remove build output: `bin/` and the layer binaries under `.cache` |
 
 ## Cluster
