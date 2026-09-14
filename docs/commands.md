@@ -132,9 +132,11 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 | `task platform:plan-all` | preview every layer in order |
 | `task platform:apply-all` | apply every layer in dependency order; asks first |
 | `task platform:destroy-all` | destroy every layer, in reverse |
+| `task platform:refresh-all` | reconcile every layer's state with the cloud; asks first, and writes state |
 | `task platform:plan layer=10-node-platform` | preview one layer |
 | `task platform:apply layer=10-node-platform` | apply one layer; asks first |
 | `task platform:destroy layer=50-gitops` | destroy one layer |
+| `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud; asks first |
 | `task platform:outputs layer=50-gitops` | one layer's stack outputs |
 | `task platform:status` | which layers are deployed, and how large |
 | `task platform:layers` | the layer order; CI derives its matrix from this |

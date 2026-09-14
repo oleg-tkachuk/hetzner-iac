@@ -65,6 +65,32 @@ tasks:
               pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes )
           done
 
+  refresh-all:
+    desc: "Reconcile every layer's state with the cloud, in order. Asks first — this WRITES state"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    # It asks, and the reason is not caution for its own sake. `pulumi
+    # refresh` is the one read-shaped command that writes: where a resource is
+    # gone from the cloud, it is REMOVED FROM STATE, and the next apply then
+    # recreates it. That is usually what an operator wants after something was
+    # changed or deleted by hand — and it is never what they want by accident,
+    # because a refresh run against the wrong stack turns "somebody deleted a
+    # thing" into "Pulumi will now rebuild half a cluster".
+    prompt: "Refresh every platform layer's state on {{._PL_STACK}}? This writes state"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          # Forward order, matching apply rather than destroy. A refresh
+          # changes no infrastructure, so there is no dependency to respect —
+          # the order is kept the same as apply-all's only so the output of
+          # the two reads the same way.
+          for layer in {{._PL_LAYERS}}; do
+            printf '%s\n' "{{._RUN}} platform · ${layer} · refresh"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" refresh --yes --diff )
+          done
+
   destroy-all:
     desc: "Destroy every layer, in reverse order"
     preconditions:
@@ -169,6 +195,22 @@ tasks:
           set -euo pipefail
           cd "{{.ROOT}}/layers/{{.layer}}"
           pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff
+
+  refresh:
+    desc: "Reconcile one layer's state with the cloud — task platform:refresh stack=dev layer=40-ingress"
+    requires:
+      vars:
+        - name: layer
+          enum: *layers
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    prompt: "Refresh {{.layer}}'s state on {{._PL_STACK}}? This writes state"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd "{{.ROOT}}/layers/{{.layer}}"
+          pulumi --non-interactive --stack "{{._PL_STACK}}" refresh --yes --diff
 
   apply:
     desc: "Apply one layer — task platform:apply stack=dev layer=10-node-platform"

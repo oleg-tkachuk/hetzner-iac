@@ -232,7 +232,10 @@ func TestPerLayerTasks_ValidateAgainstTheAnchor(t *testing.T) {
 			"%s validates the layer against something other than the shared anchor", name)
 	}
 
-	assert.Equal(t, 4, checked, "four tasks take a layer; the count changed")
+	// plan, apply, refresh, destroy, outputs. The count is the part that
+	// catches drift: a new per-layer task that validated against its own copy
+	// of the list would otherwise pass this test by not being looked at.
+	assert.Equal(t, 5, checked, "five tasks take a layer; the count changed")
 }
 
 // splitEnum reads the items out of a YAML flow sequence.
@@ -246,9 +249,16 @@ func splitEnum(items string) []string {
 	return out
 }
 
-// changesTheCluster matches a task whose command applies or destroys real
-// infrastructure, by the two verbs Pulumi has for it.
-var changesTheCluster = regexp.MustCompile(`pulumi[^\n]*\b(up|destroy)\b`)
+// changesTheCluster matches a task whose command writes — to infrastructure or
+// to the state that describes it.
+//
+// `refresh` is in the list and looks like it should not be. It changes no
+// infrastructure, which is exactly what makes it the dangerous one: where a
+// resource is gone from the cloud it is REMOVED FROM STATE, and the next apply
+// recreates it. A refresh against the wrong stack turns "somebody deleted a
+// thing" into "Pulumi will now rebuild half a cluster", and it does that from
+// a command that reads like a read.
+var changesTheCluster = regexp.MustCompile(`pulumi[^\n]*\b(up|destroy|refresh)\b`)
 
 // TestTasks_ThatChangeInfrastructureAskFirst is the guard for the confirmation
 // a task carries.
@@ -280,7 +290,7 @@ func TestTasks_ThatChangeInfrastructureAskFirst(t *testing.T) {
 			checked++
 
 			assert.Contains(t, body, "prompt:",
-				"%s: %s runs `pulumi up` or `pulumi destroy` with no confirmation",
+				"%s: %s runs pulumi up, destroy or refresh with no confirmation",
 				filepath.Base(path), name)
 		}
 	}
