@@ -169,16 +169,63 @@ const (
 // literals in the comparison and again as prose in the error.
 var Architectures = []string{ArchitectureX86, ArchitectureARM}
 
+// The server types each architecture defaults to, per role.
+//
+// Two lines per architecture rather than one pair of constants, because a
+// default server type is only meaningful next to an architecture: the cax line
+// is the only Arm line Hetzner sells, so "cx23" is not a smaller default for
+// an Arm topology, it is an unbootable one. Before these existed, a topology
+// that said `architecture: arm` and left the server types out got cx23 and
+// cx33 and was rejected at plan time by ValidateServerTypes — correctly, but
+// for a choice the operator never made.
+//
+// Same shape on both sides, so switching architecture changes the bill and
+// nothing else. Read from the API in hel1 on 2026-09-14, monthly gross:
+//
+//	cx23    2 cores    4 GB    x86    5.49
+//	cax11   2 cores    4 GB    arm    5.99
+//	cx33    4 cores    8 GB    x86    8.49
+//	cax21   4 cores    8 GB    arm   10.49
+//
+// Arm costs more here at both sizes. It is not the cheaper option on this
+// provider and is not offered as one.
+var (
+	defaultControlPlaneServerTypes = map[string]string{
+		ArchitectureX86: "cx23",
+		ArchitectureARM: "cax11",
+	}
+
+	defaultWorkerServerTypes = map[string]string{
+		ArchitectureX86: "cx33",
+		ArchitectureARM: "cax21",
+	}
+)
+
+// DefaultControlPlaneServerType is the type a control plane defaults to on the
+// given architecture, and the empty string for an architecture that is not
+// one of Architectures.
+//
+// Empty rather than a fallback to the x86 type: Validate rejects an unknown
+// architecture, and filling the field in first would hand that validator a
+// topology whose server type looks deliberate.
+func DefaultControlPlaneServerType(arch string) string {
+	return defaultControlPlaneServerTypes[arch]
+}
+
+// DefaultWorkerServerType is the type a worker pool defaults to on the given
+// architecture, and the empty string for an unknown one.
+func DefaultWorkerServerType(arch string) string {
+	return defaultWorkerServerTypes[arch]
+}
+
 // Defaults applied to any field the committed file leaves empty.
 const (
-	DefaultIPRange       = "10.0.0.0/16"
-	DefaultNodeSubnet    = "10.0.1.0/24"
-	DefaultPodCIDR       = "10.244.0.0/16"
-	DefaultServiceCIDR   = "10.96.0.0/12"
-	DefaultArchitecture  = ArchitectureX86
-	DefaultCPServerType  = "cx23"
-	DefaultAPILBType     = "lb11"
-	DefaultWorkerSrvType = "cx33"
+	DefaultIPRange      = "10.0.0.0/16"
+	DefaultNodeSubnet   = "10.0.1.0/24"
+	DefaultPodCIDR      = "10.244.0.0/16"
+	DefaultServiceCIDR  = "10.96.0.0/12"
+	DefaultArchitecture = ArchitectureX86
+	DefaultAPILBType    = "lb11"
 
 	// DefaultKubernetesVersion is pinned rather than left to Talos.
 	//
@@ -309,7 +356,11 @@ func (t *Topology) ApplyDefaults() {
 	setIfEmpty(&t.Network.ServiceCIDR, DefaultServiceCIDR)
 	setIfEmpty(&t.Talos.Architecture, DefaultArchitecture)
 	setIfEmpty(&t.Kubernetes.Version, DefaultKubernetesVersion)
-	setIfEmpty(&t.ControlPlane.ServerType, DefaultCPServerType)
+
+	// After the architecture above, and the order is load-bearing: the default
+	// server types are derived from it, so filling them in first would pick
+	// x86 types for an Arm topology that had simply left the architecture out.
+	setIfEmpty(&t.ControlPlane.ServerType, DefaultControlPlaneServerType(t.Talos.Architecture))
 
 	if t.ControlPlane.Count == 0 {
 		t.ControlPlane.Count = 1
@@ -320,7 +371,7 @@ func (t *Topology) ApplyDefaults() {
 	}
 
 	for i := range t.WorkerPools {
-		setIfEmpty(&t.WorkerPools[i].ServerType, DefaultWorkerSrvType)
+		setIfEmpty(&t.WorkerPools[i].ServerType, DefaultWorkerServerType(t.Talos.Architecture))
 	}
 
 	setBoolIfUnset(&t.Network.PublicIPv4, DefaultPublicIPv4)

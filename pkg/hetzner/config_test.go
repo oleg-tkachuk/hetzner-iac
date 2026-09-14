@@ -73,12 +73,79 @@ talos: { version: v1.14.0 }
 	assert.Equal(t, hetzner.DefaultPodCIDR, topology.Network.PodCIDR)
 	assert.Equal(t, hetzner.DefaultServiceCIDR, topology.Network.ServiceCIDR)
 	assert.Equal(t, hetzner.DefaultArchitecture, topology.Talos.Architecture)
-	assert.Equal(t, hetzner.DefaultCPServerType, topology.ControlPlane.ServerType)
+	assert.Equal(t,
+		hetzner.DefaultControlPlaneServerType(hetzner.DefaultArchitecture),
+		topology.ControlPlane.ServerType)
 	assert.Equal(t, 1, topology.ControlPlane.Count)
 
 	// A single control plane gets no load balancer: there is nothing to fail
 	// over between, so defaulting one in would only cost money.
 	assert.Empty(t, topology.ControlPlane.APILoadBalancerType)
+}
+
+func TestApplyDefaults_DerivesTheServerTypesFromTheArchitecture(t *testing.T) {
+	t.Parallel()
+
+	// An Arm topology that names no server types must get Arm ones. It used to
+	// get cx23 and cx33 and be rejected at plan time for a mismatch the
+	// operator never wrote — the cax line is the only Arm line Hetzner sells,
+	// so an x86 default is not a smaller machine, it is an unbootable one.
+	for _, arch := range hetzner.Architectures {
+		topology := hetzner.Topology{
+			Talos:       hetzner.TalosSpec{Architecture: arch},
+			WorkerPools: []hetzner.WorkerPoolSpec{{Name: "general", Count: 1}},
+		}
+		topology.ApplyDefaults()
+
+		assert.Equal(t, hetzner.DefaultControlPlaneServerType(arch),
+			topology.ControlPlane.ServerType, arch)
+		assert.Equal(t, hetzner.DefaultWorkerServerType(arch),
+			topology.WorkerPools[0].ServerType, arch)
+	}
+}
+
+func TestApplyDefaults_FillsTheArchitectureBeforeTheTypesItDecides(t *testing.T) {
+	t.Parallel()
+
+	// The order inside ApplyDefaults is load-bearing and invisible: a topology
+	// with neither field set must come out consistent, not x86 types beside a
+	// blank architecture that something later defaults the other way.
+	topology := hetzner.Topology{
+		WorkerPools: []hetzner.WorkerPoolSpec{{Name: "general", Count: 1}},
+	}
+	topology.ApplyDefaults()
+
+	assert.Equal(t, hetzner.DefaultArchitecture, topology.Talos.Architecture)
+	assert.Equal(t,
+		hetzner.DefaultControlPlaneServerType(hetzner.DefaultArchitecture),
+		topology.ControlPlane.ServerType)
+	assert.Equal(t,
+		hetzner.DefaultWorkerServerType(hetzner.DefaultArchitecture),
+		topology.WorkerPools[0].ServerType)
+}
+
+func TestDefaultServerTypes_AreTheSameShapeOnBothArchitectures(t *testing.T) {
+	t.Parallel()
+
+	// Switching architecture should change the bill and nothing else. Both
+	// defaults are 2/4 for a control plane and 4/8 for a worker, so this pins
+	// that the pairs stay matched rather than drifting a size apart.
+	assert.Equal(t, "cx23", hetzner.DefaultControlPlaneServerType(hetzner.ArchitectureX86))
+	assert.Equal(t, "cax11", hetzner.DefaultControlPlaneServerType(hetzner.ArchitectureARM))
+	assert.Equal(t, "cx33", hetzner.DefaultWorkerServerType(hetzner.ArchitectureX86))
+	assert.Equal(t, "cax21", hetzner.DefaultWorkerServerType(hetzner.ArchitectureARM))
+}
+
+func TestDefaultServerTypes_AreEmptyForAnUnknownArchitecture(t *testing.T) {
+	t.Parallel()
+
+	// Empty, not an x86 fallback: Validate is about to reject the
+	// architecture, and a filled-in server type would reach it looking like a
+	// choice somebody made.
+	for _, arch := range []string{"", "arm64", "amd64", "ARM"} {
+		assert.Empty(t, hetzner.DefaultControlPlaneServerType(arch), arch)
+		assert.Empty(t, hetzner.DefaultWorkerServerType(arch), arch)
+	}
 }
 
 func TestApplyDefaults_LoadBalancerOnlyForHA(t *testing.T) {
