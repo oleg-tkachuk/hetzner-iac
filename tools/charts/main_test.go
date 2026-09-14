@@ -146,7 +146,7 @@ func TestLatestInRepo_Errors(t *testing.T) {
 		chart string
 		want  string
 	}{
-		"chart absent from the index": {testIndex, "nginx", "not in index"},
+		"chart absent from the index": {testIndex, "no-such-chart", "not in index"},
 		// Every version is a pre-release, so there is nothing to report as
 		// latest — distinct from "the chart is missing", and the report says
 		// which.
