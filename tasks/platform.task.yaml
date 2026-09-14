@@ -1,13 +1,21 @@
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: "3"
 
-# The layers as a YAML list, for the enum below.
+# The layer selector's accepted values: every layer, plus `all`.
+#
+# `all` is in the ENUM rather than handled by making the variable optional,
+# and that is the design. requires.vars validates what is given, so an
+# optional variable would mean dropping the validation — and a missing
+# `layer=` would then select every layer, which makes the shortest command the
+# widest action. `task platform:destroy` with a forgotten argument must not
+# destroy a platform.
 #
 # A second form of the list in Taskfile.yaml's LAYERS, and unavoidable:
 # requires.enum is static schema, so a template in it is read as a map and the
 # file stops parsing — measured. One copy here, aliased rather than repeated
-# per task, held equal to LAYERS by TestLayerEnum_MatchesTheLayerList.
-x-layers: &layers [10-node-platform, 20-network-policy, 30-cluster-services, 40-ingress, 50-gitops, 60-backup]
+# per task, held equal to LAYERS by TestLayerEnum_MatchesTheLayerList, which
+# knows `all` is the selector and not a layer.
+x-layers: &layers [all, 10-node-platform, 20-network-policy, 30-cluster-services, 40-ingress, 50-gitops, 60-backup]
 
 silent: true
 
@@ -28,93 +36,7 @@ tasks:
           for layer in {{._PL_LAYERS}}; do printf '%s\n' "$layer"; done
 
   # ---------------------------------------------------------------------------
-  # Whole platform
-  # ---------------------------------------------------------------------------
-
-  plan-all:
-    desc: "Preview every layer in order; change nothing"
-    preconditions:
-      - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
-    cmds:
-      - cmd: |
-          set -euo pipefail
-          for layer in {{._PL_LAYERS}}; do
-            printf '%s\n' "{{._RUN}} platform · ${layer} · preview"
-            ( cd "{{.ROOT}}/layers/${layer}" && \
-              pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff )
-          done
-
-  apply-all:
-    desc: "Apply every layer in dependency order (idempotent)"
-    preconditions:
-      - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
-    prompt: "Apply every platform layer on {{._PL_STACK}}?"
-    cmds:
-      - cmd: |
-          set -euo pipefail
-          # Sequential and ordered. The layers are independent in the sense
-          # that each can be applied alone against an existing cluster — not in
-          # the sense that they can be applied in any order on an empty one:
-          # nothing schedules before the CCM clears the uninitialized taint,
-          # and nothing networks before the CNI.
-          for layer in {{._PL_LAYERS}}; do
-            printf '%s\n' "{{._RUN}} platform · ${layer} · apply"
-            ( cd "{{.ROOT}}/layers/${layer}" && \
-              pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes )
-          done
-
-  refresh-all:
-    desc: "Reconcile every layer's state with the cloud, in order. Asks first — this WRITES state"
-    preconditions:
-      - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
-    # It asks, and the reason is not caution for its own sake. `pulumi
-    # refresh` is the one read-shaped command that writes: where a resource is
-    # gone from the cloud, it is REMOVED FROM STATE, and the next apply then
-    # recreates it. That is usually what an operator wants after something was
-    # changed or deleted by hand — and it is never what they want by accident,
-    # because a refresh run against the wrong stack turns "somebody deleted a
-    # thing" into "Pulumi will now rebuild half a cluster".
-    prompt: "Refresh every platform layer's state on {{._PL_STACK}}? This writes state"
-    cmds:
-      - cmd: |
-          set -euo pipefail
-          # Forward order, matching apply rather than destroy. A refresh
-          # changes no infrastructure, so there is no dependency to respect —
-          # the order is kept the same as apply-all's only so the output of
-          # the two reads the same way.
-          for layer in {{._PL_LAYERS}}; do
-            printf '%s\n' "{{._RUN}} platform · ${layer} · refresh"
-            ( cd "{{.ROOT}}/layers/${layer}" && \
-              pulumi --non-interactive --stack "{{._PL_STACK}}" refresh --yes --diff )
-          done
-
-  destroy-all:
-    desc: "Destroy every layer, in reverse order"
-    preconditions:
-      - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
-    prompt: "Destroy every platform layer on {{._PL_STACK}}?"
-    cmds:
-      - cmd: |
-          set -euo pipefail
-          # Reverse: a layer's dependants must go first, or the CNI is removed
-          # while workloads still need to talk.
-          #
-          # One awk op rather than the twelve lines that probed for `tac` and
-          # fell back to `tail -r` — GNU has one, BSD the other, and the probe
-          # existed only because neither is portable. awk is.
-          for layer in $(awk -f "{{.ROOT}}/tools/lines/main.awk" -v op=reverse-words \
-                         <<<"{{._PL_LAYERS}}"); do
-            printf '%s\n' "{{._RUN}} platform · ${layer} · destroy"
-            ( cd "{{.ROOT}}/layers/${layer}" && \
-              pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes )
-          done
-
-  # ---------------------------------------------------------------------------
-  # One layer
+  # One layer, or every layer with layer=all
   # ---------------------------------------------------------------------------
 
   init:
@@ -179,10 +101,10 @@ tasks:
           done
 
           printf '\n'
-          printf '%s\n' "{{._OK}} platform · init · next: task platform:plan-all stack={{._PL_STACK}}"
+          printf '%s\n' "{{._OK}} platform · init · next: task platform:plan layer=all stack={{._PL_STACK}}"
 
   plan:
-    desc: "Preview one layer — task platform:plan stack=dev layer=10-node-platform"
+    desc: "Preview a layer, or layer=all for every one in order; changes nothing"
     requires:
       vars:
         - name: layer
@@ -193,11 +115,23 @@ tasks:
     cmds:
       - cmd: |
           set -euo pipefail
-          cd "{{.ROOT}}/layers/{{.layer}}"
-          pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff
+          # Expand the selector HERE rather than in a file-level var.
+          # Measured: a var at this file's top level is evaluated without the
+          # task's own `layer`, so a call like `- task: platform:apply` with
+          # `vars: {layer: all}` resolved it to the empty string — and a `for`
+          # over nothing exits 0 having done nothing. `task up` would have
+          # reported success and applied no layer at all.
+          selected="{{.layer}}"
+          if [ "$selected" = all ]; then selected="{{._PL_LAYERS}}"; fi
+
+          for layer in $selected; do
+            printf '%s\n' "{{._RUN}} platform · ${layer} · preview"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff )
+          done
 
   refresh:
-    desc: "Reconcile one layer's state with the cloud — task platform:refresh stack=dev layer=40-ingress"
+    desc: "Reconcile a layer's state with the cloud, or layer=all. Asks first — this WRITES state"
     requires:
       vars:
         - name: layer
@@ -205,15 +139,27 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-    prompt: "Refresh {{.layer}}'s state on {{._PL_STACK}}? This writes state"
+    prompt: "Refresh {{.layer}} state on {{._PL_STACK}}? This writes state"
     cmds:
       - cmd: |
           set -euo pipefail
-          cd "{{.ROOT}}/layers/{{.layer}}"
-          pulumi --non-interactive --stack "{{._PL_STACK}}" refresh --yes --diff
+          # Expand the selector HERE rather than in a file-level var.
+          # Measured: a var at this file's top level is evaluated without the
+          # task's own `layer`, so a call like `- task: platform:apply` with
+          # `vars: {layer: all}` resolved it to the empty string — and a `for`
+          # over nothing exits 0 having done nothing. `task up` would have
+          # reported success and applied no layer at all.
+          selected="{{.layer}}"
+          if [ "$selected" = all ]; then selected="{{._PL_LAYERS}}"; fi
+
+          for layer in $selected; do
+            printf '%s\n' "{{._RUN}} platform · ${layer} · refresh"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" refresh --yes --diff )
+          done
 
   apply:
-    desc: "Apply one layer — task platform:apply stack=dev layer=10-node-platform"
+    desc: "Apply a layer, or layer=all for every one in dependency order; idempotent. Asks first"
     requires:
       vars:
         - name: layer
@@ -225,11 +171,28 @@ tasks:
     cmds:
       - cmd: |
           set -euo pipefail
-          cd "{{.ROOT}}/layers/{{.layer}}"
-          pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes
+          # Expand the selector HERE rather than in a file-level var.
+          # Measured: a var at this file's top level is evaluated without the
+          # task's own `layer`, so a call like `- task: platform:apply` with
+          # `vars: {layer: all}` resolved it to the empty string — and a `for`
+          # over nothing exits 0 having done nothing. `task up` would have
+          # reported success and applied no layer at all.
+          selected="{{.layer}}"
+          if [ "$selected" = all ]; then selected="{{._PL_LAYERS}}"; fi
+
+          # Sequential and ordered. The layers are independent in the sense
+          # that each can be applied alone against an existing cluster — not
+          # in the sense that they can be applied in any order on an empty
+          # one: nothing schedules before the CCM clears the uninitialized
+          # taint, and nothing networks before the CNI.
+          for layer in $selected; do
+            printf '%s\n' "{{._RUN}} platform · ${layer} · apply"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes )
+          done
 
   destroy:
-    desc: "Destroy one layer — task platform:destroy stack=dev layer=50-gitops"
+    desc: "Destroy a layer, or layer=all for every one in reverse order. Asks first"
     requires:
       vars:
         - name: layer
@@ -241,11 +204,28 @@ tasks:
     cmds:
       - cmd: |
           set -euo pipefail
-          cd "{{.ROOT}}/layers/{{.layer}}"
-          pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes
+          # Expand the selector HERE rather than in a file-level var.
+          # Measured: a var at this file's top level is evaluated without the
+          # task's own `layer`, so a call like `- task: platform:apply` with
+          # `vars: {layer: all}` resolved it to the empty string — and a `for`
+          # over nothing exits 0 having done nothing. `task up` would have
+          # reported success and applied no layer at all.
+          selected="{{.layer}}"
+          if [ "$selected" = all ]; then selected="{{._PL_LAYERS}}"; fi
+
+          # Reverse for layer=all: a layer's dependants must go first, or the
+          # CNI is removed while workloads still need to talk. One awk op
+          # rather than the twelve lines that probed for `tac` and fell back
+          # to `tail -r` — GNU has one, BSD the other, and awk has both.
+          for layer in $(awk -f "{{.ROOT}}/tools/lines/main.awk" -v op=reverse-words \
+                         <<<"$selected"); do
+            printf '%s\n' "{{._RUN}} platform · ${layer} · destroy"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes )
+          done
 
   outputs:
-    desc: "Show one layer's stack outputs — task platform:outputs stack=dev layer=50-gitops"
+    desc: "Show a layer's stack outputs, or layer=all for every one"
     requires:
       vars:
         - name: layer
@@ -256,8 +236,20 @@ tasks:
     cmds:
       - cmd: |
           set -euo pipefail
-          cd "{{.ROOT}}/layers/{{.layer}}"
-          pulumi --non-interactive --stack "{{._PL_STACK}}" stack output
+          # Expand the selector HERE rather than in a file-level var.
+          # Measured: a var at this file's top level is evaluated without the
+          # task's own `layer`, so a call like `- task: platform:apply` with
+          # `vars: {layer: all}` resolved it to the empty string — and a `for`
+          # over nothing exits 0 having done nothing. `task up` would have
+          # reported success and applied no layer at all.
+          selected="{{.layer}}"
+          if [ "$selected" = all ]; then selected="{{._PL_LAYERS}}"; fi
+
+          for layer in $selected; do
+            printf '%s\n' "{{._RUN}} platform · ${layer} · outputs"
+            ( cd "{{.ROOT}}/layers/${layer}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" stack output )
+          done
 
   status:
     desc: "Which layers are deployed, and how many resources each holds"

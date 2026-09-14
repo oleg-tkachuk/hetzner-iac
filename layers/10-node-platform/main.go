@@ -13,7 +13,7 @@
 // `operator: Exists` and its operator names both not-ready and uninitialized.
 //
 // As separate stacks that ordering lived in the directory names and the order
-// `task platform:apply-all` walks them. Nothing stopped anyone applying the
+// `task platform:apply layer=all` walks them. Nothing stopped anyone applying the
 // cloud-integration layer on its own against a CNI-less cluster, and doing so
 // cost a ten-minute apply: the release sat Pending for its whole timeout and
 // Helm rolled it back on `atomic`. In one stack the same fact is a DependsOn

@@ -21,7 +21,7 @@ vars:
   #
   #   task cluster:apply stack=dev
   # Required, and with no default on purpose. A default is how a command
-  # aimed at one environment silently hits another: `platform:destroy-all`
+  # aimed at one environment silently hits another: `platform:destroy layer=all`
   # with a forgotten stack= meant dev, and the once that is wrong is the once
   # it matters. Every message below names the task that was actually run.
   _STACK_USAGE: |
@@ -47,7 +47,7 @@ vars:
   _ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
 
   # The layers, in dependency order. This list is the only place the order
-  # lives: platform:apply-all walks it, and CI derives its preview matrix from
+  # lives: `platform:apply layer=all` walks it, and CI derives its matrix from
   # `task platform:layers`. A hand-maintained second copy is how a matrix ends
   # up previewing directories that no longer exist.
   #
@@ -188,7 +188,8 @@ tasks:
     # servers, then everything on them.
     cmds:
       - task: cluster:apply
-      - task: platform:apply-all
+      - task: platform:apply
+        vars: {layer: all}
 
   destroy:
     desc: "Destroy everything this repository created: every layer, then the cluster. Asks first."
@@ -199,10 +200,10 @@ tasks:
     # than taste.
     #
     # This repository has exactly one verb for destruction — cluster:destroy,
-    # cluster:destroy-secrets, platform:destroy, platform:destroy-all — so
-    # `down` would be a second word for one action. `destroy-all` is worse
-    # still: `-all` already means "every layer in this namespace", and reusing
-    # it for "the cluster AND every layer" gives one suffix two scopes.
+    # cluster:destroy-secrets, platform:destroy — so
+    # `down` would be a second word for one action. `destroy-all` was worse
+    # still, and is gone: the layer tier takes `layer=all` now instead of
+    # carrying a second task per verb.
     #
     # `up` stays `up` and is not the same inconsistency: Pulumi's own pair is
     # `pulumi up` and `pulumi destroy`, asymmetric upstream, so these two
@@ -234,10 +235,12 @@ tasks:
       this stack's Pulumi history. Irreversible
     cmds:
       # Layers first. A cluster whose CNI has been removed under a running
-      # workload is the same ordering hazard `platform:destroy-all` documents,
+      # workload is the same ordering hazard `platform:destroy layer=all`
+      # documents,
       # and destroying the servers first would leave every layer's state
       # describing resources that no longer exist.
-      - task: platform:destroy-all
+      - task: platform:destroy
+        vars: {layer: all}
       - task: cluster:destroy
       # What is left, and then the check that says whether anything was. The
       # ordering is the point: orphans reads the Hetzner project, and with no
@@ -254,7 +257,8 @@ tasks:
         msg: "{{._STACK_USAGE}}"
     cmds:
       - task: cluster:plan
-      - task: platform:plan-all
+      - task: platform:plan
+        vars: {layer: all}
 
   # ---------------------------------------------------------------------------
   # Gates. These are what CI runs, so a green local run means a green PR.

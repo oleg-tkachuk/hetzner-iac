@@ -98,7 +98,7 @@ it. Upgrading Cilium does not mean planning a change to Argo CD.
 Independence has a boundary worth stating: layers are independently
 *appliable*, not order-free. On an empty cluster nothing schedules before the
 cloud controller manager clears Talos's `uninitialized` taint, and nothing
-networks before the CNI. `task platform:apply-all` walks them in order; the
+networks before the CNI. `task platform:apply layer=all` walks them in order; the
 order lives once, in the Taskfile, and CI derives its matrix from the same
 list.
 
@@ -198,7 +198,7 @@ sequenceDiagram
     Note over tier,k8s: the cluster tier installs no CNI,<br/>so every node stays NotReady until the next phase
 
     rect rgb(231, 239, 252)
-        operator->>layers: task platform:apply-all
+        operator->>layers: task platform:apply layer=all
         layers->>k8s: layers/10-node-platform installs the CNI — Cilium
         Note over layers,k8s: nodes become Ready
         layers->>k8s: the remaining layers, in dependency order
