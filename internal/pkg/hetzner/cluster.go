@@ -234,6 +234,13 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 	component.PodCIDR = pulumi.String(topology.Network.PodCIDR).ToStringOutput()
 	component.ServiceCIDR = pulumi.String(topology.Network.ServiceCIDR).ToStringOutput()
 
+	// Literals, and the same seven names as the fields' own tags — which is
+	// what TestComponentOutputs_AreTheFieldsTheyAreTaggedAs holds, since a Go
+	// tag cannot be a constant. Seven of them also read like
+	// clusterref.Output*, and that is not a contract: those are the stack's
+	// exported names, which layers and shell read, while these belong to the
+	// component and nothing outside this program sees them. They agree because
+	// they publish the same values, not because anything requires it.
 	if err := ctx.RegisterResourceOutputs(component, pulumi.Map{
 		"kubeconfig":        component.Kubeconfig,
 		"talosconfig":       component.Talosconfig,
