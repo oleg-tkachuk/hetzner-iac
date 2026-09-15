@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
@@ -136,7 +136,7 @@ func TestIssuerSpec_SolvesOverTheClassTheIngressLayerRegisters(t *testing.T) {
 	// which is how it locked the bug in rather than catching it: cert-manager
 	// would create an Ingress for the challenge, no controller would own it,
 	// and the order would sit pending for ever with no error anywhere. It now
-	// reads the class from pkg/platform, which is the only thing that cannot
+	// reads the class from internal/pkg/platform, which is the only thing that cannot
 	// drift from what 40-ingress registers.
 	acme := acmeSection(t, IssuerSpec("ops@example.test", false))
 
@@ -199,7 +199,7 @@ func TestComponents_MetricsServerFollowsTheCertApprover(t *testing.T) {
 
 	// metrics-server scrapes the kubelet over TLS and verifies the
 	// certificate. Talos self-signs that certificate without IP SANs, so
-	// pkg/hetzner turns on rotate-server-certificates and the kubelet asks the
+	// internal/pkg/hetzner turns on rotate-server-certificates and the kubelet asks the
 	// cluster CA instead — but nothing approves those requests on its own.
 	//
 	// Without this ordering metrics-server fails every scrape, never becomes

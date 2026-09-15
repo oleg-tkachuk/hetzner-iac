@@ -3,10 +3,10 @@ package main
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
@@ -56,7 +56,7 @@ func TestValues_ProxyProtocolIsTrustedOnBothEntryPoints(t *testing.T) {
 	t.Parallel()
 
 	// One half of the pair. The load balancer is told to SEND the header in
-	// pkg/hetzner; here each entry point is told which addresses may send one.
+	// internal/pkg/hetzner; here each entry point is told which addresses may send one.
 	// Either half alone fails every request, which is why both are tests.
 	for _, entryPoint := range []string{
 		chartsettings.TraefikEntryPointWeb,
@@ -107,8 +107,8 @@ func TestValues_AskForANodePortRatherThanALoadBalancer(t *testing.T) {
 func TestValues_PinTheNodePortsTheLoadBalancerForwardsTo(t *testing.T) {
 	t.Parallel()
 
-	// The contract with pkg/hetzner, and the reason both sides read
-	// pkg/platform. Unpinned, Kubernetes allocates from 30000-32767 and the
+	// The contract with internal/pkg/hetzner, and the reason both sides read
+	// internal/pkg/platform. Unpinned, Kubernetes allocates from 30000-32767 and the
 	// load balancer health-checks a port nothing listens on — every target
 	// unhealthy, with nothing else in the cluster looking wrong.
 	for entryPoint, want := range map[string]int{

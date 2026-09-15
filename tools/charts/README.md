@@ -1,6 +1,6 @@
 # charts
 
-Reports on the chart pins in [pkg/charts](../../pkg/charts): what is pinned,
+Reports on the chart pins in [internal/pkg/charts](../../internal/pkg/charts): what is pinned,
 what upstream has moved past, whether each pin still renders the workloads
 expected of it, and whether the `AppVersion` it ships is the one intended.
 

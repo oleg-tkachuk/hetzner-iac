@@ -256,14 +256,14 @@ func TestCI_ClassifiesDocumentationAsInert(t *testing.T) {
 		// Code, and every other input a check reads. The taskfiles, the
 		// manifests, the topology and these workflows are all asserted
 		// against by the Go suite, which is why none of them may be inert.
-		"pkg/layer/runner.go":                  false,
-		"go.mod":                               false,
-		"go.sum":                               false,
-		".golangci.yaml":                       false,
-		"pkg/values/loki.yaml.tmpl":            false,
-		"Taskfile.yaml":                        false,
-		"tasks/platform.task.yaml":             false,
-		"layers/20-network-policy/Pulumi.yaml": false,
+		"internal/pkg/layer/runner.go":                   false,
+		"go.mod":                                         false,
+		"go.sum":                                         false,
+		".golangci.yaml":                                 false,
+		"internal/pkg/values/loki.yaml.tmpl":             false,
+		"Taskfile.yaml":                                  false,
+		"tasks/platform.task.yaml":                       false,
+		"layers/20-network-policy/Pulumi.yaml":           false,
 		"layers/20-network-policy/manifests/10-dns.yaml": false,
 		"infra/cluster/cluster.example.yaml":             false,
 		".github/workflows/ci.yaml":                      false,

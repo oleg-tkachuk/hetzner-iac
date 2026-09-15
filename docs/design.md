@@ -117,13 +117,13 @@ reads it today. Uniform rather than "name the ones that matter", because who
 reads an output changes: `ingressIp` is read by a person now and by whatever
 writes DNS records later, and a rename at that point is a rename in two
 languages. It also makes the published set greppable —
-`grep Output pkg/clusterref layers` is the whole list.
+`grep Output internal/pkg/clusterref layers` is the whole list.
 
 Two tests hold it, and they catch different halves.
 `TestLayers_ExportOnlyNamedOutputs` refuses an export written as a literal.
 `TestOutputs_ReadByShellAreDeclaredInGo` takes every name a taskfile reads and
 requires a constant to publish it, which catches a rename on either side.
-`pkg/clusterref` additionally pins each constant's value, and
+`internal/pkg/clusterref` additionally pins each constant's value, and
 `TestOutputNames_ArePinnedWithoutException` counts the pins against the
 constants, because that list had gone stale by three.
 
@@ -184,7 +184,7 @@ reaches both.
 reviewable in a diff before it exists and reproducible from a clone. The
 template for it is
 [cluster.example.yaml](../infra/cluster/cluster.example.yaml). It is
-sparse — anything omitted keeps the default in `pkg/hetzner` — and it is
+sparse — anything omitted keeps the default in `internal/pkg/hetzner` — and it is
 validated against the same code the Pulumi program runs, so the check cannot
 drift from the thing it checks.
 
@@ -291,7 +291,7 @@ node has first, and on Hetzner that is the public one — where the perimeter
 firewall opens tcp/6443 and tcp/50000 and nothing else, so the members cannot
 reach each other's tcp/2380. Measured on the first three-member cluster built
 here: two members, one of them a learner for ever, and the third never
-joining. `pkg/hetzner.BuildEtcdPatch` pins it, in a document applied to
+joining. `internal/pkg/hetzner.BuildEtcdPatch` pins it, in a document applied to
 control planes only — Talos refuses the section on a worker, which
 `task cluster:machine-config:check` says out loud.
 
@@ -385,7 +385,7 @@ is already running, the path is `task cluster:destroy` and a fresh
 
 ## Every chart version is pinned in one place
 
-`pkg/charts` is the registry; floating tags are rejected by validation rather
+`internal/pkg/charts` is the registry; floating tags are rejected by validation rather
 than by convention. `task charts:outdated` compares each pin against its
 upstream repository, and Renovate opens one pull request per chart — see
 [ci.md](ci.md#chart-upgrades-arrive-as-pull-requests).
@@ -553,14 +553,14 @@ What they have caught, none of which would have failed a `pulumi up`:
 - `machine.network.hostname`, which Talos rejects outright.
 - A Talos version pinned ahead of what the provider's generator knows.
 
-The first is why [pkg/chartsettings](../pkg/chartsettings) exists: the handful
+The first is why [internal/pkg/chartsettings](../internal/pkg/chartsettings) exists: the handful
 of values whose misspelling fails silently are constants there, and
 `render-check` asserts the **effect** each one has on the rendered chart rather
 than that the key was set.
 
 ## What a run prints
 
-One vocabulary, printed from two places: [pkg/pulumilog](../pkg/pulumilog) in
+One vocabulary, printed from two places: [internal/pkg/pulumilog](../internal/pkg/pulumilog) in
 the layers and the taskfiles' own lines, both borrowed from the
 [taskfiles](https://github.com/oleg-tkachuk/taskfiles) library so that `task`
 and `pulumi up` read as one tool.

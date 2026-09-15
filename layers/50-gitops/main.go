@@ -8,9 +8,9 @@
 package main
 
 import (
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -46,7 +46,7 @@ const ArgoCDTimeoutSeconds = 900
 
 // Components are what this layer deploys. One of them, so the table buys
 // ordering nothing needs — what it buys here is the enumeration: layertest
-// asserts the chart is pinned and that pkg/workloads knows what it produces.
+// asserts the chart is pinned and that internal/pkg/workloads knows what it produces.
 var Components = layer.Components{
 	{
 		Chart:          Chart,
@@ -97,7 +97,7 @@ func main() {
 	})
 }
 
-// ArgoCDData is what pkg/values/argo-cd.yaml.tmpl renders with.
+// ArgoCDData is what internal/pkg/values/argo-cd.yaml.tmpl renders with.
 //
 // An empty domain installs Argo CD without an Ingress, which is the right
 // shape before DNS exists: the UI is then reachable with `kubectl port-forward`

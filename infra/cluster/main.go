@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/pulumilog"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilog"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
@@ -94,7 +94,7 @@ func program(ctx *pulumi.Context) error {
 // reading this file as text, which cannot tell podCidr from nodeSubnet once
 // both are strings — and a layer reads the value, not the name.
 //
-// Output names come from pkg/clusterref, the same constants every layer reads
+// Output names come from internal/pkg/clusterref, the same constants every layer reads
 // them back with. A rename is then a compile error in both halves rather than
 // a missing key at apply time.
 func exports(topology *hetzner.Topology, cluster *hetzner.Cluster, token pulumi.StringInput) map[string]pulumi.Input {
@@ -159,7 +159,7 @@ func exports(topology *hetzner.Topology, cluster *hetzner.Cluster, token pulumi.
 //
 // It travels the channel that already carries the cluster-admin kubeconfig and
 // the talosconfig, both strictly more powerful than an API token, so this
-// widens nothing. GetSecret marks it, and the typed accessors in pkg/clusterref
+// widens nothing. GetSecret marks it, and the typed accessors in internal/pkg/clusterref
 // keep it marked.
 //
 // Total on purpose: empty rather than absent. A conditionally exported output

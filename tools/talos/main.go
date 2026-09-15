@@ -1,6 +1,6 @@
 // Command talos checks the machine-config patches against Talos itself.
 //
-// The unit tests in pkg/hetzner prove the patches contain what was intended.
+// The unit tests in internal/pkg/hetzner prove the patches contain what was intended.
 // They cannot prove Talos accepts them — and Talos is strict in ways that are
 // not guessable. This generates a baseline configuration for the pinned
 // version, applies the patches this repository produces, and runs
@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 )
 
 const clusterEndpoint = "https://10.0.1.2:6443"
@@ -215,7 +215,7 @@ func generate(ctx context.Context, workDir string, topology *hetzner.Topology) e
 	}
 
 	// #nosec G204,G702 -- the only non-literal arguments are the cluster name
-	// and the Talos version, both of which pkg/hetzner validated before this
+	// and the Talos version, both of which internal/pkg/hetzner validated before this
 	// ran: the name against DNS-1123, the version against vX.Y.Z. Nothing
 	// reaches a shell.
 	if output, err := exec.CommandContext(ctx, "talosctl", args...).CombinedOutput(); err != nil {

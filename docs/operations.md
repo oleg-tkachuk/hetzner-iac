@@ -51,7 +51,7 @@ the node's own UUID, which survives one, so the disks unlock with no operator
 The `hcloud:` tasks are the shared library's
 [`hcloud` module](https://github.com/oleg-tkachuk/taskfiles/blob/main/hcloud/README.md),
 not this repository's own. They act on every server of the cluster at once,
-selected by the `cluster=<name>` label that `pkg/hetzner` stamps — the label is
+selected by the `cluster=<name>` label that `internal/pkg/hetzner` stamps — the label is
 why they are safe on a shared project and why they work unchanged on three
 control planes.
 

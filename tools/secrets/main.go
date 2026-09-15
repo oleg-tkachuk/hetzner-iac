@@ -25,7 +25,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 
 	"golang.org/x/term"
 )

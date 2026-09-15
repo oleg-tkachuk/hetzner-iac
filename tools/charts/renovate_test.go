@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +54,7 @@ func TestRenovatePatternMatchesEveryChart(t *testing.T) {
 	pattern, err := regexp.Compile(manager.MatchStrings[0])
 	require.NoError(t, err, "the configured pattern must be a valid regular expression")
 
-	registry, err := os.ReadFile(filepath.Join(root, "pkg", "charts", "registry.go"))
+	registry, err := os.ReadFile(filepath.Join(root, "internal", "pkg", "charts", "registry.go"))
 	require.NoError(t, err)
 
 	found := map[string]struct{ repo, version string }{}
@@ -103,7 +103,7 @@ func TestRenovateWatchesTheRegistryFile(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &config))
 
 	assert.Equal(t,
-		[]string{"/^pkg/charts/registry\\.go$/"},
+		[]string{"/^internal/pkg/charts/registry\\.go$/"},
 		chartManager(t, config).ManagerFilePatterns)
 }
 

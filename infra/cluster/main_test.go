@@ -5,8 +5,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -43,7 +43,7 @@ func exampleTopology(t *testing.T) *hetzner.Topology {
 }
 
 // fakeCluster stands in for what hetzner.NewCluster returns. The component
-// itself is tested in pkg/hetzner; what is under test here is which of its
+// itself is tested in internal/pkg/hetzner; what is under test here is which of its
 // outputs reaches which name in the contract.
 func fakeCluster() *hetzner.Cluster {
 	return &hetzner.Cluster{
@@ -69,7 +69,7 @@ func resolve(t *testing.T, value pulumi.Input) any {
 }
 
 // TestExports_CoverEveryDeclaredOutput is the contract check that used to be a
-// text search in pkg/clusterref: it could see the names this file mentions,
+// text search in internal/pkg/clusterref: it could see the names this file mentions,
 // and nothing more.
 func TestExports_CoverEveryDeclaredOutput(t *testing.T) {
 	t.Parallel()
@@ -168,7 +168,7 @@ func withConfig(t *testing.T, cfg map[string]string, f func(*pulumi.Context) err
 // gate exists to abolish.
 //
 // The warning that goes with it is not asserted here: a Pulumi context does
-// not capture diagnostics. pkg/pulumilog tests the line it produces.
+// not capture diagnostics. internal/pkg/pulumilog tests the line it produces.
 func TestClusterToken_IsExportedEmptyWhenStackConfigHasNone(t *testing.T) {
 	withConfig(t, map[string]string{}, func(ctx *pulumi.Context) error {
 		token := clusterToken(ctx)

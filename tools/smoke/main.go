@@ -1,7 +1,7 @@
 // Command smoke asks whether a cluster this repository built can actually run
 // a workload, and exits non-zero when it cannot.
 //
-// A thin shell around pkg/clustersmoke: the judgements and the client-go calls
+// A thin shell around internal/pkg/clustersmoke: the judgements and the client-go calls
 // live there, where they are tested. What is here is argument handling and the
 // report's shape on a terminal.
 //
@@ -19,8 +19,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/clustersmoke"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clustersmoke"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
 // defaultKubeconfig is what `task cluster:kubeconfig` writes and what the e2e

@@ -20,7 +20,7 @@ on a three-node cluster whose hcloud CSI controller was in CrashLoopBackOff:
 every resource created, every pod Running, and no volume obtainable. Nothing
 said so, because nothing asked for one.
 
-A thin shell around [pkg/clustersmoke](../../pkg/clustersmoke), where the
+A thin shell around [internal/pkg/clustersmoke](../../internal/pkg/clustersmoke), where the
 judgements and the client-go calls live and are tested. What is here is
 argument handling and the report's shape.
 
