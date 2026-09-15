@@ -118,10 +118,11 @@ type Effect struct {
 	Why string
 }
 
-// HcloudCSIProbeLocation is the location the render check renders with. A real
-// Hetzner location, because the value is passed through to an env var
-// verbatim and a placeholder would prove the same thing less clearly.
-const HcloudCSIProbeLocation = "hel1"
+// HcloudCSIProbeLocation is the location the render check renders with.
+// platform.ProbeLocation rather than a literal: the value is passed through
+// to an env var verbatim, so it has to be a location the schema and the
+// topology validator both accept.
+const HcloudCSIProbeLocation = platform.ProbeLocation
 
 // ProxyProtocolProbeCIDR is the range the render check renders with. It is a
 // documentation range rather than this platform's node subnet, which is a

@@ -9,6 +9,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
@@ -54,7 +55,7 @@ func (m *mocks) NewResource(args pulumi.MockResourceArgs) (string, resource.Prop
 				resource.PropertyKey(clusterref.OutputPodCIDR):           resource.NewStringProperty("10.244.0.0/16"),
 				resource.PropertyKey(clusterref.OutputServiceCIDR):       resource.NewStringProperty("10.96.0.0/12"),
 				resource.PropertyKey(clusterref.OutputClusterName):       resource.NewStringProperty("platform-prod"),
-				resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty("hel1"),
+				resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty(platform.ProbeLocation),
 				resource.PropertyKey(clusterref.OutputHcloudToken):       resource.NewStringProperty("token"),
 				resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
 			}),
