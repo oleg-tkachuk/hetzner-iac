@@ -9,7 +9,7 @@ vars:
   # The git form is the default because someone who clones this repository has
   # no sibling checkout. Working on the library itself:
   #   TASKLIB: '../taskfiles/%s'
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v6.0.0'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.0.0'
 
   PROJECT_NAME: hetzner-iac
   ROOT: { sh: pwd }
@@ -303,9 +303,24 @@ tasks:
   scan:
     desc: "Every scanner CI runs — needs gitleaks, gosec, trivy and checkov installed"
     cmds:
-      # The same tasks .github/workflows/security.yaml calls, so a green run
-      # here is a green run there.
-      - task: security:all
+      # Named one by one, and NOT the module's composite, for two reasons that
+      # both came out of the v7.0.0 bump.
+      #
+      # It was broken. The include excludes `dockerfile` — deliberately, see
+      # the comment there — and a task removed by `excludes` is not skipped
+      # inside a composite, it is missing. So the aggregate died with
+      # `Task "security:dockerfile" does not exist`, on v6.0.0 too, and
+      # nothing noticed because CI calls the scans as separate jobs and never
+      # this task.
+      #
+      # And it was inaccurate. The composite also runs `lint`, which CI does
+      # not: golangci-lint runs there through its own action in the Go lint
+      # job. The list below is what the workflows actually call — which is the
+      # only thing that makes the claim above true.
+      - task: security:secrets
+      - task: security:vuln
+      - task: security:trivy
+      - task: security:gosec
       - task: checkov
 
   checkov:

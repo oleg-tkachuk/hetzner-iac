@@ -166,7 +166,7 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 
 | Task | Does |
 |------|------|
-| `task security:all` | secrets, filesystem, Go vuln, lint and SAST — what `task scan` runs |
+| `task security:scan` | the module's own aggregate: secrets, filesystem, Go vuln, lint and SAST. `task scan` runs the four CI runs instead, not this |
 | `task security:secrets` | gitleaks over the whole history |
 | `task security:trivy` | vulnerable dependencies and secrets, plus IaC misconfig |
 | `task security:gosec` | insecure patterns the compiler is happy with |
