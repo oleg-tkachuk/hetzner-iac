@@ -56,47 +56,47 @@ someone runs once, in an emergency, and gets a confusing failure from.
 
 | Task | Does |
 |------|------|
-| `task up` | cluster, then every layer in dependency order; asks twice |
-| `task plan` | preview the cluster and every layer; change nothing |
-| `task destroy` | destroy everything: every layer, then the cluster. Asks first, and says what survives |
 | `task build` | compile every program into `bin/` |
-| `task verify` | everything checkable without a cluster — needs helm, talosctl, docker and lychee |
-| `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
+| `task clean` | remove build output: `bin/` and the layer binaries under `.cache` |
+| `task destroy` | destroy everything: every layer, then the cluster. Asks first, and says what survives |
+| `task docs:links` | do the documentation's own links point at files and headings that exist? — needs lychee |
 | `task e2e` | verify a running cluster; read-only |
 | `task fmt` | format and tidy |
 | `task fmt-check` | fail if `gofmt -s` would change anything; the library's gate, and what CI runs |
-| `task docs:links` | do the documentation's own links point at files and headings that exist? — needs lychee |
-| `task clean` | remove build output: `bin/` and the layer binaries under `.cache` |
+| `task plan` | preview the cluster and every layer; change nothing |
+| `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
+| `task up` | cluster, then every layer in dependency order; asks twice |
+| `task verify` | everything checkable without a cluster — needs helm, talosctl, docker and lychee |
 
 ## Cluster
 
 | Task | Does |
 |------|------|
-| `task cluster:image:bake` | bake the Talos snapshot named by the topology, per version **and** architecture; idempotent |
-| `task cluster:init` | create the Pulumi stack for this environment |
-| `task cluster:token` | store the Hetzner token in the stack, encrypted; prompts, or reads stdin |
-| `task cluster:plan` | show what applying would change |
 | `task cluster:apply` | provision or converge the cluster; asks first |
 | `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA, which is protected |
-| `task cluster:secrets:destroy` | delete the cluster CA as well; unrecoverable |
-| `task cluster:kubeconfig` | write `./kubeconfig` |
-| `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer |
-| `task cluster:kubeconfig:add` | add this cluster to `~/.kube/config`, so a plain `kubectl` reaches it |
-| `task cluster:talosconfig` | write `./talosconfig` |
-| `task cluster:outputs` | stack outputs, secrets redacted |
-| `task cluster:nodes` | list nodes |
-| `task cluster:status` | nodes, then anything not Running |
-| `task cluster:hubble` | print recent pod flows through Hubble; `last=<n>` to widen |
-| `task cluster:machine-config:check` | Talos accepts the machine-config patches |
 | `task cluster:encryption:check` | the system volumes are really encrypted, not just configured to be |
-| `task cluster:orphans` | Hetzner resources nothing claims, with or without a live cluster; read-only |
-| `task cluster:stop` | bring the cluster down cleanly through Talos; the instances keep existing |
-| `task cluster:reboot` | reboot the nodes through Talos; they come back by themselves |
-| `task cluster:etcd:snapshot` | snapshot etcd into `.backups/` |
-| `task cluster:secrets:export` | print the Talos secrets bundle — pipe it into a password store |
 | `task cluster:etcd:restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
-| `task cluster:upgrade:talos` | upgrade Talos, one node at a time |
+| `task cluster:etcd:snapshot` | snapshot etcd into `.backups/` |
+| `task cluster:hubble` | print recent pod flows through Hubble; `last=<n>` to widen |
+| `task cluster:image:bake` | bake the Talos snapshot named by the topology, per version **and** architecture; idempotent |
+| `task cluster:init` | create the Pulumi stack for this environment |
+| `task cluster:kubeconfig` | write `./kubeconfig` |
+| `task cluster:kubeconfig:add` | add this cluster to `~/.kube/config`, so a plain `kubectl` reaches it |
+| `task cluster:machine-config:check` | Talos accepts the machine-config patches |
+| `task cluster:nodes` | list nodes |
+| `task cluster:orphans` | Hetzner resources nothing claims, with or without a live cluster; read-only |
+| `task cluster:outputs` | stack outputs, secrets redacted |
+| `task cluster:plan` | show what applying would change |
+| `task cluster:reboot` | reboot the nodes through Talos; they come back by themselves |
+| `task cluster:secrets:destroy` | delete the cluster CA as well; unrecoverable |
+| `task cluster:secrets:export` | print the Talos secrets bundle — pipe it into a password store |
+| `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer |
+| `task cluster:status` | nodes, then anything not Running |
+| `task cluster:stop` | bring the cluster down cleanly through Talos; the instances keep existing |
+| `task cluster:talosconfig` | write `./talosconfig` |
+| `task cluster:token` | store the Hetzner token in the stack, encrypted; prompts, or reads stdin |
 | `task cluster:upgrade:k8s` | upgrade Kubernetes in place |
+| `task cluster:upgrade:talos` | upgrade Talos, one node at a time |
 
 ### Policy
 
@@ -116,69 +116,69 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 
 | Task | Does |
 |------|------|
-| `task hcloud:servers` | power state of every server in this cluster; read-only |
-| `task hcloud:poweron` | power the instances on |
-| `task hcloud:shutdown` | ACPI shutdown — the power button, which Talos acts on |
+| `task hcloud:console` | VNC console on one node, `HCLOUD_SERVER=<name>`; the only way to watch a node that will not boot |
 | `task hcloud:poweroff` | cut power, for when Talos cannot answer |
+| `task hcloud:poweron` | power the instances on |
 | `task hcloud:reboot` | ACPI reboot — for a kernel that lives when apid does not |
 | `task hcloud:reset` | hard reset: a power cut and a start in one |
-| `task hcloud:console` | VNC console on one node, `HCLOUD_SERVER=<name>`; the only way to watch a node that will not boot |
+| `task hcloud:servers` | power state of every server in this cluster; read-only |
+| `task hcloud:shutdown` | ACPI shutdown — the power button, which Talos acts on |
 
 ## Layers
 
 | Task | Does |
 |------|------|
-| `task platform:init` | create every layer's stack and point it at the cluster |
-| `task platform:plan layer=10-node-platform` | preview one layer, or `layer=all` for every one in order |
+| `task helm:list` | every Helm release on the cluster |
 | `task platform:apply layer=10-node-platform` | apply one layer, or `layer=all` in dependency order; asks first |
 | `task platform:destroy layer=50-gitops` | destroy one layer, or `layer=all` in reverse; asks first |
-| `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
-| `task platform:outputs layer=50-gitops` | one layer's stack outputs, or `layer=all` |
-| `task platform:status` | which layers are deployed, and how large |
+| `task platform:init` | create every layer's stack and point it at the cluster |
 | `task platform:layers` | the layer order; CI derives its matrix from this |
-| `task helm:list` | every Helm release on the cluster |
+| `task platform:outputs layer=50-gitops` | one layer's stack outputs, or `layer=all` |
+| `task platform:plan layer=10-node-platform` | preview one layer, or `layer=all` for every one in order |
+| `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
+| `task platform:status` | which layers are deployed, and how large |
 
 ## Charts
 
 | Task | Does |
 |------|------|
+| `task charts:appversions` | each `AppVersion` is what the pinned chart ships |
 | `task charts:list` | every pinned chart |
 | `task charts:outdated` | each pin against the latest upstream chart |
-| `task charts:validate` | pins are exact versions, not floating tags |
-| `task charts:appversions` | each `AppVersion` is what the pinned chart ships |
 | `task charts:render-check` | the charts still produce the workloads and honour the values |
+| `task charts:validate` | pins are exact versions, not floating tags |
 
 ## Code
 
 | Task | Does |
 |------|------|
+| `task go:compile` | type-check without writing a binary |
+| `task go:deps:outdated` / `task go:deps:update` | dependency reports and bumps |
+| `task go:fmt:check` | fail if `gofmt -s` would change anything; what `task fmt-check` runs |
+| `task go:fmt` / `task go:tidy` | format; tidy the module |
+| `task go:lint` | golangci-lint |
 | `task go:test` | the unit suite |
 | `task go:test:coverage` | unit suite with an HTML coverage report |
 | `task go:test:tagged:compile` | type-check the `e2e` suite, which the default run never compiles |
-| `task go:lint` | golangci-lint |
 | `task go:vuln` | govulncheck |
-| `task go:compile` | type-check without writing a binary |
-| `task go:fmt` / `task go:tidy` | format; tidy the module |
-| `task go:fmt:check` | fail if `gofmt -s` would change anything; what `task fmt-check` runs |
-| `task go:deps:outdated` / `task go:deps:update` | dependency reports and bumps |
 
 ## Security
 
 | Task | Does |
 |------|------|
+| `task checkov` | hardening rules over the manifests and workflows this repository ships |
+| `task security:gosec` | insecure patterns the compiler is happy with |
 | `task security:scan` | the module's own aggregate: secrets, filesystem, Go vuln, lint and SAST. `task scan` runs the four CI runs instead, not this |
 | `task security:secrets` | gitleaks over the whole history |
 | `task security:trivy` | vulnerable dependencies and secrets, plus IaC misconfig |
-| `task security:gosec` | insecure patterns the compiler is happy with |
-| `task checkov` | hardening rules over the manifests and workflows this repository ships |
 | `task security:vuln` / `task security:lint` | govulncheck and golangci-lint across every module |
 
 ## Testing
 
 | Task | Does |
 |------|------|
-| `task go:test` | the unit suite |
 | `task e2e` | verify a running cluster; read-only, needs `./kubeconfig` |
+| `task go:test` | the unit suite |
 
 What each suite proves, and why e2e does not run in CI:
 [ci.md](ci.md#what-the-suites-prove).

@@ -88,15 +88,15 @@ first.
 
 | Task | Answers |
 |------|---------|
-| `task cluster:status` | are the nodes Ready, and is anything not Running |
 | `task cluster:encryption:check` | are the system volumes really encrypted, or only configured to be |
-| `task cluster:orphans` | is anything being billed that nothing claims |
-| `task cluster:machine-config:check` | does Talos accept the machine-config patches |
 | `task cluster:hubble` | what is the cluster's traffic, as flows |
+| `task cluster:machine-config:check` | does Talos accept the machine-config patches |
+| `task cluster:orphans` | is anything being billed that nothing claims |
+| `task cluster:status` | are the nodes Ready, and is anything not Running |
 
 Two of them exist because the failure they catch is silent.
 
-`encryption-check` compares the configuration with the disk. Talos encrypts a
+`encryption:check` compares the configuration with the disk. Talos encrypts a
 system volume only when the partition is empty, so applying the VolumeConfig
 to a node that already exists is accepted, reports nothing, and leaves the
 disk in plaintext. The probe's answer is the evidence: `luks` on an encrypted
@@ -186,11 +186,11 @@ that needs the difference has to build the binary:
 
 | Task | Does |
 |------|------|
-| `task cluster:upgrade:talos` | upgrade Talos, one node at a time; asks first |
-| `task cluster:upgrade:k8s` | upgrade Kubernetes in place; asks first |
+| `task cluster:etcd:restore` | restore etcd from a snapshot; wipes the control plane first, asks first |
 | `task cluster:etcd:snapshot` | snapshot etcd into `.backups/`, read it back, record what it holds |
 | `task cluster:secrets:export` | print the Talos secrets bundle, to pipe into a password store |
-| `task cluster:etcd:restore` | restore etcd from a snapshot; wipes the control plane first, asks first |
+| `task cluster:upgrade:k8s` | upgrade Kubernetes in place; asks first |
+| `task cluster:upgrade:talos` | upgrade Talos, one node at a time; asks first |
 
 Both upgrades are Talos operations and both ask before they start. The Talos
 version comes from the topology, not the task: bump `talos.version`, run
