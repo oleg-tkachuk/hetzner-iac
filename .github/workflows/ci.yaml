@@ -362,6 +362,12 @@ jobs:
           # not in a second copy of them here that drifts from it.
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # No cache. lychee is a Rust binary and this job compiles nothing,
+          # so the shared Go build cache has no reader — and this is the one
+          # job a documentation-only pull request always runs. Measured on the
+          # run before this line existed: 211 seconds of restore, 1 second to
+          # install lychee, 1 second to check every link.
+          cache-mode: "off"
       - name: Install lychee
         env:
           LYCHEE_VERSION: ${{ env.LYCHEE_VERSION }}

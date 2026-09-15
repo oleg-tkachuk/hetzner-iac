@@ -400,6 +400,31 @@ exists". A gate reading an output that does not exist — a rename, a typo —
 evaluates to the empty string and skips the job, which reports as skipped,
 which branch protection accepts. Nothing else would notice.
 
+### What a prose-only pull request does run
+
+Four jobs, and every one of them reads either the changed files or the pull
+request itself:
+
+| Job | Reads |
+|-----|-------|
+| `Changed paths` | the diff, to answer this question |
+| `Commit messages` | the subjects, which every pull request has |
+| `Documentation links` | the markdown — this is the gate such a change exists to face |
+| `Security / Committed secrets` | the whole history, because a credential can be pasted into a README |
+
+The other four scanners take the same answer as a `code` input and skip:
+govulncheck reads the module and the advisory database, trivy reads `go.sum`
+and the manifests, zizmor and actionlint read the workflow files. None of those
+is something a document can change, so running them re-asserts what the
+previous run asserted.
+
+Measured on the run that prompted this: a prose-only pull request cost 331
+seconds across seven jobs, of which 211 were the documentation job restoring a
+Go build cache that lychee — a Rust binary — cannot read. It is four jobs now,
+and `TestWorkflows_RestoreTheGoCacheOnlyWhereSomethingReadsIt` refuses the next
+job that pays for a cache with no reader; five jobs had already been fixed one
+at a time before it existed.
+
 ## What the suites prove
 
 ```bash
