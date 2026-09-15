@@ -56,15 +56,6 @@ func TestEffects_AssertOnOutputNotInput(t *testing.T) {
 	}
 }
 
-func TestKubePrismPort_MatchesTheMachineConfig(t *testing.T) {
-	t.Parallel()
-
-	// The cluster tier enables KubePrism on this port in the Talos machine
-	// config, and the CNI layer points Cilium at it. Two copies of the number
-	// would be two chances to drift; this is the one definition.
-	assert.Equal(t, 7445, chartsettings.KubePrismPort)
-}
-
 func TestCiliumPortEffect_SetsTheHostToo(t *testing.T) {
 	t.Parallel()
 

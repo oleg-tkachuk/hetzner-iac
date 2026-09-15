@@ -107,9 +107,11 @@ func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
 	rendered := ciliumValues(t, 3)
 
 	assert.Equal(t, KubePrismHost, rendered[chartsettings.CiliumK8sServiceHost])
+	// The port itself is held against the machine config by
+	// internal/pkg/hetzner's TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt,
+	// which renders the patch Talos is given. What this asserts is the other
+	// half: that the number reaching Cilium is that same constant.
 	assert.Equal(t, float64(chartsettings.KubePrismPort), rendered[chartsettings.CiliumK8sServicePort])
-	assert.Equal(t, 7445, chartsettings.KubePrismPort,
-		"KubePrism port must match the machine config written by the cluster tier")
 }
 
 func TestCiliumValues_UsesNativeRoutingOverThePodCIDR(t *testing.T) {
