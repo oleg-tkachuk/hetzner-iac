@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -664,4 +665,44 @@ func TestBuildClusterPatch_RefusesATopologyWithNoRange(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ipRange")
+}
+
+// TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt holds the two halves
+// of a contract that had none.
+//
+// Talos listens on this port because this patch enables it; Cilium is pointed
+// at it by layers/10-node-platform. A mismatch fails no apply — Cilium comes
+// up pointing at a port nothing listens on, so there is no service dataplane
+// and every ClusterIP blackholes with nothing saying why.
+//
+// It was 7445 twice: a constant in internal/pkg/chartsettings and a bare
+// literal here, with a comment in the layer claiming they were one value.
+func TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt(t *testing.T) {
+	t.Parallel()
+
+	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+		NodeSubnet:  "10.0.1.0/24",
+		IPRange:     "10.0.0.0/16",
+	})
+	require.NoError(t, err)
+
+	doc := decode(t, patch)
+
+	machine, ok := doc["machine"].(map[string]any)
+	require.True(t, ok, "the patch has no machine section")
+
+	features, ok := machine["features"].(map[string]any)
+	require.True(t, ok, "the patch enables no features")
+
+	prism, ok := features["kubePrism"].(map[string]any)
+	require.True(t, ok, "the patch does not enable KubePrism, which the CNI reaches the API through")
+
+	assert.Equal(t, true, prism["enabled"])
+
+	// float64, because YAML numbers decode as float64 through map[string]any.
+	assert.Equal(t, float64(clusterref.KubePrismPort), prism["port"],
+		"Talos would listen on %v while Cilium is pointed at %d",
+		prism["port"], clusterref.KubePrismPort)
 }
