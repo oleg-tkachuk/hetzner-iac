@@ -12,14 +12,11 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
-	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -99,11 +96,9 @@ func deploy(r *layer.Runner) error {
 	// A provider of its own, because this is the first layer to create
 	// anything in Hetzner rather than in Kubernetes. r.Options carries the
 	// Kubernetes provider, which this must not inherit.
-	hcloudProvider, err := hcloud.NewProvider(r.Ctx, "hcloud", &hcloud.ProviderArgs{
-		Token: r.Cluster.HcloudToken,
-	})
+	hcloudProvider, err := hetzner.NewProvider(r.Ctx, r.Cluster.HcloudToken)
 	if err != nil {
-		return fmt.Errorf("hcloud provider: %w", err)
+		return err
 	}
 
 	balancer, err := hetzner.NewIngressLoadBalancer(r.Ctx, "ingress", hetzner.IngressLoadBalancerArgs{

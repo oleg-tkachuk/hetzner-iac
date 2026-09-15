@@ -27,7 +27,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 
-	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -59,11 +58,9 @@ func deploy(r *layer.Runner) error {
 	// This layer's own provider: it creates Hetzner resources, not Kubernetes
 	// ones, so it must not inherit r.Options — which carries the Kubernetes
 	// provider.
-	provider, err := hcloud.NewProvider(r.Ctx, "hcloud", &hcloud.ProviderArgs{
-		Token: r.Cluster.HcloudToken,
-	})
+	provider, err := hetzner.NewProvider(r.Ctx, r.Cluster.HcloudToken)
 	if err != nil {
-		return fmt.Errorf("hcloud provider: %w", err)
+		return err
 	}
 
 	// Generated rather than configured, and that is the point of doing this in
