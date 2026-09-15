@@ -32,6 +32,37 @@
 # control plane to bound a cost that requests already bound by scheduling.
 
 controller:
+  # THE CONTROLLER IS TOLD ITS LOCATION, NOT LEFT TO FIND IT.
+  #
+  # The chart's own words for the empty default: "If set the controller could
+  # run anywhere. If left empty the controller needs to run on a hcloud node."
+  # What that means in the driver is internal/app.GetServerLocation, and the
+  # env var below is the FIRST thing it reads — set, and it returns
+  # immediately; unset, and startup becomes: probe the metadata service at
+  # 169.254.169.254, then look the node up by name through api.hetzner.cloud.
+  #
+  # Three reasons not to do that at startup:
+  #
+  #   - The API call needs DNS, and the CSI controller resolves through
+  #     CoreDNS. The CCM, which calls the same API, sets `dnsPolicy: Default`
+  #     and uses the node's resolvers instead — so the CSI controller is the
+  #     one component in this layer whose start depends on cluster DNS being
+  #     up, seconds after the CNI it also depends on was installed.
+  #   - Its liveness probe allows 20 seconds (initialDelaySeconds 10, then
+  #     failureThreshold 5 at periodSeconds 2). A slow lookup is a restart,
+  #     and a restart loop is what was observed on the three-node cluster:
+  #     CrashLoopBackOff with nothing logged after the driver's start line,
+  #     which is exactly where the location lookup sits.
+  #   - The chart's scheduling hint for all this is `preferred`, not
+  #     `required`, so nothing guarantees the node it lands on is one where
+  #     discovery works.
+  #
+  # The location is not a secret and not a guess: the cluster tier publishes
+  # it, layer 60 already reads the same output for the Storage Box, and
+  # chartsettings.HcloudCSIDefaultLocationKey names the key both this template
+  # and its test use.
+  hcloudVolumeDefaultLocation: {{ .Location }}
+
   resources:
     hcloudCSIDriver:
       requests:

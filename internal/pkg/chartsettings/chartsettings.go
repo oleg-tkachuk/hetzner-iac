@@ -33,6 +33,18 @@ const (
 	CiliumK8sServicePort       = "k8sServicePort"
 )
 
+// HcloudCSIDefaultLocation is the key that tells the CSI controller which
+// location to create volumes in.
+//
+// A setting that fails silently, which is why it is here: left empty, the
+// chart is still valid and the controller instead discovers its location at
+// startup — through the metadata service and an api.hetzner.cloud lookup that
+// needs CoreDNS — inside the twenty seconds its liveness probe allows. That
+// produced a CrashLoopBackOff on the three-node cluster with nothing logged
+// past the driver's start line. The template explains it at length; this is
+// the one spelling both it and the render check use.
+const HcloudCSIDefaultLocation = "hcloudVolumeDefaultLocation"
+
 // KubePrismPort is the node-local API load balancer Talos enables in the
 // cluster tier's machine config, and the port Cilium is pointed at. The two
 // are a pair: change one without the other and the CNI cannot reach the API
@@ -106,6 +118,11 @@ type Effect struct {
 	Why string
 }
 
+// HcloudCSIProbeLocation is the location the render check renders with. A real
+// Hetzner location, because the value is passed through to an env var
+// verbatim and a placeholder would prove the same thing less clearly.
+const HcloudCSIProbeLocation = "hel1"
+
 // ProxyProtocolProbeCIDR is the range the render check renders with. It is a
 // documentation range rather than this platform's node subnet, which is a
 // per-environment value the check has no business knowing: what is being
@@ -128,6 +145,14 @@ var Effects = []Effect{
 		},
 		Expect: `value: "` + strconv.Itoa(KubePrismPort) + `"`,
 		Why:    "Cilium reaches the API through KubePrism on the node; a wrong port ties it to one control-plane node's life",
+	},
+	{
+		Chart: "hcloud-csi", Release: "hcloud-csi", Namespace: "kube-system",
+		Set:    []string{HcloudCSIDefaultLocation + "=" + HcloudCSIProbeLocation},
+		Expect: `value: "` + HcloudCSIProbeLocation + `"`,
+		Why: "left empty the controller discovers its location at startup, through the metadata " +
+			"service and an api.hetzner.cloud lookup that needs CoreDNS, inside the twenty seconds " +
+			"its liveness probe allows — a CrashLoopBackOff with nothing logged past its start line",
 	},
 	{
 		Chart: "traefik", Release: "traefik", Namespace: "traefik",

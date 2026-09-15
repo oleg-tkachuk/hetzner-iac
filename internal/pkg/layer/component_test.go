@@ -220,7 +220,7 @@ func TestDeploy_RendersTheTemplateEvenWithNoValues(t *testing.T) {
 	m := newMocks()
 
 	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
-		_, err := runner.Deploy(layer.Components{{Chart: "hcloud-csi"}})
+		_, err := runner.Deploy(layer.Components{{Chart: "external-secrets"}})
 
 		return err
 	}))
@@ -276,12 +276,12 @@ func TestMustRelease_ReturnsTheReleaseWhenItIsThere(t *testing.T) {
 	m := newMocks()
 
 	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
-		deployed, err := runner.Deploy(layer.Components{{Chart: "hcloud-csi"}})
+		deployed, err := runner.Deploy(layer.Components{{Chart: "external-secrets"}})
 		if err != nil {
 			return err
 		}
 
-		release, err := deployed.MustRelease("hcloud-csi")
+		release, err := deployed.MustRelease("external-secrets")
 		require.NoError(t, err)
 		require.NotNil(t, release)
 
