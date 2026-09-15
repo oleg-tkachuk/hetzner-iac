@@ -294,9 +294,9 @@ func apiEndpointAddress(
 		HealthCheck: &hcloud.LoadBalancerServiceHealthCheckArgs{
 			Protocol: pulumi.String("tcp"),
 			Port:     pulumi.Int(PortKubeAPI),
-			Interval: pulumi.Int(10),
-			Timeout:  pulumi.Int(5),
-			Retries:  pulumi.Int(3),
+			Interval: pulumi.Int(healthCheckInterval),
+			Timeout:  pulumi.Int(healthCheckTimeout),
+			Retries:  pulumi.Int(healthCheckRetries),
 		},
 	}, opts...); err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer service: %w", err)
