@@ -39,14 +39,19 @@ import (
 // state, and read back by whatever uploads a snapshot.
 const PasswordLength = 48
 
-// Stack outputs. Named because a consumer — `task cluster:etcd:snapshot`
-// today, an in-cluster job later — reads them by name, and a rename that only
+// Stack outputs. Named because a consumer — `task cluster:etcd:upload` today,
+// an in-cluster job later — reads them by name, and a rename that only
 // happened here would be a consumer reading nothing.
+//
+// TestBackupOutputs_AreTheNamesTheUploadTaskReads holds them equal to the
+// names the task greps out of `pulumi stack output`, because that consumer is
+// a shell script and cannot import a constant.
 const (
-	OutputHost      = "backupHost"
-	OutputUsername  = "backupUsername"
-	OutputPassword  = "backupPassword"
-	OutputDirectory = "backupDirectory"
+	OutputHost               = "backupHost"
+	OutputUsername           = "backupUsername"
+	OutputPassword           = "backupPassword"
+	OutputDirectory          = "backupDirectory"
+	OutputRepositoryPassword = "backupRepositoryPassword"
 )
 
 // deploy creates the destination and publishes how to reach it.
@@ -85,6 +90,24 @@ func deploy(r *layer.Runner) error {
 		return fmt.Errorf("subaccount password: %w", err)
 	}
 
+	// The restic repository's encryption key, and the reason it is generated
+	// here with the others: restic has no unencrypted mode, so this is a
+	// credential that has to exist, and one an operator would otherwise invent
+	// and keep somewhere.
+	//
+	// It is not interchangeable with the two above. Those open the box; this
+	// one opens what is IN it, and losing it leaves the uploads on the box as
+	// bytes nothing can read. See docs/operations.md — an operator should copy
+	// it out of the stack once, because Pulumi's state then stops being the
+	// only thing standing between the cluster and its backups.
+	resticPassword, err := random.NewRandomPassword(r.Ctx, "restic", &random.RandomPasswordArgs{
+		Length:  pulumi.Int(PasswordLength),
+		Special: pulumi.Bool(false),
+	})
+	if err != nil {
+		return fmt.Errorf("restic repository password: %w", err)
+	}
+
 	box, err := hetzner.NewStorageBox(r.Ctx, "backup", hetzner.StorageBoxArgs{
 		ClusterName:        r.Cluster.ClusterName,
 		Location:           r.Cluster.Location,
@@ -108,6 +131,7 @@ func deploy(r *layer.Runner) error {
 	// state and deliberately not exported: nothing should be using it, and an
 	// output is the thing somebody copies.
 	r.Ctx.Export(OutputPassword, pulumi.ToSecret(snapshotPassword.Result))
+	r.Ctx.Export(OutputRepositoryPassword, pulumi.ToSecret(resticPassword.Result))
 
 	return nil
 }
