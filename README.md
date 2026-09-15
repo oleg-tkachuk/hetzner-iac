@@ -25,8 +25,9 @@ infra/cluster              the only project that talks to the Hetzner API
   └─ exports kubeconfig ──► layers/10-node-platform       Cilium, hcloud CCM + CSI
                             layers/20-network-policy      Cilium network policy (opt-in)
                             layers/30-cluster-services    cert-manager, ESO, metrics-server
-                            layers/40-ingress             Traefik      
+                            layers/40-ingress             Traefik
                             layers/50-gitops              Argo CD
+                            layers/60-backup              Storage Box for etcd snapshots
 ```
 
 ## Contents
@@ -98,7 +99,7 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
 | [talosctl](https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl) | validates the machine config before anything exists; then upgrades, etcd snapshots, clean shutdown |
-| [jq](https://github.com/jqlang/jq) | two JSON field reads in the status tasks |
+| [jq](https://github.com/jqlang/jq) | reads single fields out of `pulumi stack output --json` and `hcloud -o json` |
 
 On macOS, `brew bundle` installs all of it. Read the `talosctl` note in the
 [`Brewfile`](Brewfile) first: Homebrew ships a newer minor than the topology
