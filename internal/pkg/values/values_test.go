@@ -5,6 +5,8 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/stretchr/testify/assert"
@@ -161,4 +163,43 @@ func TestArgoCD_AnUnsetDomainStaysAnEmptyString(t *testing.T) {
 	require.True(t, present, "global.domain must be set, not absent")
 	assert.Equal(t, "", domain,
 		"an unset domain must reach the chart as an empty string, never as null")
+}
+
+// TestProbeData_CarriesThePinnedValuesRatherThanACopy separates the two kinds
+// of field in the probe map.
+//
+// Most of it is deliberately fake — documentation CIDRs, example.com — because
+// the render check only needs the keys to reach the chart's output. Four
+// fields are not: they are the platform's own pinned values, and the check
+// asserts those numbers appear in what the chart renders. A copy of one here
+// keeps a passing check pointed at a value the cluster no longer uses.
+func TestProbeData_CarriesThePinnedValuesRatherThanACopy(t *testing.T) {
+	t.Parallel()
+
+	cilium, err := values.Probe("cilium")
+	require.NoError(t, err)
+
+	cni, ok := cilium.(values.Cilium)
+	require.True(t, ok, "the cilium probe is %T", cilium)
+
+	assert.Equal(t, clusterref.KubePrismPort, cni.APIPort,
+		"the cilium probe renders port %d while Talos listens on %d",
+		cni.APIPort, clusterref.KubePrismPort)
+
+	traefik, err := values.Probe("traefik")
+	require.NoError(t, err)
+
+	ingress, ok := traefik.(values.Traefik)
+	require.True(t, ok, "the traefik probe is %T", traefik)
+
+	assert.Equal(t, platform.IngressNodePortHTTP, ingress.NodePortHTTP)
+	assert.Equal(t, platform.IngressNodePortHTTPS, ingress.NodePortHTTPS)
+
+	csi, err := values.Probe("hcloud-csi")
+	require.NoError(t, err)
+
+	storage, ok := csi.(values.HcloudCSI)
+	require.True(t, ok, "the hcloud-csi probe is %T", csi)
+
+	assert.Equal(t, clusterref.ProbeLocation, storage.Location)
 }
