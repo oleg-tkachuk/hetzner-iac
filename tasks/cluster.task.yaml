@@ -40,8 +40,16 @@ vars:
   _CL_BACKUP_DIR: '{{.ROOT}}/layers/60-backup'
   _CL_BACKUP_OUT_HOST: backupHost
   _CL_BACKUP_OUT_USER: backupUsername
+  # The two `_PASS` vars hold the NAME of an output and not a password: the
+  # values are generated into Pulumi state and reach this task through
+  # `pulumi stack output`. checkov reads each name as a base64 secret, so each
+  # takes a skip — and the directive has to be the line immediately above the
+  # finding. A two-line comment with the directive on the first line is parsed
+  # and then ignored, which reports as skipped and failed at once.
+  # checkov:skip=CKV_SECRET_6: the name of an output, not a password
   _CL_BACKUP_OUT_PASS: backupPassword
   _CL_BACKUP_OUT_DIR: backupDirectory
+  # checkov:skip=CKV_SECRET_6: the name of an output, not a password
   _CL_BACKUP_OUT_REPO_PASS: backupRepositoryPassword
 
   # The Storage Box's SSH port. Not 22: Hetzner runs the extended SSH service
