@@ -84,19 +84,79 @@ type gate struct {
 	} `json:"jobs"`
 }
 
-// ciWorkflow is the workflow whose gate these tests guard.
-const ciWorkflow = "ci.yaml"
+// The two workflows whose gates these tests guard.
+const (
+	ciWorkflow       = "ci.yaml"
+	securityWorkflow = "security.yaml"
+)
 
 func readGate(t *testing.T) gate {
 	t.Helper()
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", ciWorkflow))
+	return readWorkflowGate(t, ciWorkflow)
+}
+
+func readWorkflowGate(t *testing.T, name string) gate {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
 	require.NoError(t, err)
 
 	var parsed gate
 	require.NoError(t, yaml.Unmarshal(raw, &parsed))
 
 	return parsed
+}
+
+// scannersThatAlwaysRun are the jobs in the security workflow with no
+// `inputs.code` guard, each with the reason it is exempt.
+var scannersThatAlwaysRun = map[string]string{
+	"secrets": "a credential can arrive in any kind of file, and gitleaks reads the whole history rather than the diff",
+}
+
+// TestSecurityWorkflow_SkipsWhatAProseChangeCannotAffect holds the scope of
+// the security workflow to what its scanners actually read.
+//
+// Four of the five answer from files a prose change does not touch — the
+// module and the advisory database, go.sum and the manifests, the workflow
+// files twice over — so running them on a documentation-only pull request
+// re-asserts what the previous run asserted, for ten minutes. The fifth reads
+// every file and is exempt above, by name and with its reason.
+//
+// The `!= false` form is the load-bearing part. On a schedule or a manual run
+// there is no workflow_call, `inputs` is empty, and the input reads as null:
+// plain truthiness would skip every scanner on exactly the run this workflow
+// exists for, the one where the advisory database moved and the code did not.
+func TestSecurityWorkflow_SkipsWhatAProseChangeCannotAffect(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflowGate(t, securityWorkflow)
+	require.NotEmpty(t, workflow.Jobs, "%s declares no jobs; this test is checking nothing", securityWorkflow)
+
+	for name, job := range workflow.Jobs {
+		if reason, exempt := scannersThatAlwaysRun[name]; exempt {
+			assert.NotContains(t, job.If, "inputs.code",
+				"%s is listed as always running — %s — and carries an inputs.code guard anyway",
+				name, reason)
+
+			continue
+		}
+
+		assert.Contains(t, job.If, "inputs.code != false",
+			"job %q in %s has no `if: inputs.code != false`, so it runs on a change it "+
+				"cannot be affected by — or, if it must always run, belongs in "+
+				"scannersThatAlwaysRun with the reason", name, securityWorkflow)
+	}
+
+	// The caller has to pass the answer, and the input's default is true — so
+	// a half-finished rename fails safe by running everything, silently. This
+	// is what says it out loud.
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", ciWorkflow))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(raw), "code: ${{ needs.changes.outputs.relevant == 'true' }}",
+		"%s calls the security workflow without passing `code`, so every scanner falls back "+
+			"to the default and a prose change runs all of them", ciWorkflow)
 }
 
 // outputReference finds `needs.<job>.outputs.<name>` in a condition.

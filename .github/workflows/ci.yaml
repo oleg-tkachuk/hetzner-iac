@@ -627,10 +627,12 @@ jobs:
     needs: [changes]
     uses: ./.github/workflows/security.yaml
     with:
-      # Only govulncheck reads this. gitleaks and trivy run either way: a
-      # credential or a misconfiguration can arrive in any kind of file,
-      # documentation included.
-      go-code: ${{ needs.changes.outputs.relevant == 'true' }}
+      # Four of the five scanners read this: govulncheck, trivy, zizmor and
+      # actionlint all answer from files a prose change does not touch — the
+      # module, go.sum, the manifests, the workflows. gitleaks runs either
+      # way, because a credential can arrive in any kind of file and it reads
+      # the whole history rather than the diff.
+      code: ${{ needs.changes.outputs.relevant == 'true' }}
     permissions:
       contents: read
 
