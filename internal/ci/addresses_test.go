@@ -58,7 +58,7 @@ func TestTrackedFiles_NameNoRealAddressOfTheirOwn(t *testing.T) {
 
 	root := filepath.Join("..", "..")
 
-	listed, err := exec.Command("git", "-C", root, "ls-files").Output()
+	listed, err := exec.CommandContext(t.Context(), "git", "-C", root, "ls-files").Output()
 	require.NoError(t, err)
 
 	var documentation []*net.IPNet
