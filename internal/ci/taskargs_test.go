@@ -421,6 +421,20 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 
 	docs = append(docs, records...)
 
+	// The community files too — SECURITY.md and CONTRIBUTING.md live under
+	// .github rather than docs, and are read by people who have never run a
+	// task here.
+	community, err := filepath.Glob(filepath.Join(root, ".github", "*.md"))
+	require.NoError(t, err)
+
+	docs = append(docs, community...)
+
+	// And the Brewfile, which is prose about tasks even though it is not
+	// Markdown. Leaving it out is how `task cluster:config-check` survived in
+	// it — a task that has never existed under that name, in the one file a
+	// new clone reads before anything else works.
+	docs = append(docs, filepath.Join(root, "Brewfile"))
+
 	var checked int
 
 	for _, path := range append(docs, filepath.Join(root, "README.md")) {

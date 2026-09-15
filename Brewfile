@@ -35,21 +35,25 @@ brew "jq"
 
 # Machine-config validation, upgrades, etcd snapshots.
 #
-# That check refuses a talosctl whose minor does not match the topology's
-# talos.version, because a mismatched binary reports conflicts that will not
-# happen. Homebrew currently ships 1.14 while the topology pins v1.13.10, so
-# `brew install talosctl` gives a binary config-check will decline to use.
+# Install this one and keep it. Homebrew carries only the newest talosctl,
+# which is a minor ahead of the topology's talos.version — and
+# `task cluster:machine-config:check` refuses a mismatched minor, because a
+# binary from another minor reports conflicts that will not happen and misses
+# real ones.
 #
-# Install the matching minor instead when you need that check:
+# Both can coexist, and no PATH surgery is needed:
 #
-#   curl -sLo /usr/local/bin/talosctl \
-#     https://github.com/siderolabs/talos/releases/download/v1.13.10/talosctl-darwin-arm64
+#   task cluster:talosctl:install stack=<stack>
 #
-# Left here because every other talosctl use is version-tolerant. The pin is
-# not caution: pulumi-talos v0.8.1 is the newest, and the provider it bridges
-# embeds Talos machinery v1.13.0 — the thing that GENERATES the machine
-# config. `task cluster:config-check` prints the exact curl for the matching
-# version when it refuses.
+# writes the pinned version into bin/talosctl, which that check prefers over
+# PATH. The version comes from the topology and the platform from uname, so it
+# stays right on Linux and after the pin moves. This note used to carry a curl
+# with v1.13.10 and darwin-arm64 written into it, which was neither.
+#
+# Every other talosctl use here is version-tolerant, which is why brew's newest
+# is fine on PATH. The pin is not caution: pulumi-talos v0.8.1 is the newest
+# release, and the provider it bridges embeds Talos machinery v1.13.0 — the
+# thing that GENERATES the machine config.
 brew "talosctl"
 
 # --- Optional: only the tasks that name them ---------------------------------
