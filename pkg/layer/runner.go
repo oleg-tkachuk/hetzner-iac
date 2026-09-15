@@ -144,6 +144,19 @@ func Run(fn func(*Runner) error) {
 	})
 }
 
+// RunComponents is Run for a layer whose whole body is its component set.
+//
+// Two layers wrote the same four-line closure around r.Deploy; a layer that
+// only deploys its set now says so in one line, and one that does more keeps
+// using Run.
+func RunComponents(components Components) {
+	Run(func(r *Runner) error {
+		_, err := r.Deploy(components)
+
+		return err
+	})
+}
+
 // banner names the cluster this layer is about to change.
 //
 // Resolved through ApplyT because the name is an output of another stack: it

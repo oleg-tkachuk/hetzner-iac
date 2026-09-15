@@ -66,11 +66,7 @@ var Components = layer.Components{
 }
 
 func main() {
-	layer.Run(func(r *layer.Runner) error {
-		_, err := r.Deploy(Components)
-
-		return err
-	})
+	layer.RunComponents(Components)
 }
 
 // denyRequested reads the switch.
