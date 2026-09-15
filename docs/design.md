@@ -102,6 +102,31 @@ networks before the CNI. `task platform:apply layer=all` walks them in order; th
 order lives once, in the Taskfile, and CI derives its matrix from the same
 list.
 
+## Every stack output is a named constant
+
+A stack output is an interface, and half its consumers are not Go. The tier's
+`kubeconfig` and `talosconfig` are read by `cluster:kubeconfig` and
+`cluster:talosconfig`; the backup layer's five are read by `cluster:etcd:upload`
+through jq. Those callers cannot import a constant, so they spell the name
+again — and when the two spellings drift nothing errors: `pulumi stack output`
+prints nothing, jq answers `null`, and the task reports the layer as unapplied,
+which points the operator at an apply that will not fix it.
+
+So every export in every project names a constant, whether or not a machine
+reads it today. Uniform rather than "name the ones that matter", because who
+reads an output changes: `ingressIp` is read by a person now and by whatever
+writes DNS records later, and a rename at that point is a rename in two
+languages. It also makes the published set greppable —
+`grep Output pkg/clusterref layers` is the whole list.
+
+Two tests hold it, and they catch different halves.
+`TestLayers_ExportOnlyNamedOutputs` refuses an export written as a literal.
+`TestOutputs_ReadByShellAreDeclaredInGo` takes every name a taskfile reads and
+requires a constant to publish it, which catches a rename on either side.
+`pkg/clusterref` additionally pins each constant's value, and
+`TestOutputNames_ArePinnedWithoutException` counts the pins against the
+constants, because that list had gone stale by three.
+
 ## What Pulumi owns, and what it deliberately does not
 
 The `pulumi-hcloud` provider offers 32 resource types. This repository uses
