@@ -22,7 +22,11 @@ const (
 	RoleControlPlane = "control-plane"
 	RoleWorker       = "worker"
 
-	managedByValue = "hetzner-iac"
+	// ManagedBy is the value LabelManagedBy carries: this repository made the
+	// resource. Exported because tools/orphans reads it to tell a resource
+	// Pulumi owns from one something else created — the two load balancers
+	// here have no CCM label and are not orphans.
+	ManagedBy = "hetzner-iac"
 )
 
 // ResourceLabels builds the label set for a cluster-scoped resource. extra
@@ -31,7 +35,7 @@ const (
 func ResourceLabels(cluster string, extra map[string]string) map[string]string {
 	labels := map[string]string{
 		LabelCluster:   cluster,
-		LabelManagedBy: managedByValue,
+		LabelManagedBy: ManagedBy,
 	}
 
 	for key, value := range extra {

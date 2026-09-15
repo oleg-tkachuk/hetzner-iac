@@ -79,7 +79,7 @@ func NewIngressLoadBalancer(
 ) (*IngressLoadBalancer, error) {
 	labels := pulumi.StringMap{
 		LabelCluster:   args.ClusterName,
-		LabelManagedBy: pulumi.String(managedByValue),
+		LabelManagedBy: pulumi.String(ManagedBy),
 	}
 
 	loadBalancer, err := hcloud.NewLoadBalancer(ctx, name, &hcloud.LoadBalancerArgs{

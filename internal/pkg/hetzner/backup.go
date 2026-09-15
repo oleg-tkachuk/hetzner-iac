@@ -106,7 +106,7 @@ func NewStorageBox(
 ) (*StorageBox, error) {
 	labels := pulumi.StringMap{
 		LabelCluster:   args.ClusterName,
-		LabelManagedBy: pulumi.String(managedByValue),
+		LabelManagedBy: pulumi.String(ManagedBy),
 	}
 
 	box, err := hcloud.NewStorageBox(ctx, name, &hcloud.StorageBoxArgs{
