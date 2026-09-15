@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	helm "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/helm/v3"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -88,22 +89,25 @@ type Component struct {
 	// reader has to keep.
 	After []string
 
-	// Values builds the chart values as Pulumi inputs. Kept for a component
-	// that genuinely needs to thread an unresolved output into a map;
-	// everything in this repository uses ValuesYAML instead.
+	// StaticValues is this chart's template data when nothing has to be
+	// resolved at run time. Nil is a legitimate value: four of the templates
+	// take no data and exist to set resource limits the chart's own defaults
+	// leave off.
 	//
-	// Nil means the chart's own defaults, which is what a values-free
-	// component wants — restating a default is a diff that renders identically.
-	Values func(*Runner) pulumi.Map
+	// The chart key is not repeated here. It is Chart, and the template is
+	// named after it — which is the point of the field: it used to be a
+	// closure calling values.Static("cert-manager", nil) beside
+	// Chart: "cert-manager", so the key was spelled twice per component with
+	// nothing comparing the two.
+	StaticValues any
 
-	// ValuesYAML renders this chart's template from pkg/values. A function
-	// rather than a string because the values read stack config and the
-	// cluster tier's outputs, both of which exist only at run time.
+	// ValuesFrom resolves the cluster tier's outputs, or stack config, into
+	// the template's data. For a template that cannot be rendered until a
+	// StackReference has resolved.
 	//
-	// The error is returned rather than logged: without it a failed render
-	// installed the chart on its own defaults, which is the outcome the
-	// templates exist to prevent.
-	ValuesYAML func(*Runner) (pulumi.AssetOrArchiveArrayInput, error)
+	// Set this or StaticValues, never both; order refuses a component that
+	// sets both rather than picking one silently.
+	ValuesFrom func(*Runner) pulumi.Output
 
 	// SkipCRDs leaves custom resource definitions alone.
 	SkipCRDs bool
@@ -130,6 +134,22 @@ func (d Deployed) Release(name string) (*helm.Release, bool) {
 	release, ok := d[name].(*helm.Release)
 
 	return release, ok
+}
+
+// MustRelease is Release for the caller that cannot continue without it —
+// a layer exporting the release's readiness, which is every caller so far.
+//
+// The two that existed wrote the same four lines with their own wording of
+// the error. A component absent from Deployed either declined to create
+// anything or is not in the set at all, and both are programming errors in
+// the layer rather than states to handle.
+func (d Deployed) MustRelease(name string) (*helm.Release, error) {
+	release, ok := d.Release(name)
+	if !ok {
+		return nil, fmt.Errorf("%s was not deployed as a Helm release", name)
+	}
+
+	return release, nil
 }
 
 // Deploy creates every component in dependency order.
@@ -165,30 +185,38 @@ func (r *Runner) create(component Component, dependencies []pulumi.Resource) (pu
 		return component.Create(r, dependencies)
 	}
 
-	var values pulumi.Map
-	if component.Values != nil {
-		values = component.Values(r)
-	}
-
-	var rendered pulumi.AssetOrArchiveArrayInput
-
-	if component.ValuesYAML != nil {
-		yaml, err := component.ValuesYAML(r)
-		if err != nil {
-			return nil, fmt.Errorf("values for %s: %w", component.Key(), err)
-		}
-
-		rendered = yaml
+	rendered, err := render(r, component)
+	if err != nil {
+		return nil, err
 	}
 
 	return r.Release(ReleaseArgs{
 		Chart:          component.Chart,
 		Name:           component.Release,
-		Values:         values,
 		ValuesYAML:     rendered,
 		TimeoutSeconds: component.TimeoutSeconds,
 		SkipCRDs:       component.SkipCRDs,
 	}, DependsOn(dependencies)...)
+}
+
+// render turns a chart component's values into the file Helm reads.
+//
+// Unconditionally, and that is the invariant worth having: every chart in
+// pkg/charts has exactly one template in pkg/values — eight and eight — so a
+// chart component with no values is a chart installing on its own defaults,
+// which is the outcome the templates exist to prevent. It used to be possible
+// to express by leaving one field nil.
+func render(r *Runner, component Component) (pulumi.AssetOrArchiveArrayInput, error) {
+	if component.ValuesFrom != nil {
+		return values.Asset(component.Chart, component.ValuesFrom(r)), nil
+	}
+
+	rendered, err := values.Static(component.Chart, component.StaticValues)
+	if err != nil {
+		return nil, fmt.Errorf("values for %s: %w", component.Key(), err)
+	}
+
+	return rendered, nil
 }
 
 // DependsOn turns a Create component's dependencies into resource options.
@@ -256,6 +284,10 @@ func order(components Components) (Components, error) {
 			return nil, fmt.Errorf("component %q has both a chart and a Create function", component.Key())
 		case component.Key() == "":
 			return nil, fmt.Errorf("a component built with Create has no Name")
+		case component.StaticValues != nil && component.ValuesFrom != nil:
+			return nil, fmt.Errorf(
+				"component %q sets both StaticValues and ValuesFrom; one template takes one of them",
+				component.Key())
 		}
 
 		key := component.Key()
