@@ -220,9 +220,12 @@ func ExternalAddresses(services []LoadBalancerState, nodes []NodeState) (Result,
 	}
 
 	// An address on its own is not reachability, and this is the half that was
-	// missing. Measured: the load balancer came up on
-	// [redacted] with its services on 80 and 443 and ZERO targets, because
-	// every node in a control-plane-only cluster carries the exclusion label.
+	// missing. Measured: the load balancer came up with an address, its
+	// services on 80 and 443, and ZERO targets, because every node in a
+	// control-plane-only cluster carries the exclusion label. The address
+	// itself is left out on purpose — it was this project's own, it is not
+	// reservable so it means nothing after a rebuild, and the claim does not
+	// rest on it.
 	// The old check passed on it. The cloud controller manager said so in its
 	// own log and nothing here read it:
 	//

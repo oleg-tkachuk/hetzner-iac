@@ -36,7 +36,7 @@ func TestParseVersion(t *testing.T) {
 func TestParseVersion_Rejects(t *testing.T) {
 	t.Parallel()
 
-	for _, in := range []string{"", "1.2", "1", "latest", "1.2.x", "a.b.c", "1.2.3.4", "-1.2.3"} {
+	for _, in := range []string{"", "1.2", "1", "latest", "1.2.x", "a.b.c", "192.0.2.1", "-1.2.3"} {
 		t.Run(in, func(t *testing.T) {
 			t.Parallel()
 
