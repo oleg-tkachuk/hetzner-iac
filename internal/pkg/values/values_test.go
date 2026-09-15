@@ -104,6 +104,31 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 		assert.Contains(t, traefik, key,
 			"the traefik template no longer spells %q the way the render check asserts it", key)
 	}
+
+	// The render check proves the CHART honours this key; it renders with its
+	// own --set and would pass whether or not any template sets it. This is
+	// the other half: that the template actually does.
+	csi, err := values.Source("hcloud-csi")
+	require.NoError(t, err)
+
+	assert.Contains(t, csi, chartsettings.HcloudCSIDefaultLocation,
+		"the hcloud-csi template no longer sets %q, so the controller is back to discovering "+
+			"its location at startup — the CrashLoopBackOff this was written for",
+		chartsettings.HcloudCSIDefaultLocation)
+}
+
+// TestHcloudCSI_LocationIsRenderedNotLeftEmpty is the value's own failure mode:
+// an empty string is valid YAML and a valid chart value, and it puts the
+// controller straight back on the discovery path.
+func TestHcloudCSI_LocationIsRenderedNotLeftEmpty(t *testing.T) {
+	t.Parallel()
+
+	rendered, err := values.Render("hcloud-csi", values.HcloudCSI{Location: "fsn1"})
+	require.NoError(t, err)
+
+	assert.Contains(t, rendered, chartsettings.HcloudCSIDefaultLocation+": fsn1")
+	assert.NotContains(t, rendered, chartsettings.HcloudCSIDefaultLocation+": \n",
+		"an empty location renders the key with no value, which the chart reads as unset")
 }
 
 func TestArgoCD_AnUnsetDomainStaysAnEmptyString(t *testing.T) {

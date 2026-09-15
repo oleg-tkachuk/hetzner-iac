@@ -52,6 +52,14 @@ type CCM struct {
 	SecretName string
 }
 
+// HcloudCSI is internal/pkg/values/hcloud-csi.yaml.tmpl.
+type HcloudCSI struct {
+	// Location is the cluster's Hetzner location, told to the controller
+	// rather than discovered by it. See the template for what discovery
+	// costs.
+	Location string
+}
+
 // MetricsServer is internal/pkg/values/metrics-server.yaml.tmpl.
 type MetricsServer struct {
 	// AddressTypes pins kubelet address resolution to the node's internal
@@ -97,9 +105,10 @@ var probes = map[string]any{
 	"metrics-server":   MetricsServer{AddressTypes: "--kubelet-preferred-address-types=InternalIP", Replicas: 2},
 	"cert-manager":     nil,
 	"external-secrets": nil,
-	// Static, like the two above: the chart's resources are measured numbers
-	// rather than anything a cluster supplies.
-	"hcloud-csi": nil,
+	// A real location, because the value's whole purpose is to be there: empty
+	// leaves the controller discovering its own location at startup, which the
+	// template explains at length.
+	"hcloud-csi": HcloudCSI{Location: "hel1"},
 	// A domain on purpose: the Ingress block is conditional, and rendering
 	// without one would leave the branch that publishes the UI unchecked.
 	"argo-cd": ArgoCD{
