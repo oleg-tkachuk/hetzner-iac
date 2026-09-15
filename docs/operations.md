@@ -89,9 +89,9 @@ first.
 | Task | Answers |
 |------|---------|
 | `task cluster:status` | are the nodes Ready, and is anything not Running |
-| `task cluster:encryption-check` | are the system volumes really encrypted, or only configured to be |
+| `task cluster:encryption:check` | are the system volumes really encrypted, or only configured to be |
 | `task cluster:orphans` | is anything being billed that nothing claims |
-| `task cluster:config-check` | does Talos accept the machine-config patches |
+| `task cluster:machine-config:check` | does Talos accept the machine-config patches |
 | `task cluster:hubble` | what is the cluster's traffic, as flows |
 
 Two of them exist because the failure they catch is silent.
@@ -186,15 +186,15 @@ that needs the difference has to build the binary:
 
 | Task | Does |
 |------|------|
-| `task cluster:upgrade-talos` | upgrade Talos, one node at a time; asks first |
-| `task cluster:upgrade-k8s` | upgrade Kubernetes in place; asks first |
-| `task cluster:etcd-snapshot` | snapshot etcd into `.backups/`, read it back, record what it holds |
-| `task cluster:secrets-export` | print the Talos secrets bundle, to pipe into a password store |
-| `task cluster:etcd-restore` | restore etcd from a snapshot; wipes the control plane first, asks first |
+| `task cluster:upgrade:talos` | upgrade Talos, one node at a time; asks first |
+| `task cluster:upgrade:k8s` | upgrade Kubernetes in place; asks first |
+| `task cluster:etcd:snapshot` | snapshot etcd into `.backups/`, read it back, record what it holds |
+| `task cluster:secrets:export` | print the Talos secrets bundle, to pipe into a password store |
+| `task cluster:etcd:restore` | restore etcd from a snapshot; wipes the control plane first, asks first |
 
 Both upgrades are Talos operations and both ask before they start. The Talos
 version comes from the topology, not the task: bump `talos.version`, run
-`task cluster:image-bake`, then upgrade — the image selector keys off the
+`task cluster:image:bake`, then upgrade — the image selector keys off the
 version label, so a bump without a bake fails at plan time rather than
 halfway.
 
@@ -204,7 +204,7 @@ field on the image. The bake asks about both, so a project holding an x86
 snapshot and a topology asking for `arm` bakes a second one instead of
 reporting the first as good enough. It did the latter until this was fixed, and
 the pair of steps then pointed at each other: the bake said "already present"
-and apply said "run `task cluster:image-bake`".
+and apply said "run `task cluster:image:bake`".
 
 The bake also runs in the topology's `placement.location`, not
 `hcloud-upload-image`'s default of `fsn1`. It works by creating a real server,
@@ -225,18 +225,18 @@ The bundle exists in exactly one place — Pulumi's state — where `Protect`
 stops a destroy from taking it. That is not a second copy, and losing access
 to the state backend loses the cluster's root of trust with it.
 
-    task cluster:secrets-export stack=dev | pass insert -m hetzner/dev/talos-secrets
+    task cluster:secrets:export stack=dev | pass insert -m hetzner/dev/talos-secrets
 
 It prints to stdout and nothing else, and refuses a terminal: the one thing
 worse than having no copy of a certificate authority is having one in
 scrollback. Store it where the Hetzner token already lives.
 
 Re-export it only if the bundle is ever regenerated, which nothing but
-`task cluster:destroy-secrets` does.
+`task cluster:secrets:destroy` does.
 
 ### Restoring
 
-    task cluster:etcd-restore stack=dev snapshot=.backups/etcd-<stamp>.db
+    task cluster:etcd:restore stack=dev snapshot=.backups/etcd-<stamp>.db
 
 This is the procedure Talos documents, with nothing on top: wipe the EPHEMERAL
 partition of every control-plane node, wait for each to come back with etcd in
@@ -282,7 +282,7 @@ is written beside it as `<snapshot>.info`:
     read back: …/etcd-20260913T140204Z.db — 45273120 bytes, 3278 revisions, consistent index 6028
 
 A snapshot nobody has opened is a file of the right size, and the moment to
-find that out is not the incident it was taken for. `cluster:etcd-restore`
+find that out is not the incident it was taken for. `cluster:etcd:restore`
 prints that record beside what it reads back itself, so a file that changed
 after it was written shows up before the wipe rather than after.
 
@@ -313,7 +313,7 @@ kubectl merges at read time, so both sets of contexts appear.
 Or add it once:
 
 ```bash
-task cluster:kubeconfig-add stack=dev
+task cluster:kubeconfig:add stack=dev
 ```
 
 Three entries through `kubectl config set-*`, not a merged file. The obvious

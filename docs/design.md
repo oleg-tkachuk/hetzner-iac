@@ -29,7 +29,7 @@ flowchart TB
         net["private network<br/>+ subnet"]
         fw["firewall"]
         pg["placement group"]
-        snap[("Talos snapshot<br/>task cluster:image-bake")]
+        snap[("Talos snapshot<br/>task cluster:image:bake")]
 
         subgraph servers["servers"]
             direction LR
@@ -63,7 +63,7 @@ flowchart TB
     servers ==> talos
     talos ==> k8s
     inglb ==>|"tcp/80, tcp/443 to a pinned nodePort"| servers
-    etcd -.->|"task cluster:etcd-snapshot, over sftp"| box
+    etcd -.->|"task cluster:etcd:snapshot, over sftp"| box
 
     class net,fw,pg,snap,cp,wk,box hetzner
     class apilb,inglb hetzner
@@ -86,7 +86,7 @@ The box outside all three is the one worth staring at. Every certificate in
 the cluster descends from a secrets bundle that exists only in Pulumi's state:
 `Protect` stops a destroy from taking it, which is not the same as a second
 copy existing anywhere. It is also what makes an etcd snapshot restorable at
-all, so `task cluster:secrets-export` writes it somewhere else — see
+all, so `task cluster:secrets:export` writes it somewhere else — see
 [operations.md](operations.md#the-two-halves-of-a-backup).
 
 ## Each layer is its own Pulumi project
@@ -119,7 +119,7 @@ and `AAAA` records, and the Storage Box with its subaccount.
 | Volumes behind a `PersistentVolumeClaim` | the CSI driver | dynamic provisioning is the point; Pulumi owning them means abandoning claims. `cluster:orphans` covers the gap |
 | A load balancer for a workload's `Service` | the CCM | the workload's Service owns it. The *ingress* one moved because the platform owns that one |
 | Objects inside a Helm release | Helm | Pulumi owns the Release. Owning both puts two reconcilers on one object |
-| The Talos snapshot | `task cluster:image-bake` | Hetzner has no image-upload API. `hcloud.Snapshot` takes a `ServerId`, so Pulumi could take the snapshot but not write the disk — the imperative half stays either way |
+| The Talos snapshot | `task cluster:image:bake` | Hetzner has no image-upload API. `hcloud.Snapshot` takes a `ServerId`, so Pulumi could take the snapshot but not write the disk — the imperative half stays either way |
 | A Talos or Kubernetes upgrade | `talosctl` | a procedure with an order, not a desired state |
 | Workloads | Argo CD | that is what the GitOps layer is for |
 
@@ -268,7 +268,7 @@ reach each other's tcp/2380. Measured on the first three-member cluster built
 here: two members, one of them a learner for ever, and the third never
 joining. `pkg/hetzner.BuildEtcdPatch` pins it, in a document applied to
 control planes only — Talos refuses the section on a worker, which
-`task cluster:config-check` says out loud.
+`task cluster:machine-config:check` says out loud.
 
 Verified by turning a member off: the API kept answering through the load
 balancer and Kubernetes kept accepting writes on the remaining two.
@@ -379,7 +379,7 @@ and it did: the first bring-up landed on v1.36.0, new enough that
 control plane never started.
 
 Upgrading Talos means bumping `talos.version` in the topology, re-running
-`task cluster:image-bake`, then `task cluster:upgrade-talos`. Nodes are
+`task cluster:image:bake`, then `task cluster:upgrade:talos`. Nodes are
 upgraded in place and never replaced, which is why the server resource ignores
 changes to its image.
 
@@ -510,7 +510,7 @@ proves nothing about what Helm or Talos will accept:
 |-------|------|
 | `task charts:validate` | the upstream repositories, that every pin is an exact version that resolves |
 | `task charts:render-check` | `helm template`, then the pinned Kubernetes version's own schema |
-| `task cluster:config-check` | `talosctl`, that the machine configuration is one it would apply |
+| `task cluster:machine-config:check` | `talosctl`, that the machine configuration is one it would apply |
 
 `task verify` runs all three. They need `helm`, a `talosctl` matching the
 pinned Talos minor, and a running Docker.

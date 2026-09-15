@@ -70,7 +70,7 @@ tasks:
   # Prerequisite
   # ---------------------------------------------------------------------------
 
-  image-bake:
+  image:bake:
     desc: "Bake the Talos snapshot named by the topology into the hcloud project (idempotent)"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
@@ -90,7 +90,7 @@ tasks:
       # testable and where `jq` and `curl` are not needed at all.
       - go run {{.ROOT}}/tools/image "{{._CL_TOPOLOGY}}" "{{._CL_STACK}}"
 
-  config-check:
+  machine-config:check:
     desc: "Validate the machine-config patches against Talos itself — no cluster needed"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
@@ -213,9 +213,9 @@ tasks:
           pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes --exclude-protected
           printf '\n'
           printf '%s\n' "{{._SKIP}} cluster · secrets · kept — the CA is state, not a billed resource"
-          printf '%s\n' "{{._SKIP}} cluster · secrets · remove it too: task cluster:destroy-secrets stack={{._CL_STACK}}"
+          printf '%s\n' "{{._SKIP}} cluster · secrets · remove it too: task cluster:secrets:destroy stack={{._CL_STACK}}"
 
-  destroy-secrets:
+  secrets:destroy:
     desc: "Destroy the Talos secrets bundle too — the cluster CA. Unrecoverable."
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
@@ -303,7 +303,7 @@ tasks:
           set -euo pipefail
           go run "{{.ROOT}}/tools/smoke" --kubeconfig "{{.ROOT}}/kubeconfig"
 
-  kubeconfig-add:
+  kubeconfig:add:
     desc: "Add this cluster to ~/.kube/config, so a plain kubectl reaches it"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
@@ -494,7 +494,7 @@ tasks:
           go run "{{.ROOT}}/tools/orphans" \
             "{{._CL_STACK}}" "{{.ROOT}}/kubeconfig" "{{._CL_TOPOLOGY}}"
 
-  encryption-check:
+  encryption:check:
     desc: "Are the system volumes actually encrypted? Talos skips encryption on a formatted partition, silently"
     deps: [talosconfig]
     cmds:
@@ -520,7 +520,7 @@ tasks:
 
           for label in {{._CL_ENCRYPTED_VOLUMES}}; do
             # No -n: the talosconfig this task just wrote names its own
-            # endpoint, the same way cluster:etcd-snapshot relies on it.
+            # endpoint, the same way cluster:etcd:snapshot relies on it.
             # Parsing `talosctl config info` for an address would be a second
             # source for something the file already answers.
             probed="$(talosctl get discoveredvolumes -o json \
@@ -552,7 +552,7 @@ tasks:
   # Upgrades and backups
   # ---------------------------------------------------------------------------
 
-  secrets-export:
+  secrets:export:
     desc: "Print the cluster's Talos secrets bundle — pipe it into a password store. Without it an etcd snapshot restores nothing."
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
@@ -564,7 +564,7 @@ tasks:
       # certificate authority in scrollback outlives the session.
       - cmd: go run {{.ROOT}}/tools/secrets "{{._CL_STACK}}"
 
-  etcd-snapshot:
+  etcd:snapshot:
     desc: "Take an etcd snapshot into .backups/, read it back, and record what it holds"
     deps: [talosconfig]
     cmds:
@@ -597,7 +597,7 @@ tasks:
           printf '%s\n' "{{._OK}} cluster · etcd · ${read_back}"
           printf '%s\n' "{{._OK}} cluster · etcd · wrote .backups/etcd-${stamp}.db and its {{._CL_SNAPSHOT_INFO}}"
 
-  etcd-restore:
+  etcd:restore:
     desc: "Restore etcd from a snapshot — wipes every control-plane node first (snapshot=<path>). The other half of a backup."
     deps: [talosconfig]
     preconditions:
@@ -605,11 +605,11 @@ tasks:
         msg: "{{._STACK_USAGE}}"
       - sh: '[ -n "{{.snapshot}}" ]'
         msg: |
-          cluster:etcd-restore needs the snapshot to restore from.
+          cluster:etcd:restore needs the snapshot to restore from.
 
-              task cluster:etcd-restore stack=dev snapshot=.backups/etcd-<stamp>.db
+              task cluster:etcd:restore stack=dev snapshot=.backups/etcd-<stamp>.db
 
-          `task cluster:etcd-snapshot` writes them; ls .backups/ for what exists.
+          `task cluster:etcd:snapshot` writes them; ls .backups/ for what exists.
       - sh: '[ -f "{{.snapshot}}" ]'
         msg: "no snapshot at {{.snapshot}} — ls .backups/ for what exists"
       - sh: command -v talosctl >/dev/null
@@ -623,11 +623,11 @@ tasks:
       # with etcd Preparing, then bootstrap one of them from the snapshot.
       #
       # No --recover-skip-hash-check. That flag is for a snapshot copied out of
-      # /var/lib/etcd by hand, which carries no hash; `cluster:etcd-snapshot`
+      # /var/lib/etcd by hand, which carries no hash; `cluster:etcd:snapshot`
       # takes them through the etcd API, which writes one. Passing it anyway
       # would turn the integrity check off for every restore.
       #
-      # No talosctl version gate either, unlike cluster:config-check. That
+      # No talosctl version gate either, unlike cluster:machine-config:check. That
       # check refuses a mismatched minor because config validation differs
       # between them and reports conflicts that will not happen; reset and
       # bootstrap are plain API calls, and talosctl is supported one minor
@@ -643,7 +643,7 @@ tasks:
           go run "{{.ROOT}}/tools/etcd" verify "{{.snapshot}}"
 
           # What the snapshot said about itself when it was taken, if
-          # cluster:etcd-snapshot wrote it. Shown beside what was just read
+          # cluster:etcd:snapshot wrote it. Shown beside what was just read
           # back, because a difference between the two means the file changed
           # after it was written — and that is worth seeing before the wipe.
           if [ -f "{{.snapshot}}{{._CL_SNAPSHOT_INFO}}" ]; then
@@ -692,7 +692,7 @@ tasks:
           printf '%s\n' "{{._OK}} cluster · etcd-restore · watch it with: task cluster:status stack={{._CL_STACK}}"
           printf '%s\n' "{{._WARN}} cluster · etcd-restore · anything created after the snapshot is gone; re-apply the layers if that includes them"
 
-  upgrade-talos:
+  upgrade:talos:
     desc: "Upgrade Talos on every node. Bump talos.version in the topology first, then re-bake."
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
@@ -712,7 +712,7 @@ tasks:
               --image "ghcr.io/siderolabs/installer:${version}" --wait
           done
 
-  upgrade-k8s:
+  upgrade:k8s:
     desc: "Upgrade Kubernetes in place. Set kubernetes.version in the topology first."
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'

@@ -83,7 +83,7 @@ network:
   routingMode: native
 
 talos:
-  # Bump this and re-run `task cluster:image-bake`. The image selector keys off
+  # Bump this and re-run `task cluster:image:bake`. The image selector keys off
   # the version label, so a bump without a bake fails at plan time with "no
   # available Talos snapshot matches the selector".
   #
@@ -95,13 +95,13 @@ talos:
   # the newest, and terraform-provider-talos v0.11.0 — the one it bridges —
   # requires pkg/machinery v1.13.0. So 1.14 is not a caution, it is blocked.
   # Move this when a newer pulumi-talos carries 1.14 machinery, then install
-  # the matching talosctl and re-run `task cluster:config-check`.
+  # the matching talosctl and re-run `task cluster:machine-config:check`.
   version: v1.13.10
 
   # x86 or arm, and it decides three things at once: which image the factory
   # builds (amd64 or arm64), which server types can boot it, and which types
   # the fields below default to when left out. Switching it means re-running
-  # `task cluster:image-bake` — the snapshot is one architecture, and the bake
+  # `task cluster:image:bake` — the snapshot is one architecture, and the bake
   # now scopes its "already present?" check to this value rather than finding
   # the other architecture's snapshot and doing nothing.
   #
@@ -120,7 +120,7 @@ talos:
   architecture: x86
 
   # Override the snapshot selector. Empty derives
-  # "os=talos,talos-version=<version>" — the labels `task cluster:image-bake`
+  # "os=talos,talos-version=<version>" — the labels `task cluster:image:bake`
   # writes — which is what you want unless a snapshot was baked by hand.
   #
   # Note what is deliberately absent: the architecture. Hetzner records it as a

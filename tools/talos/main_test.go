@@ -76,7 +76,7 @@ func TestIsTopologyFile(t *testing.T) {
 		"cluster.prod.yml":      false,
 		"cluster.prod.old.yaml": false,
 		"Pulumi.yaml":           false,
-		// The committed template counts, so cluster:config-check validates
+		// The committed template counts, so cluster:machine-config:check validates
 		// it against talosctl too — a broken example is found here rather
 		// than by whoever copies it.
 		"cluster.example.yaml": true,

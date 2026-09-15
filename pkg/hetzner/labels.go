@@ -53,7 +53,7 @@ func ClusterSelector(cluster string) string {
 // Labels stamped on the Talos snapshot, and the value of the first.
 //
 // These are a contract between two programs that never call each other:
-// `task cluster:image-bake` writes them, and lookupTalosImage selects on them.
+// `task cluster:image:bake` writes them, and lookupTalosImage selects on them.
 // They were a format string in each — spelled identically by luck — until this
 // file was given the single copy both now build from.
 const (

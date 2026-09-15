@@ -141,7 +141,7 @@ type TalosSpec struct {
 	Architecture string `json:"architecture"`
 	// ImageSelector overrides the label selector used to find the baked Talos
 	// snapshot. Empty derives "os=talos,talos-version=<Version>", which is
-	// what `task cluster:image-bake` writes.
+	// what `task cluster:image:bake` writes.
 	ImageSelector string `json:"imageSelector,omitempty"`
 }
 

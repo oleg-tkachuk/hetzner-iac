@@ -321,7 +321,7 @@ func TestTasks_ThatChangeInfrastructureAskFirst(t *testing.T) {
 // TestSnapshotSidecar_IsSpelledOnce holds the writer and the reader of a
 // snapshot's .info file to one spelling.
 //
-// cluster:etcd-snapshot writes it and cluster:etcd-restore reads it, and a
+// cluster:etcd:snapshot writes it and cluster:etcd:restore reads it, and a
 // mismatch between them is not an error anybody sees: the restore simply
 // stops printing what the snapshot was recorded as containing, which is the
 // one thing that would say the file changed after it was written.
@@ -338,7 +338,7 @@ func TestSnapshotSidecar_IsSpelledOnce(t *testing.T) {
 
 	tasks := tasksIn(string(raw))
 
-	for _, name := range []string{"etcd-snapshot", "etcd-restore"} {
+	for _, name := range []string{"etcd:snapshot", "etcd:restore"} {
 		body, found := tasks[name]
 		require.True(t, found, "no %s task to check", name)
 
@@ -555,7 +555,7 @@ func TestDestroy_AsksAndSaysWhatSurvives(t *testing.T) {
 		// somebody looks for afterwards and does not find.
 		"secrets bundle",
 		"snapshot",
-		"destroy-secrets",
+		"secrets:destroy",
 	} {
 		assert.Contains(t, body, mention,
 			"`destroy` confirms an irreversible teardown without saying what happens to the %s", mention)
@@ -564,10 +564,14 @@ func TestDestroy_AsksAndSaysWhatSurvives(t *testing.T) {
 	// Order is the other half, and getting it wrong is not cosmetic: servers
 	// removed first leave every layer's state describing resources that are
 	// gone.
-	// Matched as task CALLS rather than as substrings. `cluster:destroy` is a
-	// prefix of `cluster:destroy-secrets`, which the prompt names above the
-	// commands — so a plain search finds the wrong occurrence and reports the
-	// order backwards. It did, the first time this test ran.
+	// Matched as task CALLS rather than as substrings, and the reason is worth
+	// keeping even though the collision that caused it is gone: `cluster:destroy`
+	// used to be a prefix of `cluster:destroy-secrets`, which the prompt names
+	// above the commands, so a plain search found the wrong occurrence and
+	// reported the order backwards. It did, the first time this test ran. The
+	// task is `cluster:secrets:destroy` now and no longer collides — but a
+	// prefix search over a file that names tasks in prose is the wrong tool
+	// regardless.
 	layers := strings.Index(body, "- task: platform:destroy")
 	cluster := strings.Index(body, "- task: cluster:destroy\n")
 

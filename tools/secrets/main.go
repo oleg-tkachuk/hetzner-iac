@@ -61,7 +61,7 @@ func run(ctx context.Context, args []string, terminal bool) error {
 
 	if terminal {
 		return fmt.Errorf("%w: pipe it into something that keeps it, for example\n\n"+
-			"  task cluster:secrets-export stack=%s | pass insert -m hetzner/%s/talos-secrets",
+			"  task cluster:secrets:export stack=%s | pass insert -m hetzner/%s/talos-secrets",
 			ErrTerminal, args[0], args[0])
 	}
 

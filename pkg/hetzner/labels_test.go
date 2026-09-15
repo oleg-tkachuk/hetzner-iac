@@ -46,7 +46,7 @@ func TestClusterSelector(t *testing.T) {
 func TestTalosImageSelector(t *testing.T) {
 	t.Parallel()
 
-	// Pinned to the literal, because this is what `cluster:image-bake` stamped
+	// Pinned to the literal, because this is what `cluster:image:bake` stamped
 	// on the snapshot already sitting in the project. Deriving it differently
 	// here would not fail here — it would find no image at plan time, with the
 	// remedy being to re-bake a snapshot that already exists.
