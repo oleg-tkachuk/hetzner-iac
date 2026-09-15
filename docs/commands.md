@@ -72,31 +72,31 @@ someone runs once, in an emergency, and gets a confusing failure from.
 
 | Task | Does |
 |------|------|
-| `task cluster:image-bake` | bake the Talos snapshot named by the topology, per version **and** architecture; idempotent |
+| `task cluster:image:bake` | bake the Talos snapshot named by the topology, per version **and** architecture; idempotent |
 | `task cluster:init` | create the Pulumi stack for this environment |
 | `task cluster:token` | store the Hetzner token in the stack, encrypted; prompts, or reads stdin |
 | `task cluster:plan` | show what applying would change |
 | `task cluster:apply` | provision or converge the cluster; asks first |
 | `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA, which is protected |
-| `task cluster:destroy-secrets` | delete the cluster CA as well; unrecoverable |
+| `task cluster:secrets:destroy` | delete the cluster CA as well; unrecoverable |
 | `task cluster:kubeconfig` | write `./kubeconfig` |
 | `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer |
-| `task cluster:kubeconfig-add` | add this cluster to `~/.kube/config`, so a plain `kubectl` reaches it |
+| `task cluster:kubeconfig:add` | add this cluster to `~/.kube/config`, so a plain `kubectl` reaches it |
 | `task cluster:talosconfig` | write `./talosconfig` |
 | `task cluster:outputs` | stack outputs, secrets redacted |
 | `task cluster:nodes` | list nodes |
 | `task cluster:status` | nodes, then anything not Running |
 | `task cluster:hubble` | print recent pod flows through Hubble; `last=<n>` to widen |
-| `task cluster:config-check` | Talos accepts the machine-config patches |
-| `task cluster:encryption-check` | the system volumes are really encrypted, not just configured to be |
+| `task cluster:machine-config:check` | Talos accepts the machine-config patches |
+| `task cluster:encryption:check` | the system volumes are really encrypted, not just configured to be |
 | `task cluster:orphans` | Hetzner resources nothing claims, with or without a live cluster; read-only |
 | `task cluster:stop` | bring the cluster down cleanly through Talos; the instances keep existing |
 | `task cluster:reboot` | reboot the nodes through Talos; they come back by themselves |
-| `task cluster:etcd-snapshot` | snapshot etcd into `.backups/` |
-| `task cluster:secrets-export` | print the Talos secrets bundle — pipe it into a password store |
-| `task cluster:etcd-restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
-| `task cluster:upgrade-talos` | upgrade Talos, one node at a time |
-| `task cluster:upgrade-k8s` | upgrade Kubernetes in place |
+| `task cluster:etcd:snapshot` | snapshot etcd into `.backups/` |
+| `task cluster:secrets:export` | print the Talos secrets bundle — pipe it into a password store |
+| `task cluster:etcd:restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
+| `task cluster:upgrade:talos` | upgrade Talos, one node at a time |
+| `task cluster:upgrade:k8s` | upgrade Kubernetes in place |
 
 ### Policy
 

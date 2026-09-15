@@ -33,7 +33,7 @@ const (
 // is two copies of the same incantation with two versions of the remedy. Not
 // resolved in a taskfile `env:` stanza either: Task evaluates those BEFORE
 // preconditions, so the precondition holding the remedy could never print —
-// this repository has made that mistake once already, in cluster:image-bake.
+// this repository has made that mistake once already, in cluster:image:bake.
 func Token(ctx context.Context, stack string) (string, error) {
 	// Trimmed, like the value read from the stack below. A token pasted with
 	// a trailing newline authenticates nothing, and the API answers it with a

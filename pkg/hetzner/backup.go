@@ -128,7 +128,7 @@ func NewStorageBox(
 			WebdavEnabled: pulumi.Bool(false),
 			ZfsEnabled:    pulumi.Bool(false),
 			// Reachable from outside Hetzner, because the thing that writes
-			// these today is `task cluster:etcd-snapshot` on the operator's
+			// these today is `task cluster:etcd:snapshot` on the operator's
 			// own machine. Turn it off when an in-cluster job takes that over
 			// — the nodes are inside the network.
 			ReachableExternally: pulumi.Bool(true),

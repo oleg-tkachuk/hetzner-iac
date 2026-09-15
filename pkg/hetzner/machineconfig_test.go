@@ -536,7 +536,7 @@ func TestBuildClusterPatch_CarriesNoEtcdSection(t *testing.T) {
 
 	// The shared patch goes to workers too, and Talos refuses the section
 	// there: `etcd config is only allowed on control plane machines`. Found by
-	// cluster:config-check, which is why etcd has a patch of its own.
+	// cluster:machine-config:check, which is why etcd has a patch of its own.
 	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",

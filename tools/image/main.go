@@ -159,10 +159,10 @@ type hcloudImage struct {
 //	$ … --architecture arm
 //	[]
 //
-// which made `cluster:image-bake` print "snapshot already present — nothing
+// which made `cluster:image:bake` print "snapshot already present — nothing
 // to do" and exit 0, after which `cluster:apply` failed with "no available
 // Talos snapshot matches selector … for architecture arm — run
-// `task cluster:image-bake`". The remedy it named was the command that had
+// `task cluster:image:bake`". The remedy it named was the command that had
 // just refused to run, so the two steps pointed at each other and no Arm
 // image could ever be baked.
 //
@@ -224,7 +224,7 @@ func snapshotMatched(raw []byte) (bool, error) {
 // It used to demand exactly 200, and the factory answers 201 Created — which
 // is correct for a POST that creates a resource, and is what it returns even
 // for a repeat of an identical body, the id being content-addressed. So
-// `cluster:image-bake` could not bake anything at all:
+// `cluster:image:bake` could not bake anything at all:
 //
 //	error: image factory returned 201 Created
 //

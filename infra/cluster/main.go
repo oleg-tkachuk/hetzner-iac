@@ -11,7 +11,7 @@
 //	cp cluster.example.yaml cluster.dev.yaml   # then edit adminCIDRs
 //	pulumi stack init dev
 //	pulumi config set --secret hcloud:token <token>
-//	task cluster:image-bake        # once per Talos version
+//	task cluster:image:bake        # once per Talos version
 //	pulumi up
 package main
 

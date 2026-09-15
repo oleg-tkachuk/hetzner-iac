@@ -89,7 +89,7 @@ tasks:
               #
               # A presence test on a unique token, not positional parsing of
               # YAML: robust to comments and indentation, unlike the grep this
-              # repository already got wrong once in cluster:image-bake.
+              # repository already got wrong once in cluster:image:bake.
               if grep -q 'clusterStackRef' Pulumi.yaml; then
                 pulumi --non-interactive --stack "{{._PL_STACK}}" config set "${project}:clusterStackRef" "$ref"
                 reference=set
