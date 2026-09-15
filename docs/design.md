@@ -63,7 +63,7 @@ flowchart TB
     servers ==> talos
     talos ==> k8s
     inglb ==>|"tcp/80, tcp/443 to a pinned nodePort"| servers
-    etcd -.->|"task cluster:etcd:snapshot, over sftp"| box
+    etcd -.->|"task cluster:etcd:upload — restic over sftp"| box
 
     class net,fw,pg,snap,cp,wk,box hetzner
     class apilb,inglb hetzner

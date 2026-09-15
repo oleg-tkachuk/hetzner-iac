@@ -60,8 +60,13 @@ kubeconfig
 talosconfig
 *.kubeconfig
 
-# etcd snapshots from `task cluster:etcd-snapshot`.
+# etcd snapshots from `task cluster:etcd:snapshot`.
 .backups/
+
+# The host keys `task cluster:etcd:upload` trusts, added by ssh-keyscan under
+# trust_host_key=yes. Local trust in one operator's Storage Box, and it names
+# that box — neither belongs in a public repository.
+.known_hosts
 
 # Stack topologies. Kept local: adminCIDRs is the operator's own egress
 # address, and this repository is public. cluster.example.yaml is the committed

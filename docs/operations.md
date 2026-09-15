@@ -188,6 +188,7 @@ that needs the difference has to build the binary:
 |------|------|
 | `task cluster:etcd:restore` | restore etcd from a snapshot; wipes the control plane first, asks first |
 | `task cluster:etcd:snapshot` | snapshot etcd into `.backups/`, read it back, record what it holds |
+| `task cluster:etcd:upload` | upload a snapshot to the Storage Box with restic; keeps the last ten |
 | `task cluster:secrets:export` | print the Talos secrets bundle, to pipe into a password store |
 | `task cluster:upgrade:k8s` | upgrade Kubernetes in place; asks first |
 | `task cluster:upgrade:talos` | upgrade Talos, one node at a time; asks first |
@@ -233,6 +234,47 @@ scrollback. Store it where the Hetzner token already lives.
 
 Re-export it only if the bundle is ever regenerated, which nothing but
 `task cluster:secrets:destroy` does.
+
+### Uploading a snapshot
+
+`task cluster:etcd:snapshot` leaves the snapshot and its `.info` in `.backups/`
+on the machine that ran it, which is one disk failure from having no backup at
+all. `task cluster:etcd:upload` sends both to the Storage Box that
+`layers/60-backup` creates:
+
+```bash
+task cluster:etcd:upload stack=dev trust_host_key=yes   # first time only
+task cluster:etcd:upload stack=dev
+```
+
+With no `snapshot=`, it takes the newest file in `.backups/`.
+
+restic does the work — upload, deduplication, encryption, retention and
+verification — and rclone is only its transport: restic's own SFTP backend
+speaks key authentication, and the box's credential is a generated password.
+Both are in the `Brewfile`.
+
+Nothing is configured by hand. The host, the login, both passwords and the path
+are stack outputs of `layers/60-backup`, read through
+`pulumi stack output --show-secrets`, and the rclone remote is assembled in the
+command's own environment, so no credential is written to a config file.
+
+The first run needs `trust_host_key=yes`, which reads the box's host key with
+`ssh-keyscan` into a gitignored `.known_hosts` and prints its fingerprints —
+compare them with the ones the Hetzner console shows for the box. Every run
+after that verifies against that file and refuses a key that has changed.
+
+**Copy the repository password out of the stack once.** It encrypts the
+repository, so the uploads are unreadable without it:
+
+```bash
+pulumi -C layers/60-backup -s dev stack output backupRepositoryPassword --show-secrets
+```
+
+The Storage Box carries delete protection, so `task destroy` cannot take it —
+but Pulumi's state is what holds that password, and a lost state leaves the
+uploads on the box as bytes nothing can read. Put it in the same password store
+as `task cluster:secrets:export`, which is the other half a restore needs.
 
 ### Restoring
 

@@ -31,6 +31,50 @@ vars:
   # just silently stops showing what the snapshot was supposed to contain.
   _CL_SNAPSHOT_INFO: '.info'
 
+  # The layer that owns the backup destination, and the five outputs it
+  # publishes. The names are spelled in layers/60-backup/main.go as constants
+  # and here as strings — a shell script cannot import one — so
+  # TestBackupOutputs_AreTheNamesTheUploadTaskReads holds the two equal. A
+  # rename on one side alone is not an error: jq returns null, and the upload
+  # authenticates with an empty password.
+  _CL_BACKUP_DIR: '{{.ROOT}}/layers/60-backup'
+  _CL_BACKUP_OUT_HOST: backupHost
+  _CL_BACKUP_OUT_USER: backupUsername
+  _CL_BACKUP_OUT_PASS: backupPassword
+  _CL_BACKUP_OUT_DIR: backupDirectory
+  _CL_BACKUP_OUT_REPO_PASS: backupRepositoryPassword
+
+  # The Storage Box's SSH port. Not 22: Hetzner runs the extended SSH service
+  # — the one that speaks SFTP — on 23, and the plain service on 22 takes keys
+  # only in RFC4716 format, which OpenSSH does not write.
+  _CL_BACKUP_PORT: "23"
+
+  # The rclone remote's name. It exists only in this command's environment:
+  # every RCLONE_CONFIG_<NAME>_* variable is exported below, so no rclone
+  # config file is written and no credential lands on disk. Lowercase here and
+  # uppercase in the variable names, derived rather than spelled twice.
+  _CL_BACKUP_REMOTE: box
+
+  # The restic repository, inside the subaccount's home. A subdirectory rather
+  # than the home itself, so the box can hold something else later without
+  # restic and that something sharing a directory.
+  _CL_BACKUP_REPO_DIR: restic
+
+  # How many uploads stay on the box. `restic forget --keep-last` counts
+  # SNAPSHOTS and one run uploads one, so this is recovery points rather than
+  # files — and it is restic's own retention, not a listing this repository
+  # sorts and truncates.
+  _CL_BACKUP_KEEP: "10"
+
+  # The known_hosts this upload trusts. Gitignored: it names the operator's own
+  # box, and a host key is local trust rather than a property of the project.
+  #
+  # Strict, and there is no flag that turns it off. The first connection needs
+  # trust_host_key=yes, which runs ssh-keyscan and prints the fingerprints to
+  # compare against the Hetzner console — trust on first use, made explicit and
+  # visible, instead of silently accepting whatever answers on port 23.
+  _CL_BACKUP_KNOWN_HOSTS: '{{.ROOT}}/.known_hosts'
+
   # How long to wait for a node to come back with etcd in Preparing after its
   # EPHEMERAL partition is wiped. A reboot and a volume unlock; generous,
   # because the alternative to waiting is bootstrapping a node that is not
@@ -691,6 +735,195 @@ tasks:
           printf '%s\n' "{{._OK}} cluster · etcd:restore · restored — the node passes through NotReady for about two minutes"
           printf '%s\n' "{{._OK}} cluster · etcd:restore · watch it with: task cluster:status stack={{._CL_STACK}}"
           printf '%s\n' "{{._WARN}} cluster · etcd:restore · anything created after the snapshot is gone; re-apply the layers if that includes them"
+
+  etcd:upload:
+    desc: "Upload an etcd snapshot to the Storage Box with restic (snapshot=<path>, default the newest in .backups/)"
+    # restic does the work: it uploads, deduplicates, encrypts, keeps the last
+    # N and verifies what is there. Nothing here implements any of that.
+    #
+    # rclone is the transport because of a hard constraint, not a preference:
+    # restic's own sftp backend shells out to `ssh` and supports key
+    # authentication only, while the box's credential is a generated password.
+    # The alternative was a key, and hcloud injects those at the BOX level
+    # where changing one replaces the Storage Box — a rotation that destroys
+    # the backup destination, which delete protection would then refuse
+    # halfway. So: rclone speaks SFTP with a password, restic speaks restic.
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v restic >/dev/null
+        msg: "restic not installed — brew bundle, or brew install restic"
+      - sh: command -v rclone >/dev/null
+        msg: |
+          rclone not installed — brew bundle, or brew install rclone.
+
+          It is the transport, not a second backup tool: restic's sftp backend
+          speaks key authentication only, and the box's credential is a
+          password.
+      - sh: command -v jq >/dev/null
+        msg: "jq not installed — brew bundle, or brew install jq"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+
+          # The newest snapshot by default, because the reason to run this is
+          # the one just taken. `ls -t` rather than a sorted glob: the names
+          # carry a UTC stamp, but mtime is what survives a copy.
+          snapshot="{{.snapshot}}"
+          if [ -z "$snapshot" ]; then
+            snapshot="$(ls -t "{{.ROOT}}"/.backups/*.db 2>/dev/null | awk 'NR == 1')"
+          fi
+
+          if [ -z "$snapshot" ] || [ ! -f "$snapshot" ]; then
+            printf '%s\n' "{{._ERR}} cluster · etcd:upload · no snapshot to upload"
+            printf '\n'
+            printf '%s\n' "    task cluster:etcd:snapshot stack={{._CL_STACK}}"
+            printf '\n'
+            printf '%s\n' "writes one into .backups/; pass snapshot=<path> for a particular file."
+            exit 1
+          fi
+
+          # The sidecar travels with it — it is the only record that the bytes
+          # were read back as an etcd database. A warning rather than a
+          # refusal: a recovery point with no note beside it is still a
+          # recovery point, and declining to upload one is the worse failure.
+          #
+          # The pair is carried in the positional parameters rather than one
+          # space-separated string: ROOT comes from `pwd`, so a checkout under
+          # a path with a space would split into two filenames that do not
+          # exist, and restic would back up neither.
+          sidecar="${snapshot}{{._CL_SNAPSHOT_INFO}}"
+          if [ -f "$sidecar" ]; then
+            set -- "$snapshot" "$sidecar"
+          else
+            set -- "$snapshot"
+            printf '%s\n' "{{._WARN}} cluster · etcd:upload · no {{._CL_SNAPSHOT_INFO}} beside it, so nothing records that it was read back"
+          fi
+
+          # The destination comes from the layer that created it. Reading the
+          # stack rather than taking a host= argument is the point: the box,
+          # both passwords and the path are generated, and nothing about them
+          # is ever typed.
+          #
+          # A failure here is not fatal on its own: a stack that was never
+          # created fails exactly like one that was never applied, and the
+          # guidance below is the same for both. Pulumi's own stderr still
+          # reaches the terminal, so a real cause — no credentials, no network
+          # — is not swallowed on the way to that guidance.
+          if ! outputs="$( cd "{{._CL_BACKUP_DIR}}" && \
+            pulumi --non-interactive --stack "{{._CL_STACK}}" stack output --json --show-secrets )"; then
+            outputs=""
+          fi
+
+          # `// ""` covers a missing key; the `|| true` covers no document at
+          # all, which is what the branch above leaves behind.
+          host="$(jq -r '.{{._CL_BACKUP_OUT_HOST}} // ""' <<<"$outputs" || true)"
+          user="$(jq -r '.{{._CL_BACKUP_OUT_USER}} // ""' <<<"$outputs" || true)"
+          pass="$(jq -r '.{{._CL_BACKUP_OUT_PASS}} // ""' <<<"$outputs" || true)"
+          home="$(jq -r '.{{._CL_BACKUP_OUT_DIR}} // ""' <<<"$outputs" || true)"
+          repo_pass="$(jq -r '.{{._CL_BACKUP_OUT_REPO_PASS}} // ""' <<<"$outputs" || true)"
+
+          # One check for all five, naming one command. A missing output means
+          # the layer was never applied, or was applied before it published
+          # this — and the partial cases differ only in which credential is
+          # empty, which is not a distinction worth five messages.
+          if [ -z "$host" ] || [ -z "$user" ] || [ -z "$pass" ] || [ -z "$home" ] || [ -z "$repo_pass" ]; then
+            printf '%s\n' "{{._ERR}} cluster · etcd:upload · stack {{._CL_STACK}} of 60-backup does not publish a destination"
+            printf '\n'
+            printf '%s\n' "    task platform:apply layer=60-backup stack={{._CL_STACK}}"
+            printf '\n'
+            printf '%s\n' "creates the Storage Box and generates its credentials."
+            exit 1
+          fi
+
+          # Host key. ssh-keygen -F answers whether this host is already
+          # trusted; nothing is added without trust_host_key=yes.
+          if ! ssh-keygen -F "[${host}]:{{._CL_BACKUP_PORT}}" -f "{{._CL_BACKUP_KNOWN_HOSTS}}" >/dev/null 2>&1; then
+            if [ "{{.trust_host_key}}" != "yes" ]; then
+              printf '%s\n' "{{._ERR}} cluster · etcd:upload · ${host} is not in {{._CL_BACKUP_KNOWN_HOSTS}}"
+              printf '\n'
+              printf '%s\n' "    task cluster:etcd:upload stack={{._CL_STACK}} trust_host_key=yes"
+              printf '\n'
+              printf '%s\n' "reads the key with ssh-keyscan and prints its fingerprints, which you can"
+              printf '%s\n' "compare against the ones the Hetzner console shows for the box. Until then"
+              printf '%s\n' "this refuses to connect rather than trusting whatever answers on port {{._CL_BACKUP_PORT}}."
+              exit 1
+            fi
+
+            printf '%s\n' "{{._RUN}} cluster · etcd:upload · ${host} → reading the host key"
+            mkdir -p "$(dirname "{{._CL_BACKUP_KNOWN_HOSTS}}")"
+            ssh-keyscan -p "{{._CL_BACKUP_PORT}}" "$host" 2>/dev/null >> "{{._CL_BACKUP_KNOWN_HOSTS}}"
+
+            if ! ssh-keygen -F "[${host}]:{{._CL_BACKUP_PORT}}" -f "{{._CL_BACKUP_KNOWN_HOSTS}}" >/dev/null 2>&1; then
+              printf '%s\n' "{{._ERR}} cluster · etcd:upload · ssh-keyscan got no key from ${host}:{{._CL_BACKUP_PORT}}"
+              exit 1
+            fi
+
+            printf '%s\n' "{{._WARN}} cluster · etcd:upload · trusted on first use — compare these with the Hetzner console:"
+            # -l prints a `# Host … found: line N` before each key; the
+            # fingerprint is the part an operator compares.
+            ssh-keygen -F "[${host}]:{{._CL_BACKUP_PORT}}" -f "{{._CL_BACKUP_KNOWN_HOSTS}}" -l \
+              | awk '!/^#/ { print "    " $0 }'
+          fi
+
+          # The rclone remote, defined entirely in this environment. Uppercase
+          # for the variable names, derived from the one spelling of the remote
+          # so the two cannot drift.
+          remote="{{._CL_BACKUP_REMOTE}}"
+          prefix="RCLONE_CONFIG_$(printf '%s' "$remote" | awk '{print toupper($0)}')"
+
+          export "${prefix}_TYPE=sftp"
+          export "${prefix}_HOST=${host}"
+          export "${prefix}_USER=${user}"
+          export "${prefix}_PORT={{._CL_BACKUP_PORT}}"
+          # Obscured through stdin, not an argument: rclone requires the
+          # obscured form, and an argument would put the box's password in the
+          # process list for every other user on this machine to read.
+          export "${prefix}_PASS=$(printf '%s\n' "$pass" | rclone obscure -)"
+          export "${prefix}_KNOWN_HOSTS_FILE={{._CL_BACKUP_KNOWN_HOSTS}}"
+
+          export RESTIC_REPOSITORY="rclone:${remote}:${home}/{{._CL_BACKUP_REPO_DIR}}"
+          export RESTIC_PASSWORD="$repo_pass"
+
+          # restic groups snapshots by host, and the default is whatever this
+          # machine is called — so two operators uploading the same cluster's
+          # snapshots would produce two groups, and --keep-last would keep the
+          # last N of each. The cluster is the thing being backed up, so it is
+          # the host.
+          cluster="$(go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}")"
+
+          # `cat config` is how you ask whether a repository is there without
+          # init refusing one that already exists.
+          if ! restic cat config >/dev/null 2>&1; then
+            printf '%s\n' "{{._RUN}} cluster · etcd:upload · initialising the restic repository"
+            restic init
+          fi
+
+          printf '%s\n' "{{._RUN}} cluster · etcd:upload · ${snapshot} → ${host}:${home}/{{._CL_BACKUP_REPO_DIR}}"
+          # "$@" is the snapshot and, when it exists, its sidecar — set above.
+          restic backup --host "$cluster" --tag etcd "$@"
+
+          # Scoped to this cluster's etcd snapshots. An unscoped forget in a
+          # repository that later holds something else would apply this
+          # cluster's retention to it.
+          #
+          # --group-by host,tags is load-bearing, not tidiness. The default is
+          # host,PATHS, and every etcd snapshot has a new filename — so each
+          # upload lands in a group of its own, `--keep-last 10` keeps the
+          # latest 10 OF EACH, and nothing is ever removed. Measured: three
+          # uploads under the default, `keep 1 snapshots` printed three times
+          # and three snapshots left. Grouping by tag makes them one series.
+          restic forget --host "$cluster" --tag etcd --group-by host,tags \
+            --keep-last "{{._CL_BACKUP_KEEP}}" --prune
+
+          # The structure, every run. Cheap on a repository of this size, and
+          # it is the difference between having uploads and having backups.
+          restic check
+
+          printf '\n'
+          restic snapshots --host "$cluster" --tag etcd --latest 3
+          printf '\n'
+          printf '%s\n' "{{._OK}} cluster · etcd:upload · uploaded, keeping the last {{._CL_BACKUP_KEEP}}"
 
   upgrade:talos:
     desc: "Upgrade Talos on every node. Bump talos.version in the topology first, then re-bake."
