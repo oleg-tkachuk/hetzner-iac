@@ -22,6 +22,10 @@ import (
 // none of them and nothing said so, which is the same shape as every other
 // drift this repository has fixed today: two halves, and no test comparing
 // them.
+// handBuilt are the layers that create their resources without a
+// layer.Components table, each for a reason its own package comment gives.
+var handBuilt = []string{"60-backup"}
+
 func TestEveryLayer_ChecksItsComponents(t *testing.T) {
 	t.Parallel()
 
@@ -40,10 +44,16 @@ func TestEveryLayer_ChecksItsComponents(t *testing.T) {
 		layer := entry.Name()
 		dir := filepath.Join(root, "layers", layer)
 
-		// A layer that declares no component set has nothing to check: it
-		// builds its resources by hand, which is allowed and is what
-		// 05-object-storage did before it was removed.
 		if !contains(t, dir, "layer.Components{") {
+			// Building the resources by hand is allowed, but only on
+			// purpose. Unnamed, the skip makes a layer that forgot its
+			// table indistinguishable from one that has a reason, and
+			// the check reports green for both.
+			assert.Contains(t, handBuilt, layer,
+				"layers/%s declares no component set and is not named as an exception: "+
+					"either give it a layer.Components table, or say in its package "+
+					"comment why it builds its resources by hand and name it here", layer)
+
 			continue
 		}
 
