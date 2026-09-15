@@ -34,17 +34,14 @@ type ReleaseArgs struct {
 	// Namespace overrides the registry's namespace. Rarely needed.
 	Namespace string
 
-	// Values are the chart values. They are Pulumi inputs, so an output from
-	// another resource — a generated password, the pod CIDR from the cluster
-	// tier — can be threaded in without resolving it first.
-	//
-	// Most charts here supply ValuesYAML instead: a rendered template from
-	// pkg/values, which is the same configuration in the form the charts
-	// document it.
-	Values pulumi.Map
-
-	// ValuesYAML are rendered values files, taking precedence over Values the
-	// way `helm -f` does. Set one or the other, not both.
+	// ValuesYAML are the rendered values files, and the only way to configure
+	// a release here. There was a `Values pulumi.Map` beside this, unused by
+	// anything and kept for a caller that might want to thread an output into
+	// a map — which is the second representation of a document pkg/values
+	// exists to abolish: Helm reads the file, so a Go map is a copy that
+	// drifts. Removing the field makes that unexpressible rather than
+	// discouraged. An unresolved output still reaches the template, through
+	// Component.ValuesFrom.
 	ValuesYAML pulumi.AssetOrArchiveArrayInput
 
 	// TimeoutSeconds overrides the default for a chart that is genuinely slow.
@@ -91,11 +88,6 @@ func (r *Runner) Release(args ReleaseArgs, opts ...pulumi.ResourceOption) (*helm
 		timeout = defaultTimeoutSeconds
 	}
 
-	values := args.Values
-	if values == nil {
-		values = pulumi.Map{}
-	}
-
 	// The pinned chart version is the thing an operator most often wants from
 	// a run and the thing that never appeared in its output: the registry
 	// holds it, the release carries it, and nothing said it out loud.
@@ -110,7 +102,6 @@ func (r *Runner) Release(args ReleaseArgs, opts ...pulumi.ResourceOption) (*helm
 		RepositoryOpts: &helm.RepositoryOptsArgs{
 			Repo: pulumi.String(chart.Repo),
 		},
-		Values:         values,
 		ValueYamlFiles: args.ValuesYAML,
 		// Roll back a failed upgrade rather than leaving a half-applied
 		// release for the next run to inherit.

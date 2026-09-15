@@ -52,16 +52,11 @@ const RecordsPerDomain = 2
 // pkg/workloads knows what it produces.
 var Components = layer.Components{
 	{
-		Chart:      Chart,
-		ValuesYAML: renderValues,
+		Chart: Chart,
+		ValuesFrom: func(r *layer.Runner) pulumi.Output {
+			return IngressData(r.Cluster.NodeSubnet)
+		},
 	},
-}
-
-// renderValues resolves what the template needs, then renders it.
-// Asset renders inside an apply, so a template error reaches the engine as a
-// failed input rather than being returned here — hence the nil.
-func renderValues(r *layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
-	return values.Asset(Chart, IngressData(r.Cluster.NodeSubnet)), nil
 }
 
 // IngressData resolves the cluster tier's outputs into the template's data.

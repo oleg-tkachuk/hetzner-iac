@@ -68,8 +68,7 @@ const MetricsServerReplicas = 2
 // noisier than an absent one.
 var Components = layer.Components{
 	{
-		Chart:      "cert-manager",
-		ValuesYAML: static("cert-manager", nil),
+		Chart: "cert-manager",
 	},
 	{
 		Name:   IssuerName,
@@ -77,8 +76,7 @@ var Components = layer.Components{
 		Create: createClusterIssuer,
 	},
 	{
-		Chart:      "external-secrets",
-		ValuesYAML: static("external-secrets", nil),
+		Chart: "external-secrets",
 	},
 	{
 		// Approves the CSRs the kubelets raise once pkg/hetzner turns on
@@ -94,9 +92,9 @@ var Components = layer.Components{
 		// has one the cluster CA signed. Without this ordering it fails every
 		// scrape and Helm waits out its whole timeout — measured at 611s
 		// before rolling back.
-		Chart:      "metrics-server",
-		After:      []string{CertApproverComponent},
-		ValuesYAML: static("metrics-server", MetricsServerData()),
+		Chart:        "metrics-server",
+		After:        []string{CertApproverComponent},
+		StaticValues: MetricsServerData(),
 	},
 }
 
@@ -152,11 +150,7 @@ func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulum
 }
 
 func main() {
-	layer.Run(func(r *layer.Runner) error {
-		_, err := r.Deploy(Components)
-
-		return err
-	})
+	layer.RunComponents(Components)
 }
 
 // MetricsServerData is the data the metrics-server template renders with.
@@ -164,17 +158,6 @@ func MetricsServerData() values.MetricsServer {
 	return values.MetricsServer{
 		AddressTypes: chartsettings.MetricsServerAddressTypes,
 		Replicas:     MetricsServerReplicas,
-	}
-}
-
-// static renders a template whose values need nothing resolved.
-//
-// It used to log the error and return nil, which installed the chart on its
-// own defaults — the outcome these templates exist to prevent. The error now
-// stops the run.
-func static(chart string, data any) func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
-	return func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
-		return values.Static(chart, data)
 	}
 }
 

@@ -1,10 +1,10 @@
 package layer_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,10 +164,10 @@ func TestDeploy_HandsTheRenderedValuesToTheRelease(t *testing.T) {
 		_, err := runner.Deploy(layer.Components{
 			{
 				Chart: "cilium",
-				ValuesYAML: func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
-					return pulumi.AssetOrArchiveArray{
-						pulumi.NewStringAsset("kubeProxyReplacement: true\n"),
-					}, nil
+				ValuesFrom: func(*layer.Runner) pulumi.Output {
+					return pulumi.All().ApplyT(func([]any) any {
+						return values.Cilium{PodCIDR: "10.244.0.0/16", RoutingMode: "native"}
+					})
 				},
 			},
 		})
@@ -194,9 +194,9 @@ func TestDeploy_AFailedRenderStopsTheRun(t *testing.T) {
 		_, err := runner.Deploy(layer.Components{
 			{
 				Chart: "cilium",
-				ValuesYAML: func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
-					return nil, errors.New("no such field in the data")
-				},
+				// The wrong data shape for this template: the field the
+				// template reads is not on it.
+				StaticValues: struct{ NotAField string }{NotAField: "x"},
 			},
 		})
 
@@ -205,5 +205,89 @@ func TestDeploy_AFailedRenderStopsTheRun(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "values for cilium")
-	assert.Contains(t, err.Error(), "no such field")
+}
+
+// TestDeploy_RendersTheTemplateEvenWithNoValues is the invariant the
+// declarative fields buy.
+//
+// A chart component that named no values used to install on the chart's own
+// defaults — expressible by leaving one field nil, and silent. Every chart in
+// pkg/charts has exactly one template, so there is no such thing here as a
+// release with no values file.
+func TestDeploy_RendersTheTemplateEvenWithNoValues(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	m := newMocks()
+
+	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
+		_, err := runner.Deploy(layer.Components{{Chart: "hcloud-csi"}})
+
+		return err
+	}))
+
+	releases := m.of(releaseType)
+	require.Len(t, releases, 1)
+
+	assert.True(t, releases[0]["valueYamlFiles"].HasValue(),
+		"a component with no values fields still must render its template")
+}
+
+// TestOrder_RefusesBothValuesFields keeps the choice explicit: one template
+// takes one kind of data, and picking silently would install whichever the
+// implementation happened to prefer.
+func TestOrder_RefusesBothValuesFields(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	err := run(t, newMocks(), func(runner *layer.Runner) error {
+		_, err := runner.Deploy(layer.Components{
+			{
+				Chart:        "cilium",
+				StaticValues: values.Cilium{},
+				ValuesFrom: func(*layer.Runner) pulumi.Output {
+					return pulumi.All()
+				},
+			},
+		})
+
+		return err
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "both StaticValues and ValuesFrom")
+}
+
+// TestMustRelease_NamesWhatWasNotDeployed replaces two hand-written error
+// paths that said the same thing in two wordings.
+func TestMustRelease_NamesWhatWasNotDeployed(t *testing.T) {
+	t.Parallel()
+
+	_, err := layer.Deployed{}.MustRelease("argo-cd")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "argo-cd")
+	assert.Contains(t, err.Error(), "not deployed")
+}
+
+// TestMustRelease_ReturnsTheReleaseWhenItIsThere is the other half, and it
+// also pins that a Create component's resource is not mistaken for a release.
+func TestMustRelease_ReturnsTheReleaseWhenItIsThere(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	m := newMocks()
+
+	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
+		deployed, err := runner.Deploy(layer.Components{{Chart: "hcloud-csi"}})
+		if err != nil {
+			return err
+		}
+
+		release, err := deployed.MustRelease("hcloud-csi")
+		require.NoError(t, err)
+		require.NotNil(t, release)
+
+		_, notARelease := deployed.MustRelease("cert-manager")
+		assert.Error(t, notARelease, "a component that is not in the set must not resolve")
+
+		return nil
+	}))
 }
