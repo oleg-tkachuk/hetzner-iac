@@ -21,13 +21,20 @@ name: Security
 on:
   workflow_call:
     inputs:
-      go-code:
+      code:
         description: >
-          Whether the caller's change can affect a Go analysis. The
-          govulncheck job below is the slowest gate in CI — four minutes, of
-          which three and a half are restoring the build cache it needs — and
-          its answer is a function of the module and the advisory database,
-          neither of which a documentation-only change touches.
+          Whether the caller's change can affect what these scanners read.
+          False for a change confined to prose: govulncheck answers from the
+          module and the advisory database, trivy from go.sum and the
+          manifests, zizmor and actionlint from the workflow files — and a
+          documentation-only change touches none of them, so every one of
+          those four would re-assert what the previous run already asserted.
+          Only the secrets job reads every file and stays out of it.
+
+          Defaults to true, so a schedule or a manual run — where there is no
+          workflow_call and `inputs` is empty — runs everything. Guessing
+          wrong the expensive way is a wasted ten minutes; guessing wrong the
+          cheap way is a hole in the gate.
         type: boolean
         required: false
         default: true
@@ -69,6 +76,12 @@ jobs:
   # Every job installs the tool and then calls the SAME task an operator runs
   # locally, so the flags live in one place — the shared task library — rather
   # than being restated here and drifting.
+  #
+  # The only job with no `inputs.code` guard, and deliberately: a credential
+  # can arrive in any kind of file, a README as easily as a Go source, and
+  # gitleaks reads the whole history rather than the diff. Skipping it on a
+  # prose change would be skipping it on exactly the change that pasted a
+  # token into a document.
   secrets:
     name: Committed secrets
     runs-on: ubuntu-latest
@@ -118,7 +131,7 @@ jobs:
     # and the input reads as null. Plain truthiness would skip the very run
     # this workflow exists for — the one where the advisory database moved and
     # the code did not.
-    if: inputs.go-code != false
+    if: inputs.code != false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -149,6 +162,9 @@ jobs:
 
   filesystem:
     name: Dependencies and filesystem
+    # trivy reads go.sum and the manifests. `!= false` for the same reason as
+    # the job above: an empty `inputs` on a schedule must run, not skip.
+    if: inputs.code != false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -176,6 +192,9 @@ jobs:
 
   workflows:
     name: Workflow permissions
+    # zizmor reads .github/workflows only, which a prose change does not
+    # touch — .github/**/*.md included.
+    if: inputs.code != false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -206,6 +225,8 @@ jobs:
   # again blocks every open pull request.
   syntax:
     name: Workflow syntax
+    # actionlint reads the same files zizmor does.
+    if: inputs.code != false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
