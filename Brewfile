@@ -57,6 +57,13 @@ brew "talosctl"
 # Each of those tasks says what to install rather than skipping itself
 # silently, so a clone without these is not a broken clone.
 
+# task cluster:etcd:upload. restic does the upload, the retention and the
+# integrity check; rclone is only its transport, because restic's own sftp
+# backend speaks key authentication and the Storage Box credential is a
+# generated password.
+brew "restic"
+brew "rclone"
+
 brew "golangci-lint" # task security:lint
 brew "gitleaks"      # task security:secrets
 brew "gosec"         # nightly, and task security:gosec

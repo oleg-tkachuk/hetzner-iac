@@ -77,6 +77,7 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task cluster:encryption:check` | the system volumes are really encrypted, not just configured to be |
 | `task cluster:etcd:restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
 | `task cluster:etcd:snapshot` | snapshot etcd into `.backups/` |
+| `task cluster:etcd:upload` | upload a snapshot to the Storage Box with restic; keeps the last ten |
 | `task cluster:hubble` | print recent pod flows through Hubble; `last=<n>` to widen |
 | `task cluster:image:bake` | bake the Talos snapshot named by the topology, per version **and** architecture; idempotent |
 | `task cluster:init` | create the Pulumi stack for this environment |
