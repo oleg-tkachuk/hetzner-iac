@@ -2,6 +2,7 @@ package clusterref_test
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -259,6 +260,42 @@ func TestOutputNames_AreStable(t *testing.T) {
 	assert.Equal(t, "location", clusterref.OutputLocation)
 	assert.Equal(t, "hcloudToken", clusterref.OutputHcloudToken)
 	assert.Equal(t, "controlPlaneCount", clusterref.OutputControlPlaneCount)
+	assert.Equal(t, "routingMode", clusterref.OutputRoutingMode)
+	assert.Equal(t, "domain", clusterref.OutputDomain)
+	assert.Equal(t, "dnsZone", clusterref.OutputDNSZone)
+}
+
+// TestOutputNames_ArePinnedWithoutException catches the way the list above
+// goes stale: three names were added to the contract and not to it, and the
+// three were routingMode, domain and dnsZone — domain being the one two layers
+// must spell identically.
+//
+// Counting the constants rather than listing them again, because a second list
+// is a second thing to forget.
+func TestOutputNames_ArePinnedWithoutException(t *testing.T) {
+	t.Parallel()
+
+	source, err := os.ReadFile("clusterref.go")
+	require.NoError(t, err)
+
+	declared := regexp.MustCompile(`(?m)^\tOutput\w+\s+= "`).FindAllString(string(source), -1)
+	require.NotEmpty(t, declared, "no Output constants found; this test is checking nothing")
+
+	pinned, err := os.ReadFile("clusterref_test.go")
+	require.NoError(t, err)
+
+	assertions := regexp.MustCompile(`clusterref\.Output\w+\)`).FindAllString(string(pinned), -1)
+
+	unique := map[string]bool{}
+	for _, found := range assertions {
+		unique[found] = true
+	}
+
+	// Equal on the counts rather than assert.Len on the map: Len prints the
+	// whole collection, and a failure here is about a number.
+	assert.Equal(t, len(declared), len(unique),
+		"the contract declares %d output names and TestOutputNames_AreStable pins %d of them",
+		len(declared), len(unique))
 }
 
 // The producer side of this contract is checked where the producer lives:
