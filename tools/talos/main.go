@@ -46,12 +46,45 @@ func main() {
 	}
 }
 
+// LocalTalosctl is where `task cluster:talosctl:install` puts the binary the
+// topology pins.
+//
+// Preferred over PATH, and that is the whole point of it: Homebrew carries one
+// talosctl, the newest, and this check needs the minor the topology names. An
+// operator should not have to choose between the two on their PATH.
+const LocalTalosctl = "bin/talosctl"
+
+// talosctlPath is the binary this check runs.
+//
+// The repository's own copy first, then PATH. Returned as a path rather than
+// resolved once into a global, so a test can see which one was chosen.
+func talosctlPath() (string, error) {
+	if info, err := os.Stat(LocalTalosctl); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		absolute, absErr := filepath.Abs(LocalTalosctl)
+		if absErr != nil {
+			return "", fmt.Errorf("%s: %w", LocalTalosctl, absErr)
+		}
+
+		return absolute, nil
+	}
+
+	found, err := exec.LookPath("talosctl")
+	if err != nil {
+		return "", fmt.Errorf("talosctl is not installed, and %s does not exist either: "+
+			"`task cluster:talosctl:install stack=<stack>` writes the pinned one there: %w",
+			LocalTalosctl, err)
+	}
+
+	return found, nil
+}
+
 func run(dir string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	if _, err := exec.LookPath("talosctl"); err != nil {
-		return fmt.Errorf("talosctl is not installed: %w", err)
+	talosctl, err := talosctlPath()
+	if err != nil {
+		return err
 	}
 
 	paths, err := topologyFiles(dir)
@@ -65,11 +98,11 @@ func run(dir string) error {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 
-		if err := checkVersion(ctx, topology.Talos.Version); err != nil {
+		if err := checkVersion(ctx, talosctl, topology.Talos.Version); err != nil {
 			return err
 		}
 
-		if err := validateTopology(ctx, path, topology); err != nil {
+		if err := validateTopology(ctx, talosctl, path, topology); err != nil {
 			return err
 		}
 	}
@@ -114,11 +147,11 @@ func topologyFiles(dir string) ([]string, error) {
 // This is the check that matters most, because without it the tool lies
 // confidently: a 1.14 binary validating a 1.13 configuration reports document
 // conflicts that will not occur on the cluster being built.
-func checkVersion(ctx context.Context, pinned string) error {
-	output, err := exec.CommandContext(ctx, "talosctl", "version", "--client", "--short").Output()
+func checkVersion(ctx context.Context, talosctl, pinned string) error {
+	output, err := exec.CommandContext(ctx, talosctl, "version", "--client", "--short").Output()
 	if err != nil {
 		// --short is not in every release; fall back to the long form.
-		output, err = exec.CommandContext(ctx, "talosctl", "version", "--client").Output()
+		output, err = exec.CommandContext(ctx, talosctl, "version", "--client").Output()
 		if err != nil {
 			return fmt.Errorf("talosctl version: %w", err)
 		}
@@ -133,20 +166,21 @@ func checkVersion(ctx context.Context, pinned string) error {
 		// The explanation is printed rather than wrapped into the error:
 		// it is guidance for a person, and an error value should stay a
 		// single line so it reads correctly wherever it is logged.
-		// The exact command, because the version and the architecture are both
-		// known here and Homebrew has no formula for an older minor — `brew
-		// install talosctl` is what produces this mismatch in the first place.
+		//
+		// The task rather than a curl, because the version and the platform
+		// are both known to it and a pasted curl is wrong the moment the pin
+		// moves. It writes bin/talosctl, which talosctlPath prefers over
+		// PATH — so Homebrew's newest can stay where it is.
 		fmt.Fprintf(os.Stderr,
 			"Talos moves configuration between documents across minor versions, so a\n"+
 				"mismatched binary reports conflicts that will not happen — or misses real\n"+
-				"ones. Install the matching one:\n\n"+
-				"  curl -sLo /usr/local/bin/talosctl \\\n"+
-				"    https://github.com/siderolabs/talos/releases/download/%s/talosctl-%s-%s\n"+
-				"  chmod +x /usr/local/bin/talosctl\n\n"+
-				"Homebrew has no formula for an older minor, so `brew install talosctl` is\n"+
-				"what produces this mismatch. The pin moves when pulumi-talos ships a\n"+
-				"newer machinery — see talos.version in the topology.\n\n",
-			pinned, runtime.GOOS, runtime.GOARCH)
+				"ones. Get the matching one:\n\n"+
+				"  task cluster:talosctl:install stack=<stack>\n\n"+
+				"That writes %s for %s/%s and this check prefers it, so `brew install\n"+
+				"talosctl` can keep the newest on PATH for everything else. The pin moves\n"+
+				"when pulumi-talos ships newer machinery — see talos.version in the\n"+
+				"topology.\n\n",
+			LocalTalosctl, runtime.GOOS, runtime.GOARCH)
 
 		return fmt.Errorf("talosctl is %s but the topology pins Talos %s", local, pinned)
 	}
@@ -156,7 +190,7 @@ func checkVersion(ctx context.Context, pinned string) error {
 
 // validateTopology renders the patches for one topology and validates the
 // control-plane and worker configurations they produce.
-func validateTopology(ctx context.Context, path string, topology *hetzner.Topology) error {
+func validateTopology(ctx context.Context, talosctl, path string, topology *hetzner.Topology) error {
 	clusterPatch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
 		PodCIDR:                        topology.Network.PodCIDR,
 		ServiceCIDR:                    topology.Network.ServiceCIDR,
@@ -183,7 +217,7 @@ func validateTopology(ctx context.Context, path string, topology *hetzner.Topolo
 
 	defer func() { _ = os.RemoveAll(workDir) }()
 
-	if err := generate(ctx, workDir, topology); err != nil {
+	if err := generate(ctx, talosctl, workDir, topology); err != nil {
 		return err
 	}
 
@@ -195,7 +229,7 @@ func validateTopology(ctx context.Context, path string, topology *hetzner.Topolo
 			patches = append(patches, nodePatch)
 		}
 
-		if err := validateMachine(ctx, workDir, machine, patches); err != nil {
+		if err := validateMachine(ctx, talosctl, workDir, machine, patches); err != nil {
 			return fmt.Errorf("%s (%s): %w", path, machine, err)
 		}
 
@@ -205,7 +239,7 @@ func validateTopology(ctx context.Context, path string, topology *hetzner.Topolo
 	return nil
 }
 
-func generate(ctx context.Context, workDir string, topology *hetzner.Topology) error {
+func generate(ctx context.Context, talosctl, workDir string, topology *hetzner.Topology) error {
 	args := []string{
 		"gen", "config", topology.Metadata.Name, clusterEndpoint,
 		"--output-dir", workDir,
@@ -218,14 +252,14 @@ func generate(ctx context.Context, workDir string, topology *hetzner.Topology) e
 	// and the Talos version, both of which internal/pkg/hetzner validated before this
 	// ran: the name against DNS-1123, the version against vX.Y.Z. Nothing
 	// reaches a shell.
-	if output, err := exec.CommandContext(ctx, "talosctl", args...).CombinedOutput(); err != nil {
+	if output, err := exec.CommandContext(ctx, talosctl, args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("talosctl gen config: %s", strings.TrimSpace(string(output)))
 	}
 
 	return nil
 }
 
-func validateMachine(ctx context.Context, workDir, machine string, patches []string) error {
+func validateMachine(ctx context.Context, talosctl, workDir, machine string, patches []string) error {
 	base := filepath.Join(workDir, machine+".yaml")
 	patched := filepath.Join(workDir, machine+"-patched.yaml")
 
@@ -246,7 +280,7 @@ func validateMachine(ctx context.Context, workDir, machine string, patches []str
 	// this program created under its own temp directory. Nothing reaches a
 	// shell, and the topology values that gosec traces here were validated
 	// before they got this far.
-	if output, err := exec.CommandContext(ctx, "talosctl", args...).CombinedOutput(); err != nil {
+	if output, err := exec.CommandContext(ctx, talosctl, args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("applying the patches failed: %s", strings.TrimSpace(string(output)))
 	}
 
@@ -254,7 +288,7 @@ func validateMachine(ctx context.Context, workDir, machine string, patches []str
 	// rules apply — a container-mode validation would pass configurations a
 	// real node rejects.
 	// #nosec G204 -- fixed argv.
-	cmd := exec.CommandContext(ctx, "talosctl", "validate", "--config", patched, "--mode", "cloud")
+	cmd := exec.CommandContext(ctx, talosctl, "validate", "--config", patched, "--mode", "cloud")
 
 	if output, err := cmd.CombinedOutput(); err != nil {
 		var exitErr *exec.ExitError
