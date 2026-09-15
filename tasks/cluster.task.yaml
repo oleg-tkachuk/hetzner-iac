@@ -87,7 +87,10 @@ vars:
   # EPHEMERAL partition is wiped. A reboot and a volume unlock; generous,
   # because the alternative to waiting is bootstrapping a node that is not
   # ready and reading an error about the wrong thing.
-  _CL_RECOVER_TIMEOUT: '300'
+  # Two rounds of resets at roughly two minutes a node, which is what a
+  # three-member restore actually took. It was 300, chosen when the procedure
+  # was only ever run against one node.
+  _CL_RECOVER_TIMEOUT: '1200'
 
   # Where the Cilium chart puts the Hubble relay, and what it listens on.
   # Named because `hubble` is given the local end and kubectl the remote one,
@@ -793,34 +796,85 @@ tasks:
           count="$(printf '%s\n' "$nodes" | awk 'END {print NR}')"
           printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${count} control-plane node(s) to wipe"
 
-          for node in $nodes; do
-            printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${node} → wiping EPHEMERAL"
-            talosctl -n "$node" reset --graceful=false --reboot --system-labels-to-wipe=EPHEMERAL
-          done
+          # --endpoints as well as --nodes, and that pair is the whole fix.
+          #
+          # With --nodes alone, talosctl connects to the endpoint in
+          # talosconfig and asks IT to proxy to the node — and nodes reach each
+          # other over the private network, so a peer's PUBLIC address is not a
+          # path the endpoint can route to. Measured on three members: the
+          # first reset returned `dial tcp <peer>:50000: i/o timeout` before
+          # anything was wiped.
+          #
+          # It cannot be fixed by using private addresses either: this wipes
+          # every control-plane node, so the endpoint is about to reboot and
+          # proxying through it stops working halfway. Each node has to be
+          # talked to directly.
+          #
+          # Invisible with one control-plane node, because that node IS the
+          # endpoint — which is why the earlier single-node rehearsal passed
+          # and this is what the three-member one found.
+          # Wiped, then wiped AGAIN for whatever came back joined. One pass
+          # is not enough, and that is the second thing the three-member
+          # rehearsal found.
+          #
+          # A node whose EPHEMERAL is wiped does not land in Preparing while
+          # other members are still alive with data: on reboot its etcd
+          # starts, rejoins them, and syncs. Once the rest are wiped too and
+          # quorum is gone, it sits in Running with `etcdserver: no leader` —
+          # which the old `until … Preparing` loop waited for until its
+          # deadline and then failed, with the cluster already down.
+          #
+          # Measured on three members: two of the three needed a second reset
+          # before any of them reached Preparing, and only then did
+          # `bootstrap --recover-from` work, first try.
+          #
+          # Invisible with one control-plane node, which is what the earlier
+          # single-node rehearsal proved: with nothing else alive, one reset
+          # lands in Preparing every time.
+          deadline=$(( $(date +%s) + {{._CL_RECOVER_TIMEOUT}} ))
+          attempt=0
 
-          # Every node has to be back with etcd Preparing before one is
-          # bootstrapped. Failures are "not yet": the node is rebooting, so
-          # apid is unreachable for most of this wait.
-          for node in $nodes; do
-            printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${node} → waiting for etcd to reach Preparing"
-            deadline=$(( $(date +%s) + {{._CL_RECOVER_TIMEOUT}} ))
+          while :; do
+            attempt=$(( attempt + 1 ))
+            pending=""
 
-            until talosctl -n "$node" service etcd 2>/dev/null | grep -qE '^STATE[[:space:]]+Preparing'; do
-              if [ "$(date +%s)" -ge "$deadline" ]; then
-                printf '%s\n' "{{._ERR}} cluster · etcd:restore · ${node} did not reach Preparing in {{._CL_RECOVER_TIMEOUT}}s" >&2
-                printf '%s\n' "{{._ERR}} cluster · etcd:restore · look at it with: task hcloud:console stack={{._CL_STACK}} server=<name>" >&2
-                exit 1
+            for node in $nodes; do
+              state="$(talosctl --endpoints "$node" --nodes "$node" service etcd 2>/dev/null |
+                awk '/^STATE/ {print $2}')"
+              [ "$state" = "Preparing" ] && continue
+              pending="${pending} ${node}"
+            done
+
+            [ -n "$pending" ] || break
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              printf '%s\n' "{{._ERR}} cluster · etcd:restore · not every node reached Preparing in {{._CL_RECOVER_TIMEOUT}}s:${pending}" >&2
+              printf '%s\n' "{{._ERR}} cluster · etcd:restore · look at one with: task hcloud:console stack={{._CL_STACK}} server=<name>" >&2
+              exit 1
+            fi
+
+            for node in $pending; do
+              # Unreachable means it is still rebooting from the last reset,
+              # and resetting a node mid-reboot is how one gets wedged. Skip
+              # it; the next pass will find it either Preparing or joined.
+              if ! talosctl --endpoints "$node" --nodes "$node" version --client=false >/dev/null 2>&1; then
+                continue
               fi
 
-              sleep 5
+              printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${node} → wiping EPHEMERAL (pass ${attempt})"
+              talosctl --endpoints "$node" --nodes "$node" \
+                reset --graceful=false --reboot --system-labels-to-wipe=EPHEMERAL || true
             done
+
+            sleep 10
           done
 
           # One node, from the local file. The others rejoin on their own once
           # the control-plane endpoint answers.
           first="$(printf '%s\n' "$nodes" | awk 'NR == 1')"
           printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${first} → bootstrap from {{.snapshot}}"
-          talosctl -n "$first" bootstrap --recover-from="{{.snapshot}}"
+          talosctl --endpoints "$first" --nodes "$first" \
+            bootstrap --recover-from="{{.snapshot}}"
 
           printf '\n'
           printf '%s\n' "{{._OK}} cluster · etcd:restore · restored — the node passes through NotReady for about two minutes"
@@ -1060,8 +1114,18 @@ tasks:
           # plane in parallel takes etcd below quorum.
           for node in $(talosctl get members -o json | jq -r '.spec.addresses[0]'); do
             printf '%s\n' "{{._RUN}} cluster · upgrade · ${node} → ${version}"
-            talosctl upgrade --nodes "${node}" \
-              --image "ghcr.io/siderolabs/installer:${version}" --wait
+            # --endpoints as well, for the reason etcd:restore carries at
+            # length: `talosctl get members` reports each member's PUBLIC
+            # address, and --nodes alone makes talosctl proxy through the
+            # endpoint in talosconfig, which cannot route to a peer's public
+            # address. Measured there as `dial tcp <peer>:50000: i/o timeout`.
+            #
+            # Unlike the restore, this one has not been run end to end: a
+            # Talos upgrade is blocked on the machine config that 1.14
+            # rejects, which docs/BACKLOG.md records. The mechanism is the
+            # same and the addresses are the same kind.
+            talosctl --endpoints "${node}" --nodes "${node}" \
+              upgrade --image "ghcr.io/siderolabs/installer:${version}" --wait
           done
 
   upgrade:k8s:
