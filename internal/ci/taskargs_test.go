@@ -704,3 +704,50 @@ func TestTasks_DoNotDemandAStackTheyIgnore(t *testing.T) {
 func delegates(body string) bool {
 	return strings.Contains(body, "deps:") || strings.Contains(body, "- task:")
 }
+
+// nodeTargeted matches a talosctl invocation that names a node.
+var nodeTargeted = regexp.MustCompile(`talosctl[^\n]*(?:-n |--nodes )`)
+
+// TestTalosctlCalls_NameAnEndpointWithEveryNode is a regression guard for a
+// restore that could not restore.
+//
+// `talosctl --nodes X` alone connects to the endpoint in talosconfig and asks
+// IT to proxy to X. Nodes reach each other over the private network, so a
+// peer's public address is not a path the endpoint can route to — measured as
+// `dial tcp <peer>:50000: i/o timeout` on the first reset of a three-member
+// restore, before anything was wiped.
+//
+// Naming the node as its own endpoint is what works, and it is also the only
+// thing that survives the procedure: etcd:restore wipes every control-plane
+// node, so the endpoint is about to reboot and proxying through it stops
+// working halfway.
+//
+// Invisible with one control-plane node, because that node IS the endpoint.
+// That is why a single-node rehearsal passed and this had to be found on
+// three.
+func TestTalosctlCalls_NameAnEndpointWithEveryNode(t *testing.T) {
+	t.Parallel()
+
+	var checked int
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for _, line := range strings.Split(string(raw), "\n") {
+			if !nodeTargeted.MatchString(line) {
+				continue
+			}
+
+			checked++
+
+			assert.Contains(t, line, "--endpoints",
+				"%s names a node without an endpoint:\n\t%s\nTalos will proxy through the "+
+					"configured endpoint, which cannot route to a peer's public address — and "+
+					"during a restore that endpoint is itself being wiped",
+				filepath.Base(path), strings.TrimSpace(line))
+		}
+	}
+
+	assert.Positive(t, checked, "no talosctl call targets a node; this test is checking nothing")
+}
