@@ -270,6 +270,42 @@ func TestNewCluster_HAControlPlaneGetsALoadBalancer(t *testing.T) {
 		"load balancer must reach the API over the private network")
 }
 
+// TestLoadBalancers_ShareOneSetOfHealthCheckTimings holds the two halves of a
+// claim that used to be a comment.
+//
+// Both load balancers are meant to take a node out of rotation at the same
+// rate, and ingress.go said so while the API load balancer carried its own
+// 10, 5 and 3. The numbers themselves are not asserted here — a literal
+// naming them would be the third copy — only that the two agree.
+func TestLoadBalancers_ShareOneSetOfHealthCheckTimings(t *testing.T) {
+	t.Parallel()
+
+	api := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: true}).
+		of("hcloud:index/loadBalancerService:LoadBalancerService")
+	require.Len(t, api, 1, "the HA control plane has no load balancer service to check")
+
+	ingress := runIngress(t).of("hcloud:index/loadBalancerService:LoadBalancerService")
+	require.NotEmpty(t, ingress, "the ingress has no load balancer service to check")
+
+	want := api[0]["healthCheck"].ObjectValue()
+
+	for _, field := range []string{"interval", "timeout", "retries"} {
+		require.Positive(t, want[resource.PropertyKey(field)].NumberValue(),
+			"the API load balancer's health check has no %s", field)
+
+		for _, service := range ingress {
+			check := service["healthCheck"].ObjectValue()
+
+			assert.Equal(t,
+				want[resource.PropertyKey(field)].NumberValue(),
+				check[resource.PropertyKey(field)].NumberValue(),
+				"the ingress health-check %s is %v while the API load balancer's is %v",
+				field, check[resource.PropertyKey(field)].NumberValue(),
+				want[resource.PropertyKey(field)].NumberValue())
+		}
+	}
+}
+
 func TestNewCluster_FirewallOpensOnlyTheAdminPorts(t *testing.T) {
 	t.Parallel()
 

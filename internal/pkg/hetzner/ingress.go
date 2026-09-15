@@ -18,17 +18,6 @@ const (
 	PortHTTPS = 443
 )
 
-// Health check timings for the ingress services.
-//
-// Deliberately the same as the API load balancer's: three failures at ten
-// seconds takes a node out in about half a minute, which is slower than a pod
-// restart and faster than a person notices.
-const (
-	healthCheckInterval = 10
-	healthCheckTimeout  = 5
-	healthCheckRetries  = 3
-)
-
 // IngressLoadBalancerArgs is what an ingress load balancer needs that the
 // cluster tier already publishes.
 type IngressLoadBalancerArgs struct {
