@@ -38,6 +38,38 @@ import (
 // state, and read back by whatever uploads a snapshot.
 const PasswordLength = 48
 
+// passwordArgs is how all three passwords are generated, because Hetzner
+// refuses one that misses a character class.
+//
+// `Special: false` was the first shape, and the first live apply of this layer
+// answered with 422 invalid_input: "The password must contain at least one
+// upper case letter, one lower case letter, one number, and a special
+// character". Length alone does not satisfy that — the four minimums do, and
+// they are what this function exists to keep in one place for all three.
+//
+// OverrideSpecial narrows the set rather than taking the default. Every one of
+// these values reaches a process through an environment variable —
+// RESTIC_PASSWORD, RCLONE_CONFIG_BOX_PASS — where any byte is safe, but the
+// operator also copies the restic key out of the stack by hand, and a
+// password holding a quote, a backslash, a backtick or a dollar is one that
+// breaks the moment it is pasted into a shell.
+func passwordArgs() *random.RandomPasswordArgs {
+	return &random.RandomPasswordArgs{
+		Length:          pulumi.Int(PasswordLength),
+		Special:         pulumi.Bool(true),
+		MinUpper:        pulumi.Int(1),
+		MinLower:        pulumi.Int(1),
+		MinNumeric:      pulumi.Int(1),
+		MinSpecial:      pulumi.Int(1),
+		OverrideSpecial: pulumi.String(PasswordSpecialCharacters),
+	}
+}
+
+// PasswordSpecialCharacters is the set OverrideSpecial allows: punctuation
+// with no meaning to a shell. Deliberately excludes " ' ` \ $ ; | < > & and
+// whitespace.
+const PasswordSpecialCharacters = "!#%^*()-_=+[]{}:,.?" // #nosec G101 -- the alphabet a password may draw from, not a password
+
 // Stack outputs. Named because a consumer — `task cluster:etcd:upload` today,
 // an in-cluster job later — reads them by name, and a rename that only
 // happened here would be a consumer reading nothing.
@@ -71,18 +103,12 @@ func deploy(r *layer.Runner) error {
 	//
 	// RandomPassword keeps its value in state, so a second apply does not
 	// rotate the password and lock out whatever is using it.
-	boxPassword, err := random.NewRandomPassword(r.Ctx, "box", &random.RandomPasswordArgs{
-		Length:  pulumi.Int(PasswordLength),
-		Special: pulumi.Bool(false),
-	})
+	boxPassword, err := random.NewRandomPassword(r.Ctx, "box", passwordArgs())
 	if err != nil {
 		return fmt.Errorf("storage box password: %w", err)
 	}
 
-	snapshotPassword, err := random.NewRandomPassword(r.Ctx, "snapshots", &random.RandomPasswordArgs{
-		Length:  pulumi.Int(PasswordLength),
-		Special: pulumi.Bool(false),
-	})
+	snapshotPassword, err := random.NewRandomPassword(r.Ctx, "snapshots", passwordArgs())
 	if err != nil {
 		return fmt.Errorf("subaccount password: %w", err)
 	}
@@ -97,10 +123,7 @@ func deploy(r *layer.Runner) error {
 	// bytes nothing can read. See docs/operations.md — an operator should copy
 	// it out of the stack once, because Pulumi's state then stops being the
 	// only thing standing between the cluster and its backups.
-	resticPassword, err := random.NewRandomPassword(r.Ctx, "restic", &random.RandomPasswordArgs{
-		Length:  pulumi.Int(PasswordLength),
-		Special: pulumi.Bool(false),
-	})
+	resticPassword, err := random.NewRandomPassword(r.Ctx, "restic", passwordArgs())
 	if err != nil {
 		return fmt.Errorf("restic repository password: %w", err)
 	}
