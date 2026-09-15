@@ -184,13 +184,24 @@ ships as a task here and the decision stays with whoever owns the organisation.
 | `hcloud:token` | [`infra/cluster`](../infra/cluster) | Hetzner API token (secret); `cluster:image:bake` decrypts it from here too |
 | `<layer>:clusterStackRef` | every [layer](../layers) | `<org>/hetzner-cluster/<stack>`; written by `platform:init` |
 | `node-platform:hcloudToken` | [`10-node-platform`](../layers/10-node-platform) | optional; overrides the token the cluster stack exports (secret) |
+| `node-platform:cni` | [`10-node-platform`](../layers/10-node-platform) | which CNI to install; empty means `cilium`, the only one implemented |
 | `network-policy:enabled` | [`20-network-policy`](../layers/20-network-policy) | create the policies; `false` by default, see [design.md](design.md#the-default-deny-is-opt-in) |
 | `cluster-services:acmeEmail` | [`30-cluster-services`](../layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
+| `cluster-services:acmeStaging` | [`30-cluster-services`](../layers/30-cluster-services) | order from Let's Encrypt's staging endpoint: untrusted certificates, and where a new domain's first attempt belongs |
 | `ingress:loadBalancerType` | [`40-ingress`](../layers/40-ingress) | Hetzner load balancer type, default `lb11` |
-| `gitops:domain` | [`50-gitops`](../layers/50-gitops) | publishes Argo CD through ingress; omit it and there is no Ingress |
+| `backup:storageBoxType` | [`60-backup`](../layers/60-backup) | Hetzner Storage Box type, default `bx11` |
 
 Layer config is about what a layer deploys, not about the cluster. The three
 cluster switches that used to sit here are in the topology now.
+
+The **domain** is one of them, and it used to be listed above as
+`gitops:domain`. It never was a stack config key: `50-gitops` reads
+`metadata.domain` from the cluster tier, because `40-ingress` points DNS at its
+load balancer and this layer gives Argo CD a hostname — two copies of one name
+drift, and an Ingress for one name behind a record for another is accepted by
+everything and serves nothing. `TestConfigKeys_TheTablesNameKeysThatExist`
+holds these tables to the keys the layers actually declare, which is what a
+documented key nothing reads escaped before.
 
 ## State, and where the token lives
 
