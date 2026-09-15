@@ -127,7 +127,11 @@ func dependenciesOf(body string) []string {
 // needsStack reports whether a task body reads the stack in any of its
 // spellings.
 func needsStack(body string) bool {
-	for _, spelling := range []string{"._CL_STACK", "._PL_STACK", "{{.stack}}"} {
+	// One per taskfile that has its own: _CL_ cluster, _PL_ platform, _PO_
+	// policy. _PO_STACK was missing, so every task in policy.task.yaml was
+	// invisible to both gates below — they happen to be guarded, and nothing
+	// was checking that.
+	for _, spelling := range []string{"._CL_STACK", "._PL_STACK", "._PO_STACK", "{{.stack}}"} {
 		if strings.Contains(body, spelling) {
 			return true
 		}
@@ -642,4 +646,61 @@ func TestHelmUninstall_IsNotAvailable(t *testing.T) {
 	assert.Regexp(t, `(?m)excludes:[\s\S]*?- uninstall *$`, helm[1],
 		"the helm include no longer excludes the uninstall task, or excludes a name the "+
 			"module does not have — either way Helm can now remove a release Pulumi owns")
+}
+
+// TestTasks_DoNotDemandAStackTheyIgnore is the other direction of the guard
+// above, and it is the one that was missing.
+//
+// `cluster:machine-config:check` asked for `stack=` and never read it: its
+// command validates every topology in infra/cluster, so there was nothing
+// per-stack about it. A new task then copied the shape —
+// `cluster:talosctl:install` inherited the guard and, worse, a precondition on
+// a topology file that is gitignored, which made it fail on exactly the fresh
+// clone it existed for.
+//
+// Delegation counts as reading it. `plan` guards and names no stack, because
+// it calls cluster:plan and platform:plan and Task hands CLI variables down —
+// that guard is right, and failing it would be this test's own false positive.
+// So a task is only reported when it guards, never names a stack, AND passes
+// the work to nothing that could.
+//
+// The guard itself mentions {{.stack}}, so the body is read with the guard
+// removed.
+func TestTasks_DoNotDemandAStackTheyIgnore(t *testing.T) {
+	t.Parallel()
+
+	var checked int
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for name, body := range tasksIn(string(raw)) {
+			if !strings.Contains(body, stackGuard) {
+				continue
+			}
+
+			checked++
+
+			withoutGuard := strings.ReplaceAll(body, stackGuard, "")
+			if needsStack(withoutGuard) || delegates(withoutGuard) {
+				continue
+			}
+
+			assert.Fail(t,
+				"a task guards on a stack it cannot use",
+				"%s in %s guards on stack=, names no stack, and hands the work to no other "+
+					"task. The value it asks for changes nothing: drop the guard, or read it",
+				name, filepath.Base(path))
+		}
+	}
+
+	assert.Positive(t, checked, "no task guards on a stack — this test is checking nothing")
+}
+
+// delegates reports whether a task hands work to another task, by dependency
+// or by call. Either way the stack reaches that one through Task's own
+// variable propagation, so a guard here is the early, readable failure.
+func delegates(body string) bool {
+	return strings.Contains(body, "deps:") || strings.Contains(body, "- task:")
 }
