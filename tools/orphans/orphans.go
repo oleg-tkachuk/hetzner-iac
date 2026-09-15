@@ -24,7 +24,7 @@ const (
 // created from this cluster.
 const ServiceUIDLabel = "hcloud-ccm/service-uid"
 
-// TalosVersionLabel is the label cluster:image-bake stamps on the snapshot it
+// TalosVersionLabel is the label cluster:image:bake stamps on the snapshot it
 // bakes, and lookupTalosImage selects on. Aliased from pkg/hetzner rather than
 // spelled again: this report groups snapshots by it, so a copy that drifted
 // would file every snapshot under an empty version.

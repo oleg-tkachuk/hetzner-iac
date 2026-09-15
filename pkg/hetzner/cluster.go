@@ -48,7 +48,7 @@ type ClusterArgs struct {
 
 	// ImageSelector overrides the label selector used to find the Talos
 	// snapshot. Empty derives it from the Talos version, which is what
-	// `task cluster:image-bake` labels the snapshot with.
+	// `task cluster:image:bake` labels the snapshot with.
 	ImageSelector string
 
 	// PublicIPv4 keeps a routable address on every node. Required unless the
@@ -333,7 +333,7 @@ func apiEndpointAddress(
 //
 // Pulumi only LOOKS the snapshot up. Hetzner has no custom-image upload API —
 // an image becomes usable only as a snapshot taken from a rescue-booted
-// server — so baking is a deliberate out-of-band step (`task cluster:image-bake`).
+// server — so baking is a deliberate out-of-band step (`task cluster:image:bake`).
 // Doing it inside the stack would mean dd-over-SSH in the provisioning path,
 // re-run on every unrelated `pulumi up`.
 func lookupTalosImage(ctx *pulumi.Context, args *ClusterArgs) pulumi.StringOutput {
@@ -354,7 +354,7 @@ func lookupTalosImage(ctx *pulumi.Context, args *ClusterArgs) pulumi.StringOutpu
 	// surface much later as a cluster that never bootstraps.
 	return pulumix.Cast[pulumi.StringOutput](pulumix.ApplyErr(image.Id(), func(id *int) (string, error) {
 		if id == nil || *id == 0 {
-			return "", fmt.Errorf("no available Talos snapshot matches selector %q for architecture %s — run `task cluster:image-bake`",
+			return "", fmt.Errorf("no available Talos snapshot matches selector %q for architecture %s — run `task cluster:image:bake`",
 				selector, args.Topology.Talos.Architecture)
 		}
 

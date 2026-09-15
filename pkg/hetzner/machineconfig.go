@@ -435,7 +435,7 @@ func dedupe(values []string) []string {
 // BuildEtcdPatch pins etcd's peer traffic to the private network.
 //
 // Its own document, applied to control planes only, because Talos refuses the
-// section anywhere else — measured by `task cluster:config-check`, which
+// section anywhere else — measured by `task cluster:machine-config:check`, which
 // rejected it in the shared cluster patch with
 //
 //	etcd config is only allowed on control plane machines

@@ -65,7 +65,7 @@ $EDITOR infra/cluster/cluster.dev.yaml
 task cluster:token stack=dev
 
 # 3. Bake the Talos snapshot. Once per Talos version; idempotent.
-task cluster:image-bake stack=dev
+task cluster:image:bake stack=dev
 
 # 4. Build the cluster, reading the diff first.
 task cluster:plan stack=dev
@@ -102,7 +102,7 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 
 On macOS, `brew bundle` installs all of it. Read the `talosctl` note in the
 [`Brewfile`](Brewfile) first: Homebrew ships a newer minor than the topology
-pins, and `task cluster:config-check` declines a mismatched binary rather than
+pins, and `task cluster:machine-config:check` declines a mismatched binary rather than
 trusting it.
 
 Optional, and only for the tasks that name them: `golangci-lint`, `gitleaks`,

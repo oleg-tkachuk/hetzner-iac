@@ -39,7 +39,7 @@ import (
 // state, and read back by whatever uploads a snapshot.
 const PasswordLength = 48
 
-// Stack outputs. Named because a consumer — `task cluster:etcd-snapshot`
+// Stack outputs. Named because a consumer — `task cluster:etcd:snapshot`
 // today, an in-cluster job later — reads them by name, and a rename that only
 // happened here would be a consumer reading nothing.
 const (

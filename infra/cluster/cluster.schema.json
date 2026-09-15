@@ -141,11 +141,11 @@
             "x86",
             "arm"
           ],
-          "description": "x86 or arm. Decides which image the factory builds, which server types can boot it, and what the serverType fields default to. Switching it needs task cluster:image-bake again: a snapshot is one architecture. Default x86, and arm costs more here, not less."
+          "description": "x86 or arm. Decides which image the factory builds, which server types can boot it, and what the serverType fields default to. Switching it needs task cluster:image:bake again: a snapshot is one architecture. Default x86, and arm costs more here, not less."
         },
         "imageSelector": {
           "type": "string",
-          "description": "Override the snapshot selector. Empty derives os=talos,talos-version=<version>, the labels cluster:image-bake writes."
+          "description": "Override the snapshot selector. Empty derives os=talos,talos-version=<version>, the labels cluster:image:bake writes."
         }
       }
     },

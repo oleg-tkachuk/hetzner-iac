@@ -1,6 +1,6 @@
 // Command etcd answers questions about an etcd snapshot file.
 //
-// It exists for one moment: `task cluster:etcd-restore` wipes the EPHEMERAL
+// It exists for one moment: `task cluster:etcd:restore` wipes the EPHEMERAL
 // partition of every control-plane node before it can restore anything, and
 // doing that on the strength of a truncated download is how a recoverable
 // incident becomes an unrecoverable one. So the file is checked before the

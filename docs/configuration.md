@@ -65,7 +65,7 @@ wrong side and it is refused at plan time, before anything is created:
 cx23 is x86, but the baked Talos image is arm — a mismatched type will not boot
 ```
 
-Switching the field means re-baking: `task cluster:image-bake`. A snapshot is
+Switching the field means re-baking: `task cluster:image:bake`. A snapshot is
 one architecture, and the bake scopes its "already baked?" question to the
 architecture the topology asks for — so switching finds no snapshot and bakes
 one, rather than finding the other architecture's and doing nothing.
@@ -181,7 +181,7 @@ ships as a task here and the decision stays with whoever owns the organisation.
 
 | Key | Where | Meaning |
 |-----|-------|---------|
-| `hcloud:token` | [`infra/cluster`](../infra/cluster) | Hetzner API token (secret); `cluster:image-bake` decrypts it from here too |
+| `hcloud:token` | [`infra/cluster`](../infra/cluster) | Hetzner API token (secret); `cluster:image:bake` decrypts it from here too |
 | `<layer>:clusterStackRef` | every [layer](../layers) | `<org>/hetzner-cluster/<stack>`; written by `platform:init` |
 | `node-platform:hcloudToken` | [`10-node-platform`](../layers/10-node-platform) | optional; overrides the token the cluster stack exports (secret) |
 | `network-policy:enabled` | [`20-network-policy`](../layers/20-network-policy) | create the policies; `false` by default, see [design.md](design.md#the-default-deny-is-opt-in) |
