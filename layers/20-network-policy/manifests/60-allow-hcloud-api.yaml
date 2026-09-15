@@ -1,0 +1,56 @@
+# The CSI driver and the cloud controller manager reaching the Hetzner API.
+#
+# The flow the backlog's list of blockers did not have, and the one that would
+# have made the default deny read as a broken CSI driver. Measured on this
+# cluster by creating a PersistentVolumeClaim and watching what the controller
+# did:
+#
+#   kube-system/hcloud-csi-controller-766c5d97d8-nxlh8 -> 213.239.246.78:443
+#
+# 213.239.246.78 reverse-resolves to 213-239-246-78.clients.your-server.de and
+# is what api.hetzner.cloud answers with. Under the deny that connection is
+# dropped, CreateVolume never returns, and the claim sits Pending — which looks
+# like the driver's fault and is not.
+#
+# WHY THIS WAS MISSED. The other five policies were written from a Hubble
+# capture, and a capture is a window: the CCM programmes routes when a node
+# joins and the CSI controller calls the API when a volume is asked for, so
+# neither appears in a few minutes of steady state. Both were absent from two
+# captures taken an hour apart and appeared the moment a claim was created.
+# A flow that only happens on demand has to be provoked, not waited for.
+#
+# Both clients, because they are the same credential and the same endpoint:
+# the CSI controller provisions and attaches volumes, the CCM manages
+# addresses, routes and load balancers. The node DaemonSet is deliberately not
+# selected — it reads the metadata service on the node's own link, not the API.
+#
+# toFQDNs rather than the address, for the reason 50-allow-acme.yaml gives at
+# length: an IP written into a policy is a policy that works until the vendor
+# renumbers.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-hcloud-api
+spec:
+  description: the CSI controller and the cloud controller manager reach the Hetzner API
+  endpointSelector:
+    matchExpressions:
+      - key: k8s:io.kubernetes.pod.namespace
+        operator: In
+        values:
+          - kube-system
+      - key: k8s:app.kubernetes.io/name
+        operator: In
+        values:
+          - hcloud-csi
+          - hcloud-cloud-controller-manager
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toFQDNs:
+        - matchName: api.hetzner.cloud
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

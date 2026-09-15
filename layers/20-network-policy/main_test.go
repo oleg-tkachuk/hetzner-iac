@@ -191,3 +191,38 @@ func TestComponents_TheDenyFollowsTheAllows(t *testing.T) {
 
 	t.Fatal("no default-deny component")
 }
+
+// TestManifests_AreAllMatchedByOneGlob catches a policy that is committed and
+// never applied.
+//
+// The allow glob was `[0-4]*.yaml` and 50-allow-acme.yaml was the fifth file.
+// Nothing would have failed: ConfigGroup applies what the glob matches, an
+// unmatched file is not an error, and the policy would have sat in the
+// directory looking applied. Under a default deny that is a dropped flow whose
+// allow rule exists, is reviewed, and is not in the cluster.
+func TestManifests_AreAllMatchedByOneGlob(t *testing.T) {
+	t.Parallel()
+
+	every, err := filepath.Glob(filepath.Join("manifests", "*.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, every, "no manifests found; this test is checking nothing")
+
+	allows, err := filepath.Glob(AllowManifests)
+	require.NoError(t, err)
+
+	matched := map[string]bool{DenyManifest: true}
+	for _, path := range allows {
+		matched[path] = true
+	}
+
+	for _, path := range every {
+		assert.True(t, matched[path],
+			"%s is matched by neither %q nor the deny, so it is committed and applied never",
+			path, AllowManifests)
+	}
+
+	// And the deny is not in the allow set, or enabling it would stop being a
+	// decision.
+	assert.NotContains(t, allows, DenyManifest,
+		"the deny is matched by the allow glob, so it applies without the config switch")
+}

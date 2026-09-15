@@ -25,3 +25,16 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+          # L7, and the reason is 50-allow-acme.yaml next door: a toFQDNs rule
+          # can only match a name Cilium watched being resolved, so the DNS
+          # proxy has to see the answer. Without this the FQDN policy selects
+          # nothing and reads as an allow that permits nothing.
+          #
+          # matchPattern "*" keeps the policy L3 in effect — every name is
+          # still allowed — while giving Cilium the visibility. The cost is
+          # real and worth naming: DNS now goes through Cilium's userspace
+          # proxy for every endpoint, so a Cilium restart is briefly a DNS
+          # restart too.
+          rules:
+            dns:
+              - matchPattern: "*"

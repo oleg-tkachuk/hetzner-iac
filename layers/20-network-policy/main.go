@@ -39,7 +39,14 @@ import (
 const (
 	// AllowManifests permit and never deny. Applying them changes no
 	// existing traffic.
-	AllowManifests = "manifests/[0-4]*.yaml"
+	//
+	// [0-8] rather than [0-4], which is what it was: adding
+	// 50-allow-acme.yaml put a policy in the directory that the glob did not
+	// match, so it would have been committed, reviewed, and applied never —
+	// with nothing saying so. The range stops below the deny's 90 on purpose,
+	// because that one is applied separately and behind a switch.
+	// TestManifests_AreAllMatchedByOneGlob holds every file to one pattern.
+	AllowManifests = "manifests/[0-8]*.yaml"
 
 	// DenyManifest is the one that takes traffic away.
 	DenyManifest = "manifests/90-default-deny.yaml"
