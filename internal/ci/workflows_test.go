@@ -391,3 +391,98 @@ func TestCI_CommitTypeGateKeepsTasksAndToolsDeployable(t *testing.T) {
 	assert.Contains(t, rule, `type ~ /^(feat|fix|perf)$/`,
 		"the gate no longer refuses exactly the release types")
 }
+
+// cacheReaders are the ways a job actually reads the shared Go build cache:
+// a go command, or a tool that runs the compiler itself. A job restoring the
+// cache must match one of these or it is restoring gigabytes for no reader.
+var cacheReaders = []string{
+	"go test", "go vet", "go run", "go build",
+	// golangci-lint compiles every package it lints.
+	"golangci/golangci-lint-action",
+	// gosec type-checks the tree, through the task an operator runs.
+	"task security:gosec",
+}
+
+// cacheModes that mean the job is not restoring the shared cache for nothing:
+// "off" reads none of it, "save" is the one writer and has to fill it.
+var cacheModesWithoutAReader = map[string]bool{"off": true, "save": true}
+
+// TestWorkflows_RestoreTheGoCacheOnlyWhereSomethingReadsIt catches the
+// expensive mistake this workflow has made five times.
+//
+// The shared cache expands 789 MB into 4.4 GB. A job that compiles nothing
+// gains nothing from it and pays the restore anyway, and the failure is
+// invisible: the job goes green, just slowly, and the whole expensive half of
+// CI queues behind it. Each of the five fixed jobs carries the measurement —
+// 313 seconds of a 355-second checkov job, 300 for a two-second gitleaks scan,
+// 184 for fifteen seconds of trivy.
+//
+// The sixth was the documentation job, found while scoping CI down for
+// prose-only changes: 211 of its 220 seconds, on the one job such a change
+// always runs.
+func TestWorkflows_RestoreTheGoCacheOnlyWhereSomethingReadsIt(t *testing.T) {
+	t.Parallel()
+
+	var checked int
+
+	for _, name := range []string{ciWorkflow, securityWorkflow} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
+		require.NoError(t, err, name)
+
+		var parsed struct {
+			Jobs map[string]struct {
+				Steps []struct {
+					Uses string            `json:"uses"`
+					Run  string            `json:"run"`
+					With map[string]string `json:"with"`
+				} `json:"steps"`
+			} `json:"jobs"`
+		}
+
+		require.NoError(t, yaml.Unmarshal(raw, &parsed), name)
+
+		for job, declared := range parsed.Jobs {
+			var restores bool
+
+			for _, step := range declared.Steps {
+				// The composite action, not upstream's actions/setup-go: only
+				// the composite one touches the shared cache.
+				if !strings.Contains(step.Uses, "./.github/actions/setup-go") {
+					continue
+				}
+
+				mode := step.With["cache-mode"]
+				if mode == "" {
+					mode = "restore"
+				}
+
+				restores = !cacheModesWithoutAReader[mode]
+
+				break
+			}
+
+			if !restores {
+				continue
+			}
+
+			checked++
+
+			var reads bool
+
+			for _, step := range declared.Steps {
+				for _, reader := range cacheReaders {
+					if strings.Contains(step.Run, reader) || strings.Contains(step.Uses, reader) {
+						reads = true
+					}
+				}
+			}
+
+			assert.True(t, reads,
+				"job %q in %s restores the shared Go build cache and no step reads it: "+
+					"pass cache-mode \"off\", or add the tool that compiles here to cacheReaders",
+				job, name)
+		}
+	}
+
+	assert.Positive(t, checked, "no job restores the shared cache any more; this test is checking nothing")
+}
