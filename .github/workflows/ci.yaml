@@ -98,7 +98,7 @@ jobs:
           # silent and green. Excluding documentation cannot fail that way: a
           # file type nobody has thought about yet is relevant by default.
           #
-          # Held to a table of examples by tools/repo/workflows_test.go.
+          # Held to a table of examples by internal/ci/workflows_test.go.
           inert='(^|/)[^/]*\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.github/(ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE)/|\.(png|jpe?g|svg|gif)$'
 
           if [ -z "${BASE:-}" ]; then
