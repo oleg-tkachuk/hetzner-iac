@@ -1,4 +1,4 @@
-package repo
+package ci
 
 import (
 	"os"
@@ -209,6 +209,7 @@ func TestCI_ClassifiesDocumentationAsInert(t *testing.T) {
 		".github/workflows/ci.yaml":                      false,
 		".github/actions/setup-go/action.yml":            false,
 		".checkov.yaml":                                  false,
+		"internal/ci/gitignore_test.go":                  false,
 		// A kind of file nobody has classified yet. Relevant by default is
 		// what makes forgetting safe.
 		"tools/something/new.awk": false,

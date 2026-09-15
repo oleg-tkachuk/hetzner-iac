@@ -115,7 +115,7 @@ the tags read `v0.8.0`, because the workflows add the `v` themselves in the
 download URL. Without it Renovate compares `0.8.0` against a list of `v…` and
 finds nothing to do — a bot that looks broken while working exactly as told.
 
-Three tests in `tools/repo` guard it, for the same reason the chart manager has
+Three tests in `internal/ci` guard it, for the same reason the chart manager has
 one: the failure is silent. Renovate does not error on a pin it cannot match —
 it opens no pull request, for ever. They run Renovate's own regex out of its own
 configuration and assert that every pin is matched, that every datasource is one
@@ -170,7 +170,7 @@ opened no pull request in this repository, ever.
 identically — all four candidate forms pass — so validation was never going to
 catch it. The schedule is now the whole of Monday: batching updates into one
 weekly review is what the window was for, and the hour only made it depend on a
-cron being punctual. A test in `tools/repo` refuses an hour-narrow schedule.
+cron being punctual. A test in `internal/ci` refuses an hour-narrow schedule.
 
 ### A ticked checkbox acts at once
 
@@ -394,7 +394,7 @@ topology and these workflows, so a change to any of them skipped the tests
 written to guard it. Excluding documentation cannot fail that way — a kind of
 file nobody has classified yet is relevant by default.
 
-Three tests in [tools/repo](../tools/repo) hold it: the classifier against a
+Three tests in [internal/ci](../internal/ci) hold it: the classifier against a
 table of paths, and both directions of "every gate names an output that
 exists". A gate reading an output that does not exist — a rename, a typo —
 evaluates to the empty string and skips the job, which reports as skipped,
