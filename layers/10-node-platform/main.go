@@ -60,6 +60,14 @@ const (
 // onto nodes with nothing cached yet, and every other layer waits on it.
 const CiliumTimeoutSeconds = 900
 
+// Stack outputs. Every export is a named constant, in every layer, so the set
+// a stack publishes is greppable and a consumer that appears later needs no
+// rename. TestLayers_ExportOnlyNamedOutputs holds that.
+const (
+	OutputCNIReady     = "cniReady"
+	OutputStorageClass = "storageClass"
+)
+
 // Components are what this layer deploys.
 //
 // The Secret is a component rather than something created around the set, and
@@ -182,8 +190,8 @@ func main() {
 			return fmt.Errorf("the cni was not deployed")
 		}
 
-		r.Ctx.Export("cniReady", cilium.Status.Status())
-		r.Ctx.Export("storageClass", pulumi.String(StorageClass))
+		r.Ctx.Export(OutputCNIReady, cilium.Status.Status())
+		r.Ctx.Export(OutputStorageClass, pulumi.String(StorageClass))
 
 		return nil
 	})

@@ -31,6 +31,13 @@ const StatelessReplicas = 2
 // IssuerName must match the ClusterIssuer created by 30-cluster-services.
 const IssuerName = "letsencrypt"
 
+// Stack outputs, named rather than written at the export. See
+// TestLayers_ExportOnlyNamedOutputs.
+const (
+	OutputAdminSecret = "adminSecret"
+	OutputReady       = "gitopsReady"
+)
+
 // ArgoCDTimeoutSeconds is longer than the default: several images, a Redis and
 // five deployments, and the default is tight on a cold cluster.
 const ArgoCDTimeoutSeconds = 900
@@ -81,8 +88,8 @@ func main() {
 		// Export the secret's NAME, not its value: reading the password into
 		// this stack would put a cluster-admin credential into Pulumi state
 		// for no benefit — it is rotated on first login anyway.
-		r.Ctx.Export("adminSecret", pulumi.String(AdminSecret))
-		r.Ctx.Export("gitopsReady", argocd.Status.Status())
+		r.Ctx.Export(OutputAdminSecret, pulumi.String(AdminSecret))
+		r.Ctx.Export(OutputReady, argocd.Status.Status())
 
 		return nil
 	})
