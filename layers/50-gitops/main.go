@@ -8,10 +8,13 @@
 package main
 
 import (
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
+	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -44,6 +47,53 @@ const (
 // five deployments, and the default is tight on a cold cluster.
 const ArgoCDTimeoutSeconds = 900
 
+// Namespace is where Argo CD is installed, taken from the chart registry
+// rather than written twice: the root Application and its project have to land
+// in the namespace the chart actually used.
+var Namespace = charts.MustGet(Chart).Namespace
+
+// The root Application and the project that governs it. One name each, and
+// they are what an operator sees in the UI.
+const (
+	RootApplication = "root"
+	RootProject     = "root"
+)
+
+// Config keys this layer reads for the root Application. Pulumi.yaml declares
+// each with `default: ""`, so the Go constants below stay the one place a
+// fallback is written.
+const (
+	RepoURLKey  = "repoURL"
+	PathKey     = "path"
+	RevisionKey = "revision"
+)
+
+// DefaultRootPath is the repository root, where a tree of Applications
+// usually starts.
+const DefaultRootPath = "."
+
+// DefaultRootRevision tracks the repository's default branch. Named rather
+// than pinned: a repository calling it `main` and one calling it `develop`
+// both work, and pinning a branch here would be a decision about somebody
+// else's repository.
+const DefaultRootRevision = "HEAD"
+
+// ArgoAPIVersion is the API both objects below belong to.
+const ArgoAPIVersion = "argoproj.io/v1alpha1"
+
+// APIServer is the in-cluster address Argo CD deploys to. The root never
+// targets another cluster: this layer installs Argo CD into the cluster it is
+// applied to.
+const APIServer = "https://kubernetes.default.svc"
+
+// Finalizer makes deleting the root Application delete what it created.
+//
+// Without it `pulumi destroy` removes the Application and leaves every child
+// Application — and every workload under them — running, owned by nothing.
+// With it the destroy cascades, which is the property every other layer here
+// already has.
+const Finalizer = "resources-finalizer.argocd.argoproj.io"
+
 // Components are what this layer deploys. One of them, so the table buys
 // ordering nothing needs — what it buys here is the enumeration: layertest
 // asserts the chart is pinned and that internal/pkg/workloads knows what it produces.
@@ -55,6 +105,116 @@ var Components = layer.Components{
 			return r.Cluster.Domain.ApplyT(ArgoCDData)
 		},
 	},
+	{
+		Name:   RootApplication,
+		After:  []string{Chart},
+		Create: createRoot,
+	},
+}
+
+// createRoot points Argo CD at the repository that holds the workloads, or at
+// nothing and says so.
+//
+// This layer ships the mechanism, not the content. WHICH repository holds the
+// workloads is a deployment decision rather than a property of this
+// repository, so it arrives as config — exactly the way acmeEmail and
+// metadata.domain do — and an unset repoURL leaves Argo CD installed and
+// reconciling nothing.
+//
+// The project is created here rather than as a component of its own because
+// the two are one decision. A root Application with no project either runs
+// under `default`, which permits everything everywhere, or names a project
+// that does not exist and never syncs.
+func createRoot(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
+	repoURL := r.Cfg.Get(RepoURLKey)
+	if repoURL == "" {
+		// Permanent, so it survives the run: an Argo CD that reconciles
+		// nothing looks exactly like one that is broken.
+		r.Log.Skipped(RootApplication, RepoURLKey+" unset, Argo CD reconciles nothing")
+
+		return nil, nil
+	}
+
+	path := r.StringOr(PathKey, DefaultRootPath)
+	revision := r.StringOr(RevisionKey, DefaultRootRevision)
+
+	r.Log.Step(RootApplication, repoURL+" "+revision+" "+path)
+
+	project, err := apiextensions.NewCustomResource(r.Ctx, RootProject, &apiextensions.CustomResourceArgs{
+		ApiVersion:  pulumi.String(ArgoAPIVersion),
+		Kind:        pulumi.String("AppProject"),
+		Metadata:    &metav1.ObjectMetaArgs{Name: pulumi.String(RootProject), Namespace: pulumi.String(Namespace)},
+		OtherFields: map[string]any{"spec": RootProjectSpec(repoURL)},
+	}, r.With(layer.DependsOn(dependencies)...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	// After the project: an Application naming a project that does not exist
+	// is rejected, and Argo CD does not retry the rejection.
+	return apiextensions.NewCustomResource(r.Ctx, RootApplication, &apiextensions.CustomResourceArgs{
+		ApiVersion: pulumi.String(ArgoAPIVersion),
+		Kind:       pulumi.String("Application"),
+		Metadata: &metav1.ObjectMetaArgs{
+			Name:       pulumi.String(RootApplication),
+			Namespace:  pulumi.String(Namespace),
+			Finalizers: pulumi.StringArray{pulumi.String(Finalizer)},
+		},
+		OtherFields: map[string]any{"spec": RootApplicationSpec(repoURL, path, revision)},
+	}, r.With(layer.DependsOn(append(dependencies, project))...)...)
+}
+
+// RootProjectSpec governs what the root Application may create.
+//
+// Argo CD objects only, in Argo CD's own namespace, from the one repository
+// the root was pointed at. That is a root's whole job: it creates more
+// Applications, and each of those carries its own project deciding what THAT
+// one may create. A root permitted to create arbitrary cluster resources
+// would make every child project decorative.
+func RootProjectSpec(repoURL string) map[string]any {
+	return map[string]any{
+		"description": "The root Application and nothing else. Children carry their own projects.",
+		"sourceRepos": []string{repoURL},
+		"destinations": []map[string]any{
+			{"server": APIServer, "namespace": Namespace},
+		},
+		// An empty list is a deny, not an absence: Argo CD reads a MISSING
+		// whitelist as "everything", so the empty one has to be written.
+		"clusterResourceWhitelist": []map[string]any{},
+		"namespaceResourceWhitelist": []map[string]any{
+			{"group": "argoproj.io", "kind": "Application"},
+			{"group": "argoproj.io", "kind": "ApplicationSet"},
+			{"group": "argoproj.io", "kind": "AppProject"},
+		},
+	}
+}
+
+// RootApplicationSpec is the root itself.
+//
+// Automated, with prune and self-heal, because a root that has to be synced by
+// hand is a root nobody trusts: the point of pointing Argo CD at a repository
+// is that the repository wins. Prune included — a child Application deleted
+// from git has to leave the cluster, or the tree keeps things no commit
+// explains.
+func RootApplicationSpec(repoURL, path, revision string) map[string]any {
+	return map[string]any{
+		"project": RootProject,
+		"source": map[string]any{
+			"repoURL":        repoURL,
+			"path":           path,
+			"targetRevision": revision,
+		},
+		"destination": map[string]any{
+			"server":    APIServer,
+			"namespace": Namespace,
+		},
+		"syncPolicy": map[string]any{
+			"automated": map[string]any{"prune": true, "selfHeal": true},
+			// ServerSideApply, because a tree of Applications is exactly the
+			// case that hits the client-side apply annotation size limit.
+			"syncOptions": []string{"ServerSideApply=true"},
+		},
+	}
 }
 
 func main() {

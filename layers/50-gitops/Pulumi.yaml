@@ -27,6 +27,28 @@ backend:
   url: https://api.pulumi.com
 
 config:
+  gitops:repoURL:
+    default: ""
+    description: |
+      The repository holding the workloads Argo CD reconciles. Unset leaves
+      Argo CD installed and reconciling nothing, which is the right shape
+      before that repository exists — it says so on every apply.
+
+      This layer ships the mechanism, not the content: which repository is
+      a deployment decision, not a property of this one. A private repository
+      needs a credential Argo CD can read, which is not this key.
+  gitops:path:
+    default: ""
+    description: |
+      Path inside that repository where the tree of Applications starts.
+      Empty means the repository root; the Go constant DefaultRootPath is the
+      one place that fallback is written.
+  gitops:revision:
+    default: ""
+    description: |
+      Revision to track — a branch, a tag or a commit. Empty tracks the
+      repository's default branch through HEAD, which works whether it is
+      called main or develop.
   gitops:clusterStackRef:
     default: ""
     description: |
