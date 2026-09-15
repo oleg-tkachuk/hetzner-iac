@@ -101,10 +101,15 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 | [talosctl](https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl) | validates the machine config before anything exists; then upgrades, etcd snapshots, clean shutdown |
 | [jq](https://github.com/jqlang/jq) | reads single fields out of `pulumi stack output --json` and `hcloud -o json` |
 
-On macOS, `brew bundle` installs all of it. Read the `talosctl` note in the
-[`Brewfile`](Brewfile) first: Homebrew ships a newer minor than the topology
-pins, and `task cluster:machine-config:check` declines a mismatched binary rather than
-trusting it.
+On macOS, `brew bundle` installs all of it. One extra step for `talosctl`:
+Homebrew carries only the newest, which is a minor ahead of what the topology
+pins, and `task cluster:machine-config:check` declines a mismatched binary
+rather than trusting it. Run
+
+    task cluster:talosctl:install stack=<stack>
+
+once — it writes the pinned version into `bin/`, which that check prefers, so
+Homebrew's copy can stay on PATH for everything else.
 
 Optional, and only for the tasks that name them: `golangci-lint`, `gitleaks`,
 `gosec`, `trivy`, `lefthook`. Each task says what to install rather than
