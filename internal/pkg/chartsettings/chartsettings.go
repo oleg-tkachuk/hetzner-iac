@@ -49,9 +49,13 @@ const HcloudCSIDefaultLocation = "hcloudVolumeDefaultLocation"
 // KubePrismPort is the node-local API load balancer Talos enables in the
 // cluster tier's machine config, and the port Cilium is pointed at. The two
 // are a pair: change one without the other and the CNI cannot reach the API
-// server. It lives here so the layer, the machine config and the render check
-// all read one value.
-const KubePrismPort = 7445
+// server.
+//
+// The value is clusterref's, not this package's, and the difference is what
+// the comment above used to get wrong: it claimed the layer, the machine
+// config and the render check all read one value, while the machine config
+// held a bare 7445 of its own. Two copies and a comment saying otherwise.
+const KubePrismPort = clusterref.KubePrismPort
 
 // Traefik keys, as path segments rather than one dotted string, because the
 // layer writes them as a nested map and the render check writes them as a

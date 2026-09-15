@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+
 	"sigs.k8s.io/yaml"
 )
 
@@ -209,7 +211,10 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 				// only its own secrets rather than every secret in the cluster.
 				"kubePrism": map[string]any{
 					"enabled": true,
-					"port":    7445,
+					// The port Cilium is pointed at, from the one place both
+					// halves read it. It was a literal here and a constant in
+					// internal/pkg/chartsettings, with nothing comparing them.
+					"port": clusterref.KubePrismPort,
 				},
 			},
 		},
