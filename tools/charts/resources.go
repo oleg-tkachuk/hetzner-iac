@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 
 	"sigs.k8s.io/yaml"
 )
@@ -130,7 +130,7 @@ func checkResources(ctx context.Context) int {
 			fmt.Printf("MISS  %-14s %s\n", key, problem)
 		}
 
-		fmt.Printf("      set it in pkg/values/%s.yaml.tmpl, from `kubectl top pods --containers`\n", key)
+		fmt.Printf("      set it in internal/pkg/values/%s.yaml.tmpl, from `kubectl top pods --containers`\n", key)
 
 		failures += len(problems)
 	}

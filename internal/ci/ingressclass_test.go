@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +36,7 @@ var codeExtensions = map[string]bool{
 // controller appears anywhere a literal is executed.
 //
 // It exists because the literal has already escaped twice. It was `"nginx"` in
-// layers/50-gitops, which is why pkg/platform.IngressClass exists at all; the
+// layers/50-gitops, which is why internal/pkg/platform.IngressClass exists at all; the
 // fix there left an identical copy in layers/30-cluster-services' ACME solver,
 // where it survived because nothing looked. That second copy would have made
 // every certificate order hang: cert-manager creates an Ingress for the
@@ -48,7 +48,7 @@ var codeExtensions = map[string]bool{
 // asserted the wrong value. This looks at the whole tree instead.
 //
 // COMMENTS ARE ALLOWED, and that is the design rather than an exemption. The
-// history is worth keeping: pkg/platform and layers/50-gitops both explain why
+// history is worth keeping: internal/pkg/platform and layers/50-gitops both explain why
 // the constant exists by naming what it replaced, and deleting that would
 // throw away the reason. Prose may remember; code may not.
 func TestNoRetiredIngressClassInCode(t *testing.T) {
@@ -108,7 +108,7 @@ func TestNoRetiredIngressClassInCode(t *testing.T) {
 
 	assert.Empty(t, offences,
 		"%q appears in code, and this platform runs %s. Read the class from "+
-			"pkg/platform.IngressClass — a class no controller owns is accepted by the "+
+			"internal/pkg/platform.IngressClass — a class no controller owns is accepted by the "+
 			"API server and then ignored, so nothing reports the mistake:\n  %s",
 		retiredIngressClass, platform.IngressClass, strings.Join(offences, "\n  "))
 }
@@ -125,7 +125,7 @@ func isComment(line string) bool {
 	return strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#")
 }
 
-// TestIngressClassIsWhatTheChartInstalls holds pkg/platform's constant to the
+// TestIngressClassIsWhatTheChartInstalls holds internal/pkg/platform's constant to the
 // chart the ingress layer actually deploys.
 //
 // The constant is the single source of truth for every consumer, which only
@@ -135,10 +135,10 @@ func isComment(line string) bool {
 func TestIngressClassIsWhatTheChartInstalls(t *testing.T) {
 	t.Parallel()
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", "pkg", "charts", "registry.go"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "pkg", "charts", "registry.go"))
 	require.NoError(t, err)
 
 	assert.Contains(t, string(raw), `"`+platform.IngressClass+`"`,
-		"pkg/platform.IngressClass is %q and no chart by that name is in the registry",
+		"internal/pkg/platform.IngressClass is %q and no chart by that name is in the registry",
 		platform.IngressClass)
 }

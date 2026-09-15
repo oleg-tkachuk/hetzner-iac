@@ -33,11 +33,11 @@ vars:
     infra/cluster/cluster.<stack>.yaml, which is where everything about that
     cluster is described.
 
-  # Status markers, the same vocabulary pkg/pulumilog prints from Go and the
+  # Status markers, the same vocabulary internal/pkg/pulumilog prints from Go and the
   # shared library prints from shell. The shape carries the meaning, so a line
   # still reads in a monochrome log; the colour drops out under NO_COLOR.
   #
-  # Held equal to pkg/pulumilog's constants by
+  # Held equal to internal/pkg/pulumilog's constants by
   # TestTaskGlyphs_MatchThePulumiLogger — two vocabularies in one terminal
   # session is what this replaces.
   _RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
@@ -95,7 +95,7 @@ includes:
     taskfile: '{{printf .TASKLIB "hcloud"}}'
     dir: .
     vars:
-      # The label pkg/hetzner stamps on every server of a cluster, read
+      # The label internal/pkg/hetzner stamps on every server of a cluster, read
       # through the real parser rather than grepped out of the yaml: an empty
       # selector matches every server in the project, which for a power
       # command is the difference between one cluster and all of them.

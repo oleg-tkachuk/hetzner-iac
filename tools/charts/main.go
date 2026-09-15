@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 
 	"sigs.k8s.io/yaml"
 )
@@ -104,7 +104,7 @@ func appversions() error {
 	if len(wrong) > 0 {
 		fmt.Fprintf(os.Stderr,
 			"\n%d chart entr(ies) claim the wrong app version.\n"+
-				"Fix pkg/charts/registry.go so AppVersion is the UPSTREAM APP column above,\n"+
+				"Fix internal/pkg/charts/registry.go so AppVersion is the UPSTREAM APP column above,\n"+
 				"and update the `// app <version>` comment beside Version to match.\n",
 			len(wrong))
 

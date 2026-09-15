@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,7 +134,7 @@ func TestLatestInRepo_PicksTheLatestStable(t *testing.T) {
 
 	require.NoError(t, err)
 	// 42.0.0-rc.1 is newer and must not win: a pre-release pin is not
-	// reproducible, which is the rule pkg/charts enforces on the other side.
+	// reproducible, which is the rule internal/pkg/charts enforces on the other side.
 	assert.Equal(t, "41.5.0", latest.String())
 }
 

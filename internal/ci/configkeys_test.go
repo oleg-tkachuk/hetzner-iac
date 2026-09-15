@@ -19,7 +19,7 @@ var declaredKey = regexp.MustCompile(`(?m)^  ([a-z-]+):(\w+):$`)
 // the identifier holding it. Both forms are in use: most layers pass a string,
 // 20-network-policy passes EnabledKey.
 // The receiver is matched case-insensitively: a layer reads through the
-// runner's `r.Cfg`, and pkg/layer through a local `cfg`.
+// runner's `r.Cfg`, and internal/pkg/layer through a local `cfg`.
 var configRead = regexp.MustCompile(
 	`(?:(?i:cfg)\.(?:GetBool|GetInt|Get|RequireSecret|Require)|StringOr)\(\s*(?:"(\w+)"|([A-Z]\w+))`)
 
@@ -147,10 +147,10 @@ func keysRead(t *testing.T, dir string) map[string]bool {
 func TestConfigKeys_DeclaredAndReadAreTheSameSet(t *testing.T) {
 	t.Parallel()
 
-	// clusterStackRef is read by pkg/layer on every layer's behalf rather than
+	// clusterStackRef is read by internal/pkg/layer on every layer's behalf rather than
 	// by the layer itself, so it would look unread from inside the directory.
-	shared := keysRead(t, filepath.Join("..", "..", "pkg", "layer"))
-	require.NotEmpty(t, shared, "pkg/layer reads no config; the exemption below is hiding a real gap")
+	shared := keysRead(t, filepath.Join("..", "..", "internal", "pkg", "layer"))
+	require.NotEmpty(t, shared, "internal/pkg/layer reads no config; the exemption below is hiding a real gap")
 
 	for project, dir := range layerProjects(t) {
 		pulumiYAML, err := os.ReadFile(filepath.Join(dir, "Pulumi.yaml"))

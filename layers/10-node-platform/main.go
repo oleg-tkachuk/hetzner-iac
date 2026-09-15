@@ -30,13 +30,13 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/cni"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/cni"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
@@ -49,7 +49,7 @@ const (
 	CredentialsSecret = "hcloud"
 	// SystemNamespace is where both charts install.
 	SystemNamespace = "kube-system"
-	// StorageClass is re-exported for convenience; pkg/platform owns the name
+	// StorageClass is re-exported for convenience; internal/pkg/platform owns the name
 	// because every claim in the cluster has to ask for the same one, and a
 	// mismatch is not rejected — it leaves the volume Pending with nothing
 	// saying why.
@@ -78,7 +78,7 @@ const (
 // order has to be in the order.
 var Components = layer.Components{
 	{
-		// The CNI is a choice, not a constant — see pkg/cni. The component
+		// The CNI is a choice, not a constant — see internal/pkg/cni. The component
 		// keeps a fixed Name so the two charts that follow it do not have to
 		// know which implementation was picked.
 		Name:           CNIComponent,
@@ -206,7 +206,7 @@ const OperatorReplicasWanted = 2
 // for the requested pod ports` and leaving a permanently red pod in
 // `kubectl get pods -A` — which teaches a reader to ignore red pods.
 //
-// No absent case: pkg/clusterref gates every output on the producer's contract
+// No absent case: internal/pkg/clusterref gates every output on the producer's contract
 // version, so by the time a count arrives here the tier has been established
 // to publish one. A count below one is a broken producer, and sizing against
 // it would scale a working operator to nothing.
@@ -218,7 +218,7 @@ func operatorReplicas(controlPlaneCount int) int {
 	return min(controlPlaneCount, OperatorReplicasWanted)
 }
 
-// The cilium values live in pkg/values/cilium.yaml.tmpl.
+// The cilium values live in internal/pkg/values/cilium.yaml.tmpl.
 //
 // It is a named function rather than an inline literal so the settings that
 // are coupled to decisions made in the cluster tier can be asserted in a test.
@@ -284,7 +284,7 @@ func resolveToken(r *layer.Runner) pulumi.StringOutput {
 
 	r.Log.Step("token", "from the cluster stack")
 
-	// Empty rather than absent: pkg/clusterref's version gate has established
+	// Empty rather than absent: internal/pkg/clusterref's version gate has established
 	// that the tier publishes this output, and the tier exports it empty when
 	// its own `hcloud:token` is unset — a cluster built from an environment
 	// variable rather than from stack config. That is a real state with two

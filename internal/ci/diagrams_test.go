@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -149,7 +149,7 @@ func TestContainmentDiagram_NamesNamespacesThatChartsInstallInto(t *testing.T) {
 
 // TestRequestPathDiagram_UsesTheEntryPointNamesTraefikIsGiven keeps the
 // diagram spelling the entry points the layer actually configures. Renaming
-// one in pkg/chartsettings and not here leaves a diagram describing a
+// one in internal/pkg/chartsettings and not here leaves a diagram describing a
 // Traefik nobody deployed.
 func TestRequestPathDiagram_UsesTheEntryPointNamesTraefikIsGiven(t *testing.T) {
 	t.Parallel()
@@ -171,8 +171,8 @@ func TestRequestPathDiagram_UsesTheEntryPointNamesTraefikIsGiven(t *testing.T) {
 //
 // It used to pin the cloud controller manager's `use-private-ip` annotation.
 // That annotation is gone: the load balancer is Pulumi's now, and the contract
-// that replaced it is the pair of node ports — pkg/platform names them,
-// pkg/hetzner points the load balancer at them, and the values template asks
+// that replaced it is the pair of node ports — internal/pkg/platform names them,
+// internal/pkg/hetzner points the load balancer at them, and the values template asks
 // Kubernetes for them. A diagram showing a port nothing forwards to is the
 // same class of wrong the annotation test existed for.
 func TestRequestPathDiagram_ShowsThePinnedNodePorts(t *testing.T) {
@@ -180,7 +180,7 @@ func TestRequestPathDiagram_ShowsThePinnedNodePorts(t *testing.T) {
 
 	diagram := diagramContaining(t, "PROXY header")
 
-	template, err := os.ReadFile(filepath.Join("..", "..", "pkg", "values", "traefik.yaml.tmpl"))
+	template, err := os.ReadFile(filepath.Join("..", "..", "internal", "pkg", "values", "traefik.yaml.tmpl"))
 	require.NoError(t, err)
 
 	// The template interpolates them rather than spelling them, which is the

@@ -16,7 +16,7 @@ import (
 // TestEveryLayer_ChecksItsComponents closes the gap that made the other checks
 // optional.
 //
-// pkg/layer/layertest holds the invariants a component set must satisfy — the
+// internal/pkg/layer/layertest holds the invariants a component set must satisfy — the
 // chart is pinned, the order has no cycle, every chart has workloads declared.
 // Nothing made a layer call it. A new layer added without that one line got
 // none of them and nothing said so, which is the same shape as every other
@@ -165,7 +165,7 @@ func TestEveryLayerReference_PointsAtADirectoryThatExists(t *testing.T) {
 // A stack output is what somebody copies. `pulumi stack output backupPassword`
 // on an unwrapped export prints the password; wrapped, it prints `[secret]`
 // and needs `--show-secrets`, which is a deliberate act. The rest of that
-// layer is wiring whose logic lives in pkg/hetzner, and is tested there.
+// layer is wiring whose logic lives in internal/pkg/hetzner, and is tested there.
 func TestBackupLayer_ExportsThePasswordAsASecret(t *testing.T) {
 	t.Parallel()
 

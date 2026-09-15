@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/property"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/policyx"
@@ -71,7 +71,7 @@ func TestWorldOpenAdminPorts_SaysNothingAboutRulesThatAreFine(t *testing.T) {
 	t.Parallel()
 
 	for name, subject := range map[string]property.Map{
-		// The baseline rules pkg/hetzner builds, which must never be flagged:
+		// The baseline rules internal/pkg/hetzner builds, which must never be flagged:
 		// a false positive here blocks every apply.
 		"kube-apiserver from an operator CIDR": rule("6443", "203.0.113.4/32"),
 		"talos api from an operator CIDR":      rule("50000", "203.0.113.4/32"),
@@ -93,7 +93,7 @@ func TestWorldOpenAdminPorts_SaysNothingAboutRulesThatAreFine(t *testing.T) {
 func TestAdminPorts_AreThePortsTheFirewallActuallyOpens(t *testing.T) {
 	t.Parallel()
 
-	// Read from pkg/hetzner rather than restated. The first version of this
+	// Read from internal/pkg/hetzner rather than restated. The first version of this
 	// test compared adminPorts against the literals "6443" and "50000", which
 	// asserted nothing at all: both sides were hand-written here, so the
 	// cluster package could move a port and this would still pass.
@@ -112,7 +112,7 @@ func TestAdminPorts_AreThePortsTheFirewallActuallyOpens(t *testing.T) {
 	}
 
 	assert.Equal(t, want, got,
-		"the policy's admin ports and the ports pkg/hetzner opens have diverged")
+		"the policy's admin ports and the ports internal/pkg/hetzner opens have diverged")
 }
 
 // recorder is a PolicyManager that keeps what a policy reported, so the real
@@ -177,7 +177,7 @@ func TestFirewallPolicy_ReportsAWorldOpenAdminPort(t *testing.T) {
 func TestFirewallPolicy_PassesTheBaselineRuleSet(t *testing.T) {
 	t.Parallel()
 
-	// The rules pkg/hetzner actually builds, from the real builder. A false
+	// The rules internal/pkg/hetzner actually builds, from the real builder. A false
 	// positive here would block every apply, so this is the more important
 	// half of the policy.
 	baseline, err := hetzner.BuildFirewallRules([]string{"203.0.113.4/32"},
@@ -229,7 +229,7 @@ func TestServerPolicy_ReportsAServerOffThePrivateNetwork(t *testing.T) {
 	require.Len(t, got.violations, 1)
 	assert.Contains(t, got.violations[0], "network.nodeSubnet")
 
-	// Attached, which is what pkg/hetzner builds.
+	// Attached, which is what internal/pkg/hetzner builds.
 	attached := property.New(property.NewMap(map[string]property.Value{
 		"networkId": property.New(1.0),
 		"ip":        property.New("10.0.1.2"),
@@ -257,10 +257,10 @@ func TestHelmPolicy_ReportsAReleaseWithNoPinnedVersion(t *testing.T) {
 	for _, unpinned := range []string{"", "   "} {
 		got := validate(t, helmReleasePinsVersion(), release(unpinned))
 		require.Len(t, got.violations, 1, "version %q went unreported", unpinned)
-		assert.Contains(t, got.violations[0], "pkg/charts")
+		assert.Contains(t, got.violations[0], "internal/pkg/charts")
 	}
 
-	// A pinned version, in the two spellings pkg/charts accepts.
+	// A pinned version, in the two spellings internal/pkg/charts accepts.
 	for _, pinned := range []string{"1.20.1", "v1.21.2"} {
 		assert.Empty(t, validate(t, helmReleasePinsVersion(), release(pinned)).violations, pinned)
 	}

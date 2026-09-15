@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 )

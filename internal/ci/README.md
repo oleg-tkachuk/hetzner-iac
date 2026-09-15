@@ -26,7 +26,7 @@ carry them.
 | `gatemarkers_test.go` | the † in the command reference against the tasks the workflows run |
 | `gitignore_test.go` | every main package's binary name has a `.gitignore` entry |
 | `gobuild_test.go` | every `go build` a taskfile or workflow runs names an output path |
-| `ingressclass_test.go` | the retired ingress-class literal stays out of executed code; `pkg/platform.IngressClass` is the one spelling |
+| `ingressclass_test.go` | the retired ingress-class literal stays out of executed code; `internal/pkg/platform.IngressClass` is the one spelling |
 | `layers_test.go` | every layer with a component set calls `layertest.Check` |
 | `renovate_test.go` | Renovate's own regex, read from its own config, matches every annotated pin — and every pin is annotated |
 | `renovate_schedule_test.go` | the Renovate schedule is not narrower than a day, which a best-effort cron cannot meet |

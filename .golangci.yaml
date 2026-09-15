@@ -92,13 +92,13 @@ linters:
         linters:
           - goconst
 
-      # Same reasoning for two data tables. pkg/charts/registry.go IS a table
+      # Same reasoning for two data tables. internal/pkg/charts/registry.go IS a table
       # — a repeated namespace or repository URL is its content, and a constant
-      # per column would hide what each row says. pkg/hetzner/machineconfig.go
+      # per column would hide what each row says. internal/pkg/hetzner/machineconfig.go
       # writes Talos's own configuration vocabulary, where a Go constant named
       # after a Talos key adds a level of indirection between the code and the
       # documentation it is written against.
-      - path: ^pkg/(charts/registry|workloads/workloads|chartsettings/chartsettings|hetzner/(config|machineconfig))\.go$
+      - path: ^internal/pkg/(charts/registry|workloads/workloads|chartsettings/chartsettings|hetzner/(config|machineconfig))\.go$
         linters:
           - goconst
 

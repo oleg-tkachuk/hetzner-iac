@@ -166,8 +166,8 @@ pre-commit:
     # Exact chart versions, no floating tags.
     - name: chart-pins
       tags: [config]
-      glob: "pkg/charts/*.go"
-      run: go test -count=1 ./pkg/charts/
+      glob: "internal/pkg/charts/*.go"
+      run: go test -count=1 ./internal/pkg/charts/
 
     # The workflows are the one part of this repository that runs with a token.
     - name: zizmor

@@ -16,7 +16,7 @@ go run ./tools/topology get <field> <topology.yaml>  # print one value
 | `kubernetes-version` | `kubernetes.version` |
 
 Validation is the same code the Pulumi program runs —
-`pkg/hetzner.LoadTopology` — so the check cannot drift from the thing it
+`internal/pkg/hetzner.LoadTopology` — so the check cannot drift from the thing it
 checks. A malformed cluster description then fails in CI in a second, instead
 of at `pulumi up` after credentials have been set up and a preview waited for.
 

@@ -2,7 +2,7 @@
 //
 // It exists so a taskfile can put the token in the environment of a tool that
 // reads it from there — the hcloud CLI — without restating how the token is
-// found. That resolution is pkg/hetzner.Token: an exported HCLOUD_TOKEN
+// found. That resolution is internal/pkg/hetzner.Token: an exported HCLOUD_TOKEN
 // first, then the encrypted stack config through Pulumi's own decryption.
 //
 // stdout, and only stdout: the caller is `export HCLOUD_TOKEN="$(…)"`, so the
@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 )
 
 // timeout covers one `pulumi config get`, which decrypts through the service.

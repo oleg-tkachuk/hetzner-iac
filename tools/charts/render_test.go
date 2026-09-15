@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

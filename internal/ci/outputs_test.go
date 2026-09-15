@@ -12,7 +12,7 @@ import (
 )
 
 // outputConstant matches a stack-output constant and captures the name it
-// publishes. The same shape in a layer and in pkg/clusterref, which is what
+// publishes. The same shape in a layer and in internal/pkg/clusterref, which is what
 // lets one rule cover both producers.
 var outputConstant = regexp.MustCompile(`(?m)^\tOutput\w+\s+= "(\w+)"$`)
 
@@ -37,7 +37,7 @@ func producers(t *testing.T) []string {
 
 	return append(paths,
 		filepath.Join(root, "infra", "cluster", "main.go"),
-		filepath.Join(root, "pkg", "clusterref", "clusterref.go"),
+		filepath.Join(root, "internal", "pkg", "clusterref", "clusterref.go"),
 	)
 }
 
@@ -50,7 +50,7 @@ func producers(t *testing.T) []string {
 // a person today and by whatever writes DNS records tomorrow, and a rename at
 // that point is a rename in two languages.
 //
-// It also makes the set greppable. `grep Output pkg/clusterref layers` is the
+// It also makes the set greppable. `grep Output internal/pkg/clusterref layers` is the
 // whole list of what this repository publishes.
 func TestLayers_ExportOnlyNamedOutputs(t *testing.T) {
 	t.Parallel()
@@ -86,7 +86,7 @@ func TestLayers_ExportOnlyNamedOutputs(t *testing.T) {
 //
 // This replaces a test that checked the backup layer only. The tier's
 // kubeconfig and talosconfig cross the same boundary and were guarded a
-// different way — by pinning the constant's value inside pkg/clusterref, which
+// different way — by pinning the constant's value inside internal/pkg/clusterref, which
 // freezes the Go side without ever reading the shell side. Both are kept: the
 // pin catches a rename, this catches a rename the other half did not follow.
 func TestOutputs_ReadByShellAreDeclaredInGo(t *testing.T) {

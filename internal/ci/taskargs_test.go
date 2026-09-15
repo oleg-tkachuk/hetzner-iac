@@ -477,7 +477,7 @@ var (
 // TestTaskGlyphs_MatchThePulumiLogger holds the two halves of one vocabulary
 // equal.
 //
-// pkg/pulumilog says its glyphs match the taskfiles "exactly" and that
+// internal/pkg/pulumilog says its glyphs match the taskfiles "exactly" and that
 // changing one without the other is how two tools stop looking like one — and
 // nothing checked it. A task and the program it runs print into one terminal.
 func TestTaskGlyphs_MatchThePulumiLogger(t *testing.T) {
@@ -488,7 +488,7 @@ func TestTaskGlyphs_MatchThePulumiLogger(t *testing.T) {
 	taskfile, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
 	require.NoError(t, err)
 
-	logger, err := os.ReadFile(filepath.Join(root, "pkg", "pulumilog", "pulumilog.go"))
+	logger, err := os.ReadFile(filepath.Join(root, "internal", "pkg", "pulumilog", "pulumilog.go"))
 	require.NoError(t, err)
 
 	glyphs := map[string]string{}

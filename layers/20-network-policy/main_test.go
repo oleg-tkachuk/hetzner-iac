@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

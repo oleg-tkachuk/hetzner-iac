@@ -448,7 +448,7 @@ in it.
 
 ## Chart upgrades arrive as pull requests
 
-Every chart is pinned in [pkg/charts/registry.go](../pkg/charts/registry.go) —
+Every chart is pinned in [internal/pkg/charts/registry.go](../internal/pkg/charts/registry.go) —
 one file, no version literal anywhere else. Renovate watches it through a regex
 in [.github/renovate.json](../.github/renovate.json) and opens one pull request
 per chart, weekly, labelled `charts`, with `fix(charts):` so the upgrade

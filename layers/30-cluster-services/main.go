@@ -15,10 +15,10 @@
 package main
 
 import (
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	apiextensions "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
@@ -79,7 +79,7 @@ var Components = layer.Components{
 		Chart: "external-secrets",
 	},
 	{
-		// Approves the CSRs the kubelets raise once pkg/hetzner turns on
+		// Approves the CSRs the kubelets raise once internal/pkg/hetzner turns on
 		// rotate-server-certificates. Nothing in Kubernetes approves them by
 		// itself, and until they are approved the kubelet keeps the
 		// self-signed certificate that has no IP SANs.
@@ -167,13 +167,13 @@ func MetricsServerData() values.MetricsServer {
 // works once that layer is applied. DNS-01 would remove the ordering but needs
 // provider credentials this layer deliberately does not hold.
 //
-// The class comes from pkg/platform rather than a literal here, and that is
+// The class comes from internal/pkg/platform rather than a literal here, and that is
 // the whole lesson of this function: it WAS the literal "nginx", left behind
 // when Traefik replaced ingress-nginx. cert-manager would have created an
 // Ingress for the challenge, no controller would have owned it, Let'"'"'s Encrypt
 // would never have reached /.well-known/acme-challenge/, and the order would
 // have sat pending for ever with nothing reporting an error. The same literal
-// had already been fixed once, in the gitops layer — pkg/platform exists
+// had already been fixed once, in the gitops layer — internal/pkg/platform exists
 // because of it — and this copy survived in a second place.
 func IssuerSpec(email string, staging bool) pulumi.Map {
 	directory, accountKey := LetsEncryptProduction, accountKeyProduction

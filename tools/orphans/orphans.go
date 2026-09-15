@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 )
 
 // The Hetzner resources this platform creates indirectly, and can therefore
@@ -25,7 +25,7 @@ const (
 const ServiceUIDLabel = "hcloud-ccm/service-uid"
 
 // TalosVersionLabel is the label cluster:image:bake stamps on the snapshot it
-// bakes, and lookupTalosImage selects on. Aliased from pkg/hetzner rather than
+// bakes, and lookupTalosImage selects on. Aliased from internal/pkg/hetzner rather than
 // spelled again: this report groups snapshots by it, so a copy that drifted
 // would file every snapshot under an empty version.
 const TalosVersionLabel = hetzner.LabelTalosVersion
