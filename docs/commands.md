@@ -52,6 +52,15 @@ are trimmed with `excludes:` to what works here. Four modules are included:
 succeed in this repository is worse than a missing one: it is a command
 someone runs once, in an emergency, and gets a confusing failure from.
 
+Tasks marked **†** are the ones a workflow runs itself, so a green local run
+of one is a green pull request for that check and nobody has to type it by
+hand. The other checks CI performs it runs directly rather than through a task
+— the unit suite, `go vet`, `go build -o bin/`, golangci-lint — and `task
+verify` and `task scan` are the local aggregates that mirror those.
+`internal/ci` holds the repository's own gates, which run as part of the unit
+suite. TestGateMarkers_MatchTheWorkflows keeps this marker equal to what the
+workflows actually invoke.
+
 ## Whole platform
 
 | Task | Does |
@@ -59,10 +68,10 @@ someone runs once, in an emergency, and gets a confusing failure from.
 | `task build` | compile every program into `bin/` |
 | `task clean` | remove build output: `bin/` and the layer binaries under `.cache` |
 | `task destroy` | destroy everything: every layer, then the cluster. Asks first, and says what survives |
-| `task docs:links` | do the documentation's own links point at files and headings that exist? — needs lychee |
+| `task docs:links` † | do the documentation's own links point at files and headings that exist? — needs lychee |
 | `task e2e` | verify a running cluster; read-only |
 | `task fmt` | format and tidy |
-| `task fmt-check` | fail if `gofmt -s` would change anything; the library's gate, and what CI runs |
+| `task fmt-check` † | fail if `gofmt -s` would change anything; the library's gate, and what CI runs |
 | `task plan` | preview the cluster and every layer; change nothing |
 | `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
 | `task up` | cluster, then every layer in dependency order; asks twice |
@@ -133,7 +142,7 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 | `task platform:apply layer=10-node-platform` | apply one layer, or `layer=all` in dependency order; asks first |
 | `task platform:destroy layer=50-gitops` | destroy one layer, or `layer=all` in reverse; asks first |
 | `task platform:init` | create every layer's stack and point it at the cluster |
-| `task platform:layers` | the layer order; CI derives its matrix from this |
+| `task platform:layers` † | the layer order; CI derives its matrix from this |
 | `task platform:outputs layer=50-gitops` | one layer's stack outputs, or `layer=all` |
 | `task platform:plan layer=10-node-platform` | preview one layer, or `layer=all` for every one in order |
 | `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
@@ -167,12 +176,13 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 
 | Task | Does |
 |------|------|
-| `task checkov` | hardening rules over the manifests and workflows this repository ships |
-| `task security:gosec` | insecure patterns the compiler is happy with |
+| `task checkov` † | hardening rules over the manifests and workflows this repository ships |
+| `task security:gosec` † | insecure patterns the compiler is happy with |
 | `task security:scan` | the module's own aggregate: secrets, filesystem, Go vuln, lint and SAST. `task scan` runs the four CI runs instead, not this |
-| `task security:secrets` | gitleaks over the whole history |
-| `task security:trivy` | vulnerable dependencies and secrets, plus IaC misconfig |
-| `task security:vuln` / `task security:lint` | govulncheck and golangci-lint across every module |
+| `task security:secrets` † | gitleaks over the whole history |
+| `task security:trivy` † | vulnerable dependencies and secrets, plus IaC misconfig |
+| `task security:vuln` † | govulncheck across every module |
+| `task security:lint` | golangci-lint across every module; CI runs the linter through its own action, not this |
 
 ## Testing
 
