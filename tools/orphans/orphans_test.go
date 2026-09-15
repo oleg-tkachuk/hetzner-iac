@@ -76,7 +76,7 @@ func TestOrphans_LoadBalancers(t *testing.T) {
 		// answer, not a reason to stay silent.
 		"not ours": {
 			labels: map[string]string{"team": "platform"},
-			why:    "not created by this cluster's CCM",
+			why:    "created neither by this cluster's CCM nor by this repository",
 		},
 	} {
 		found := Orphans(Inventory{
@@ -87,6 +87,41 @@ func TestOrphans_LoadBalancers(t *testing.T) {
 		assert.Equal(t, KindLoadBalancer, found[0].Kind, name)
 		assert.Contains(t, found[0].Why, tc.why, name)
 	}
+}
+
+// TestOrphans_PulumiLoadBalancersAreClaimed is the false positive this check
+// produced on a working cluster.
+//
+// Both load balancers here are created through the Hetzner provider rather
+// than by the CCM — the API one in infra/cluster, the ingress one in
+// layers/40-ingress — because the CCM refuses to target a control-plane node.
+// Neither carries a CCM label, and the absence used to be read as "not this
+// cluster's": two findings and exit 1 with nothing wrong. `task destroy` runs
+// this check last, so the teardown reported a failure it did not have.
+func TestOrphans_PulumiLoadBalancersAreClaimed(t *testing.T) {
+	t.Parallel()
+
+	found := Orphans(Inventory{
+		LoadBalancers: []LoadBalancer{
+			{
+				Name: "platform-dev-api",
+				Labels: map[string]string{
+					hetzner.LabelCluster:   "platform-dev",
+					hetzner.LabelManagedBy: hetzner.ManagedBy,
+				},
+			},
+			{
+				Name: "platform-dev-ingress",
+				Labels: map[string]string{
+					hetzner.LabelCluster:   "platform-dev",
+					hetzner.LabelManagedBy: hetzner.ManagedBy,
+				},
+			},
+		},
+	}, claims())
+
+	assert.Empty(t, found,
+		"a load balancer this repository created is claimed by the stack that created it")
 }
 
 func TestOrphans_AServerThatIsNotANode(t *testing.T) {

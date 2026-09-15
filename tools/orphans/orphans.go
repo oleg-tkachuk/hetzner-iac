@@ -20,8 +20,16 @@ const (
 )
 
 // ServiceUIDLabel is how the hcloud cloud controller manager records which
-// Service a load balancer belongs to. A load balancer without it was not
-// created from this cluster.
+// Service a load balancer belongs to.
+//
+// Its ABSENCE used to mean "not created from this cluster", and that stopped
+// being true when both load balancers here moved to the Hetzner provider: the
+// CCM refuses to target a node carrying
+// node.kubernetes.io/exclude-from-external-load-balancers, which Talos puts on
+// every control-plane node, so neither the API nor the ingress balancer is the
+// CCM's. Neither carries this label and neither is an orphan — which this
+// check reported as two findings and a non-zero exit, on a cluster where
+// nothing was wrong.
 const ServiceUIDLabel = "hcloud-ccm/service-uid"
 
 // TalosVersionLabel is the label cluster:image:bake stamps on the snapshot it
@@ -164,16 +172,22 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 	}
 
 	for _, balancer := range inventory.LoadBalancers {
-		uid, managed := balancer.Labels[ServiceUIDLabel]
+		uid, fromCCM := balancer.Labels[ServiceUIDLabel]
 
 		switch {
-		case !managed:
-			// Not created from this cluster. Reported rather than skipped,
+		case balancer.Labels[hetzner.LabelManagedBy] == hetzner.ManagedBy:
+			// Pulumi's own, and therefore claimed: the stack that created it
+			// destroys it. Checked before the CCM label because these carry
+			// no CCM label at all.
+			continue
+		case !fromCCM:
+			// Neither Pulumi's nor the CCM's. Reported rather than skipped,
 			// because the operator is reading this list to find out what is
 			// being paid for, and "something else made it" is an answer.
 			found = append(found, Finding{
 				Kind: KindLoadBalancer, Name: balancer.Name,
-				Why: "no " + ServiceUIDLabel + " label: not created by this cluster's CCM",
+				Why: "no " + ServiceUIDLabel + " and no " + hetzner.LabelManagedBy +
+					" label: created neither by this cluster's CCM nor by this repository",
 			})
 		case !claims.ServiceUIDs[uid]:
 			found = append(found, Finding{
