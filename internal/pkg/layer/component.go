@@ -1,6 +1,7 @@
 package layer
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -269,14 +270,14 @@ const (
 	visitDone
 )
 
-// order returns the components sorted so that every After comes first.
+// index checks every component and returns the set keyed by name.
 //
-// Deterministic on purpose: ties break by chart key rather than by map order,
-// so two runs of the same contract produce the same sequence and a diff in the
-// Pulumi preview means something actually changed.
-func order(components Components) (Components, error) {
+// Separate from order because the two answer different questions: this one is
+// about whether a component set is well formed at all, and order is about the
+// sequence it produces. Together they were one function doing both, where the
+// sort was the part a reader had come to read.
+func index(components Components) (map[string]Component, error) {
 	byName := make(map[string]Component, len(components))
-	keys := make([]string, 0, len(components))
 
 	for _, component := range components {
 		// Exactly one of the two, checked rather than assumed: a component
@@ -289,7 +290,7 @@ func order(components Components) (Components, error) {
 		case component.Chart != "" && component.Create != nil:
 			return nil, fmt.Errorf("component %q has both a chart and a Create function", component.Key())
 		case component.Key() == "":
-			return nil, fmt.Errorf("a component built with Create has no Name")
+			return nil, errors.New("a component built with Create has no Name")
 		case component.StaticValues != nil && component.ValuesFrom != nil:
 			return nil, fmt.Errorf(
 				"component %q sets both StaticValues and ValuesFrom; one template takes one of them",
@@ -311,6 +312,24 @@ func order(components Components) (Components, error) {
 		}
 
 		byName[key] = component
+	}
+
+	return byName, nil
+}
+
+// order returns the components sorted so that every After comes first.
+//
+// Deterministic on purpose: ties break by chart key rather than by map order,
+// so two runs of the same contract produce the same sequence and a diff in the
+// Pulumi preview means something actually changed.
+func order(components Components) (Components, error) {
+	byName, err := index(components)
+	if err != nil {
+		return nil, err
+	}
+
+	keys := make([]string, 0, len(byName))
+	for key := range byName {
 		keys = append(keys, key)
 	}
 
