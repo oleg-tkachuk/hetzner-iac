@@ -29,7 +29,7 @@ func runIngress(t *testing.T) *recorder {
 	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
 		_, err := hetzner.NewIngressLoadBalancer(ctx, "ingress", hetzner.IngressLoadBalancerArgs{
 			ClusterName:      pulumi.String(testCluster),
-			Location:         pulumi.String("hel1"),
+			Location:         pulumi.String(platform.ProbeLocation),
 			NetworkID:        pulumi.Int(testNetworkID),
 			LoadBalancerType: "lb11",
 		})
@@ -57,7 +57,7 @@ func TestIngressLoadBalancer_IsPlacedAndLabelledWithTheCluster(t *testing.T) {
 
 	// Location has to match the servers'. Elsewhere in the same network zone
 	// still works and pays for a detour on every request.
-	assert.Equal(t, "hel1", got["location"].StringValue())
+	assert.Equal(t, platform.ProbeLocation, got["location"].StringValue())
 
 	// The cluster label is not decoration: it is what the target selector
 	// below matches, so a load balancer without it targets nothing.

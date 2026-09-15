@@ -25,6 +25,33 @@ const StorageClass = "hcloud-volumes"
 // resource exists, looks right, and routes nothing.
 const IngressClass = "traefik"
 
+// ProbeLocation is the Hetzner location every test fixture and every render
+// probe uses, and it is one spelling on purpose.
+//
+// It was sixteen: three fixtures in internal/pkg/hetzner, one each in
+// internal/pkg/layer, internal/pkg/clusterref and layers/10-node-platform,
+// three in tools/image, two in tools/topology, plus the CSI render probe in
+// internal/pkg/chartsettings and the template probe in internal/pkg/values.
+// Every one of them wrote `hel1`.
+//
+// A fixture inventing its own is not harmless. The topology validator rejects
+// a location it does not know, and the CSI render probe is passed through to
+// an env var and asserted on the rendered output — so a fixture naming a
+// location the validator or the schema has never heard of tests something
+// that cannot happen, and reports green.
+//
+// Three things hold it, all in internal/ci because they cross packages: it is
+// a member of hetzner.Locations, it is what the schema's enum accepts, and it
+// is what infra/cluster/cluster.example.yaml actually names. That last one is
+// the anchor the operator can see — the committed cluster config, which is
+// where a location is supposed to come from.
+//
+// Nothing in production reads this. The real location travels
+// placement.location → hetzner.Topology → clusterref.OutputLocation →
+// r.Cluster.Location, and the layers that need it (the ingress load balancer,
+// the Storage Box, the CSI controller) take it from there.
+const ProbeLocation = "hel1"
+
 // Node ports the ingress load balancer forwards to.
 //
 // Two programs have to name the same two numbers and they never call each

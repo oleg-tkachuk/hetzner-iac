@@ -220,4 +220,13 @@ func TestSchema_EnumsMatchTheValidator(t *testing.T) {
 
 	assert.ElementsMatch(t, hetzner.Architectures, architecture.Enum,
 		"the schema and internal/pkg/hetzner disagree on which architectures exist")
+
+	// The same check the location enum never had. It listed six values and the
+	// validator's map listed six, independently — two spellings of one set,
+	// and an editor that accepts what the apply then refuses.
+	location := schema.Properties["placement"].Properties["location"]
+	require.NotEmpty(t, location.Enum, "placement.location has no enum")
+
+	assert.ElementsMatch(t, hetzner.Locations, location.Enum,
+		"the schema and internal/pkg/hetzner disagree on which locations exist")
 }
