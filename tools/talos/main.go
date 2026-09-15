@@ -71,7 +71,7 @@ func talosctlPath() (string, error) {
 	found, err := exec.LookPath("talosctl")
 	if err != nil {
 		return "", fmt.Errorf("talosctl is not installed, and %s does not exist either: "+
-			"`task cluster:talosctl:install stack=<stack>` writes the pinned one there: %w",
+			"`task cluster:talosctl:install` writes the pinned one there: %w",
 			LocalTalosctl, err)
 	}
 
@@ -175,7 +175,7 @@ func checkVersion(ctx context.Context, talosctl, pinned string) error {
 			"Talos moves configuration between documents across minor versions, so a\n"+
 				"mismatched binary reports conflicts that will not happen — or misses real\n"+
 				"ones. Get the matching one:\n\n"+
-				"  task cluster:talosctl:install stack=<stack>\n\n"+
+				"  task cluster:talosctl:install\n\n"+
 				"That writes %s for %s/%s and this check prefers it, so `brew install\n"+
 				"talosctl` can keep the newest on PATH for everything else. The pin moves\n"+
 				"when pulumi-talos ships newer machinery — see talos.version in the\n"+

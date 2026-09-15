@@ -106,10 +106,12 @@ Homebrew carries only the newest, which is a minor ahead of what the topology
 pins, and `task cluster:machine-config:check` declines a mismatched binary
 rather than trusting it. Run
 
-    task cluster:talosctl:install stack=<stack>
+    task cluster:talosctl:install
 
-once — it writes the pinned version into `bin/`, which that check prefers, so
-Homebrew's copy can stay on PATH for everything else.
+once — it needs no stack and works on a fresh clone, because it reads the
+version from the committed topologies. It writes that version into `bin/`,
+which the check prefers, so Homebrew's copy can stay on PATH for everything
+else.
 
 Optional, and only for the tasks that name them: `golangci-lint`, `gitleaks`,
 `gosec`, `trivy`, `lefthook`. Each task says what to install rather than

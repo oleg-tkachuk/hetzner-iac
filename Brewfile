@@ -43,7 +43,7 @@ brew "jq"
 #
 # Both can coexist, and no PATH surgery is needed:
 #
-#   task cluster:talosctl:install stack=<stack>
+#   task cluster:talosctl:install
 #
 # writes the pinned version into bin/talosctl, which that check prefers over
 # PATH. The version comes from the topology and the platform from uname, so it

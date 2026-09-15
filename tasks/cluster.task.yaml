@@ -143,12 +143,13 @@ tasks:
       - go run {{.ROOT}}/tools/image "{{._CL_TOPOLOGY}}" "{{._CL_STACK}}"
 
   talosctl:install:
-    desc: "Download the talosctl the topology pins into bin/, for this platform"
+    desc: "Download the talosctl the topologies pin into bin/, for this platform"
+    # No stack, deliberately. This installs a tool, not a cluster's artifact,
+    # and it has to work on a clone that has no stack yet — cluster.<stack>.yaml
+    # is gitignored, so right after `git clone` the only topology present is
+    # the committed example. Requiring a stack made the task unusable at the
+    # one moment it is needed.
     preconditions:
-      - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
-      - sh: test -f "{{._CL_TOPOLOGY}}"
-        msg: "no topology at {{._CL_TOPOLOGY}} — cp infra/cluster/cluster.example.yaml {{._CL_TOPOLOGY}} and edit adminCIDRs"
       - sh: command -v curl >/dev/null
         msg: "curl not installed — it ships with macOS, so this is unexpected"
     cmds:
@@ -163,7 +164,35 @@ tasks:
       # pin moved.
       - cmd: |
           set -euo pipefail
-          version="$(go run {{.ROOT}}/tools/topology get talos-version "{{._CL_TOPOLOGY}}")"
+
+          # Every topology, not one: a single bin/talosctl validates all of
+          # them, so they have to agree on the version. Disagreeing is worth
+          # saying out loud rather than installing whichever came first and
+          # leaving machine-config:check to fail against the other.
+          # Space-separated on purpose: a version token holds no spaces, so
+          # word splitting is the whole parser needed here.
+          versions=""
+          for topology in "{{.ROOT}}"/infra/cluster/cluster.*.yaml; do
+            [ -f "$topology" ] || continue
+            versions="${versions} $(go run {{.ROOT}}/tools/topology get talos-version "$topology")"
+          done
+
+          # shellcheck disable=SC2086 -- splitting is intended
+          distinct="$(printf '%s\n' ${versions} | awk 'NF' | sort -u)"
+          count="$(printf '%s' "${distinct}" | awk 'NF {n++} END {print n + 0}')"
+
+          if [ "${count}" -eq 0 ]; then
+            printf '%s\n' "{{._ERR}} cluster · talosctl · no topology in infra/cluster names a Talos version" >&2
+            exit 1
+          fi
+
+          if [ "${count}" -gt 1 ]; then
+            printf '%s\n' "{{._ERR}} cluster · talosctl · topologies disagree on talos.version: $(printf '%s' "${distinct}" | tr '\n' ' ')" >&2
+            printf '%s\n' "{{._ERR}} cluster · talosctl · one binary validates them all, so pin one version" >&2
+            exit 1
+          fi
+
+          version="${distinct}"
 
           os="$(uname -s | tr '[:upper:]' '[:lower:]')"
           case "$(uname -m)" in
@@ -197,11 +226,12 @@ tasks:
 
   machine-config:check:
     desc: "Validate the machine-config patches against Talos itself — no cluster needed"
+    # No stack either: the command below validates every topology in
+    # infra/cluster, so there is nothing per-stack about it. The guard was
+    # here and the stack was never read.
     preconditions:
-      - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
       - sh: test -x "{{.ROOT}}/bin/talosctl" || command -v talosctl >/dev/null
-        msg: "no talosctl — `task cluster:talosctl:install stack=<stack>` writes the pinned one into bin/"
+        msg: "no talosctl — `task cluster:talosctl:install` writes the pinned one into bin/"
     cmds:
       # The unit tests prove the patches contain what was intended; only Talos
       # can say whether it accepts them. Catches at plan time what would
@@ -996,7 +1026,35 @@ tasks:
     cmds:
       - cmd: |
           set -euo pipefail
-          version="$(go run {{.ROOT}}/tools/topology get talos-version "{{._CL_TOPOLOGY}}")"
+
+          # Every topology, not one: a single bin/talosctl validates all of
+          # them, so they have to agree on the version. Disagreeing is worth
+          # saying out loud rather than installing whichever came first and
+          # leaving machine-config:check to fail against the other.
+          # Space-separated on purpose: a version token holds no spaces, so
+          # word splitting is the whole parser needed here.
+          versions=""
+          for topology in "{{.ROOT}}"/infra/cluster/cluster.*.yaml; do
+            [ -f "$topology" ] || continue
+            versions="${versions} $(go run {{.ROOT}}/tools/topology get talos-version "$topology")"
+          done
+
+          # shellcheck disable=SC2086 -- splitting is intended
+          distinct="$(printf '%s\n' ${versions} | awk 'NF' | sort -u)"
+          count="$(printf '%s' "${distinct}" | awk 'NF {n++} END {print n + 0}')"
+
+          if [ "${count}" -eq 0 ]; then
+            printf '%s\n' "{{._ERR}} cluster · talosctl · no topology in infra/cluster names a Talos version" >&2
+            exit 1
+          fi
+
+          if [ "${count}" -gt 1 ]; then
+            printf '%s\n' "{{._ERR}} cluster · talosctl · topologies disagree on talos.version: $(printf '%s' "${distinct}" | tr '\n' ' ')" >&2
+            printf '%s\n' "{{._ERR}} cluster · talosctl · one binary validates them all, so pin one version" >&2
+            exit 1
+          fi
+
+          version="${distinct}"
           export TALOSCONFIG="{{.ROOT}}/talosconfig"
           # One node at a time, waiting for each: rolling through the control
           # plane in parallel takes etcd below quorum.
