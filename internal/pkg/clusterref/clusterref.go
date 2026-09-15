@@ -80,6 +80,27 @@ const (
 	OutputDNSZone           = "dnsZone"
 )
 
+// KubePrismPort is the node-local API load balancer Talos enables, and the
+// port Cilium is pointed at.
+//
+// One value, two halves that never call each other: internal/pkg/hetzner
+// writes it into the machine config's features.kubePrism, and
+// layers/10-node-platform hands it to Cilium as k8sServicePort. A mismatch
+// does not fail an apply — Cilium comes up pointing at a port Talos does not
+// listen on, so there is no service dataplane at all and every ClusterIP
+// blackholes with nothing saying why.
+//
+// It was 7445 twice: the constant in internal/pkg/chartsettings and a bare
+// literal in machineconfig.go, with a comment in the layer claiming they were
+// the same thing. Nothing compared them.
+//
+// Here rather than in hetzner, which owns the machine config, for the reason
+// ProbeLocation is here: the tier decides it and the layer must match, which
+// is this package's axis — and unlike hetzner this package pulls no provider
+// SDK, so internal/pkg/chartsettings can read it without dragging the Hetzner
+// and Talos SDKs into a Helm template's build graph.
+const KubePrismPort = 7445
+
 // ProbeLocation is the Hetzner location every test fixture and every render
 // probe uses, and it is one spelling on purpose.
 //

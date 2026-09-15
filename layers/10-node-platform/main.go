@@ -122,8 +122,9 @@ var Components = layer.Components{
 
 // KubePrismHost is where Cilium reaches the API server: KubePrism listens on
 // the node itself, so the CNI does not depend on one control-plane node's
-// life. The port is chartsettings.KubePrismPort, shared with the machine
-// config that enables it.
+// life. The port is clusterref.KubePrismPort, which is the one value the
+// machine config writes and Cilium is pointed at — this comment claimed that
+// sharing while machineconfig.go held a literal 7445 of its own.
 const KubePrismHost = "localhost"
 
 // CNIComponent is the fixed name of whichever CNI is installed, so the
