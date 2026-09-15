@@ -30,7 +30,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/cni"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
@@ -256,7 +255,7 @@ func CiliumData(
 		return values.Cilium{
 			PodCIDR:          resolved[0].(string),
 			APIHost:          KubePrismHost,
-			APIPort:          chartsettings.KubePrismPort,
+			APIPort:          clusterref.KubePrismPort,
 			OperatorReplicas: operatorReplicas(resolved[1].(int)),
 			RoutingMode:      resolved[2].(string),
 		}
