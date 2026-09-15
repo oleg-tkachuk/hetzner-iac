@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
@@ -47,7 +46,7 @@ func current() stackMocks {
 		resource.PropertyKey(clusterref.OutputPodCIDR):           resource.NewStringProperty("10.244.0.0/16"),
 		resource.PropertyKey(clusterref.OutputServiceCIDR):       resource.NewStringProperty("10.96.0.0/12"),
 		resource.PropertyKey(clusterref.OutputClusterName):       resource.NewStringProperty("platform-prod"),
-		resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty(platform.ProbeLocation),
+		resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty(clusterref.ProbeLocation),
 		resource.PropertyKey(clusterref.OutputHcloudToken):       resource.MakeSecret(resource.NewStringProperty("token-from-the-cluster-tier")),
 		resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
 	}}

@@ -21,6 +21,7 @@ package chartsettings
 import (
 	"strconv"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
@@ -119,10 +120,10 @@ type Effect struct {
 }
 
 // HcloudCSIProbeLocation is the location the render check renders with.
-// platform.ProbeLocation rather than a literal: the value is passed through
+// clusterref.ProbeLocation rather than a literal: the value is passed through
 // to an env var verbatim, so it has to be a location the schema and the
 // topology validator both accept.
-const HcloudCSIProbeLocation = platform.ProbeLocation
+const HcloudCSIProbeLocation = clusterref.ProbeLocation
 
 // ProxyProtocolProbeCIDR is the range the render check renders with. It is a
 // documentation range rather than this platform's node subnet, which is a

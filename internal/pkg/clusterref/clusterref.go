@@ -80,6 +80,38 @@ const (
 	OutputDNSZone           = "dnsZone"
 )
 
+// ProbeLocation is the Hetzner location every test fixture and every render
+// probe uses, and it is one spelling on purpose.
+//
+// It was sixteen literals — three fixtures in internal/pkg/hetzner, one each
+// in internal/pkg/layer, this package and layers/10-node-platform, three in
+// tools/image, two in tools/topology, plus the CSI render probe in
+// internal/pkg/chartsettings and the template probe in internal/pkg/values.
+// Every one wrote `hel1`.
+//
+// A fixture inventing its own is not harmless. The topology validator rejects
+// a location it does not know, so a fixture naming one tests a cluster that
+// cannot exist and reports green.
+//
+// HERE RATHER THAN IN internal/pkg/platform, and the axis is the reason. That
+// package names what two PEER LAYERS must spell identically — a storage class
+// one registers and another claims. A location is not horizontal: the cluster
+// tier declares it in the topology, validates it, and publishes it, and the
+// layers only read it. That is this package's whole subject, and
+// OutputLocation above is the name it travels under. It was in platform first,
+// which put a vertical contract on the horizontal axis.
+//
+// Three tests hold it, all in internal/ci because they cross packages: it is
+// a member of hetzner.Locations, it is what the JSON schema's enum accepts,
+// and it is what infra/cluster/cluster.example.yaml actually names — the
+// committed cluster config, which is where a location comes from.
+//
+// Nothing in production reads it. The real location travels
+// placement.location → hetzner.Topology → OutputLocation → Cluster.Location,
+// and the layers that need it — the ingress load balancer, the Storage Box,
+// the CSI controller — take it from there.
+const ProbeLocation = "hel1"
+
 // Declared is every output the cluster tier must export, in one list so the
 // producer and the consumer cannot drift apart. A constant added above without
 // a line here fails TestDeclared_ListsEveryOutputConstant; a line here the
