@@ -142,13 +142,66 @@ tasks:
       # testable and where `jq` and `curl` are not needed at all.
       - go run {{.ROOT}}/tools/image "{{._CL_TOPOLOGY}}" "{{._CL_STACK}}"
 
+  talosctl:install:
+    desc: "Download the talosctl the topology pins into bin/, for this platform"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: test -f "{{._CL_TOPOLOGY}}"
+        msg: "no topology at {{._CL_TOPOLOGY}} — cp infra/cluster/cluster.example.yaml {{._CL_TOPOLOGY}} and edit adminCIDRs"
+      - sh: command -v curl >/dev/null
+        msg: "curl not installed — it ships with macOS, so this is unexpected"
+    cmds:
+      # Homebrew carries one talosctl, the newest, and machine-config:check
+      # needs the minor the topology names — so the two cannot both live on
+      # PATH. This writes the pinned one into bin/, which tools/talos prefers,
+      # leaving whatever brew installed alone for every other use.
+      #
+      # The version comes from the topology and the platform from uname, which
+      # is the point: the Brewfile used to carry a curl with v1.13.10 and
+      # darwin-arm64 written into it, wrong on Linux and wrong the moment the
+      # pin moved.
+      - cmd: |
+          set -euo pipefail
+          version="$(go run {{.ROOT}}/tools/topology get talos-version "{{._CL_TOPOLOGY}}")"
+
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          case "$(uname -m)" in
+            x86_64|amd64) arch=amd64 ;;
+            arm64|aarch64) arch=arm64 ;;
+            *) printf '%s\n' "{{._ERR}} cluster · talosctl · unknown architecture $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          mkdir -p "{{.ROOT}}/bin"
+          url="https://github.com/siderolabs/talos/releases/download/${version}/talosctl-${os}-${arch}"
+
+          printf '%s\n' "{{._RUN}} cluster · talosctl · ${version} for ${os}/${arch}"
+          curl -sSfLo "{{.ROOT}}/bin/talosctl" "$url"
+          chmod +x "{{.ROOT}}/bin/talosctl"
+
+          # Proves the download is the binary it claims to be, before anything
+          # depends on it. A 404 page saved to disk would be executable-shaped
+          # and fail later with something unrelated.
+          # The version token wherever it appears: --short prints "Talos v1.2.3"
+          # and the long form prints "Tag:  v1.2.3", and the format has moved
+          # between minors before.
+          got="$("{{.ROOT}}/bin/talosctl" version --client 2>/dev/null |
+            awk 'match($0, /v[0-9]+\.[0-9]+\.[0-9]+/) {
+                   print substr($0, RSTART, RLENGTH); exit }')"
+          if [ "${got}" != "${version}" ]; then
+            printf '%s\n' "{{._ERR}} cluster · talosctl · downloaded ${got:-nothing}, wanted ${version}" >&2
+            exit 1
+          fi
+
+          printf '%s\n' "{{._OK}} cluster · talosctl · bin/talosctl is ${version}"
+
   machine-config:check:
     desc: "Validate the machine-config patches against Talos itself — no cluster needed"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-      - sh: command -v talosctl >/dev/null
-        msg: "talosctl not installed — https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl"
+      - sh: test -x "{{.ROOT}}/bin/talosctl" || command -v talosctl >/dev/null
+        msg: "no talosctl — `task cluster:talosctl:install stack=<stack>` writes the pinned one into bin/"
     cmds:
       # The unit tests prove the patches contain what was intended; only Talos
       # can say whether it accepts them. Catches at plan time what would

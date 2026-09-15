@@ -148,3 +148,70 @@ func TestTopologyFiles_NamesADirectoryItCannotRead(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), missing)
 }
+
+// TestTalosctlPath_PrefersTheRepositorysOwn is the fix for a check nobody
+// could run.
+//
+// Homebrew carries one talosctl, the newest. This check needs the minor the
+// topology pins, and refuses anything else — so on any machine where `brew
+// install talosctl` had been run, it declined, which is every fresh clone.
+// bin/talosctl is the way out, and it only helps if it is preferred over PATH.
+func TestTalosctlPath_PrefersTheRepositorysOwn(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(LocalTalosctl), 0o750))
+	require.NoError(t, os.WriteFile(LocalTalosctl, []byte("#!/bin/sh\nexit 0\n"), 0o700))
+
+	chosen, err := talosctlPath()
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(dir, LocalTalosctl), chosen,
+		"a talosctl in %s must win over PATH, or installing the pinned one changes nothing",
+		LocalTalosctl)
+	assert.True(t, filepath.IsAbs(chosen), "the path is handed to exec and must not depend on the cwd")
+}
+
+// TestTalosctlPath_IgnoresOneItCannotRun keeps the preference narrow.
+//
+// A file at that path with no execute bit is a half-finished download, not a
+// binary. Choosing it would replace "talosctl is the wrong version" — which
+// names its own fix — with a permission error from exec.
+func TestTalosctlPath_IgnoresOneItCannotRun(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(LocalTalosctl), 0o750))
+	require.NoError(t, os.WriteFile(LocalTalosctl, []byte("not a binary"), 0o600))
+
+	chosen, err := talosctlPath()
+	if err != nil {
+		// No talosctl on this machine's PATH either, which is the other
+		// half of the contract: the error names the task that fixes it.
+		assert.Contains(t, err.Error(), "cluster:talosctl:install")
+
+		return
+	}
+
+	assert.NotEqual(t, filepath.Join(dir, LocalTalosctl), chosen,
+		"a file with no execute bit was chosen, and exec will fail on it")
+}
+
+// TestTalosctlPath_DirectoryIsNotABinary covers the other way that path can
+// exist without being usable: `mkdir -p bin/talosctl`, which a mistyped task
+// would leave behind.
+func TestTalosctlPath_DirectoryIsNotABinary(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	require.NoError(t, os.MkdirAll(LocalTalosctl, 0o750))
+
+	chosen, err := talosctlPath()
+	if err != nil {
+		assert.Contains(t, err.Error(), "cluster:talosctl:install")
+
+		return
+	}
+
+	assert.NotEqual(t, filepath.Join(dir, LocalTalosctl), chosen)
+}
