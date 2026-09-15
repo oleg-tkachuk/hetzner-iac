@@ -181,6 +181,17 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 | [tasks/](tasks) | task definitions |
 | [docs/](docs) | the documents above |
 
+### Not a Go library
+
+`go get` on this module does not resolve, and that is not a defect to report.
+The module path carries no `/vN` suffix while the release tags are at v2 and
+above, which Go requires for a module meant to be imported — and nothing here
+is meant to be. Everything outside `internal/` is a `main` package, and Go
+itself refuses an import of `internal/` from another module.
+
+The tags exist for the repository, not for a consumer: they are what
+semantic-release writes release notes against. Clone it and run the tasks.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
