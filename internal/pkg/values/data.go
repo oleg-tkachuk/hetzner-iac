@@ -99,7 +99,11 @@ var probes = map[string]any{
 		NodePortHTTPS: platform.IngressNodePortHTTPS,
 	},
 	"cilium": Cilium{
-		PodCIDR: "198.51.100.0/24", APIHost: "localhost", APIPort: 7445,
+		PodCIDR: "198.51.100.0/24", APIHost: "localhost",
+		// The real port, for the same reason the node ports above are real:
+		// the render check asserts it reaches the chart's output, and a probe
+		// holding its own copy would keep asserting the old number.
+		APIPort:          clusterref.KubePrismPort,
 		OperatorReplicas: 2,
 	},
 	"hcloud-ccm":       CCM{PodCIDR: "198.51.100.0/24", SecretName: "hcloud"},
