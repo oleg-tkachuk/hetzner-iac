@@ -340,6 +340,76 @@ tasks:
             pipx run "checkov==${CHECKOV_VERSION:-3.3.17}" --config-file "{{.ROOT}}/.checkov.yaml"
           fi
 
+  api-check:
+    desc: "Did pkg/ lose exported API without the commit saying so? — needs apidiff"
+    preconditions:
+      - sh: command -v apidiff >/dev/null
+        msg: "apidiff is not installed — go install golang.org/x/exp/cmd/apidiff@latest"
+    cmds:
+      # What this gate is FOR, because it is not what it looks like.
+      #
+      # It does not forbid breaking pkg/. It forbids breaking it silently: a
+      # removal is fine, a removal that no commit marked is not, because
+      # semantic-release reads the subject and the footers and nothing else.
+      # `refactor(layer): declare a chart's values instead of closing over
+      # them` removed three exported fields, cut no release, and left the
+      # notes saying nothing — which is the run this was written after.
+      #
+      # gorelease is the tool that would normally answer this and cannot here:
+      # the module path carries no /vN suffix while the tags are at v4, so
+      # `gorelease -base=v4.14.0` refuses with "invalid version". apidiff
+      # works from source and needs no module resolution, which is why the
+      # baseline is a worktree.
+      - cmd: |
+          set -euo pipefail
+
+          base="$(git -C "{{.ROOT}}" describe --tags --abbrev=0 --match 'v*')"
+          work="$(mktemp -d)"
+          # shellcheck disable=SC2064
+          trap "git -C '{{.ROOT}}' worktree remove --force '$work' >/dev/null 2>&1 || true; rm -rf '$work'" EXIT
+
+          git -C "{{.ROOT}}" worktree add -q --detach "$work" "$base"
+
+          incompatible=""
+
+          for pkg in $(cd "{{.ROOT}}" && go list ./pkg/...); do
+            dir="${pkg#github.com/oleg-tkachuk/hetzner-iac/}"
+
+            # A package that did not exist at the baseline cannot have lost
+            # anything, and asking apidiff for it fails the whole run.
+            [ -d "$work/$dir" ] || continue
+
+            api="$work/.api"
+            ( cd "$work" && apidiff -w "$api" "./$dir" )
+
+            report="$( cd "{{.ROOT}}" && apidiff "$api" "./$dir" )"
+
+            if printf '%s\n' "$report" | grep -q '^Incompatible changes:'; then
+              incompatible="${incompatible}${dir}\n$(printf '%s\n' "$report" | awk '/^Incompatible changes:/{p=1; next} /^Compatible changes:/{p=0} p')\n"
+            fi
+          done
+
+          if [ -z "$incompatible" ]; then
+            printf '%s\n' "{{._OK}} hetzner-iac · api · no exported API removed from pkg/ since ${base}"
+            exit 0
+          fi
+
+          # Marked is enough. The subject's `!` and a BREAKING CHANGE footer
+          # are the two forms semantic-release reads, so either one means the
+          # release notes will carry the removal.
+          if git -C "{{.ROOT}}" log "${base}..HEAD" --format='%s%n%b' |
+               grep -qE '^[a-z]+(\([^)]+\))?!:|^BREAKING[ -]CHANGE:'; then
+            printf '%s\n' "{{._OK}} hetzner-iac · api · exported API removed since ${base}, and a commit marks it"
+            printf '%b' "$incompatible"
+            exit 0
+          fi
+
+          printf '%s\n' "{{._ERR}} hetzner-iac · api · exported API removed since ${base} and no commit marks it" >&2
+          printf '%b' "$incompatible" >&2
+          printf '%s\n' "Mark it: a '!' after the type, or a 'BREAKING CHANGE:' footer." >&2
+
+          exit 1
+
   docs:links:
     desc: "Do the documentation's own links point at files and headings that exist? — needs lychee"
     preconditions:

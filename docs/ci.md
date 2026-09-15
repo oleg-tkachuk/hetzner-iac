@@ -425,6 +425,35 @@ and `TestWorkflows_RestoreTheGoCacheOnlyWhereSomethingReadsIt` refuses the next
 job that pays for a cache with no reader; five jobs had already been fixed one
 at a time before it existed.
 
+## Breaking pkg/ is allowed; breaking it silently is not
+
+`task api-check` compares the exported API of every package under `pkg/`
+against the last release tag and fails when something was removed and no
+commit says so. Either form semantic-release reads counts: a `!` after the
+type, or a `BREAKING CHANGE:` footer.
+
+It exists because that happened. `refactor(layer): declare a chart's values
+instead of closing over them` removed `Component.ValuesYAML`,
+`Component.Values` and `ReleaseArgs.Values`, cut no release — the
+conventionalcommits preset releases `feat`, `fix`, `perf` and anything marked
+breaking, and nothing else — and left the notes saying nothing. Run against
+that commit the gate names all three.
+
+**`gorelease` is the tool that would normally answer this, and it cannot
+here.** The module path is `github.com/oleg-tkachuk/hetzner-iac` with no
+`/vN` suffix while the tags are at v4, so
+`gorelease -base=v4.14.0` refuses: *invalid version: go.mod has non-.../v4
+module path*. That is Go's import compatibility rule, and it means **no
+released version of this module resolves for `go get`** — v2 and above would
+need the suffix. The releases are releases of an infrastructure tree, which is
+what `release.config.cjs` says they are; they are not Go library versions, and
+nobody can import one.
+
+So the gate protects the release notes rather than importers who cannot exist.
+Whether to make the tags real module versions — add `/v4` to the path — or to
+state that `pkg/` is internal and stop worrying about its surface, is an open
+decision and not recorded anywhere yet.
+
 ## What the suites prove
 
 ```bash

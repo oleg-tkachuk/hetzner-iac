@@ -43,6 +43,10 @@ env:
   GOSEC_VERSION: "v2.29.0"
   # renovate: datasource=pypi depName=checkov
   CHECKOV_VERSION: "3.3.17"
+  # x/exp cuts no releases, so this is a pseudo-version and Renovate treats it
+  # as a Go module like any other.
+  # renovate: datasource=go depName=golang.org/x/exp
+  APIDIFF_VERSION: "v0.0.0-20260908205506-85c1c2202aba"
 
   # Same reason: a kubeconform release changing which schemas it accepts would
   # turn CI red with no commit of ours in between.
@@ -641,6 +645,38 @@ jobs:
       code: ${{ needs.changes.outputs.relevant == 'true' }}
     permissions:
       contents: read
+
+  # A removal from pkg/ is allowed. A removal no commit marked is not: the
+  # release notes come from the subjects and footers, so an unmarked break
+  # ships as a patch that silently is not one.
+  api:
+    name: Exported API
+    if: github.event_name == 'pull_request'
+    needs: [changes, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          # The task needs the last release tag and every commit since it.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-go
+        with:
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # apidiff does compile the packages it compares, so the shared cache
+          # has a reader here. Off anyway, and unmeasured: govulncheck is the
+          # one scanner that also compiles, and measuring it both ways made
+          # the restore cost 191 seconds to save 26. Measure before turning
+          # this on.
+          cache-mode: "off"
+      - name: Install apidiff
+        env:
+          APIDIFF_VERSION: ${{ env.APIDIFF_VERSION }}
+        run: go install "golang.org/x/exp/cmd/apidiff@${APIDIFF_VERSION}"
+      - name: Exported API
+        run: task api-check
 
   # Rebase-and-merge replays each commit of the PR onto main, so every one of
   # them becomes a commit semantic-release reads to choose the version and

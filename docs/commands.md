@@ -65,6 +65,7 @@ workflows actually invoke.
 
 | Task | Does |
 |------|------|
+| `task api-check` † | did `pkg/` lose exported API without a commit marking it? — needs apidiff |
 | `task build` | compile every program into `bin/` |
 | `task clean` | remove build output: `bin/` and the layer binaries under `.cache` |
 | `task destroy` | destroy everything: every layer, then the cluster. Asks first, and says what survives |
