@@ -59,6 +59,12 @@ type Components []Component
 
 // Component is one deployable piece of a layer: a Helm release, or a resource
 // that belongs in the same dependency order as the releases.
+//
+// Three fields went from the API after v4.14.0, all of them about values:
+// Component.ValuesYAML and Component.Values, replaced by StaticValues and
+// ValuesFrom below, and ReleaseArgs.Values, which nothing used. A caller
+// holding a component literal with ValuesYAML moves the closure's body into
+// ValuesFrom and deletes the chart key it was repeating.
 type Component struct {
 	// Name is what other components use in After. Empty takes Chart, which is
 	// what a release wants; a Create component has to set it.
