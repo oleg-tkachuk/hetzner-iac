@@ -1,10 +1,19 @@
-// Package repo holds the checks that belong to the repository rather than to
-// any one tool.
+// Package ci holds the gates that belong to the repository rather than to any
+// one tool: the cross-file contracts nothing else compares, where the two
+// halves are in different languages or different files and a drift between
+// them is silent rather than an error.
 //
-// Test files only: there is no command here. This one was written inside
+// Test files only — there is no command here, and `internal/` keeps it that
+// way by making the package unimportable from outside the module. It lives
+// under a plain directory name and not a dotted one because the go tool
+// ignores any path element beginning with "." or "_": in a `.ci/` directory
+// `go test ./...` would skip every gate here, `./.ci/...` would match no
+// packages at all, and the suite would stay green while checking nothing.
+//
+// This was tools/repo, and the first of these tests was written inside
 // tools/topology, which parses cluster topologies and has nothing to do with
 // .gitignore — a test in the wrong package is a test nobody looks for.
-package repo
+package ci
 
 import (
 	"os"
@@ -43,6 +52,10 @@ func TestGitignore_CoversEveryBinaryName(t *testing.T) {
 		ignored[strings.TrimSpace(line)] = true
 	}
 
+	// These three hold every main package that can leave a binary here.
+	// `policy` is the fourth in the module and needs no entry: its binary
+	// would be named after the directory it is built from, and `go build`
+	// refuses — "build output \"policy\" already exists and is a directory".
 	for _, parent := range []string{"tools", "layers", "infra"} {
 		entries, readErr := os.ReadDir(filepath.Join(root, parent))
 		require.NoError(t, readErr, parent)
@@ -55,7 +68,7 @@ func TestGitignore_CoversEveryBinaryName(t *testing.T) {
 			name := entry.Name()
 
 			// Only a main package produces a binary. tools/lines is an awk
-			// script with Go tests around it, and tools/repo is test files
+			// script with Go tests around it, and internal/ci is test files
 			// only — neither leaves anything for git to see, and requiring an
 			// ignore for them was this test's own first bug.
 			if !hasMainPackage(t, filepath.Join(root, parent, name)) {

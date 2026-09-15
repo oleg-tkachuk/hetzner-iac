@@ -178,7 +178,8 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 | [pkg/charts/](pkg/charts) | every chart version, pinned |
 | [pkg/clusterref/](pkg/clusterref) | the output contract between the cluster tier and the layers |
 | [pkg/values/](pkg/values) | every chart's Helm values, as templates |
-| [tools/](tools) | the checks and the small commands: chart pins, topology, orphaned resources, stack state, snapshot and secrets |
+| [tools/](tools) | the small commands: chart pins, topology, orphaned resources, stack state, snapshot and secrets |
+| [internal/ci/](internal/ci) | the repository's own gates: the cross-file contracts nothing else compares |
 | [test/e2e/](test/e2e) | verification against a running cluster |
 | [tasks/](tasks) | task definitions |
 | [docs/](docs) | the documents above |

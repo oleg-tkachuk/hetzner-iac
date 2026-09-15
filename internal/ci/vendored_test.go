@@ -1,4 +1,4 @@
-package repo
+package ci
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 // The digest is what makes the check work with no network. Print a new one for
 // a deliberate update with:
 //
-//	go test ./tools/repo -run TestVendored_MatchesItsRecordedDigest -v
+//	go test ./internal/ci -run TestVendored_MatchesItsRecordedDigest -v
 var vendored = []struct {
 	path   string
 	url    string

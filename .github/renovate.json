@@ -37,7 +37,7 @@
       "versioningTemplate": "helm"
     },
     {
-      "description": "Pinned tool versions in the workflows. Nine of them, across ci.yaml and security.yaml, with mixed datasources — GitHub releases, PyPI and Go modules — so the `renovate:` comment above each pin carries the datasource and depName rather than this pattern knowing nine special cases. extractVersion appears on the pins that omit the `v` their upstream tag carries. A test in tools/repo reads this regex out of this file and asserts it still matches every annotated pin AND that every pin is annotated, because the failure mode is the same one the chart manager has: Renovate opens no pull request, for ever, and nothing says so.",
+      "description": "Pinned tool versions in the workflows. Nine of them, across ci.yaml and security.yaml, with mixed datasources — GitHub releases, PyPI and Go modules — so the `renovate:` comment above each pin carries the datasource and depName rather than this pattern knowing nine special cases. extractVersion appears on the pins that omit the `v` their upstream tag carries. A test in internal/ci reads this regex out of this file and asserts it still matches every annotated pin AND that every pin is annotated, because the failure mode is the same one the chart manager has: Renovate opens no pull request, for ever, and nothing says so.",
       "customType": "regex",
       "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.yaml$/"],
       "matchStrings": [
