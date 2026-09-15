@@ -3,9 +3,13 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +29,14 @@ type policy struct {
 			Ingress *bool `json:"ingress"`
 			Egress  *bool `json:"egress"`
 		} `json:"enableDefaultDeny"`
+		Egress []struct {
+			ToPorts []struct {
+				Ports []struct {
+					Port     string `json:"port"`
+					Protocol string `json:"protocol"`
+				} `json:"ports"`
+			} `json:"toPorts"`
+		} `json:"egress"`
 	} `json:"spec"`
 }
 
@@ -225,4 +237,50 @@ func TestManifests_AreAllMatchedByOneGlob(t *testing.T) {
 	// decision.
 	assert.NotContains(t, allows, DenyManifest,
 		"the deny is matched by the allow glob, so it applies without the config switch")
+}
+
+// apiServerPolicy is the manifest that permits reaching the API server.
+const apiServerPolicy = "20-allow-apiserver.yaml"
+
+// TestAPIServerPolicy_NamesThePortsTheClusterListensOn is the half of the
+// KubePrism contract that lives in YAML.
+//
+// Two constants decide where the API answers: hetzner.PortKubeAPI, which the
+// firewall and the API load balancer are built from, and
+// clusterref.KubePrismPort, which Talos listens on and Cilium is pointed at.
+// This policy is what permits reaching either, and it is a committed manifest
+// — no compiler compares its numbers to anything.
+//
+// The drift it exists for is silent and arrives late: while the default deny
+// is off the policy is additive and a wrong port costs nothing, so the
+// mismatch is introduced in one commit and discovered when the deny goes on,
+// as every controller's API traffic dropped with every pod still Running.
+func TestAPIServerPolicy_NamesThePortsTheClusterListensOn(t *testing.T) {
+	t.Parallel()
+
+	policies := manifests(t)[apiServerPolicy]
+	require.Len(t, policies, 1,
+		"%s holds no single policy: renamed, or split into documents this test reads past",
+		apiServerPolicy)
+
+	var permitted []string
+
+	for _, rule := range policies[0].Spec.Egress {
+		for _, destination := range rule.ToPorts {
+			for _, port := range destination.Ports {
+				permitted = append(permitted, port.Port)
+			}
+		}
+	}
+
+	listening := []string{
+		strconv.Itoa(hetzner.PortKubeAPI),
+		strconv.Itoa(clusterref.KubePrismPort),
+	}
+
+	slices.Sort(permitted)
+	slices.Sort(listening)
+
+	assert.Equal(t, listening, permitted,
+		"%s permits %v while the cluster answers on %v", apiServerPolicy, permitted, listening)
 }
