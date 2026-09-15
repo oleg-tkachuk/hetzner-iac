@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,11 +89,11 @@ func TestUploadArgs_BakesInTheTopologysLocation(t *testing.T) {
 		"--image-url", "https://factory.talos.dev/image/abc123/v1.13.10/hcloud-arm64.raw.xz",
 		"--compression", "xz",
 		"--architecture", "arm",
-		"--location", platform.ProbeLocation,
+		"--location", clusterref.ProbeLocation,
 		"--labels", "os=talos,talos-version=v1.13.10",
 	}, uploadArgs(
 		"https://factory.talos.dev/image/abc123/v1.13.10/hcloud-arm64.raw.xz",
-		"arm", platform.ProbeLocation, "os=talos,talos-version=v1.13.10"))
+		"arm", clusterref.ProbeLocation, "os=talos,talos-version=v1.13.10"))
 }
 
 func TestUploadArgs_LabelsWithTheSelectorTheLookupUses(t *testing.T) {
@@ -103,7 +103,7 @@ func TestUploadArgs_LabelsWithTheSelectorTheLookupUses(t *testing.T) {
 	// its own case because the two programs never call each other: a snapshot
 	// labelled differently is invisible to the cluster that needs it, and the
 	// failure is "no available Talos snapshot" against an image that exists.
-	args := uploadArgs("https://example.test/i.raw.xz", "arm", platform.ProbeLocation,
+	args := uploadArgs("https://example.test/i.raw.xz", "arm", clusterref.ProbeLocation,
 		hetzner.TalosImageSelector("v1.13.10"))
 
 	position := slices.Index(args, "--labels")

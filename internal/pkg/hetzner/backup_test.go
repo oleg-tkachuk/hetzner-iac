@@ -3,8 +3,8 @@ package hetzner_test
 import (
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -22,7 +22,7 @@ func runStorageBox(t *testing.T) *recorder {
 	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
 		_, err := hetzner.NewStorageBox(ctx, "backup", hetzner.StorageBoxArgs{
 			ClusterName:        pulumi.String(testCluster),
-			Location:           pulumi.String(platform.ProbeLocation),
+			Location:           pulumi.String(clusterref.ProbeLocation),
 			Type:               hetzner.DefaultStorageBoxType,
 			Password:           pulumi.String("generated-box-password"),
 			SubaccountPassword: pulumi.String("generated-subaccount-password"),
@@ -51,7 +51,7 @@ func TestStorageBox_IsPlacedAndLabelledWithTheCluster(t *testing.T) {
 	assert.Equal(t, hetzner.DefaultStorageBoxType, got["storageBoxType"].StringValue())
 
 	// The cluster's own location: the upload then stays inside one region.
-	assert.Equal(t, platform.ProbeLocation, got["location"].StringValue())
+	assert.Equal(t, clusterref.ProbeLocation, got["location"].StringValue())
 
 	labels := got["labels"].ObjectValue()
 	assert.Equal(t, testCluster,
@@ -157,7 +157,7 @@ func TestStorageBox_ReturnsTheWholeCredentialsLocation(t *testing.T) {
 	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
 		got, err := hetzner.NewStorageBox(ctx, "backup", hetzner.StorageBoxArgs{
 			ClusterName:        pulumi.String(testCluster),
-			Location:           pulumi.String(platform.ProbeLocation),
+			Location:           pulumi.String(clusterref.ProbeLocation),
 			Type:               hetzner.DefaultStorageBoxType,
 			Password:           pulumi.String("p"),
 			SubaccountPassword: pulumi.String("q"),

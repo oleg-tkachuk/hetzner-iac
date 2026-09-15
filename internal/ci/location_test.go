@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,10 +47,10 @@ func TestProbeLocation_IsTheOneTheClusterConfigNames(t *testing.T) {
 
 	require.NotEmpty(t, hetzner.Locations, "the validator knows no locations")
 
-	assert.True(t, slices.Contains(hetzner.Locations, platform.ProbeLocation),
-		"platform.ProbeLocation is %q, which hetzner.Locations does not accept — every "+
+	assert.True(t, slices.Contains(hetzner.Locations, clusterref.ProbeLocation),
+		"clusterref.ProbeLocation is %q, which hetzner.Locations does not accept — every "+
 			"fixture using it builds a topology the validator refuses",
-		platform.ProbeLocation)
+		clusterref.ProbeLocation)
 
 	raw, err := os.ReadFile(filepath.Join("..", "..", exampleTopology))
 	require.NoError(t, err)
@@ -58,10 +58,10 @@ func TestProbeLocation_IsTheOneTheClusterConfigNames(t *testing.T) {
 	found := topologyLocation.FindStringSubmatch(string(raw))
 	require.NotNil(t, found, "%s names no location", exampleTopology)
 
-	assert.Equal(t, found[1], platform.ProbeLocation,
-		"%s names %q and platform.ProbeLocation is %q; the committed cluster config is where "+
+	assert.Equal(t, found[1], clusterref.ProbeLocation,
+		"%s names %q and clusterref.ProbeLocation is %q; the committed cluster config is where "+
 			"a location comes from, so the fixtures follow it rather than the other way round",
-		exampleTopology, found[1], platform.ProbeLocation)
+		exampleTopology, found[1], clusterref.ProbeLocation)
 }
 
 // TestYAMLFixtures_NameALocationThatExists keeps the parser's fixtures
