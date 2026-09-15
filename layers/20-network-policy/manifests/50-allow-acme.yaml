@@ -1,0 +1,47 @@
+# cert-manager reaching Let's Encrypt.
+#
+# The first of the three flows the default deny was waiting for, and the first
+# one that could be measured — because until the domain existed there was no
+# order to make. Hubble, on this cluster, after an issuance:
+#
+#   cert-manager/cert-manager-778d96f9f9-n29x4 -> 172.65.46.172:443 (world)
+#     policy-verdict:none  ALLOWED
+#
+# `policy-verdict:none` is the point: nothing selected that traffic, so it
+# flowed only because no deny exists yet. Under the deny it would be dropped,
+# every Certificate would sit Pending, and the symptom — an order that never
+# validates — reads as a problem with the CA or with DNS rather than as policy.
+#
+# NOT toCIDRSet, and 172.65.46.172 is why. That address belongs to Cloudflare,
+# which fronts staging.api.letsencrypt.org, and it is theirs to change. A CIDR
+# policy written from it works until the day it silently does not, which is the
+# worst failure shape this repository has: correct-looking, and wrong later.
+#
+# So toFQDNs, which needs Cilium to have watched the name resolve — that is the
+# L7 DNS rule in 10-allow-dns.yaml, and this policy is the reason it is there.
+#
+# Both endpoints, production and staging, because acmeStaging switches between
+# them in layers/30-cluster-services and a policy naming one of them turns the
+# other into an outage the moment that flag moves. Neither costs anything while
+# unused: an FQDN nothing resolves selects nothing.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-acme
+spec:
+  description: cert-manager reaches Let's Encrypt to order certificates
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: cert-manager
+      k8s:app.kubernetes.io/name: cert-manager
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toFQDNs:
+        - matchName: acme-v02.api.letsencrypt.org
+        - matchName: acme-staging-v02.api.letsencrypt.org
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
