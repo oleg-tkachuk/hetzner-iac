@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -29,7 +30,7 @@ func TestFactoryArchitecture_TranslatesBothAndRefusesTheRest(t *testing.T) {
 	for _, bad := range []string{"", "amd64", "arm64", "x86_64", "ARM"} {
 		_, err := factoryArchitecture(bad)
 		require.Error(t, err, bad)
-		assert.Contains(t, err.Error(), "must be x86 or arm", bad)
+		assert.Contains(t, err.Error(), "must be one of "+strings.Join(slices.Sorted(maps.Keys(architectures)), ", "), bad)
 	}
 }
 
@@ -223,5 +224,33 @@ func TestDecodeSchematic_Errors(t *testing.T) {
 
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), tc.want, name)
+	}
+}
+
+// TestArchitectures_CoverEveryOneTheTopologyAccepts holds two sets that had
+// nothing comparing them.
+//
+// The topology validator accepts whatever is in hetzner.Architectures. This
+// map decides what the Image Factory is asked for. An architecture added to
+// the first and not the second passes validation, reaches the bake, and is
+// refused there — after the operator has set up a token and waited.
+func TestArchitectures_CoverEveryOneTheTopologyAccepts(t *testing.T) {
+	t.Parallel()
+
+	require.NotEmpty(t, hetzner.Architectures)
+
+	for _, arch := range hetzner.Architectures {
+		factory, err := factoryArchitecture(arch)
+
+		require.NoError(t, err,
+			"the topology accepts %q and this tool cannot bake it", arch)
+		assert.NotEmpty(t, factory, arch)
+	}
+
+	// And the other way: a mapping for something the topology would reject is
+	// a bake nobody can ask for.
+	for arch := range architectures {
+		assert.Contains(t, hetzner.Architectures, arch,
+			"%q maps to a factory architecture and the topology validator rejects it", arch)
 	}
 }

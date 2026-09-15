@@ -181,7 +181,7 @@ func TestClusterToken_IsExportedEmptyWhenStackConfigHasNone(t *testing.T) {
 }
 
 func TestClusterToken_IsASecretWhenStackConfigHasOne(t *testing.T) {
-	withConfig(t, map[string]string{TokenConfigKey: testToken}, func(ctx *pulumi.Context) error {
+	withConfig(t, map[string]string{hetzner.TokenConfigKey: testToken}, func(ctx *pulumi.Context) error {
 		token := clusterToken(ctx)
 
 		assert.Equal(t, testToken, resolve(t, token))
