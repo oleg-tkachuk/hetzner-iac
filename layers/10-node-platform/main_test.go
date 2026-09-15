@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
@@ -511,4 +512,25 @@ func TestComponents(t *testing.T) {
 	t.Parallel()
 
 	layertest.Check(t, Components)
+}
+
+// TestSystemNamespace_IsWhereBothChartsInstall holds a namespace that was a
+// literal with a comment for a contract.
+//
+// The Secret this layer creates carries the Hetzner token, and both hcloud
+// charts default to reading a Secret named `hcloud` in their OWN namespace.
+// SystemNamespace now comes from the CCM's registry entry; this is the half
+// that keeps the CSI honest, because a Secret in the wrong namespace is not an
+// error — both charts install, find no credential, and the CCM logs 401 and
+// never clears the uninitialized taint.
+func TestSystemNamespace_IsWhereBothChartsInstall(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, charts.MustGet(CSIChart).Namespace, SystemNamespace,
+		"the CSI driver installs into %q and the Secret it reads is created in %q",
+		charts.MustGet(CSIChart).Namespace, SystemNamespace)
+
+	// And the value itself, so a registry edit that moved both charts at once
+	// still has to be deliberate.
+	assert.Equal(t, "kube-system", SystemNamespace)
 }

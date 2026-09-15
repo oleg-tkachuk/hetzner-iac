@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/cni"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
@@ -46,14 +47,31 @@ import (
 const (
 	// CredentialsSecret is the name both charts default to reading.
 	CredentialsSecret = "hcloud"
-	// SystemNamespace is where both charts install.
-	SystemNamespace = "kube-system"
+	// CCMChart and CSIChart are the registry keys, spelled once each so the
+	// component table, the values and the namespace below cannot disagree.
+	CCMChart = "hcloud-ccm"
+	CSIChart = "hcloud-csi"
 	// StorageClass is re-exported for convenience; internal/pkg/platform owns the name
 	// because every claim in the cluster has to ask for the same one, and a
 	// mismatch is not rejected — it leaves the volume Pending with nothing
 	// saying why.
 	StorageClass = platform.StorageClass
 )
+
+// SystemNamespace is where the Secret both hcloud charts read has to live:
+// their own namespace, because each chart defaults to reading a Secret named
+// `hcloud` beside itself.
+//
+// Read from the registry rather than spelled here. It was "kube-system" with a
+// comment saying "where both charts install" and nothing holding the two
+// together — and a Secret in the wrong namespace is not an error: both charts
+// install, find no credential, and the CCM logs 401 and never clears the
+// uninitialized taint while the CSI cannot provision. That reads as a broken
+// cluster rather than as a misplaced Secret.
+//
+// TestSystemNamespace_IsWhereBothChartsInstall holds the CSI to the same
+// answer, since this takes it from the CCM.
+var SystemNamespace = charts.MustGet(CCMChart).Namespace
 
 // CiliumTimeoutSeconds is longer than the default: Cilium pulls large images
 // onto nodes with nothing cached yet, and every other layer waits on it.
@@ -93,7 +111,7 @@ var Components = layer.Components{
 		Create: createCredentials,
 	},
 	{
-		Chart:   "hcloud-ccm",
+		Chart:   CCMChart,
 		Release: "hcloud-cloud-controller-manager",
 		After:   []string{CNIComponent, CredentialsSecret},
 		ValuesFrom: func(r *layer.Runner) pulumi.Output {
@@ -104,8 +122,8 @@ var Components = layer.Components{
 		// CSI after the CCM: the driver registers against nodes, and a node
 		// still carrying the uninitialized taint has no provider ID to
 		// register against.
-		Chart: "hcloud-csi",
-		After: []string{CredentialsSecret, "hcloud-ccm"},
+		Chart: CSIChart,
+		After: []string{CredentialsSecret, CCMChart},
 		// Until this, the chart ran on its defaults — which set no resources,
 		// so all eight of its containers were unbounded on a node that also
 		// runs etcd. The values carry measured requests and memory limits.
