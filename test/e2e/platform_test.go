@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -84,22 +85,54 @@ func TestCNIReplacesKubeProxy(t *testing.T) {
 func TestIngressLoadBalancer(t *testing.T) {
 	ingress := features.New("ingress is published through a Hetzner load balancer").
 		WithLabel("layer", "40-ingress").
-		Assess("the load balancer was provisioned", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			// A Service of type LoadBalancer with no ingress address means the
-			// CCM never created one — usually a bad annotation, and the
-			// Service sits <pending> indefinitely with no event saying so.
+		Assess("the service exposes the node ports the load balancer targets", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+			// NOT a Service of type LoadBalancer, and this test asserted one
+			// until a live run failed on it. The load balancer is created by
+			// layers/40-ingress through the Hetzner provider, not by asking
+			// the cloud controller manager for one: the CCM refuses to target
+			// a node carrying
+			// node.kubernetes.io/exclude-from-external-load-balancers, which
+			// Talos puts on every control-plane node, and the first live apply
+			// produced an address with zero targets.
+			//
+			// So what is verifiable from inside the cluster is the half the
+			// cluster owns: the Service is a NodePort on exactly the two
+			// numbers internal/pkg/platform pins, because a Pulumi-managed
+			// load balancer cannot forward to a port Kubernetes picked after
+			// the fact. A mismatch is the quiet kind — the load balancer comes
+			// up, health-checks a closed port, and reports every target
+			// unhealthy while nothing in the cluster looks wrong.
+			//
+			// The load balancer's own existence and address are the ingress
+			// layer's stack outputs, which `task platform:outputs
+			// layer=40-ingress` reports and Pulumi's own state asserts.
 			service := &corev1.Service{}
 			if err := cfg.Client().Resources("traefik").
 				Get(ctx, "traefik", "traefik", service); err != nil {
 				t.Fatalf("get ingress service: %v", err)
 			}
 
-			if service.Spec.Type != corev1.ServiceTypeLoadBalancer {
-				t.Fatalf("ingress service is %s, not LoadBalancer", service.Spec.Type)
+			if service.Spec.Type != corev1.ServiceTypeNodePort {
+				t.Fatalf("ingress service is %s, not NodePort — the Hetzner load balancer "+
+					"forwards to node ports and cannot target a ClusterIP", service.Spec.Type)
 			}
 
-			if len(service.Status.LoadBalancer.Ingress) == 0 {
-				t.Error("ingress Service has no load balancer address — the hcloud CCM did not provision one")
+			want := map[int32]string{
+				platform.IngressNodePortHTTP:  "web",
+				platform.IngressNodePortHTTPS: "websecure",
+			}
+
+			got := map[int32]string{}
+			for _, port := range service.Spec.Ports {
+				got[port.NodePort] = port.Name
+			}
+
+			for number, name := range want {
+				if got[number] != name {
+					t.Errorf("node port %d is %q, not the pinned %q — the load balancer "+
+						"health-checks %d and would report every target unhealthy",
+						number, got[number], name, number)
+				}
 			}
 
 			return ctx
