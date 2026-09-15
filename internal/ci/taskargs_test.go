@@ -361,8 +361,15 @@ func TestSnapshotSidecar_IsSpelledOnce(t *testing.T) {
 // `hcloud` module now, and a gate belongs where the thing it guards lives:
 // this repository declares no hcloud task to check.
 
-// documentedTask matches a task named in prose or a table: `task cluster:plan`.
-var documentedTask = regexp.MustCompile("`task ([a-z][a-z0-9:_-]*)")
+// documentedTask matches a task named in prose or a table, with or without the
+// verb: `task cluster:plan`, and a bare `cluster:etcd:upload`.
+//
+// The verb was once required, and that is how nine renamed names survived in
+// backticks alone. Dropping it means Pulumi config keys — `hcloud:token`,
+// `ingress:loadBalancerType` — match the pattern too; ownsNamespace below is
+// what separates them, because no taskfile declares an `hcloud:` or `ingress:`
+// namespace.
+var documentedTask = regexp.MustCompile("`(?:task )?([a-z][a-z0-9-]*(?::[a-z0-9-]+)+)")
 
 // declaredTask matches a task declaration inside a taskfile.
 var declaredTask = regexp.MustCompile(`(?m)^  ([a-z][a-z0-9:_-]*):\s*$`)
@@ -406,6 +413,14 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 	docs, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
 	require.NoError(t, err)
 
+	// The records too. Leaving them out is how `task cluster:image-bake`
+	// survived the colon rename in ADR-0005, which is the one record whose
+	// status is Accepted — the document a reader trusts most.
+	records, err := filepath.Glob(filepath.Join(root, "docs", "adr", "*.md"))
+	require.NoError(t, err)
+
+	docs = append(docs, records...)
+
 	var checked int
 
 	for _, path := range append(docs, filepath.Join(root, "README.md")) {
@@ -433,7 +448,7 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 			checked++
 
 			assert.True(t, declared[name],
-				"%s names `task %s`, which no taskfile declares", filepath.Base(path), name)
+				"%s names %q, which no taskfile declares", filepath.Base(path), name)
 		}
 	}
 
