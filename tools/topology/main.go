@@ -41,7 +41,7 @@ func main() {
 	if len(args) == 3 && args[0] == "get" {
 		value, err := get(args[1], args[2])
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -57,7 +57,7 @@ func main() {
 
 	failures, err := Validate(dirs)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
