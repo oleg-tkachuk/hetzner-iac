@@ -44,6 +44,15 @@ config:
       This layer reads the kubeconfig from it, which is what lets it be applied
       and destroyed without touching the cluster.
 
+  node-platform:cni:
+    default: ""
+    description: |
+      Which CNI to install. Empty means cilium, which is the only one
+      implemented — a second is a change to the cluster tier too, because the
+      choice has to agree with what Talos did to kube-proxy. Declared with no
+      default of its own so pkg/cni stays the one place the fallback and the
+      set of names are written.
+
 # `node-platform:hcloudToken` is deliberately NOT declared above. It is an
 # override for the token the cluster tier exports, and a declared key with no
 # default is required by Pulumi before the program runs — while a default of ""
