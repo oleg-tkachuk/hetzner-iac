@@ -48,9 +48,9 @@ func TestListArgs_ScopesTheCheckToTheArchitecture(t *testing.T) {
 
 	// The bug this pins: the labels carry the Talos version but not the
 	// architecture, so without --architecture the check matched a snapshot of
-	// either. An Arm topology found the x86 one, image-bake reported "already
+	// either. An Arm topology found the x86 one, image:bake reported "already
 	// present" and exited 0, and apply then failed telling the operator to run
-	// image-bake — the two steps pointing at each other with no way through.
+	// image:bake — the two steps pointing at each other with no way through.
 	assert.Equal(t, []string{
 		"image", "list",
 		"--type", "snapshot",

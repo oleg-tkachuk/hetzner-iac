@@ -127,7 +127,7 @@ func TestOrphans_SnapshotsOnlyForAnotherTalosVersion(t *testing.T) {
 
 	// The pinned version is what every server boots from, so only the others
 	// are unused. A snapshot with no version label is somebody else's and is
-	// left alone — image-bake stamps the label, so its absence means this
+	// left alone — image:bake stamps the label, so its absence means this
 	// repository did not create it.
 	found := Orphans(Inventory{Snapshots: []Snapshot{
 		{Description: "current", SizeGB: 0.2, Labels: map[string]string{TalosVersionLabel: "v1.13.10"}},

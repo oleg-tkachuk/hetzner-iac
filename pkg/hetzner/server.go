@@ -27,7 +27,8 @@ type serverSpec struct {
 //
 //   - IgnoreChanges on the image. A re-baked Talos snapshot gets a new id, and
 //     without this every node in the cluster would be REPLACED by an unrelated
-//     `task image-bake`. Talos is upgraded in place with `talosctl upgrade`,
+//     `task cluster:image:bake`. Talos is upgraded in place with
+//     `talosctl upgrade`,
 //     which is what makes ignoring the field correct rather than merely
 //     convenient.
 //   - CustomTimeouts above the provider default. A Talos node boots into
