@@ -400,15 +400,15 @@ func TestDeploy_TurnsAfterIntoADependencyTheEngineHolds(t *testing.T) {
 		// always renders one: cilium's needs an APIHost, and this test is
 		// about ordering rather than about values.
 		_, err = runner.Deploy(layer.Components{
-			{Chart: "hcloud-csi", After: []string{"cert-manager"}},
+			{Chart: "external-secrets", After: []string{"cert-manager"}},
 			{Chart: "cert-manager"},
 		})
 
 		return err
 	}, pulumi.WithMocks(testProject, testStack, m)))
 
-	assert.True(t, m.dependsOn("hcloud-csi", "cert-manager"),
+	assert.True(t, m.dependsOn("external-secrets", "cert-manager"),
 		"After must become a DependsOn, not merely an earlier call")
-	assert.False(t, m.dependsOn("cert-manager", "hcloud-csi"),
+	assert.False(t, m.dependsOn("cert-manager", "external-secrets"),
 		"the dependency must not run backwards")
 }

@@ -109,8 +109,14 @@ var Components = layer.Components{
 		After: []string{CredentialsSecret, "hcloud-ccm"},
 		// Until this, the chart ran on its defaults — which set no resources,
 		// so all eight of its containers were unbounded on a node that also
-		// runs etcd. The values carry measured requests and memory limits,
-		// and need nothing resolved.
+		// runs etcd. The values carry measured requests and memory limits.
+		//
+		// The location comes from the cluster tier rather than being
+		// discovered by the controller at startup: see the template, and
+		// chartsettings.HcloudCSIDefaultLocation.
+		ValuesFrom: func(r *layer.Runner) pulumi.Output {
+			return CSIData(r.Cluster.Location)
+		},
 	},
 }
 
@@ -302,6 +308,16 @@ func resolveToken(r *layer.Runner) pulumi.StringOutput {
 
 			return token, nil
 		}))
+}
+
+// CSIData resolves what the hcloud-csi template needs.
+//
+// Separated from the component so a test can render the template without a
+// Pulumi run, the same shape as CiliumData and CCMData.
+func CSIData(location pulumi.StringInput) pulumi.Output {
+	return location.ToStringOutput().ApplyT(func(name string) any {
+		return values.HcloudCSI{Location: name}
+	})
 }
 
 // CCMData resolves what the cloud-controller-manager template needs.
