@@ -34,7 +34,12 @@ import (
 // `kubectl top pods --containers`, put the numbers in its values template, and
 // delete the line.
 var unmeasuredCharts = map[string]string{
-	"traefik": reasonUnmeasured,
+	// argo-cd only, and it stays for a reason narrower than the one above:
+	// nine components are deployed and idle, because this Argo CD reconciles
+	// nothing. Measuring it now would repeat the mistake traefik's first
+	// measurement made — repo-server is the component that grows, and it grows
+	// while rendering manifests, which it has never done. Measure it after the
+	// first real sync.
 	"argo-cd": reasonUnmeasured,
 }
 

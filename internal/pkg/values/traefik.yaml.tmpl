@@ -80,3 +80,25 @@ topologySpreadConstraints:
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
+
+# Measured on the three-node dev cluster with `kubectl top pods --containers`,
+# highest value across both replicas: 25Mi and 1m. The request rounds that up
+# and the memory limit sits several times above, so ordinary operation is never
+# near one and a leak still cannot take a node that also runs etcd and
+# kube-apiserver. No CPU limit, here or anywhere in this repository.
+#
+# This number was measured ONCE BEFORE and deliberately not kept: the load
+# balancer had no targets at the time, so Traefik had served no request and
+# 18Mi described an idle process. It is kept now because the same cluster was
+# serving HTTPS — the ACME HTTP-01 challenges and the Argo CD UI — through both
+# replicas when this was taken.
+#
+# What would move it: routes, not requests. Traefik's memory tracks the number
+# of routers, services and middlewares it holds, and this cluster has one
+# Ingress. A cluster with dozens should measure again rather than trust 192Mi.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 192Mi
