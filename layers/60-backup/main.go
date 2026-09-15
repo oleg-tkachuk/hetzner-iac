@@ -19,6 +19,18 @@
 // Nothing depends on it, and it depends on nothing but the cluster's name and
 // location. `task destroy` therefore removes it first, which is why the Storage
 // Box carries delete protection: the remove is refused rather than obeyed.
+//
+// # Why it has no component set
+//
+// The only layer that builds its resources by hand, and the reason is the
+// passwords. A layer.Components table hands a component its dependencies as
+// []pulumi.Resource, which is all a chart or a manifest needs; the Storage Box
+// needs the password VALUES, and it takes them as arguments. That is a
+// stronger dependency than After — the engine derives it from the data — and
+// it is not expressible through the table. layertest.Check would also assert
+// nothing here, since it pairs charts with their workloads and this layer
+// installs none. internal/ci/layers_test.go names this layer as the exception,
+// so a second one cannot appear by omission.
 package main
 
 import (
