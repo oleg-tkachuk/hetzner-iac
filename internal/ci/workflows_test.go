@@ -486,3 +486,46 @@ func TestWorkflows_RestoreTheGoCacheOnlyWhereSomethingReadsIt(t *testing.T) {
 
 	assert.Positive(t, checked, "no job restores the shared cache any more; this test is checking nothing")
 }
+
+// privilegedByIssue are the workflows a GitHub issue can start. Each one is
+// checked below for a guard on WHO wrote the issue.
+var privilegedByIssue = []string{"renovate.yaml"}
+
+// TestWorkflows_AnIssueCannotStartAJobForAStranger is a public-repository
+// check written while the repository was still private.
+//
+// Renovate's Dependency Dashboard is an issue, and a ticked checkbox in it is
+// meant to start a run at once rather than at the next cron — so the workflow
+// listens for `issues: [edited]` and holds RENOVATE_TOKEN. The guard used to
+// be the issue's TITLE, which is enough only while nobody else can open an
+// issue: anyone may call theirs `Dependency Dashboard`.
+//
+// The author is what cannot be forged. Renovate opens the dashboard itself, so
+// `github.event.issue.user.login == 'renovate[bot]'` is the exact test, and
+// this holds it in place for whoever edits the trigger next.
+func TestWorkflows_AnIssueCannotStartAJobForAStranger(t *testing.T) {
+	t.Parallel()
+
+	var checked int
+
+	for _, name := range privilegedByIssue {
+		raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
+		require.NoError(t, err, name)
+
+		text := string(raw)
+
+		// Only workflows an issue can actually start. One that stops
+		// listening needs no guard, and should not be failed for dropping it.
+		if !strings.Contains(text, "issues:") {
+			continue
+		}
+
+		checked++
+
+		assert.Contains(t, text, "github.event.issue.user.login == 'renovate[bot]'",
+			".github/workflows/%s runs on an issue event without checking who wrote the "+
+				"issue, so anyone who can open one can start it", name)
+	}
+
+	assert.Positive(t, checked, "no workflow listens for issues; this test is checking nothing")
+}
