@@ -3,7 +3,7 @@
 // It exists so that a malformed cluster description fails in CI, in a second,
 // instead of at `pulumi up`, after an operator has already set up credentials
 // and waited for a preview. The validation is the same code the Pulumi program
-// runs — pkg/hetzner.LoadTopology — so the check cannot drift from the thing
+// runs — internal/pkg/hetzner.LoadTopology — so the check cannot drift from the thing
 // it is checking.
 package main
 
@@ -16,7 +16,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 )
 
 func main() {

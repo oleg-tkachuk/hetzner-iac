@@ -3,9 +3,9 @@ package main
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

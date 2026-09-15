@@ -33,7 +33,7 @@ var appendOntoOptions = regexp.MustCompile(`append\((opts|options|r\.Options|bas
 // immediately, so ordering hid it. That is not a reason to leave it — it is
 // the reason a reviewer would not have caught the edit that woke it up.
 //
-// pkg/pulumiopts.With is the replacement, and its own tests assert both
+// internal/pkg/pulumiopts.With is the replacement, and its own tests assert both
 // halves: that it copies, and that plain append does not.
 func TestNoAppendOntoASharedOptionSlice(t *testing.T) {
 	t.Parallel()
@@ -62,7 +62,7 @@ func TestNoAppendOntoASharedOptionSlice(t *testing.T) {
 
 		// The package that exists to explain the trap quotes it, and its
 		// tests perform it on purpose to prove it is real.
-		if strings.Contains(filepath.ToSlash(path), "pkg/pulumiopts/") {
+		if strings.Contains(filepath.ToSlash(path), "internal/pkg/pulumiopts/") {
 			return nil
 		}
 

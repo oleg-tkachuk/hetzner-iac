@@ -145,7 +145,7 @@ func TestUnmeasuredCharts_HaveNoMeasurementsToUse(t *testing.T) {
 		assert.Equal(t, reasonUnmeasured, reason,
 			"%s is skipped for a different reason than the others", key)
 
-		raw, err := os.ReadFile(filepath.Join("..", "..", "pkg", "values", key+".yaml.tmpl"))
+		raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "pkg", "values", key+".yaml.tmpl"))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 )
 
 // factoryURL is the Talos Image Factory. Images come from there rather than

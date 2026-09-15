@@ -8,7 +8,7 @@ export HCLOUD_TOKEN="$(go run ./tools/token dev)"
 
 It exists so a taskfile can put the token in the environment of a tool that
 reads it from there — the `hcloud` CLI — without restating how the token is
-found. That resolution is `pkg/hetzner.Token`: an exported `HCLOUD_TOKEN`
+found. That resolution is `internal/pkg/hetzner.Token`: an exported `HCLOUD_TOKEN`
 first, then the encrypted stack config through Pulumi's own decryption.
 
 stdout and only stdout. The caller is `export HCLOUD_TOKEN="$(…)"`, so the

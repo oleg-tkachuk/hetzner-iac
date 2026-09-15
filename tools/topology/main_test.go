@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -304,7 +304,7 @@ func TestDeclaredConfigIsOptional(t *testing.T) {
 	t.Parallel()
 
 	// Empty on purpose. Every required-looking key is better reported by the
-	// program: pkg/layer names the command that sets clusterStackRef, and it
+	// program: internal/pkg/layer names the command that sets clusterStackRef, and it
 	// reports every problem at once rather than one per run.
 	requiredConfig := map[string]bool{}
 

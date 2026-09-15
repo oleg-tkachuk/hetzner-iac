@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/workloads"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -16,7 +16,7 @@ import (
 
 // TestWorkloads checks every object the platform is expected to run.
 //
-// The list comes from pkg/workloads, the same table `task charts:render-check`
+// The list comes from internal/pkg/workloads, the same table `task charts:render-check`
 // proves the charts still produce. That check runs offline in seconds; this one
 // runs against a cluster. A rename caught by the first never reaches the second.
 func TestWorkloads(t *testing.T) {

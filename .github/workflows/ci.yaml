@@ -555,9 +555,9 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-go
       # Enforces the pinning policy: exact versions, no floating tags.
-      - run: go test -count=1 ./pkg/charts/
+      - run: go test -count=1 ./internal/pkg/charts/
       # Renders every pinned chart and checks it still produces the workloads
-      # pkg/workloads expects — the same table the e2e suite asserts against.
+      # internal/pkg/workloads expects — the same table the e2e suite asserts against.
       # This is the gate that catches a chart rename in CI instead of at 3am.
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
         with:

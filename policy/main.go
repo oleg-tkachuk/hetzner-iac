@@ -2,7 +2,7 @@
 //
 // WHY A POLICY PACK WHEN THE COMPONENTS ALREADY VALIDATE. Because component
 // validation binds only the callers that go through the component, and this
-// repository has a measured example. pkg/hetzner.BuildFirewallRules refuses an
+// repository has a measured example. internal/pkg/hetzner.BuildFirewallRules refuses an
 // empty AdminCIDRs — ErrEmptyAdminCIDRs exists for exactly that — and then
 // appends FirewallRuleOptions.Extra verbatim. Its per-rule validate() checks
 // the protocol, the port and that the source list is non-empty. It does not
@@ -16,7 +16,7 @@
 // A world-open kube-apiserver, accepted by the validator whose whole purpose is
 // to refuse one. CrossGuard runs over the RESOURCES a program declares rather
 // than the constructors it called, so it holds regardless of which code path
-// produced them — including a layer that skips pkg/hetzner entirely.
+// produced them — including a layer that skips internal/pkg/hetzner entirely.
 //
 // Written in Go via pulumi/policyx: the same language as the rest of the
 // repository, so no Node or Python runtime is dragged into CI for it.
@@ -60,7 +60,7 @@ const (
 // adminPorts are the ports that must never be reachable from the whole
 // internet, and what each one would hand over.
 //
-// Derived from the same two constants pkg/hetzner opens in the baseline rule
+// Derived from the same two constants internal/pkg/hetzner opens in the baseline rule
 // set — PortKubeAPI and PortTalosdAPI — but spelled here as strings because a
 // policy reads them out of resource properties, where they are strings. The
 // parity is held by a test rather than by an import: the policy pack is a
@@ -199,7 +199,7 @@ func serverJoinsPrivateNetwork() policyx.ResourceValidationPolicy {
 		})
 }
 
-// helmReleasePinsVersion catches a chart that never went through pkg/charts.
+// helmReleasePinsVersion catches a chart that never went through internal/pkg/charts.
 //
 // That registry rejects a floating version with its own pattern, and
 // tools/charts reports what is outdated — but both only see the charts declared
@@ -227,7 +227,7 @@ func helmReleasePinsVersion() policyx.ResourceValidationPolicy {
 				args.Manager.ReportViolation(
 					"Helm release pins no chart version: it resolves to whatever the repository "+
 						"serves at apply time, so the same commit yields different clusters. Declare "+
-						"the chart in pkg/charts, which is the version source of record.",
+						"the chart in internal/pkg/charts, which is the version source of record.",
 					args.Resource.URN)
 
 				return nil

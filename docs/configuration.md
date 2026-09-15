@@ -6,7 +6,7 @@ Three places hold configuration, and the split is deliberate.
 |-------|-------|
 | `infra/cluster/cluster.<stack>.yaml` | everything that shapes a cluster; not committed |
 | Pulumi stack config | the Hetzner token, and what each layer deploys |
-| `pkg/charts` | every chart version |
+| `internal/pkg/charts` | every chart version |
 
 ## The topology file
 
@@ -14,7 +14,7 @@ Everything that shapes a cluster lives in
 `infra/cluster/cluster.<stack>.yaml`, validated by `cluster.schema.json` as you
 type it and by the same Go code the Pulumi program runs when you apply.
 
-It is sparse: anything omitted keeps the default in `pkg/hetzner`. Start from
+It is sparse: anything omitted keeps the default in `internal/pkg/hetzner`. Start from
 [cluster.example.yaml](../infra/cluster/cluster.example.yaml), which is
 committed with an RFC 5737 placeholder in
 `network.adminCIDRs` — set that to the address you will apply from, because
@@ -81,7 +81,7 @@ monthly gross:
 | `cax21` | 4 | 8 GB | arm | 10.49 |
 
 Every image the platform installs publishes `linux/arm64` at the versions
-pinned in [`pkg/charts`](../pkg/charts) — Cilium, both hcloud drivers,
+pinned in [`internal/pkg/charts`](../internal/pkg/charts) — Cilium, both hcloud drivers,
 cert-manager, external-secrets, metrics-server, Traefik and Argo CD, all
 checked. So nothing in the platform is the obstacle; the reason to pick
 `arm` is wanting Arm nodes, not saving money.
@@ -143,7 +143,7 @@ this repository provisions through.
 
 Component validation binds only the callers that go through the component, and
 this repository has a measured example of the gap.
-`pkg/hetzner.BuildFirewallRules` refuses an empty `network.adminCIDRs` — that is
+`internal/pkg/hetzner.BuildFirewallRules` refuses an empty `network.adminCIDRs` — that is
 what `ErrEmptyAdminCIDRs` is for — and then appends `FirewallRuleOptions.Extra`
 verbatim. Its per-rule check looks at the protocol, the port, and that the
 source list is non-empty. It never looks at what the sources *are*, so an extra

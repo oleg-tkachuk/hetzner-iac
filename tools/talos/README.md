@@ -8,7 +8,7 @@ repository produces, and runs `talosctl validate`.
 go run ./tools/talos [dir]   # default: infra/cluster
 ```
 
-The unit tests in [pkg/hetzner](../../pkg/hetzner) prove the patches contain
+The unit tests in [internal/pkg/hetzner](../../internal/pkg/hetzner) prove the patches contain
 what was intended. They cannot prove Talos accepts them, and Talos is strict in
 ways that are not guessable. The first run found that
 `machine.network.hostname` is rejected outright, because a HostnameConfig

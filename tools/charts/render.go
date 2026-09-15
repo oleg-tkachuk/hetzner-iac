@@ -1,5 +1,5 @@
 // `render` proves, offline, that the pinned charts still produce the workloads
-// pkg/workloads expects.
+// internal/pkg/workloads expects.
 //
 // Part of this tool rather than its own, because its subject is the charts:
 // two commands named after the same noun is the signal they are one.
@@ -33,11 +33,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/charts"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/workloads"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 )
 
 // renderAll runs every chart check and reports how many failed.

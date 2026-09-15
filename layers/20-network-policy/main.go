@@ -29,7 +29,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 
 	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/yaml"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -52,7 +52,7 @@ const EnabledKey = "enabled"
 // Components are what this layer deploys.
 //
 // Both are Create components: these are custom resources, not charts, and
-// pkg/charts has nothing to pin for them.
+// internal/pkg/charts has nothing to pin for them.
 var Components = layer.Components{
 	{
 		Name:   "allow",

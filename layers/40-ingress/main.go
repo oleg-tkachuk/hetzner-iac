@@ -2,20 +2,20 @@
 //
 // The load balancer is created HERE, through the Hetzner provider, rather than
 // by asking the cloud controller manager for one. Both were tried against a
-// live cluster; pkg/hetzner.NewIngressLoadBalancer records what the CCM route
+// live cluster; internal/pkg/hetzner.NewIngressLoadBalancer records what the CCM route
 // cost. In short: a CCM-managed load balancer is invisible to `plan` and
 // `destroy`, and it refuses to target a control-plane node at all.
 //
-// The values themselves are pkg/values/traefik.yaml.tmpl. What is left here is
+// The values themselves are internal/pkg/values/traefik.yaml.tmpl. What is left here is
 // the part Go has to do: read stack config, resolve what the cluster tier
 // published, and create the Hetzner resources the chart no longer asks for.
 package main
 
 import (
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -49,7 +49,7 @@ const RecordsPerDomain = 2
 
 // Components are what this layer deploys. One of them — what the table buys
 // here is the enumeration: layertest asserts the chart is pinned and that
-// pkg/workloads knows what it produces.
+// internal/pkg/workloads knows what it produces.
 var Components = layer.Components{
 	{
 		Chart: Chart,
@@ -69,7 +69,7 @@ func IngressData(nodeSubnet pulumi.StringInput) pulumi.Output {
 			return values.Traefik{
 				Replicas:   ControllerReplicas,
 				NodeSubnet: resolved[0].(string),
-				// The same two constants pkg/hetzner points the load
+				// The same two constants internal/pkg/hetzner points the load
 				// balancer's services and health checks at.
 				NodePortHTTP:  platform.IngressNodePortHTTP,
 				NodePortHTTPS: platform.IngressNodePortHTTPS,
@@ -128,7 +128,7 @@ func deploy(r *layer.Runner) error {
 //
 // Returns a count rather than nothing, and the caller exports it. An output
 // nothing consumes is never resolved, so an error inside this apply would
-// never surface — the same reason pkg/layer exports its contract check.
+// never surface — the same reason internal/pkg/layer exports its contract check.
 func records(
 	r *layer.Runner,
 	balancer *hetzner.IngressLoadBalancer,

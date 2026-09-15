@@ -6,13 +6,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/chartsettings"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
-	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
@@ -219,7 +219,7 @@ func TestOperatorReplicas_CapsAtOnePerControlPlaneNode(t *testing.T) {
 func TestOperatorReplicas_ACountThatCannotBeRealKeepsTheDefault(t *testing.T) {
 	t.Parallel()
 
-	// LoadTopology substitutes 1 for a missing count and pkg/clusterref's
+	// LoadTopology substitutes 1 for a missing count and internal/pkg/clusterref's
 	// version gate rules out an absent one, so zero can only mean a broken
 	// producer. Sizing against it would scale a working operator to nothing,
 	// so the wanted count stands and the extra replica is the visible symptom.
