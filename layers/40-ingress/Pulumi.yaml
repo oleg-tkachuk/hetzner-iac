@@ -33,3 +33,12 @@ config:
       Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
       This layer reads the kubeconfig from it, which is what lets it be applied
       and destroyed without touching the cluster.
+
+  ingress:loadBalancerType:
+    default: ""
+    description: |
+      Hetzner load balancer type. Empty means lb11 — the smallest, and enough
+      for a control-plane-only cluster: it carries an IPv4, which is the only
+      part of a load balancer this layer actually needs. Declared with no
+      default of its own on purpose, so DefaultLoadBalancerType in the layer
+      stays the one place the fallback is written.

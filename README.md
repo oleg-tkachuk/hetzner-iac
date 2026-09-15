@@ -141,9 +141,16 @@ layer deploys:
 |-----|-------|---------|
 | `hcloud:token` | [`infra/cluster`](infra/cluster) | Hetzner API token (secret) |
 | `<layer>:clusterStackRef` | every [layer](layers) | `<org>/hetzner-cluster/<stack>`; written by `platform:init` |
+| `node-platform:cni` | [`10-node-platform`](layers/10-node-platform) | which CNI to install, default `cilium` |
+| `network-policy:enabled` | [`20-network-policy`](layers/20-network-policy) | create the policies; off by default, because the first one to select an endpoint denies what it does not name |
 | `cluster-services:acmeEmail` | [`30-cluster-services`](layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
+| `cluster-services:acmeStaging` | [`30-cluster-services`](layers/30-cluster-services) | order from Let's Encrypt's staging endpoint: untrusted certificates, and where a new domain's first attempt belongs |
 | `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | [Hetzner load balancer](https://www.hetzner.com/cloud/load-balancer) type, default `lb11` |
-| `gitops:domain` | [`50-gitops`](layers/50-gitops) | publishes Argo CD through ingress; omit it and there is no Ingress |
+| `backup:storageBoxType` | [`60-backup`](layers/60-backup) | [Storage Box](https://www.hetzner.com/storage/storage-box) type, default `bx11` |
+
+Argo CD's hostname is **not** stack config, and neither is the cluster's
+domain: both come from `metadata.domain` in the topology, so `40-ingress` and
+`50-gitops` cannot spell it differently.
 
 Details, including where the encrypted token lives and how to keep state
 at Hetzner instead: [configuration.md](docs/configuration.md).
