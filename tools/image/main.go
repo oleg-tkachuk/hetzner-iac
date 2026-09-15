@@ -21,9 +21,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,9 +44,16 @@ const factoryTimeout = 2 * time.Minute
 
 // architectures maps the topology's spelling to the factory's. Talos says x86
 // and arm; the factory says amd64 and arm64.
+//
+// The keys are internal/pkg/hetzner's constants, not literals. They were
+// literals, and the failure that allows is quiet in the wrong direction: the
+// topology validator accepts whatever is in hetzner.Architectures, so an
+// architecture added there would pass validation and then be refused here by
+// a message naming the two this map happens to know.
+// TestArchitectures_CoverEveryOneTheTopologyAccepts holds the two sets equal.
 var architectures = map[string]string{
-	"x86": "amd64",
-	"arm": "arm64",
+	hetzner.ArchitectureX86: "amd64",
+	hetzner.ArchitectureARM: "arm64",
 }
 
 func main() {
@@ -136,7 +145,10 @@ func imageURL(schematic, version, factoryArch string) string {
 func factoryArchitecture(arch string) (string, error) {
 	factoryArch, known := architectures[arch]
 	if !known {
-		return "", fmt.Errorf("talos.architecture must be x86 or arm, got %q", arch)
+		// The list from the map rather than from the sentence, so a third
+		// architecture cannot be named in one and missing from the other.
+		return "", fmt.Errorf("talos.architecture must be one of %s, got %q",
+			strings.Join(slices.Sorted(maps.Keys(architectures)), ", "), arch)
 	}
 
 	return factoryArch, nil

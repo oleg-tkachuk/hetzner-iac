@@ -28,9 +28,14 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
-// TokenConfigKey is where the Hetzner token lives in stack config. Namespaced
-// to the provider, because that is the key the hcloud provider itself reads.
-const TokenConfigKey = "hcloud:token"
+// The token's config key is internal/pkg/hetzner's, not this file's.
+//
+// It was a second `const TokenConfigKey = "hcloud:token"` here. Three things
+// read that key — `task cluster:token` writes it, this tier reads it to
+// re-export, and pkg/hetzner.Token reads it for every tool that calls the
+// Hetzner API — and two of them were reading their own copy of the name. A
+// rename in one would have left this tier exporting an empty token while the
+// tools still found the value, which reads as the tier being broken.
 
 func main() {
 	pulumi.Run(program)
@@ -171,7 +176,7 @@ func exports(topology *hetzner.Topology, cluster *hetzner.Cluster, token pulumi.
 func clusterToken(ctx *pulumi.Context) pulumi.StringOutput {
 	log := pulumilog.New(ctx)
 
-	if config.Get(ctx, TokenConfigKey) == "" {
+	if config.Get(ctx, hetzner.TokenConfigKey) == "" {
 		log.Warn("hcloud-token",
 			"not in stack config, so it is exported empty: layers needing it must set their own")
 
@@ -180,5 +185,5 @@ func clusterToken(ctx *pulumi.Context) pulumi.StringOutput {
 
 	log.Done("hcloud-token", "exported for the layers that call the Hetzner API")
 
-	return config.GetSecret(ctx, TokenConfigKey)
+	return config.GetSecret(ctx, hetzner.TokenConfigKey)
 }
