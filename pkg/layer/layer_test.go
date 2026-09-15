@@ -396,16 +396,19 @@ func TestDeploy_TurnsAfterIntoADependencyTheEngineHolds(t *testing.T) {
 			return err
 		}
 
+		// Both charts whose template takes no data, because a component now
+		// always renders one: cilium's needs an APIHost, and this test is
+		// about ordering rather than about values.
 		_, err = runner.Deploy(layer.Components{
-			{Chart: "hcloud-csi", After: []string{"cilium"}},
-			{Chart: "cilium"},
+			{Chart: "hcloud-csi", After: []string{"cert-manager"}},
+			{Chart: "cert-manager"},
 		})
 
 		return err
 	}, pulumi.WithMocks(testProject, testStack, m)))
 
-	assert.True(t, m.dependsOn("hcloud-csi", "cilium"),
+	assert.True(t, m.dependsOn("hcloud-csi", "cert-manager"),
 		"After must become a DependsOn, not merely an earlier call")
-	assert.False(t, m.dependsOn("cilium", "hcloud-csi"),
+	assert.False(t, m.dependsOn("cert-manager", "hcloud-csi"),
 		"the dependency must not run backwards")
 }

@@ -8,14 +8,16 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
+
+// Chart is the registry key, which is also what the values template is named
+// after and the name the component is known by in the set.
+const Chart = "argo-cd"
 
 // AdminSecret is where Argo CD writes its initial admin password. This is the
 // NAME of a Kubernetes Secret, not a credential: the password is generated
@@ -47,10 +49,10 @@ const ArgoCDTimeoutSeconds = 900
 // asserts the chart is pinned and that pkg/workloads knows what it produces.
 var Components = layer.Components{
 	{
-		Chart:          "argo-cd",
+		Chart:          Chart,
 		TimeoutSeconds: ArgoCDTimeoutSeconds,
-		ValuesYAML: func(r *layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
-			return values.Asset("argo-cd", r.Cluster.Domain.ApplyT(ArgoCDData)), nil
+		ValuesFrom: func(r *layer.Runner) pulumi.Output {
+			return r.Cluster.Domain.ApplyT(ArgoCDData)
 		},
 	},
 }
@@ -80,9 +82,9 @@ func main() {
 			return err
 		}
 
-		argocd, ok := deployed.Release("argo-cd")
-		if !ok {
-			return fmt.Errorf("argo-cd was not deployed")
+		argocd, err := deployed.MustRelease(Chart)
+		if err != nil {
+			return err
 		}
 
 		// Export the secret's NAME, not its value: reading the password into

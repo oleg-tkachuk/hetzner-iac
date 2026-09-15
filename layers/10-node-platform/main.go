@@ -97,8 +97,8 @@ var Components = layer.Components{
 		Chart:   "hcloud-ccm",
 		Release: "hcloud-cloud-controller-manager",
 		After:   []string{CNIComponent, CredentialsSecret},
-		ValuesYAML: func(r *layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
-			return values.Asset("hcloud-ccm", CCMData(r.Cluster.PodCIDR)), nil
+		ValuesFrom: func(r *layer.Runner) pulumi.Output {
+			return CCMData(r.Cluster.PodCIDR)
 		},
 	},
 	{
@@ -109,10 +109,8 @@ var Components = layer.Components{
 		After: []string{CredentialsSecret, "hcloud-ccm"},
 		// Until this, the chart ran on its defaults — which set no resources,
 		// so all eight of its containers were unbounded on a node that also
-		// runs etcd. The values carry measured requests and memory limits.
-		ValuesYAML: func(*layer.Runner) (pulumi.AssetOrArchiveArrayInput, error) {
-			return values.Static("hcloud-csi", nil)
-		},
+		// runs etcd. The values carry measured requests and memory limits,
+		// and need nothing resolved.
 	},
 }
 
@@ -185,9 +183,9 @@ func main() {
 			return err
 		}
 
-		cilium, ok := deployed.Release(CNIComponent)
-		if !ok {
-			return fmt.Errorf("the cni was not deployed")
+		cilium, err := deployed.MustRelease(CNIComponent)
+		if err != nil {
+			return err
 		}
 
 		r.Ctx.Export(OutputCNIReady, cilium.Status.Status())
