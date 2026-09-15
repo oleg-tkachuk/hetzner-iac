@@ -1,8 +1,9 @@
 # Argo CD.
 #
-# Today it reconciles nothing: the cluster has no AppProject of its own and no
-# root Application. See the backlog — the blocker is which repository holds the
-# workloads, not the work.
+# What it reconciles is a stack config decision: set gitops:repoURL and the
+# layer creates a root Application and the project that governs it; leave it
+# unset and Argo CD is installed, reconciling nothing, and says so on every
+# apply. This file configures the installation only.
 
 global:
   # Quoted, so an unset domain stays an empty string. Unquoted it renders as

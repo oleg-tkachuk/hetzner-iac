@@ -93,9 +93,12 @@ make a load balancer's address stable, which is the one DNS would point at.
 
 ### Workloads arrive through GitOps
 
-Argo CD runs and reconciles nothing. The goal is that adding a workload is a
-commit rather than a task.
-**Blocked on:** which repository and path hold them.
+Adding a workload is a commit rather than a task, once Argo CD is pointed at
+the repository holding them: `gitops:repoURL`, with `gitops:path` and
+`gitops:revision` beside it. Unset, Argo CD installs and reconciles nothing,
+and says so.
+**Blocked on:** nothing here — which repository is a deployment decision, and
+this layer no longer has an opinion about it.
 
 ### Drift is reported, not discovered
 

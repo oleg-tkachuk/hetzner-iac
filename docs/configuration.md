@@ -189,6 +189,9 @@ ships as a task here and the decision stays with whoever owns the organisation.
 | `cluster-services:acmeEmail` | [`30-cluster-services`](../layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `cluster-services:acmeStaging` | [`30-cluster-services`](../layers/30-cluster-services) | order from Let's Encrypt's staging endpoint: untrusted certificates, and where a new domain's first attempt belongs |
 | `ingress:loadBalancerType` | [`40-ingress`](../layers/40-ingress) | Hetzner load balancer type, default `lb11` |
+| `gitops:repoURL` | [`50-gitops`](../layers/50-gitops) | the repository Argo CD reconciles; omit it and Argo CD is installed and reconciles nothing |
+| `gitops:path` | [`50-gitops`](../layers/50-gitops) | where the tree of Applications starts in that repository, default the root |
+| `gitops:revision` | [`50-gitops`](../layers/50-gitops) | branch, tag or commit to track, default `HEAD` |
 | `backup:storageBoxType` | [`60-backup`](../layers/60-backup) | Hetzner Storage Box type, default `bx11` |
 
 Layer config is about what a layer deploys, not about the cluster. The three
