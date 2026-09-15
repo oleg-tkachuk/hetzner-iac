@@ -363,6 +363,11 @@ var (
 	DefaultAllowICMP  = false
 )
 
+// Locations is every location this platform can build in, sorted, so the
+// validator, its error message, the JSON schema's enum and platform.ProbeLocation
+// all read one set rather than four copies of it. Mirrors Architectures.
+var Locations = sortedKeys(validLocations)
+
 // validLocations maps each hcloud location to the network zone that contains
 // it. Hetzner rejects a location/zone mismatch when the subnet is created,
 // which is late; this map moves that failure to plan time.

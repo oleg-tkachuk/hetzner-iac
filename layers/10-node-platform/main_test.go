@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
@@ -303,7 +304,7 @@ func (m stackMocks) outputs() resource.PropertyMap {
 		resource.PropertyKey(clusterref.OutputPodCIDR):           resource.NewStringProperty("10.244.0.0/16"),
 		resource.PropertyKey(clusterref.OutputServiceCIDR):       resource.NewStringProperty("10.96.0.0/12"),
 		resource.PropertyKey(clusterref.OutputClusterName):       resource.NewStringProperty("platform-test"),
-		resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty("hel1"),
+		resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty(platform.ProbeLocation),
 		resource.PropertyKey(clusterref.OutputHcloudToken):       resource.NewStringProperty(m.exported),
 		resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
 		resource.PropertyKey(clusterref.OutputRoutingMode):       resource.NewStringProperty(hetzner.RoutingModeNative),

@@ -108,7 +108,7 @@ var probes = map[string]any{
 	// A real location, because the value's whole purpose is to be there: empty
 	// leaves the controller discovering its own location at startup, which the
 	// template explains at length.
-	"hcloud-csi": HcloudCSI{Location: "hel1"},
+	"hcloud-csi": HcloudCSI{Location: platform.ProbeLocation},
 	// A domain on purpose: the Ingress block is conditional, and rendering
 	// without one would leave the branch that publishes the UI unchecked.
 	"argo-cd": ArgoCD{
