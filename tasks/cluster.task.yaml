@@ -26,8 +26,8 @@ vars:
   # The suffix of the file written beside a snapshot, holding what the
   # snapshot said about itself when it was taken.
   #
-  # A var because two tasks must spell it identically: etcd-snapshot writes it
-  # and etcd-restore reads it, and a mismatch is not an error — the restore
+  # A var because two tasks must spell it identically: etcd:snapshot writes it
+  # and etcd:restore reads it, and a mismatch is not an error — the restore
   # just silently stops showing what the snapshot was supposed to contain.
   _CL_SNAPSHOT_INFO: '.info'
 
@@ -56,7 +56,7 @@ vars:
   _CL_SELECTOR: 'cluster=$(go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}")'
 
   # The system volumes that carry secrets, and what a probe calls an encrypted
-  # one. Named because encryption-check compares against them: a typo here
+  # one. Named because encryption:check compares against them: a typo here
   # reports "not found" rather than silently passing.
   _CL_ENCRYPTED_VOLUMES: "STATE EPHEMERAL"
   _CL_LUKS: luks
@@ -639,7 +639,7 @@ tasks:
           # Before anything is wiped. A truncated download has the right name
           # and the right size to the eye, and finding out after the reset
           # leaves a cluster with no etcd and no way back.
-          printf '%s\n' "{{._RUN}} cluster · etcd-restore · checking the snapshot"
+          printf '%s\n' "{{._RUN}} cluster · etcd:restore · checking the snapshot"
           go run "{{.ROOT}}/tools/etcd" verify "{{.snapshot}}"
 
           # What the snapshot said about itself when it was taken, if
@@ -647,19 +647,19 @@ tasks:
           # back, because a difference between the two means the file changed
           # after it was written — and that is worth seeing before the wipe.
           if [ -f "{{.snapshot}}{{._CL_SNAPSHOT_INFO}}" ]; then
-            printf '%s\n' "{{._RUN}} cluster · etcd-restore · recorded when taken:"
+            printf '%s\n' "{{._RUN}} cluster · etcd:restore · recorded when taken:"
             sed 's/^/    /' "{{.snapshot}}{{._CL_SNAPSHOT_INFO}}"
           else
-            printf '%s\n' "{{._WARN}} cluster · etcd-restore · no {{._CL_SNAPSHOT_INFO}} beside it, so there is nothing to compare against"
+            printf '%s\n' "{{._WARN}} cluster · etcd:restore · no {{._CL_SNAPSHOT_INFO}} beside it, so there is nothing to compare against"
           fi
 
           {{._CL_CONTROL_PLANE}}
 
           count="$(printf '%s\n' "$nodes" | awk 'END {print NR}')"
-          printf '%s\n' "{{._RUN}} cluster · etcd-restore · ${count} control-plane node(s) to wipe"
+          printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${count} control-plane node(s) to wipe"
 
           for node in $nodes; do
-            printf '%s\n' "{{._RUN}} cluster · etcd-restore · ${node} → wiping EPHEMERAL"
+            printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${node} → wiping EPHEMERAL"
             talosctl -n "$node" reset --graceful=false --reboot --system-labels-to-wipe=EPHEMERAL
           done
 
@@ -667,13 +667,13 @@ tasks:
           # bootstrapped. Failures are "not yet": the node is rebooting, so
           # apid is unreachable for most of this wait.
           for node in $nodes; do
-            printf '%s\n' "{{._RUN}} cluster · etcd-restore · ${node} → waiting for etcd to reach Preparing"
+            printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${node} → waiting for etcd to reach Preparing"
             deadline=$(( $(date +%s) + {{._CL_RECOVER_TIMEOUT}} ))
 
             until talosctl -n "$node" service etcd 2>/dev/null | grep -qE '^STATE[[:space:]]+Preparing'; do
               if [ "$(date +%s)" -ge "$deadline" ]; then
-                printf '%s\n' "{{._ERR}} cluster · etcd-restore · ${node} did not reach Preparing in {{._CL_RECOVER_TIMEOUT}}s" >&2
-                printf '%s\n' "{{._ERR}} cluster · etcd-restore · look at it with: task hcloud:console stack={{._CL_STACK}} server=<name>" >&2
+                printf '%s\n' "{{._ERR}} cluster · etcd:restore · ${node} did not reach Preparing in {{._CL_RECOVER_TIMEOUT}}s" >&2
+                printf '%s\n' "{{._ERR}} cluster · etcd:restore · look at it with: task hcloud:console stack={{._CL_STACK}} server=<name>" >&2
                 exit 1
               fi
 
@@ -684,13 +684,13 @@ tasks:
           # One node, from the local file. The others rejoin on their own once
           # the control-plane endpoint answers.
           first="$(printf '%s\n' "$nodes" | awk 'NR == 1')"
-          printf '%s\n' "{{._RUN}} cluster · etcd-restore · ${first} → bootstrap from {{.snapshot}}"
+          printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${first} → bootstrap from {{.snapshot}}"
           talosctl -n "$first" bootstrap --recover-from="{{.snapshot}}"
 
           printf '\n'
-          printf '%s\n' "{{._OK}} cluster · etcd-restore · restored — the node passes through NotReady for about two minutes"
-          printf '%s\n' "{{._OK}} cluster · etcd-restore · watch it with: task cluster:status stack={{._CL_STACK}}"
-          printf '%s\n' "{{._WARN}} cluster · etcd-restore · anything created after the snapshot is gone; re-apply the layers if that includes them"
+          printf '%s\n' "{{._OK}} cluster · etcd:restore · restored — the node passes through NotReady for about two minutes"
+          printf '%s\n' "{{._OK}} cluster · etcd:restore · watch it with: task cluster:status stack={{._CL_STACK}}"
+          printf '%s\n' "{{._WARN}} cluster · etcd:restore · anything created after the snapshot is gone; re-apply the layers if that includes them"
 
   upgrade:talos:
     desc: "Upgrade Talos on every node. Bump talos.version in the topology first, then re-bake."
