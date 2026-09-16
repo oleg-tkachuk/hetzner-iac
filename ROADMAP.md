@@ -76,14 +76,17 @@ Nothing checks provenance at admission.
 ### Something is reachable from outside
 
 The ingress and the certificate machinery are deployed, and nothing uses them.
-**Blocked on:** a domain.
+**Blocked on:** a domain — what one has to be, and what the two topology fields
+holding it mean, is in
+[configuration.md](docs/configuration.md#the-domain).
 
 ### Something is reachable from outside — the parts that are not the domain
 
 `40-ingress` creates the `A` and `AAAA` records for `metadata.domain` in
 `metadata.dnsZone`, looking the zone up rather than creating it, and
 `30-cluster-services` orders the certificate — staging or production, by
-config. What is left is a domain to put in the topology.
+config. What is left is a domain to put in the topology, and a zone delegated
+to Hetzner if those records are to be written here rather than by hand.
 
 ### A server keeps its address when it is replaced
 

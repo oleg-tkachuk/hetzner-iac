@@ -49,6 +49,16 @@ individual, and `pulumi login` is how you get one on this machine — and the
 tools in [Prerequisites](#prerequisites). State can live in your own S3 bucket
 instead: [configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
 
+A **domain** is the fourth thing, and it is needed only for the step none of
+the commands below is: reaching the cluster from outside. `40-ingress` creates
+the DNS records and `30-cluster-services` orders the certificate, both from
+`metadata.domain` in the topology — `platform.example.com`, with
+`metadata.dnsZone: example.com` when Hetzner holds that zone's authoritative
+DNS. Leave it out and every command below still works; the ingress layer writes
+no records, `50-gitops` no Ingress, and the Argo CD UI is reached with
+`kubectl port-forward`. What the domain has to be, and the order to obtain the
+certificate in: [The domain](docs/configuration.md#the-domain).
+
 Everything below creates **billable**
 [Hetzner resources](https://www.hetzner.com/cloud#pricing);
 `task destroy` removes them — every layer, then the cluster.
@@ -158,7 +168,10 @@ layer deploys:
 
 Argo CD's hostname is **not** stack config, and neither is the cluster's
 domain: both come from `metadata.domain` in the topology, so `40-ingress` and
-`50-gitops` cannot spell it differently.
+`50-gitops` cannot spell it differently. It is a prerequisite of being
+reachable rather than of installing —
+[The domain](docs/configuration.md#the-domain) has the two fields, the
+delegation and the staging-first order for the certificate.
 
 Details, including where the encrypted token lives and how to keep state
 at Hetzner instead: [configuration.md](docs/configuration.md).
