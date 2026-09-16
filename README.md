@@ -53,8 +53,9 @@ A **domain** is the fourth thing, and it is needed only for the step none of
 the commands below is: reaching the cluster from outside. `40-ingress` creates
 the DNS records and `30-cluster-services` orders the certificate, both from
 `metadata.domain` in the topology — `platform.example.com`, with
-`metadata.dnsZone: example.com` when Hetzner holds that zone's authoritative
-DNS. Leave it out and every command below still works; the ingress layer writes
+`metadata.dnsZone: example.com` when Hetzner serves that zone. A domain hosted
+anywhere else works the same way: leave `metadata.dnsZone` empty and two
+records are yours to write, which is the only difference. Leave it out and every command below still works; the ingress layer writes
 no records, `50-gitops` no Ingress, and the Argo CD UI is reached with
 `kubectl port-forward`. What the domain has to be, and the order to obtain the
 certificate in: [The domain](docs/configuration.md#the-domain).
