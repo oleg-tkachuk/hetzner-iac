@@ -118,7 +118,10 @@ var probes = map[string]any{
 	// without one would leave the branch that publishes the UI unchecked.
 	"argo-cd": ArgoCD{
 		Domain: "argocd.example.com", IngressClass: platform.IngressClass,
-		Issuer: "letsencrypt", Replicas: 2,
+		// The real issuer name, for the same reason IngressClass beside it is
+		// real: the render check asserts it reaches the chart's output, and a
+		// probe holding its own copy keeps asserting a name nothing creates.
+		Issuer: platform.IssuerName, Replicas: 2,
 	},
 }
 

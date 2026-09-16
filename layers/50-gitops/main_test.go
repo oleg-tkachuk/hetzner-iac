@@ -83,9 +83,10 @@ func TestArgoCDValues_RequestsCertificatesFromTheClusterIssuer(t *testing.T) {
 	// different name leaves the Ingress with no certificate and no error.
 	annotations := nested(t, render(t, testDomain), "server", "ingress", "annotations")
 
-	assert.Equal(t, IssuerName, annotations["cert-manager.io/cluster-issuer"])
-	assert.Equal(t, "letsencrypt", IssuerName,
-		"must match the ClusterIssuer name in 30-cluster-services")
+	// Against platform, which is where the name lives now: the second line
+	// used to pin it to the literal "letsencrypt", which held the constant
+	// still rather than holding it to the layer that creates the issuer.
+	assert.Equal(t, platform.IssuerName, annotations["cert-manager.io/cluster-issuer"])
 }
 
 func TestArgoCDValues_TerminatesTLSAtTheIngressOnly(t *testing.T) {

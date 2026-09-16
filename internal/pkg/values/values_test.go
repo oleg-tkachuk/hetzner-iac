@@ -202,4 +202,19 @@ func TestProbeData_CarriesThePinnedValuesRatherThanACopy(t *testing.T) {
 	require.True(t, ok, "the hcloud-csi probe is %T", csi)
 
 	assert.Equal(t, clusterref.ProbeLocation, storage.Location)
+
+	// argo-cd carries two, and only one of them read its constant: the issuer
+	// name was the literal "letsencrypt" while IngressClass beside it was
+	// already platform's. This test covered cilium, traefik and hcloud-csi
+	// and not this chart, which is how the literal survived.
+	argocd, err := values.Probe("argo-cd")
+	require.NoError(t, err)
+
+	gitops, ok := argocd.(values.ArgoCD)
+	require.True(t, ok, "the argo-cd probe is %T", argocd)
+
+	assert.Equal(t, platform.IngressClass, gitops.IngressClass)
+	assert.Equal(t, platform.IssuerName, gitops.Issuer,
+		"the argo-cd probe renders issuer %q while the platform creates %q",
+		gitops.Issuer, platform.IssuerName)
 }
