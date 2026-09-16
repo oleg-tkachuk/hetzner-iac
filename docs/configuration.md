@@ -42,8 +42,9 @@ What the domain has to be:
 - **two labels or more.** A single label is a hostname, not a domain, and an
   order for one is refused — which without the check would surface after the
   Ingress was already in place. Validation refuses it at plan time instead.
-- **registered anywhere.** The registrar does not matter, and neither does the
-  TLD. What matters is which nameservers the zone is delegated to, below.
+- **registered anywhere, and its DNS hosted anywhere.** The registrar does not
+  matter and neither does the TLD. Whether Hetzner serves the zone decides one
+  thing only: who writes the two records, this repository or you.
 
 ### Two fields, because a zone cut cannot be derived from a name
 
@@ -76,9 +77,35 @@ every cluster this repository builds, which is why no layer creates it: a zone
 this stack owned would be a zone `pulumi destroy` deletes, with every record in
 it — including the records for everything else that shares the domain.
 
-Leaving `dnsZone` empty while `metadata.domain` is set is supported, and it is
-the case where the DNS lives somewhere else. `40-ingress` then says so rather
-than staying silent, and names what it wants written:
+`metadata.dnsZone` has to name a zone the Hetzner project actually holds. One
+that is not there fails the apply and says what to do about it, rather than
+creating anything:
+
+```
+the zone has to exist and be delegated to Hetzner: point the registrar's NS
+records at Hetzner's nameservers, or leave metadata.dnsZone empty and manage
+the records where the domain is hosted
+```
+
+### When the DNS is hosted somewhere else
+
+That is a supported shape rather than a workaround, and for a domain already
+serving something it is the normal one. Set `metadata.domain`, leave
+`metadata.dnsZone` empty, and exactly two records become yours to write.
+Nothing else changes: the load balancer, the Ingress and the certificate are
+the same.
+
+**The certificate does not care who serves the zone.** The ClusterIssuer solves
+HTTP-01 through the ingress class `40-ingress` registers, so Let's Encrypt
+validates by fetching `/.well-known/acme-challenge/` over the load balancer —
+no provider credentials, no DNS-01, nothing a registrar has to support. What it
+does need is for the name to resolve *to that balancer*, so the two records
+come first and the order is the thing that waits: until they resolve, the
+`Certificate` sits pending with an `Order` that keeps retrying, which looks
+like nothing happening and is not an error.
+
+Instead of writing those records, `40-ingress` says on every apply that they
+are not its to write, and names the output holding the value they need:
 
 ```
 metadata.dnsZone unset, so platform.example.com is hosted elsewhere — point it
@@ -89,9 +116,42 @@ at the ingressIp output by hand
 task platform:outputs stack=dev layer=40-ingress
 ```
 
-`ingressIp` and `ingressIpv6` are the two values those records need. A rebuilt
-cluster gets a new pair: a load balancer's IPv4 is neither a primary nor a
-floating IP and cannot be reserved.
+| Record, for `metadata.domain` | Value | Output |
+|-------------------------------|-------|--------|
+| `A` | the ingress load balancer's IPv4 | `ingressIp` |
+| `AAAA` | its IPv6 | `ingressIpv6` |
+
+Both of them. A missing `AAAA` fails for IPv6-only clients and for nobody
+testing from a laptop.
+
+Keep the TTL short. The records this repository writes for itself use 300
+seconds, and the reason applies to yours identically: a load balancer's IPv4
+cannot be reserved — it is neither a primary nor a floating IP — so a rebuilt
+environment serves from a new address, and however long the old one stays
+cached is how long the domain is dark.
+
+**The whole cost of hosting the DNS elsewhere is that those two records are not
+reconciled.** A rebuild gives a new address and nothing updates them or says
+they are stale. Everything downstream of the name is unaffected.
+
+### Delegating one subdomain, and leaving the rest where it is
+
+The two are not exclusive, because delegation is per zone and not per domain.
+Point `NS` records for one subdomain at Hetzner — `dev.example.com`, while
+`example.com` stays with the provider it is on — and that subdomain is a zone
+here like any other:
+
+```yaml
+metadata:
+  name: platform-dev
+  domain: platform.dev.example.com
+  dnsZone: dev.example.com
+```
+
+`40-ingress` writes the records again, and the apex and everything else under
+it is untouched. It is also the case that `dnsZone` exists for: the zone cut in
+`platform.dev.example.com` is not its last two labels, and no rule could have
+guessed it.
 
 ### The certificate, and the order to do it in
 
