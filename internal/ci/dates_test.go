@@ -70,11 +70,14 @@ func TestNoDatesInProse(t *testing.T) {
 			switch entry.Name() {
 			case ".git", ".cache", "node_modules", "coverage", ".backups":
 				return filepath.SkipDir
-			// Architecture decision records keep their Date, and the reason
-			// this rule exists is why. A date in prose is redundant BECAUSE
-			// git records it — and docs/adr is not in git, so nothing would
-			// record it. `**Date:**` is also a structural field of the ADR
-			// format rather than a note on when somebody measured something.
+			// Architecture decision records keep their Date. The rule holds
+			// elsewhere because git records when a line was written, which is
+			// the same fact the prose was stating. An ADR's date is when the
+			// DECISION was taken, and git cannot answer that: a record is
+			// committed whenever it gets written up, and one that stops being
+			// current is never recommitted. `**Date:**` is a structural field
+			// of the format rather than a note on when somebody measured
+			// something.
 			case "adr":
 				return filepath.SkipDir
 			}
