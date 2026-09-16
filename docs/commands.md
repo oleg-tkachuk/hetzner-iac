@@ -102,6 +102,7 @@ workflows actually invoke.
 | `task cluster:secrets:destroy` | delete the cluster CA as well; unrecoverable |
 | `task cluster:secrets:export` | print the Talos secrets bundle — pipe it into a password store |
 | `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer |
+| `task cluster:stacks` | every stack, with what the backend and its topology say about it; takes no `stack=` |
 | `task cluster:status` | nodes, then anything not Running |
 | `task cluster:stop` | bring the cluster down cleanly through Talos; the instances keep existing |
 | `task cluster:talosconfig` | write `./talosconfig` |
