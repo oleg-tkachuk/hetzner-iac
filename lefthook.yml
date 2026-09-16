@@ -235,3 +235,41 @@ commit-msg:
           printf '%s\n' "See:    https://www.conventionalcommits.org/en/v1.0.0/" >&2
           exit 1
         fi
+
+    # The type has to match what the commit touches, not just be spelled like
+    # a type. CI has checked this for a while and it is the check this
+    # repository trips over most: three commits in one session were typed
+    # fix or chore for a change that only touched prose, and each time the
+    # answer arrived from a pull request rather than from the commit.
+    #
+    # Same rule, same file as the workflow — .github/commit-type.awk.
+    - name: commit-type-matches-paths
+      run: |
+        set -euo pipefail
+        file="{1}"
+        [ -f "$file" ] || file="$(git rev-parse --git-path COMMIT_EDITMSG 2>/dev/null || true)"
+        [ -f "$file" ] || exit 0
+
+        subject="$(head -n1 "$file" | tr -d '\r')"
+        printf '%s\n' "$subject" | grep -Eq '^(Merge|Revert)\b' && exit 0
+
+        type="${subject%%[(:!]*}"
+
+        # What is staged is what the commit will carry. A message-only amend
+        # stages nothing, and then the paths that matter are HEAD's — which is
+        # the case this exists for, since retyping by amending is exactly how
+        # the three above were fixed.
+        paths="$(git diff --cached --name-only)"
+        [ -n "$paths" ] || paths="$(git show --name-only --format= HEAD 2>/dev/null || true)"
+
+        want="$(printf '%s\n' "$paths" | awk -v type="$type" -f .github/commit-type.awk)"
+        [ -n "$want" ] && {
+          printf '%s\n' "ERROR: $subject" >&2
+          printf '%s\n' "is typed $type and every path it touches is documentation or contributor-only." >&2
+          printf '%s\n' "       use: $want" >&2
+          printf '%s\n' "feat, fix and perf make semantic-release cut a version and write notes." >&2
+          printf '%s\n' "A change no consumer of this repository receives should not." >&2
+          printf '%s\n' "$paths" | sed 's/^/       /' >&2
+          exit 1
+        }
+        exit 0
