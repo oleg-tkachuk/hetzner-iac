@@ -1,7 +1,10 @@
 package clustersmoke_test
 
 import (
+	"os"
+	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clustersmoke"
@@ -346,4 +349,46 @@ func TestExternalAddresses_NoNodesAtAllIsNotAnEligibilityVerdict(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
+}
+
+// errorReturn matches a judgement handing back a Result and a non-nil error.
+var errorReturn = regexp.MustCompile(`return result, (?:err|Err|errors\.|fmt\.Errorf)`)
+
+// TestJudgements_ReturnNoErrorWithoutAFailingStatus holds the invariant the
+// runner relies on.
+//
+// run.go keeps the Result and blanks the error, because the two carry the same
+// fact. That is only true while every error also carries StatusFailed — and a
+// judgement that returned one without it would make the report say "passed"
+// with the error thrown away, which is the worst shape a check can have.
+//
+// Held structurally rather than by inspection: failed() sets the status and
+// returns the pair, so the two cannot disagree. This test is about the one
+// thing failed() cannot enforce — that nobody returns an error around it.
+func TestJudgements_ReturnNoErrorWithoutAFailingStatus(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile("smoke.go")
+	require.NoError(t, err)
+
+	var found int
+
+	for i, line := range strings.Split(string(raw), "\n") {
+		if !errorReturn.MatchString(line) {
+			continue
+		}
+
+		found++
+
+		assert.Contains(t, line, "return result, err",
+			"smoke.go:%d returns an error beside a Result without going through failed(), "+
+				"so the status and the error can disagree:\n\t%s",
+			i+1, strings.TrimSpace(line))
+	}
+
+	// failed() itself is the one legitimate `return result, err`, and finding
+	// nothing would mean the pattern stopped matching rather than that the
+	// code is clean.
+	assert.Equal(t, 1, found,
+		"expected exactly one `return result, err` — failed()'s own — and found %d", found)
 }
