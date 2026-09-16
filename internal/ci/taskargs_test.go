@@ -886,3 +886,73 @@ func TestUsage_NamesALayerThatExists(t *testing.T) {
 
 	assert.Positive(t, checked, "no layer example was examined, so this test proved nothing")
 }
+
+// layerLoop is the shell loop that runs one Pulumi operation per layer.
+const layerLoop = "for layer in"
+
+// pulumiCall matches the operation a loop runs against a layer.
+var pulumiCall = regexp.MustCompile(`pulumi --non-interactive --stack "\{\{\._PL_STACK\}\}" (\w+)`)
+
+// operationsThatScroll are the Pulumi operations whose own output is long
+// enough to carry the loop's header off the screen: a diff, a resource list, a
+// summary and a duration each.
+//
+// `stack output` is deliberately not one of them. It prints a handful of lines
+// that the header above them still covers, so a closing line there would be
+// noise rather than an answer.
+var operationsThatScroll = map[string]bool{
+	"preview": true,
+	"refresh": true,
+	"up":      true,
+	"destroy": true,
+}
+
+// closingLine is what names the layer again once its operation is done.
+const closingLine = "{{._OK}} platform · ${layer}"
+
+// TestLayerLoops_NameTheLayerWhenItFinishes keeps a result attributable.
+//
+// `layer=all` runs six operations in one command, and each prints its own
+// diff, resource list and `Resources: N unchanged`. With only a header per
+// layer, the summary a reader is looking at belongs to whichever header
+// scrolled past — so the answer to "did 40-ingress change anything" was a
+// scroll rather than a line.
+func TestLayerLoops_NameTheLayerWhenItFinishes(t *testing.T) {
+	t.Parallel()
+
+	var checked int
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for name, body := range tasksIn(string(raw)) {
+			if !strings.Contains(body, layerLoop) {
+				continue
+			}
+
+			var scrolls bool
+
+			for _, call := range pulumiCall.FindAllStringSubmatch(body, -1) {
+				if operationsThatScroll[call[1]] {
+					scrolls = true
+				}
+			}
+
+			if !scrolls {
+				continue
+			}
+
+			checked++
+
+			assert.Contains(t, body, closingLine,
+				"%s in %s runs a Pulumi operation per layer and never names the layer again "+
+					"after it. In layer=all the summary a reader is looking at then belongs to "+
+					"whichever header scrolled past",
+				name, filepath.Base(path))
+		}
+	}
+
+	assert.Positive(t, checked,
+		"no per-layer loop was examined, so this test proved nothing")
+}

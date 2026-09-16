@@ -128,6 +128,7 @@ tasks:
             printf '%s\n' "{{._RUN}} platform · ${layer} · preview"
             ( cd "{{.ROOT}}/layers/${layer}" && \
               pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff )
+            printf '%s\n' "{{._OK}} platform · ${layer} · previewed"
           done
 
   refresh:
@@ -156,6 +157,7 @@ tasks:
             printf '%s\n' "{{._RUN}} platform · ${layer} · refresh"
             ( cd "{{.ROOT}}/layers/${layer}" && \
               pulumi --non-interactive --stack "{{._PL_STACK}}" refresh --yes --diff )
+            printf '%s\n' "{{._OK}} platform · ${layer} · refreshed"
           done
 
   apply:
@@ -189,6 +191,7 @@ tasks:
             printf '%s\n' "{{._RUN}} platform · ${layer} · apply"
             ( cd "{{.ROOT}}/layers/${layer}" && \
               pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes )
+            printf '%s\n' "{{._OK}} platform · ${layer} · applied"
           done
 
   destroy:
@@ -222,6 +225,7 @@ tasks:
             printf '%s\n' "{{._RUN}} platform · ${layer} · destroy"
             ( cd "{{.ROOT}}/layers/${layer}" && \
               pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes )
+            printf '%s\n' "{{._OK}} platform · ${layer} · destroyed"
           done
 
   outputs:
