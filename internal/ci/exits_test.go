@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,38 +19,40 @@ var errorExit = regexp.MustCompile(`fmt\.(Fprintf|Fprintln)\(os\.Stderr, "error:
 // wantedExit is the one it should be.
 const wantedExit = `fmt.Fprintf(os.Stderr, "error: %v\n", err)`
 
-// TestTools_ReportAFailureTheSameWay keeps eleven programs printing one line.
+// TestPrograms_ReportAFailureTheSameWay keeps every main() printing one line.
 //
 // The output was already identical — Fprintln with two arguments and Fprintf
-// with %v produce the same bytes — so this is not about what an operator
-// sees. It is about the next tool: two spellings in one directory means the
-// next author picks one at random, and then a third, and the taskfiles that
-// grep for "error:" have nothing to rely on.
-func TestTools_ReportAFailureTheSameWay(t *testing.T) {
+// with %v produce the same bytes — so this is not about what an operator sees.
+// It is about the next program: two spellings means the next author picks one
+// at random, and then a third, and the taskfiles that grep for "error:" have
+// nothing to rely on.
+//
+// Every main package, not just tools/. Reading only tools/*/main.go is how
+// policy/main.go kept a `panic(err)` — a Go stack trace over the one sentence
+// that matters, and exit 2 where everything else exits 1. A gate that misses
+// a sibling directory is the third of that shape found in this repository.
+func TestPrograms_ReportAFailureTheSameWay(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..", "tools")
+	root := filepath.Join("..", "..")
 
-	entries, err := os.ReadDir(root)
+	mains, err := mainPackages(t, root)
 	require.NoError(t, err)
+	require.NotEmpty(t, mains, "no main package found; this test is checking nothing")
 
 	var checked int
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		path := filepath.Join(root, entry.Name(), "main.go")
-
+	for _, path := range mains {
 		raw, readErr := os.ReadFile(path)
-		if os.IsNotExist(readErr) {
-			continue
-		}
-
 		require.NoError(t, readErr, path)
 
-		for _, line := range strings.Split(string(raw), "\n") {
+		body := string(raw)
+
+		assert.NotContains(t, body, "panic(err)",
+			"%s reports a failure by panicking: a stack trace instead of a sentence, and "+
+				"exit 2 where every other program exits 1", relativeToRoot(path))
+
+		for _, line := range strings.Split(body, "\n") {
 			if !errorExit.MatchString(line) {
 				continue
 			}
@@ -61,5 +64,41 @@ func TestTools_ReportAFailureTheSameWay(t *testing.T) {
 		}
 	}
 
-	assert.Positive(t, checked, "no tool prints a failure; this test is checking nothing")
+	assert.Positive(t, checked, "no program prints a failure; this test is checking nothing")
+}
+
+// mainPackages finds every main.go in a package clause of `main`, anywhere in
+// the tree — tools, policy, the layers and the cluster tier alike.
+func mainPackages(t *testing.T, root string) ([]string, error) {
+	t.Helper()
+
+	var found []string
+
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "bin") {
+			return filepath.SkipDir
+		}
+
+		if entry.IsDir() || entry.Name() != "main.go" {
+			return nil
+		}
+
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+
+		if strings.HasPrefix(string(raw), "package main") ||
+			strings.Contains(string(raw), "\npackage main\n") {
+			found = append(found, path)
+		}
+
+		return nil
+	})
+
+	return found, err
 }
