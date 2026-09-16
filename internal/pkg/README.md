@@ -23,8 +23,9 @@ Under `internal/` because nothing outside this module imports any of it, and
 now nothing can: Go refuses an import of `.../internal/...` from outside the
 tree. That was already true in practice — the releases are releases of an
 infrastructure tree, and no released version of this module even resolves for
-`go get`, since the path carries no `/vN` suffix while the tags are at v4. The
-move makes it a property of the compiler rather than a fact about the world.
+`go get`, since the path carries no `/vN` suffix while the tags are long past
+v1. The move makes it a property of the compiler rather than a fact about the
+world.
 
 Grouped under `pkg/` rather than sitting directly in `internal/`, and the
 grouping is the point: these are the IaC implementation, while

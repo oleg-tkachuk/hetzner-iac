@@ -110,9 +110,16 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
 | [talosctl](https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl) | validates the machine config before anything exists; then upgrades, etcd snapshots, clean shutdown |
+| [helm](https://helm.sh/docs/intro/install/) | renders a chart, which `task charts:render-check` compares against what the platform expects |
+| [kubeconform](https://github.com/yannh/kubeconform) | validates what those charts render against the Kubernetes version the topology pins |
 | [jq](https://github.com/jqlang/jq) | reads single fields out of `pulumi stack output --json` and `hcloud -o json` |
 
-On macOS, `brew bundle` installs all of it. One extra step for `talosctl`:
+On macOS, `brew bundle` installs all of it but one: `hcloud-upload-image` is
+not in Homebrew, so `go install github.com/apricote/hcloud-upload-image@latest`
+— the [Brewfile](Brewfile) says the same at the bottom, and
+`task cluster:image:bake` refuses to start without it.
+
+One extra step for `talosctl`:
 Homebrew carries only the newest, which is a minor ahead of what the topology
 pins, and `task cluster:machine-config:check` declines a mismatched binary
 rather than trusting it. Run
@@ -125,8 +132,10 @@ which the check prefers, so Homebrew's copy can stay on PATH for everything
 else.
 
 Optional, and only for the tasks that name them: `golangci-lint`, `gitleaks`,
-`gosec`, `trivy`, `lefthook`. Each task says what to install rather than
-skipping itself silently. Git hooks are opt-in per clone with
+`gosec`, `trivy`, `lefthook`, `lychee` for `task docs:links`, and `actionlint`,
+`zizmor` and `restic` for the tasks that use them — the [Brewfile](Brewfile)
+lists each with the task that wants it. Each task says what to install rather
+than skipping itself silently. Git hooks are opt-in per clone with
 `lefthook install`.
 
 ## Commands
