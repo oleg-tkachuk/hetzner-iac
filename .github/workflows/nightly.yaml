@@ -10,6 +10,12 @@ name: Nightly
 # gosec used to be here for the same stated reason and has gone back to
 # security.yaml: measured, it costs four minutes and runs beside a job that
 # takes eight, so it was buying nothing.
+#
+# The vendored-file check against upstream is the other kind: it needs the
+# network, and it answers a question nothing a contributor does can change —
+# whether upstream re-tagged what was copied in. It ran in every unit suite
+# and skipped when the fetch failed, which made `go test` network-dependent
+# and the answer optional. Here it is neither.
 on:
   schedule:
     # After the working day, before the next one.
@@ -39,3 +45,19 @@ jobs:
           # nothing.
           cache-mode: "off"
       - run: go test -race -count=1 ./...
+
+  upstream:
+    name: Vendored files still match upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+      - name: Ask upstream what it serves at the pinned tag
+        env:
+          # The gate skips itself unless asked, and a fetch that then fails is
+          # a failure rather than a skip. internal/ci/vendored_test.go says why.
+          CI_CHECK_UPSTREAM: "1"
+        run: go test -count=1 -run TestVendored ./internal/ci/

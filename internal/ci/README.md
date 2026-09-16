@@ -19,7 +19,6 @@ carry them.
 
 | Test file | Guards |
 |-----------|--------|
-| `addresses_test.go` | no tracked file names a real IP address of this project's own; examples stay in RFC 5737 space |
 | `adr_test.go` | each record's status and heading against the row the index gives it, both ways |
 | `bots_test.go` | one bot updates dependencies, so two do not open the same pull request |
 | `committype_test.go` | the commit-type rule both the workflow and the commit hook run: what it answers, and the boundary it may not cross |
@@ -28,25 +27,21 @@ carry them.
 | `dates_test.go` | no dates in prose — git already records when somebody learned something |
 | `diagrams_test.go` | every layer a diagram names exists, and every diagram reference resolves |
 | `discards_test.go` | every discarded error says why it is discarded |
-| `domains_test.go` | no tracked file writes a real domain or ACME address as a value; examples stay in RFC 2606 space |
 | `exits_test.go` | every main package reports a failure the same way, and none of them panics |
 | `gatemarkers_test.go` | the † in the command reference against the tasks the workflows run |
 | `gitignore_test.go` | every main package's binary name has a `.gitignore` entry |
-| `gobuild_test.go` | every `go build` a taskfile or workflow runs names an output path |
+| `identifiers_test.go` | no tracked file names a real address, domain or ACME contact of this project's own; examples stay in the ranges RFC 5737 and RFC 2606 reserve |
 | `ingressclass_test.go` | the retired ingress-class literal stays out of executed code; `internal/pkg/platform.IngressClass` is the one spelling |
 | `layers_test.go` | every layer with a component set calls `layertest.Check` |
 | `location_test.go` | the probe location and every yaml fixture name a location that exists |
-| `modulepath_test.go` | go.mod against the README note saying nothing can import this |
 | `outputs_test.go` | every stack output a taskfile reads is declared in Go, and every export is named |
 | `platformnames_test.go` | a shared name is declared once, in internal/pkg/platform, not twice |
 | `readmes_test.go` | every tool and every internal package documents itself; no README names a file that is not in the tree; the docs index lists every document |
-| `renovate_schedule_test.go` | the Renovate schedule is not narrower than a day, which a best-effort cron cannot meet |
-| `renovate_test.go` | Renovate's own regex, read from its own config, matches every annotated pin — and every pin is annotated |
-| `renovatepaths_test.go` | the paths Renovate watches exist, which a rename breaks silently |
+| `renovate_test.go` | Renovate against itself: its own regex matches every annotated pin and every pin is annotated, the paths it watches exist, and its schedule is not narrower than a best-effort cron can meet |
 | `resourceoptions_test.go` | no `append` onto a shared option slice, which silently writes into the caller's array |
 | `taskargs_test.go` | every task's arguments, guards and documented row |
 | `tasklib_test.go` | every remote taskfile has the checksum Task will look for, ref included |
-| `vendored_test.go` | each vendored manifest against its recorded digest, with no network |
+| `vendored_test.go` | each vendored manifest against its recorded digest; the half that asks upstream what it serves runs in the nightly workflow, which is the only place with a network |
 | `workflows_test.go` | the workflows' own logic: relevance, caching, job wiring |
 
 ## Why not `.ci/`
@@ -64,3 +59,25 @@ why. A renamed stack output makes `jq` return `null`, which the caller reads as
 an empty password. A Renovate regex that stops matching opens no pull request,
 for ever, silently. Two halves and nothing comparing them is the shape; these
 are the comparisons.
+
+## What earns a gate, and what does not
+
+All three have to hold, or the check costs more than it returns:
+
+1. **The two halves sit in different files or different languages**, so no
+   compiler compares them.
+2. **A drift is silent.** If it fails loudly — a build error, a red task, a
+   line in `git status` — the gate is a second opinion nobody needs.
+3. **It has already happened**, here, and is written down beside the check.
+
+That leaves three things out on purpose. A gate over the SPELLING of the
+implementation — a regex across Go source — fixes where the code is written
+rather than what it does, and it breaks on a refactor that changed nothing: one
+here read an awk program out of a workflow by regex, and moving that program
+into its own file broke the test while the rule stayed identical. A gate over
+TASTE is the author's preference, and belongs in a review or a linter. A gate
+over NAVIGATION — an index of the documents, a table describing these gates —
+protects a reader from ten seconds of `ls`.
+
+Three were removed the day this section was written, for one of those reasons
+each. Subtracting is the same work as adding.
