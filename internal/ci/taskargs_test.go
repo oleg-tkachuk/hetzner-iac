@@ -956,3 +956,77 @@ func TestLayerLoops_NameTheLayerWhenItFinishes(t *testing.T) {
 	assert.Positive(t, checked,
 		"no per-layer loop was examined, so this test proved nothing")
 }
+
+// includeWithExcludes matches an include and its body, which is where a
+// library task this repository refuses is named.
+var includeWithExcludes = regexp.MustCompile(`(?m)^  ([a-z][a-z0-9-]*):\n((?:    .*\n|\n)+)`)
+
+// excludedTask matches one entry of an `excludes:` list.
+var excludedTask = regexp.MustCompile(`(?m)^      - ([a-z:_-]+)\s*$`)
+
+// TestDocs_NameNoExcludedTask closes the hole the other documentation gate
+// leaves open by design.
+//
+// That gate skips any namespace this repository does not declare, because the
+// included library's tasks live in another repository — so every `task
+// security:…` mention goes unchecked. The excludes list is the part of that
+// namespace we DO know: a task named there is not available here, and a
+// document telling somebody to run it is wrong in a way nothing else catches.
+//
+// Measured: the Brewfile installed hadolint "# task security:dockerfile", and
+// `dockerfile` is excluded because this repository ships no Dockerfile. The
+// formula was dead weight and the line read as instruction.
+func TestDocs_NameNoExcludedTask(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	raw, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	_, includes, found := strings.Cut(string(raw), "\nincludes:\n")
+	require.True(t, found, "the root taskfile has no includes block")
+
+	includes, _, _ = strings.Cut(includes, "\ntasks:\n")
+
+	excluded := map[string]bool{}
+
+	for _, include := range includeWithExcludes.FindAllStringSubmatch(includes, -1) {
+		for _, entry := range excludedTask.FindAllStringSubmatch(include[2], -1) {
+			excluded[include[1]+":"+entry[1]] = true
+		}
+	}
+
+	require.NotEmpty(t, excluded, "no excluded task was found, so this test proved nothing")
+
+	paths, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
+	require.NoError(t, err)
+
+	records, err := filepath.Glob(filepath.Join(root, "docs", "adr", "*.md"))
+	require.NoError(t, err)
+
+	community, err := filepath.Glob(filepath.Join(root, ".github", "*.md"))
+	require.NoError(t, err)
+
+	paths = append(paths, records...)
+	paths = append(paths, community...)
+	paths = append(paths,
+		filepath.Join(root, "README.md"),
+		filepath.Join(root, "ROADMAP.md"),
+		filepath.Join(root, "Brewfile"))
+
+	for _, path := range paths {
+		if filepath.Base(path) == "BACKLOG.md" {
+			continue
+		}
+
+		text, readErr := os.ReadFile(path)
+		require.NoError(t, readErr, path)
+
+		for name := range excluded {
+			assert.NotContains(t, string(text), "task "+name,
+				"%s names task %s, which this repository excludes from the library include",
+				filepath.Base(path), name)
+		}
+	}
+}
