@@ -23,6 +23,109 @@ hangs with the port filtered.
 
 The stack files themselves are **not** committed, for that one field.
 
+## The domain
+
+Nothing here needs a domain to come up, and two things need one to be useful:
+`40-ingress` creates the DNS records that point at the ingress load balancer,
+and `30-cluster-services` orders the certificate for them. So a domain is a
+prerequisite of being **reachable**, not of installing.
+
+Leave `metadata.domain` out and both layers say so on every apply — no records
+are written, `50-gitops` creates no Ingress, and the Argo CD UI is reached with
+`kubectl port-forward`. The cluster is unaffected either way: `talosctl` and
+`kubectl` target addresses, not names.
+
+What the domain has to be:
+
+- **one you control.** Let's Encrypt proves control of the name before it signs
+  anything for it.
+- **two labels or more.** A single label is a hostname, not a domain, and an
+  order for one is refused — which without the check would surface after the
+  Ingress was already in place. Validation refuses it at plan time instead.
+- **registered anywhere.** The registrar does not matter, and neither does the
+  TLD. What matters is which nameservers the zone is delegated to, below.
+
+### Two fields, because a zone cut cannot be derived from a name
+
+| Field | Holds | Example |
+|-------|-------|---------|
+| `metadata.domain` | the name this environment is reached at | `platform.example.com` |
+| `metadata.dnsZone` | the zone as delegated, when Hetzner holds its authoritative DNS | `example.com` |
+
+`platform.example.com` could be a record called `platform` in the zone
+`example.com`, or the apex of a zone `platform.example.com` delegated on its
+own. Nothing in the name says which, so the zone is a second field rather than
+a guess — and `domain` must equal it or sit under it, or the topology is
+refused.
+
+| `dnsZone` | `domain` | what `40-ingress` writes |
+|-----------|----------|--------------------------|
+| `example.com` | `platform.example.com` | a record `platform` in `example.com` |
+| `example.com` | `example.com` | the zone apex |
+| `dev.example.com` | `argocd.dev.example.com` | a record `argocd` in `dev.example.com` |
+| empty | `platform.example.com` | nothing — the records are yours to write |
+
+Both an `A` and an `AAAA` in every case, because a Hetzner load balancer has
+both and an IPv4-only record fails for exactly the clients nobody tests from.
+
+### The zone is looked up, never created
+
+Create the zone in Hetzner DNS by hand, once, and point the registrar's `NS`
+records at the nameservers that zone is served from. That delegation outlives
+every cluster this repository builds, which is why no layer creates it: a zone
+this stack owned would be a zone `pulumi destroy` deletes, with every record in
+it — including the records for everything else that shares the domain.
+
+Leaving `dnsZone` empty while `metadata.domain` is set is supported, and it is
+the case where the DNS lives somewhere else. `40-ingress` then says so rather
+than staying silent, and names what it wants written:
+
+```
+metadata.dnsZone unset, so platform.example.com is hosted elsewhere — point it
+at the ingressIp output by hand
+```
+
+```bash
+task platform:outputs stack=dev layer=40-ingress
+```
+
+`ingressIp` and `ingressIpv6` are the two values those records need. A rebuilt
+cluster gets a new pair: a load balancer's IPv4 is neither a primary nor a
+floating IP and cannot be reserved.
+
+### The certificate, and the order to do it in
+
+`cluster-services:acmeEmail` is what enables the ClusterIssuer at all — omit it
+and none is created, so nothing is ordered. It is the one value here that is
+genuinely layer-local rather than part of the cluster's shape:
+
+```bash
+pulumi -C layers/30-cluster-services config set --stack dev acmeEmail ops@example.com
+```
+
+`cluster-services:acmeStaging` picks the endpoint, and it defaults to
+**production**. Set it `true` for a new domain's first attempt:
+
+```bash
+pulumi -C layers/30-cluster-services config set --stack dev acmeStaging true
+```
+
+Let's Encrypt's production endpoint rate-limits per registered domain, and a
+first attempt is the likeliest one to fail — DNS not propagated yet, a record
+pointing at the previous load balancer, a host Traefik has not admitted. The
+staging endpoint issues from an untrusted root through the same flow, so the
+browser warns and the certificate is still proof that the whole path works:
+the name resolves, the balancer forwards, Traefik admits the host, the
+challenge is answered. Then set it back to `false` and let the production order
+replace it.
+
+### One name, spelled once
+
+Argo CD's hostname is `metadata.domain` itself, not a key of its own.
+`40-ingress` points the records at its load balancer and `50-gitops` hands Argo
+CD the same name, because two copies of one name drift — and an Ingress for one
+name behind a record for another is accepted by everything and serves nothing.
+
 ## How pod traffic crosses nodes
 
 `network.routingMode` is `native` or `tunnel`, and the default is `native`.
@@ -204,7 +307,8 @@ load balancer and this layer gives Argo CD a hostname — two copies of one name
 drift, and an Ingress for one name behind a record for another is accepted by
 everything and serves nothing. `TestConfigKeys_TheTablesNameKeysThatExist`
 holds these tables to the keys the layers actually declare, which is what a
-documented key nothing reads escaped before.
+documented key nothing reads escaped before. What the domain is and what it
+needs is [above](#the-domain).
 
 ## State, and where the token lives
 
