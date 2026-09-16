@@ -140,6 +140,11 @@ func (r *Runner) checkNodes(ctx context.Context) Result {
 		})
 	}
 
+	// The Result is the report, and the error is the same fact in a second
+	// channel: every error a judgement returns comes through failed(), which
+	// sets StatusFailed and the detail. Blanked rather than handled, and
+	// TestJudgements_ReturnNoErrorWithoutAFailingStatus is what makes that
+	// safe to keep doing.
 	result, _ := NodesReady(states)
 
 	return result
@@ -205,6 +210,11 @@ func (r *Runner) checkLoadBalancers(ctx context.Context) Result {
 		})
 	}
 
+	// The Result is the report, and the error is the same fact in a second
+	// channel: every error a judgement returns comes through failed(), which
+	// sets StatusFailed and the detail. Blanked rather than handled, and
+	// TestJudgements_ReturnNoErrorWithoutAFailingStatus is what makes that
+	// safe to keep doing.
 	result, _ := ExternalAddresses(states, nodeStates)
 
 	return result

@@ -148,10 +148,7 @@ func NodesReady(nodes []NodeState) (Result, error) {
 	result := Result{Name: "every node is Ready"}
 
 	if len(nodes) == 0 {
-		result.Status = StatusFailed
-		result.Detail = ErrNoNodes.Error()
-
-		return result, ErrNoNodes
+		return failed(result, ErrNoNodes.Error(), ErrNoNodes)
 	}
 
 	var notReady []string
@@ -165,11 +162,10 @@ func NodesReady(nodes []NodeState) (Result, error) {
 	if len(notReady) > 0 {
 		sort.Strings(notReady)
 
-		result.Status = StatusFailed
-		result.Detail = fmt.Sprintf("%d of %d not Ready: %s",
-			len(notReady), len(nodes), strings.Join(notReady, ", "))
-
-		return result, fmt.Errorf("not Ready: %s", strings.Join(notReady, ", "))
+		return failed(result,
+			fmt.Sprintf("%d of %d not Ready: %s",
+				len(notReady), len(nodes), strings.Join(notReady, ", ")),
+			fmt.Errorf("not Ready: %s", strings.Join(notReady, ", ")))
 	}
 
 	result.Status = StatusPassed
@@ -232,13 +228,12 @@ func ExternalAddresses(services []LoadBalancerState, nodes []NodeState) (Result,
 	//	There are no available nodes for LoadBalancer
 	//	"ensure Load Balancer" service="traefik" nodes=[]
 	if eligible := loadBalancerTargets(nodes); len(nodes) > 0 && eligible == 0 {
-		result.Status = StatusFailed
-		result.Detail = fmt.Sprintf("%d Service(s) of type LoadBalancer, and not one of the %d "+
-			"nodes can be a target: every node carries %s, which Talos puts on control-plane "+
-			"nodes. The load balancer answers and forwards to nothing — add a worker pool",
-			len(services), len(nodes), LabelExcludeFromExternalLoadBalancers)
-
-		return result, errors.New("no node is eligible to be a load balancer target")
+		return failed(result,
+			fmt.Sprintf("%d Service(s) of type LoadBalancer, and not one of the %d "+
+				"nodes can be a target: every node carries %s, which Talos puts on control-plane "+
+				"nodes. The load balancer answers and forwards to nothing — add a worker pool",
+				len(services), len(nodes), LabelExcludeFromExternalLoadBalancers),
+			errors.New("no node is eligible to be a load balancer target"))
 	}
 
 	var pending []string
@@ -252,12 +247,11 @@ func ExternalAddresses(services []LoadBalancerState, nodes []NodeState) (Result,
 	if len(pending) > 0 {
 		sort.Strings(pending)
 
-		result.Status = StatusFailed
-		result.Detail = fmt.Sprintf("%d of %d without an address: %s — the cloud controller "+
-			"manager creates these, so check its logs in kube-system",
-			len(pending), len(services), strings.Join(pending, ", "))
-
-		return result, fmt.Errorf("no address: %s", strings.Join(pending, ", "))
+		return failed(result,
+			fmt.Sprintf("%d of %d without an address: %s — the cloud controller "+
+				"manager creates these, so check its logs in kube-system",
+				len(pending), len(services), strings.Join(pending, ", ")),
+			fmt.Errorf("no address: %s", strings.Join(pending, ", ")))
 	}
 
 	result.Status = StatusPassed
@@ -381,4 +375,23 @@ func CrossNodeVerdict(probeNode string, exitCode int32, detail string) Result {
 	}
 
 	return result
+}
+
+// failed pairs a judgement's verdict with its error, so the two cannot
+// disagree.
+//
+// Every judgement returns (Result, error) for the same fact: the Result is
+// what `tools/smoke` prints, the error is what a caller that wants to stop
+// reads. internal/pkg/clustersmoke's own runner keeps the Result and blanks
+// the error, which is safe only while every error also carries a failing
+// status — and that was four separate places remembering to set it.
+//
+// One constructor instead. A judgement that returns an error through this
+// cannot report a pass, and TestJudgements_ReturnNoErrorWithoutAFailingStatus
+// holds that nothing returns one any other way.
+func failed(result Result, detail string, err error) (Result, error) {
+	result.Status = StatusFailed
+	result.Detail = detail
+
+	return result, err
 }
