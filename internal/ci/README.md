@@ -38,7 +38,7 @@ carry them.
 | `modulepath_test.go` | go.mod against the README note saying nothing can import this |
 | `outputs_test.go` | every stack output a taskfile reads is declared in Go, and every export is named |
 | `platformnames_test.go` | a shared name is declared once, in internal/pkg/platform, not twice |
-| `readmes_test.go` | every tool and every internal package documents itself, under its own heading |
+| `readmes_test.go` | every tool and every internal package documents itself; no README names a file that is not in the tree; the docs index lists every document |
 | `renovate_schedule_test.go` | the Renovate schedule is not narrower than a day, which a best-effort cron cannot meet |
 | `renovate_test.go` | Renovate's own regex, read from its own config, matches every annotated pin — and every pin is annotated |
 | `renovatepaths_test.go` | the paths Renovate watches exist, which a rename breaks silently |
