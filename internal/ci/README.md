@@ -19,10 +19,12 @@ carry them.
 
 | Test file | Guards |
 |-----------|--------|
+| `addresses_test.go` | no tracked file names a real IP address of this project's own; examples stay in RFC 5737 space |
 | `backupoutputs_test.go` | the backup layer's output constants against the names the upload task greps |
 | `configkeys_test.go` | each layer's declared config against the config its code reads, and both documentation tables |
 | `dates_test.go` | no dates in prose — git already records when somebody learned something |
 | `diagrams_test.go` | every layer a diagram names exists, and every diagram reference resolves |
+| `domains_test.go` | no tracked file writes a real domain or ACME address as a value; examples stay in RFC 2606 space |
 | `gatemarkers_test.go` | the † in the command reference against the tasks the workflows run |
 | `gitignore_test.go` | every main package's binary name has a `.gitignore` entry |
 | `gobuild_test.go` | every `go build` a taskfile or workflow runs names an output path |
