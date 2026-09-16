@@ -218,6 +218,28 @@ what this code can actually reach, trivy reports everything present in the
 dependency graph. Both are useful, and a finding in one and not the other is
 information rather than a contradiction.
 
+## Tools the checks need
+
+None of these builds a cluster, which is why the README's prerequisites leave
+them out. CI installs them; a clone needs them only to run the same checks
+locally. On macOS `brew bundle` installs every one.
+
+| Tool | The check that wants it |
+|------|-------------------------|
+| `helm` | `task charts:render-check` — renders each chart and compares it against what `internal/pkg/workloads` declares it produces |
+| `kubeconform` | `task charts:validate` — validates what those charts render against the Kubernetes version the topology pins |
+| `lychee` | `task docs:links` |
+| `golangci-lint` | `task security:lint` |
+| `gitleaks` | `task security:secrets` |
+| `gosec` | `task security:gosec`, and the nightly run |
+| `trivy` | `task security:trivy` |
+| `actionlint` | workflow syntax — run by hand, the same check CI runs |
+| `zizmor` | workflow permissions — the same |
+| `lefthook` | the commit and push hooks, opt in per clone with `lefthook install` |
+
+Each task states what to install rather than skipping itself silently: a gate
+that skips itself when a tool is absent is a gate that quietly stops running.
+
 ## What runs when
 
 Pull requests run everything cheap and everything that catches a mistake the
