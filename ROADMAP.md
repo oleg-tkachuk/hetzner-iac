@@ -75,18 +75,17 @@ Nothing checks provenance at admission.
 
 ### Something is reachable from outside
 
-The ingress and the certificate machinery are deployed, and nothing uses them.
-**Blocked on:** a domain — what one has to be, and what the two topology fields
-holding it mean, is in
-[configuration.md](docs/configuration.md#the-domain).
+Nothing here is left to build. `40-ingress` creates the `A` and `AAAA` records
+for `metadata.domain`, looking the zone up rather than creating it — or says
+the records are somebody else's to write when the DNS is hosted elsewhere.
+`30-cluster-services` orders the certificate, staging or production by config.
+Argo CD, the only service so far worth exposing, has its Ingress.
 
-### Something is reachable from outside — the parts that are not the domain
-
-`40-ingress` creates the `A` and `AAAA` records for `metadata.domain` in
-`metadata.dnsZone`, looking the zone up rather than creating it, and
-`30-cluster-services` orders the certificate — staging or production, by
-config. What is left is a domain to put in the topology, and a zone delegated
-to Hetzner if those records are to be written here rather than by hand.
+**Blocked on:** a domain in the topology. That is an input rather than work,
+which is what **blocked** means above, and it is listed because the cluster
+this repository describes has not been given one — not because anything is
+missing. [configuration.md](docs/configuration.md#the-domain) is what to set,
+whether or not Hetzner serves the zone.
 
 ### A server keeps its address when it is replaced
 
