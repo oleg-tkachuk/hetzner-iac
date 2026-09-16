@@ -97,7 +97,7 @@
       "postUpdateOptions": ["gomodTidy"]
     },
     {
-      "description": "The k8s.io and sigs.k8s.io modules are one matched set and must move together. k8s.io/api v0.37.0 removed packages that client-go v0.35.3 still imports, so a lone api bump does not compile — Renovate opened exactly that pull request, and it could never have gone green.",
+      "description": "The k8s.io and sigs.k8s.io modules are one matched set and must move together. k8s.io/api v0.37.0 removed packages that client-go v0.35.3 still imports, so a lone api bump does not compile — Renovate opened exactly that pull request, and it could never have gone green. The same class from the other direction, measured since: k8s.io/kube-openapi has no releases at all, so it resolves to a pseudo-version of its master — which requires sigs.k8s.io/structured-merge-diff/v7 while the newest RELEASED apimachinery still uses /v6, and apimachinery converts a kube-openapi schema with it. `go get -u ./...` produced exactly that split and the build failed inside apimachinery, naming neither the upgrade nor the reason. This group is what keeps the two in step; the pattern below covers both, which is why no separate check is needed for it.",
       "matchManagers": ["gomod"],
       "matchPackageNames": ["k8s.io/**", "sigs.k8s.io/**"],
       "groupName": "kubernetes libraries"
