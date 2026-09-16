@@ -249,6 +249,16 @@ tasks:
   # Bring-up
   # ---------------------------------------------------------------------------
 
+  stacks:
+    desc: "Every cluster stack, with what the backend and its topology say about it"
+    # No stack argument, deliberately: this is the task that answers what the
+    # stacks are. It is also the one to run before the others on an unfamiliar
+    # clone — cluster.<stack>.yaml is gitignored, so a stack whose topology is
+    # somebody else's working copy shows as "missing" here rather than as a
+    # failure three tasks later.
+    cmds:
+      - cmd: go run "{{.ROOT}}/tools/stack" list "{{._CL_DIR}}"
+
   init:
     desc: "Create the Pulumi stack for this environment"
     preconditions:
