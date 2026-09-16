@@ -22,6 +22,7 @@ carry them.
 | `addresses_test.go` | no tracked file names a real IP address of this project's own; examples stay in RFC 5737 space |
 | `adr_test.go` | each record's status and heading against the row the index gives it, both ways |
 | `bots_test.go` | one bot updates dependencies, so two do not open the same pull request |
+| `committype_test.go` | the commit-type rule both the workflow and the commit hook run: what it answers, and the boundary it may not cross |
 | `componentoutputs_test.go` | a component's registered outputs against the fields they are tagged as |
 | `configkeys_test.go` | each layer's declared config against the config its code reads, and both documentation tables |
 | `dates_test.go` | no dates in prose — git already records when somebody learned something |

@@ -701,12 +701,10 @@ jobs:
       #   prose only            → docs, which releases nothing
       #   contributor-only only → not feat/fix/perf; ci, test or chore
       #
-      # "Contributor-only" is deliberately narrow: .github, Go tests and the
-      # dotfile tool configs. The taskfiles and tools/ are NOT in it — somebody
-      # who checks out a tag gets those, so a new task is a real feat.
-      #
-      # awk rather than grep: one pass, and no exit-code-as-answer, which is
-      # how the first version of this gate reported every commit as prose.
+      # Both live in .github/commit-type.awk, with what counts as which, since
+      # the commit-msg hook in lefthook.yml applies the same rule to what is
+      # staged — and a rule with two copies is a rule that disagrees with
+      # itself.
       - name: Commit types match what they touch
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
@@ -719,14 +717,8 @@ jobs:
             subject="$(git log -1 --format=%s "$sha")"
             case "$subject" in Merge*|Revert*) continue ;; esac
             type="${subject%%[(:!]*}"
-            want="$(git show --name-only --format= "$sha" | awk -v type="$type" '
-              NF { n++
-                if ($0 ~ /\.md$/ || $0 ~ /^docs\//) prose++
-                if ($0 ~ /^\.github\// || $0 ~ /_test\.go$/ ||
-                    $0 ~ /^\.[a-z]+[a-z.]*\.(yaml|yml|json|toml)$/ || $0 ~ /^lefthook\.yml$/) internal++ }
-              END { if (n == 0) exit
-                if (prose == n && type != "docs") { print "docs"; exit }
-                if (prose + internal == n && type ~ /^(feat|fix|perf)$/) { print "ci, test or chore"; exit } }')"
+            want="$(git show --name-only --format= "$sha" |
+              awk -v type="$type" -f .github/commit-type.awk)"
             if [ -z "$want" ]; then
               printf '%s\n' "ok   ${sha:0:8}  $subject"
               continue
