@@ -2,13 +2,13 @@ package main
 
 import (
 	"encoding/json"
-	"os"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilog"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -202,38 +202,103 @@ func TestClusterToken_IsASecretWhenStackConfigHasOne(t *testing.T) {
 // choices. Pulumi prints the resources, so what was missing was never the
 // actions — it was the handful of decisions derived from the topology, which
 // are the ones that produce a cluster that comes up and then puzzles somebody.
+//
+// By CALLING report and reading what it said. The first version of this test
+// grepped main.go for component names, because nothing could observe what a
+// program logged. pulumilog.Recorder is what replaced that, and the
+// difference is the point: a test that reads source cannot notice a line that
+// RENDERS wrong, which is exactly the defect the first live preview showed.
 func TestReport_NarratesEveryDecisionTheTopologyMakes(t *testing.T) {
 	t.Parallel()
 
-	raw, err := os.ReadFile("main.go")
-	require.NoError(t, err)
+	log, recording := pulumilog.Recorder("hetzner-cluster")
+	report(log, exampleTopology(t))
 
-	body := string(raw)
+	lines := strings.Join(recording.Lines(), "\n")
 
-	start := strings.Index(body, "func report(")
-	require.Positive(t, start, "report() is gone, and with it every decision this tier reports")
-
-	end := strings.Index(body[start:], "\n}\n")
-	require.Positive(t, end, "report() has no end")
-
-	reported := body[start : start+end]
-
-	// One line per decision a reader of the output has to be able to see.
 	for component, why := range map[string]string{
-		"control-plane": "how many nodes of what type, and where",
+		"control-plane": "how many nodes of what type",
 		"api":           "whether a load balancer fronts the API, or one node is its own endpoint",
 		"scheduling":    "whether workloads may run on the control plane, which zero workers decides",
 		"talos":         "which version and architecture, and what selected the image",
-		"addressing":    "publicIPv4 off, which stops talosctl reaching a node from outside",
 	} {
-		assert.Contains(t, reported, `"`+component+`"`,
-			"report() no longer mentions %q: %s", component, why)
+		assert.Contains(t, lines, "· "+component+" ·",
+			"report() says nothing about %s: %s", component, why)
 	}
+}
 
-	// Through the predicates rather than by recomputing: a report that
-	// derives a decision its own way can describe a cluster nobody built.
-	for _, predicate := range []string{"TotalWorkers()", "APILoadBalanced()", "PublicIPv4Enabled()"} {
-		assert.Contains(t, reported, predicate,
-			"report() does not use %s, so it can disagree with what NewCluster decided", predicate)
+// TestReport_SaysWhichWayEachDecisionWent is the half a list of names cannot
+// check: that each line reports the decision actually taken.
+func TestReport_SaysWhichWayEachDecisionWent(t *testing.T) {
+	t.Parallel()
+
+	topology := exampleTopology(t)
+
+	log, recording := pulumilog.Recorder("hetzner-cluster")
+	report(log, topology)
+
+	lines := strings.Join(recording.Lines(), "\n")
+
+	require.True(t, topology.APILoadBalanced(), "the committed example is meant to be HA")
+	assert.Contains(t, lines, topology.ControlPlane.APILoadBalancerType,
+		"the API is load balanced and the report does not say what kind")
+	assert.Contains(t, lines, topology.ControlPlane.ServerType,
+		"the report does not say what the control plane is made of")
+
+	require.Zero(t, topology.TotalWorkers(), "the committed example is meant to have no worker pools")
+	assert.Contains(t, lines, "control plane",
+		"no worker pools, and the report does not say workloads are allowed on the control plane")
+
+	assert.Contains(t, lines, topology.Talos.Version,
+		"the report does not say which Talos version the nodes will run")
+}
+
+// TestReport_SingleNodeSaysThereIsNoLoadBalancer is the other branch, which
+// the committed example can never reach.
+func TestReport_SingleNodeSaysThereIsNoLoadBalancer(t *testing.T) {
+	t.Parallel()
+
+	topology := exampleTopology(t)
+	topology.ControlPlane.Count = 1
+
+	log, recording := pulumilog.Recorder("hetzner-cluster")
+	report(log, topology)
+
+	lines := strings.Join(recording.Lines(), "\n")
+
+	require.False(t, topology.APILoadBalanced())
+	assert.Contains(t, lines, "its own endpoint",
+		"one control-plane node, and the report does not say why there is no load balancer")
+}
+
+// TestReport_LinesEndInAWordAndNotASeparator catches the class of defect the
+// first live preview showed.
+//
+// The Talos line interpolated an empty imageSelector and read "image selected
+// by " with nothing after it. Most fields this report prints are optional in
+// some topology, so any of them can do that — and reading the source cannot
+// show it.
+func TestReport_LinesEndInAWordAndNotASeparator(t *testing.T) {
+	t.Parallel()
+
+	single := exampleTopology(t)
+	single.ControlPlane.Count = 1
+
+	noSelector := exampleTopology(t)
+	noSelector.Talos.ImageSelector = ""
+
+	for name, topology := range map[string]*hetzner.Topology{
+		"committed example": exampleTopology(t),
+		"single node":       single,
+		"no imageSelector":  noSelector,
+	} {
+		log, recording := pulumilog.Recorder("hetzner-cluster")
+		report(log, topology)
+
+		for _, line := range recording.Lines() {
+			assert.Equal(t, strings.TrimRight(line, " \t·,:-"), line,
+				"%s: a line ends in a separator, so a field it interpolated was empty:\n\t%q",
+				name, line)
+		}
 	}
 }
