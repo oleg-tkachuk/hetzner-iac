@@ -26,9 +26,6 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
-// IssuerName is the ClusterIssuer other layers reference by annotation.
-const IssuerName = "letsencrypt"
-
 // The two ACME endpoints, and the account key each registers against.
 //
 // Production is the default: staging issues untrusted certificates, so using
@@ -71,7 +68,7 @@ var Components = layer.Components{
 		Chart: "cert-manager",
 	},
 	{
-		Name:   IssuerName,
+		Name:   platform.IssuerName,
 		After:  []string{"cert-manager"},
 		Create: createClusterIssuer,
 	},
@@ -139,10 +136,10 @@ func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulum
 	// An untyped CustomResource because the CRD is installed by cert-manager,
 	// which this component follows: a generated, typed SDK would have to come
 	// from CRDs that do not exist at compile time.
-	return apiextensions.NewCustomResource(r.Ctx, IssuerName, &apiextensions.CustomResourceArgs{
+	return apiextensions.NewCustomResource(r.Ctx, platform.IssuerName, &apiextensions.CustomResourceArgs{
 		ApiVersion: pulumi.String("cert-manager.io/v1"),
 		Kind:       pulumi.String("ClusterIssuer"),
-		Metadata:   &metav1.ObjectMetaArgs{Name: pulumi.String(IssuerName)},
+		Metadata:   &metav1.ObjectMetaArgs{Name: pulumi.String(platform.IssuerName)},
 		OtherFields: map[string]any{
 			"spec": IssuerSpec(email, staging),
 		},

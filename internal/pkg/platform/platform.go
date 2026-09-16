@@ -25,6 +25,17 @@ const StorageClass = "hcloud-volumes"
 // resource exists, looks right, and routes nothing.
 const IngressClass = "traefik"
 
+// IssuerName is the ClusterIssuer 30-cluster-services creates, and the one an
+// Ingress elsewhere names in its cert-manager annotation.
+//
+// It was the literal "letsencrypt" in both layers, with a comment in the
+// gitops one saying it had to match — a cross-layer contract written twice and
+// compared by nothing. One rename in 30 away from the failure IngressClass
+// above already had: an Ingress annotating a ClusterIssuer that does not exist
+// is accepted, cert-manager ignores the annotation, and the Certificate sits
+// pending with no event saying why.
+const IssuerName = "letsencrypt"
+
 // Node ports the ingress load balancer forwards to.
 //
 // Two programs have to name the same two numbers and they never call each

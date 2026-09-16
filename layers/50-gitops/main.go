@@ -33,9 +33,6 @@ const AdminSecret = "argocd-initial-admin-secret" // #nosec G101 -- a secret's n
 // configuration that only pays off with many applications.
 const StatelessReplicas = 2
 
-// IssuerName must match the ClusterIssuer created by 30-cluster-services.
-const IssuerName = "letsencrypt"
-
 // Stack outputs, named rather than written at the export. See
 // TestLayers_ExportOnlyNamedOutputs.
 const (
@@ -266,7 +263,7 @@ func ArgoCDData(domain string) values.ArgoCD {
 	return values.ArgoCD{
 		Domain:       domain,
 		IngressClass: platform.IngressClass,
-		Issuer:       IssuerName,
+		Issuer:       platform.IssuerName,
 		Replicas:     StatelessReplicas,
 	}
 }
