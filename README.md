@@ -1,9 +1,9 @@
 # hetzner-iac
 
 [![ci](https://github.com/oleg-tkachuk/hetzner-iac/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/oleg-tkachuk/hetzner-iac/actions/workflows/ci.yaml)
-[![release](https://img.shields.io/github/v/release/oleg-tkachuk/hetzner-iac?sort=semver&label=release)](https://github.com/oleg-tkachuk/hetzner-iac/releases/latest)
-[![go](https://img.shields.io/github/go-mod/go-version/oleg-tkachuk/hetzner-iac?logo=go&logoColor=white&label=go)](go.mod)
-[![license: MIT](https://img.shields.io/github/license/oleg-tkachuk/hetzner-iac?label=license)](LICENSE)
+[![release](https://img.shields.io/github/v/release/oleg-tkachuk/hetzner-iac?sort=semver&label=release&cacheSeconds=3600)](https://github.com/oleg-tkachuk/hetzner-iac/releases/latest)
+[![go](https://img.shields.io/github/go-mod/go-version/oleg-tkachuk/hetzner-iac?logo=go&logoColor=white&label=go&cacheSeconds=3600)](go.mod)
+[![license: MIT](https://img.shields.io/github/license/oleg-tkachuk/hetzner-iac?label=license&cacheSeconds=3600)](LICENSE)
 
 [![Pulumi](https://img.shields.io/badge/Pulumi-8A3391?logo=pulumi&logoColor=white)](https://www.pulumi.com)
 [![Talos](https://img.shields.io/badge/Talos%20Linux-FF7300?logo=talos&logoColor=white)](https://docs.siderolabs.com/talos)
