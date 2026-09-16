@@ -50,42 +50,42 @@ func TestCommitTypeRule_AnswersForEachKindOfChange(t *testing.T) {
 		paths      []string
 		want       string
 	}{
-		"prose as docs is what docs is for": {
+		"prose only, typed docs": {
 			commitType: "docs", paths: []string{"README.md", "docs/ci.md"}, want: "",
 		},
-		"prose as chore still has to be docs": {
+		"prose only, typed chore": {
 			commitType: "chore", paths: []string{"README.md"}, want: "docs",
 		},
-		"prose as fix above all": {
+		"prose only, typed fix": {
 			commitType: "fix", paths: []string{"docs/design.md"}, want: "docs",
 		},
-		"prose and a gate are not a fix": {
+		"prose and a gate, typed fix": {
 			commitType: "fix",
 			paths:      []string{"README.md", "internal/ci/domains_test.go"},
 			want:       "ci, test or chore",
 		},
-		"prose and a gate as chore is fine": {
+		"prose and a gate, typed chore": {
 			commitType: "chore",
 			paths:      []string{"README.md", "internal/ci/domains_test.go"},
 			want:       "",
 		},
-		"a workflow and a dotfile config are contributor-only": {
+		"a workflow and a dotfile config": {
 			commitType: "perf",
 			paths:      []string{".github/workflows/ci.yaml", ".golangci.yaml"},
 			want:       "ci, test or chore",
 		},
-		"a task is a real feat, because a tag carries it": {
+		"a taskfile": {
 			commitType: "feat", paths: []string{"tasks/cluster.task.yaml"}, want: "",
 		},
-		"a tool is a real feat for the same reason": {
+		"a tool": {
 			commitType: "feat", paths: []string{"tools/stack/main.go"}, want: "",
 		},
-		"code beside prose is still code": {
+		"code beside prose": {
 			commitType: "fix",
 			paths:      []string{"README.md", "internal/pkg/hetzner/config.go"},
 			want:       "",
 		},
-		"a layer's manifest is not contributor-only": {
+		"a layer's manifest": {
 			commitType: "fix",
 			paths:      []string{"layers/20-network-policy/manifests/20-allow-apiserver.yaml"},
 			want:       "",
