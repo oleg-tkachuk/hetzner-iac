@@ -1,10 +1,14 @@
 # Prerequisites, for macOS. `brew bundle` installs them.
 #
 # Verified against Homebrew rather than written from memory: every formula here
-# exists, and the two that do not are noted at the bottom instead of being
+# exists, and the one that does not is noted at the bottom instead of being
 # guessed at.
+#
+# Three groups, and the split is the one the README makes: what a cluster needs,
+# what one task needs, and what the checks need. Only the first is in the
+# README's prerequisites — the rest are for running CI's own checks locally.
 
-# --- Required ---------------------------------------------------------------
+# --- Required: building and running a cluster --------------------------------
 
 # Runs everything here. The pin in every Pulumi.yaml is the floor, not this.
 brew "pulumi"
@@ -19,13 +23,9 @@ brew "go-task"
 # Inspection, and baking the Talos image.
 brew "hcloud"
 
-# Chart rendering: `task charts:render-check` proves a chart still produces the
-# workloads pkg/workloads declares.
-brew "helm"
-
-# Schema validation of what those charts render, against the Kubernetes version
-# the topology pins. It fetches the schemas, so this one needs egress.
-brew "kubeconform"
+# The status tasks read the cluster with it, and tools/orphans asks it what
+# still exists.
+brew "kubernetes-cli"
 
 # Two JSON field reads in the status tasks. image-bake used to need it and
 # no longer does — tools/image parses with encoding/json.
@@ -56,11 +56,8 @@ brew "jq"
 # thing that GENERATES the machine config.
 brew "talosctl"
 
-# --- Optional: only the tasks that name them ---------------------------------
+# --- Required by one task ----------------------------------------------------
 #
-# Each of those tasks says what to install rather than skipping itself
-# silently, so a clone without these is not a broken clone.
-
 # task cluster:etcd:upload. restic does the upload, the retention and the
 # integrity check; rclone is only its transport, because restic's own sftp
 # backend speaks key authentication and the Storage Box credential is a
@@ -68,19 +65,34 @@ brew "talosctl"
 brew "restic"
 brew "rclone"
 
+# --- The checks, which build nothing -----------------------------------------
+#
+# docs/ci.md lists these with the check each one serves. Every task states what
+# to install rather than skipping itself silently, so a clone without them is
+# not a broken clone.
+
+# Chart rendering: `task charts:render-check` proves a chart still produces the
+# workloads internal/pkg/workloads declares.
+brew "helm"
+
+# Schema validation of what those charts render, against the Kubernetes version
+# the topology pins. It fetches the schemas, so this one needs egress.
+brew "kubeconform"
+
+brew "lychee"        # task docs:links
 brew "golangci-lint" # task security:lint
 brew "gitleaks"      # task security:secrets
 brew "gosec"         # nightly, and task security:gosec
 brew "trivy"         # task security:trivy
 brew "lefthook"      # the commit and push hooks; opt in with `lefthook install`
-brew "hadolint"      # task security:dockerfile
 brew "actionlint"    # workflow syntax, the same check CI runs
 brew "zizmor"        # workflow permissions, the same check CI runs
 
 # --- Not in Homebrew ---------------------------------------------------------
 #
 # hcloud-upload-image — Hetzner has no custom-image upload API, and this is the
-# tool that works around it. Go install, and it needs the `go` above:
+# tool that works around it. Required, and a Go install, which is why the
+# README says `brew bundle` covers everything but this one:
 #
 #   go install github.com/apricote/hcloud-upload-image@latest
 #

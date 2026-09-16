@@ -304,7 +304,7 @@ tasks:
         silent: true
 
   verify:
-    desc: "Everything checkable without a cluster — needs helm, talosctl, docker and lychee"
+    desc: "Everything checkable without a cluster — needs helm, kubeconform, talosctl and lychee"
     cmds:
       - task: fmt-check
       - task: go:test

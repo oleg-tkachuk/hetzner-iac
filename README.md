@@ -102,6 +102,11 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 
 ## Prerequisites
 
+What building and running a cluster needs. The tools the checks use — linters,
+scanners, chart rendering, link checking — are not here: CI installs them, and
+a clone needs them only to run the same checks locally.
+[ci.md](docs/ci.md#tools-the-checks-need) lists those.
+
 | Tool | Why |
 |------|-----|
 | [Pulumi](https://www.pulumi.com/docs/install/) 3.261+ | runs everything here; `pulumi login` before the first task |
@@ -110,9 +115,15 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
 | [talosctl](https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl) | validates the machine config before anything exists; then upgrades, etcd snapshots, clean shutdown |
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | the status tasks, `task cluster:kubeconfig:add` and `task cluster:orphans` |
 | [jq](https://github.com/jqlang/jq) | reads single fields out of `pulumi stack output --json` and `hcloud -o json` |
 
-On macOS, `brew bundle` installs all of it. One extra step for `talosctl`:
+On macOS, `brew bundle` installs all of it but one: `hcloud-upload-image` is
+not in Homebrew, so `go install github.com/apricote/hcloud-upload-image@latest`
+— the [Brewfile](Brewfile) says the same at the bottom, and
+`task cluster:image:bake` refuses to start without it.
+
+One extra step for `talosctl`:
 Homebrew carries only the newest, which is a minor ahead of what the topology
 pins, and `task cluster:machine-config:check` declines a mismatched binary
 rather than trusting it. Run
@@ -124,10 +135,13 @@ version from the committed topologies. It writes that version into `bin/`,
 which the check prefers, so Homebrew's copy can stay on PATH for everything
 else.
 
-Optional, and only for the tasks that name them: `golangci-lint`, `gitleaks`,
-`gosec`, `trivy`, `lefthook`. Each task says what to install rather than
-skipping itself silently. Git hooks are opt-in per clone with
-`lefthook install`.
+Two more for one task. `task cluster:etcd:upload` needs `restic`, which does
+the upload, the retention and the integrity check, and `rclone`, which is only
+its transport — restic's own sftp backend speaks key authentication and a
+Storage Box credential is a generated password.
+
+Every task says what to install rather than skipping itself silently, so a
+clone missing one of these is not a broken clone.
 
 ## Commands
 

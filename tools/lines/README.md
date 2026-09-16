@@ -32,7 +32,7 @@ YAML reader — wrong on a quoted value, an anchor, or a nested key of the same
 name.
 
 A missing or unknown op exits 2 rather than printing nothing, which is the
-failure mode the pipelines had. Every op is covered by `lib_test.go` beside it.
+failure mode the pipelines had. Every op is covered by `main_test.go` beside it.
 
 Run by CI, the `free-disk` composite action, the pre-commit hook, and
 `task platform:destroy layer=all`.
