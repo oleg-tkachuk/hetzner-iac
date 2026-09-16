@@ -6,9 +6,9 @@ that can be aimed at the wrong environment by forgetting a word, so running
 one without it prints the usage instead:
 
     $ task platform:plan layer=all
-    task: platform:plan needs a stack, and there is no default.
+    task: platform:plan needs a stack and a layer, and neither has a default.
 
-        task platform:plan layer=all stack=dev
+        task platform:plan stack=dev layer=40-ingress
 
 There is no default because an empty one is not an error. `pulumi --stack ""`
 ignores the empty value and uses the stack selected in the workspace — local,
@@ -19,13 +19,14 @@ failing.
 It is the only deployment parameter: where a cluster lives and how it is
 shaped comes from its committed topology file.
 
-`task platform:plan` and its siblings also need `layer=`, and that one is
-checked against the list of layers rather than merely for being present — so
-a typo is caught before anything runs:
+The suggestion names both, because a message that named only the missing
+argument handed over a command that failed on the one already passed. `layer=`
+is also checked against the list of layers rather than merely for being
+present, so a typo is caught before anything runs:
 
     $ task platform:plan stack=dev layer=30-cor
     task: ... layer has an invalid value : '30-cor'
-      (allowed values : [10-node-platform 20-network-policy 30-cluster-services 40-ingress 50-gitops])
+      (allowed values : [all 10-node-platform 20-network-policy 30-cluster-services 40-ingress 50-gitops 60-backup])
 
 `task platform:init` needs no reference: it reads the cluster tier's stack name
 from `infra/cluster` and writes that into every layer. `ref=` overrides it, for

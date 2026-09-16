@@ -418,8 +418,8 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 	require.NoError(t, err)
 
 	// The records too. Leaving them out is how `task cluster:image-bake`
-	// survived the colon rename in ADR-0005, which is the one record whose
-	// status is Accepted — the document a reader trusts most.
+	// survived the colon rename in ADR-0005 — and an Accepted record is the
+	// document a reader trusts most.
 	records, err := filepath.Glob(filepath.Join(root, "docs", "adr", "*.md"))
 	require.NoError(t, err)
 
@@ -750,4 +750,139 @@ func TestTalosctlCalls_NameAnEndpointWithEveryNode(t *testing.T) {
 	}
 
 	assert.Positive(t, checked, "no talosctl call targets a node; this test is checking nothing")
+}
+
+// usageVar matches the `msg:` of a stack guard, which names the variable
+// holding the message rather than spelling it out per task.
+var usageVar = regexp.MustCompile(`msg: "\{\{\.(_[A-Z_]+)\}\}"`)
+
+// multilineVar matches a taskfile's block-scalar variable — the form every
+// usage message is written in.
+var multilineVar = regexp.MustCompile(`(?m)^  (_[A-Z_]+): \|\n((?:(?:    .*)?\n)+)`)
+
+// layerEnums matches every list of accepted layer= values: the anchor
+// tasks/platform.task.yaml defines once, and the inline enum policy.task.yaml
+// carries because its own list is shorter.
+var layerEnums = regexp.MustCompile(`(?:x-layers: &layers|enum:) \[([^\]]+)\]`)
+
+// suggestedLayer matches a layer= example inside a usage message.
+var suggestedLayer = regexp.MustCompile(`layer=(\S+)`)
+
+// requiresLayer is what makes layer= mandatory rather than optional.
+const requiresLayer = "- name: layer"
+
+// TestUsage_NamesEveryArgumentTheTaskRequires keeps a usage message from
+// handing over a command that fails.
+//
+// Reported, and reproduced exactly:
+//
+//	$ task platform:plan layer=10-node-platform
+//	platform:plan needs a stack, and there is no default.
+//	    task platform:plan stack=dev
+//	$ task platform:plan stack=dev
+//	missing required variables: layer
+//
+// The guard was right both times and the message was wrong: it named the
+// argument that was missing and dropped the one the operator had already got
+// right, so following it cost a third attempt. A task that requires a layer
+// has to say so in the message it prints when the stack is missing.
+func TestUsage_NamesEveryArgumentTheTaskRequires(t *testing.T) {
+	t.Parallel()
+
+	messages := map[string]string{}
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for _, match := range multilineVar.FindAllStringSubmatch(string(raw), -1) {
+			messages[match[1]] = match[2]
+		}
+	}
+
+	require.NotEmpty(t, messages, "no usage message was found, so this test proved nothing")
+
+	var checked int
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for name, body := range tasksIn(string(raw)) {
+			if !strings.Contains(body, requiresLayer) {
+				continue
+			}
+
+			named := usageVar.FindStringSubmatch(body)
+			if named == nil {
+				continue
+			}
+
+			checked++
+
+			assert.Contains(t, messages[named[1]], "layer=",
+				"%s in %s requires a layer, and %s — the message it prints when the stack "+
+					"is missing — does not name one, so the command it suggests fails on the "+
+					"argument the operator already passed",
+				name, filepath.Base(path), named[1])
+		}
+	}
+
+	assert.Positive(t, checked,
+		"no task requires a layer and prints a usage message — this test is checking nothing")
+}
+
+// TestUsage_NamesALayerThatExists holds the example in a usage message to the
+// enums that accept it.
+//
+// The message suggests one layer by name rather than layer=all, because
+// platform:destroy prints it too and the shortest correct command there must
+// not also be the widest — and policy:layer prints it while accepting no
+// `all` at all. A named example is a copy of a list, and two lists have to
+// accept it: a value only one of them takes would leave the other suggesting
+// a command it rejects, which is the class of bug this pair was written for.
+func TestUsage_NamesALayerThatExists(t *testing.T) {
+	t.Parallel()
+
+	var (
+		messages []string
+		enums    [][]string
+	)
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for _, match := range multilineVar.FindAllStringSubmatch(string(raw), -1) {
+			messages = append(messages, match[2])
+		}
+
+		for _, match := range layerEnums.FindAllStringSubmatch(string(raw), -1) {
+			var accepted []string
+
+			for _, value := range strings.Split(match[1], ",") {
+				accepted = append(accepted, strings.TrimSpace(value))
+			}
+
+			enums = append(enums, accepted)
+		}
+	}
+
+	require.NotEmpty(t, enums, "no layer enum was found, so this test proved nothing")
+
+	var checked int
+
+	for _, message := range messages {
+		for _, suggested := range suggestedLayer.FindAllStringSubmatch(message, -1) {
+			checked++
+
+			for _, accepted := range enums {
+				assert.Contains(t, accepted, suggested[1],
+					"a usage message suggests layer=%s, and one of the tasks printing it "+
+						"accepts only %v", suggested[1], accepted)
+			}
+		}
+	}
+
+	assert.Positive(t, checked, "no layer example was examined, so this test proved nothing")
 }

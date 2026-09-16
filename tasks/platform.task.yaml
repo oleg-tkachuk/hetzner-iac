@@ -111,7 +111,7 @@ tasks:
           enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_LAYER_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -138,7 +138,7 @@ tasks:
           enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_LAYER_USAGE}}"
     prompt: "Refresh {{.layer}} state on {{._PL_STACK}}? This writes state"
     cmds:
       - cmd: |
@@ -166,7 +166,7 @@ tasks:
           enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_LAYER_USAGE}}"
     prompt: "Apply layer {{.layer}} on {{._PL_STACK}}?"
     cmds:
       - cmd: |
@@ -199,7 +199,7 @@ tasks:
           enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_LAYER_USAGE}}"
     prompt: "Destroy layer {{.layer}} on {{._PL_STACK}}?"
     cmds:
       - cmd: |
@@ -232,7 +232,7 @@ tasks:
           enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_LAYER_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
