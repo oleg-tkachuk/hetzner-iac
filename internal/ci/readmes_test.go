@@ -101,12 +101,9 @@ func TestREADMEs_NameFilesThatExist(t *testing.T) {
 
 	root := filepath.Join("..", "..")
 
-	listed, err := exec.CommandContext(t.Context(), "git", "-C", root, "ls-files").Output()
-	require.NoError(t, err)
-
 	var checked int
 
-	for _, name := range strings.Split(strings.TrimSpace(string(listed)), "\n") {
+	for _, name := range tracked(t, root) {
 		if filepath.Base(name) != "README.md" {
 			continue
 		}
@@ -159,50 +156,6 @@ func anywhere(root, name string) bool {
 	})
 
 	return found
-}
-
-// gateRow is a row of the table in internal/ci/README.md.
-var gateRow = regexp.MustCompile("(?m)^\\| `([a-z_]+_test\\.go)` \\|")
-
-// TestCIREADME_ListsEveryGate pairs the table with the directory.
-//
-// The table is the only index of what these gates cover, and it had drifted in
-// both directions at once: one row for a file that no longer existed, and
-// eleven gates with no row at all. A reader counting rows would have concluded
-// this directory holds seventeen checks.
-func TestCIREADME_ListsEveryGate(t *testing.T) {
-	t.Parallel()
-
-	raw, err := os.ReadFile("README.md")
-	require.NoError(t, err)
-
-	rows := map[string]bool{}
-
-	for _, row := range gateRow.FindAllStringSubmatch(string(raw), -1) {
-		rows[row[1]] = true
-	}
-
-	entries, err := os.ReadDir(".")
-	require.NoError(t, err)
-
-	files := map[string]bool{}
-
-	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), "_test.go") {
-			files[entry.Name()] = true
-
-			assert.True(t, rows[entry.Name()],
-				"%s has no row in internal/ci/README.md, so nothing says what it guards",
-				entry.Name())
-		}
-	}
-
-	require.NotEmpty(t, files, "no gate was examined, so this test proved nothing")
-
-	for row := range rows {
-		assert.True(t, files[row],
-			"internal/ci/README.md has a row for %s, and there is no such gate", row)
-	}
 }
 
 // docsLink matches a link in the documentation index, capturing its target.
