@@ -6,7 +6,18 @@ Answers and settles questions about Pulumi stacks.
 go run ./tools/stack exists <project-dir> <stack>   # is it there
 go run ./tools/stack ensure <project-dir> <stack>   # make sure it is; prints created|selected
 go run ./tools/stack ref    <project-dir> <stack>   # the fully qualified <org>/<project>/<stack>
+go run ./tools/stack list   <cluster-dir>          # every stack, with what is known about it
 ```
+
+`list` answers "what environments are there", and it reads two independent
+places to do it: the backend knows which stacks exist, and the working copy
+holds the topologies that describe them. Both halves are optional, and the
+rows missing one are the interesting ones — `cluster.<stack>.yaml` is
+gitignored, so a stack described in somebody else's clone shows as `missing`
+rather than as a failure three tasks later, and a topology with no stack yet
+shows as `no stack`.
+
+Run by `task cluster:stacks`.
 
 One shell idiom appeared three times — in the cluster tier's init, in the
 platform layers' init, and in a preview run:
