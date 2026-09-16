@@ -130,7 +130,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		IPRange:     topology.Network.IPRange,
 		// With no worker pool the control plane is the only place a pod can
 		// run, so scheduling has to be allowed there or nothing starts.
-		AllowSchedulingOnControlPlanes: totalWorkers(topology) == 0,
+		AllowSchedulingOnControlPlanes: topology.TotalWorkers() == 0,
 	})
 	if err != nil {
 		return nil, err
@@ -270,7 +270,7 @@ func apiEndpointAddress(
 	network *Network,
 	opts ...pulumi.ResourceOption,
 ) (pulumi.StringInput, pulumi.StringOutput, error) {
-	if topology.ControlPlane.Count == 1 {
+	if !topology.APILoadBalanced() {
 		return nil, pulumi.String("").ToStringOutput(), nil
 	}
 
@@ -371,13 +371,4 @@ func lookupTalosImage(ctx *pulumi.Context, args *ClusterArgs) pulumi.StringOutpu
 
 func idToIntPtr(id pulumi.IDOutput) pulumi.IntPtrInput {
 	return idToInt(id).ToIntPtrOutput()
-}
-
-func totalWorkers(topology *Topology) int {
-	total := 0
-	for _, pool := range topology.WorkerPools {
-		total += pool.Count
-	}
-
-	return total
 }

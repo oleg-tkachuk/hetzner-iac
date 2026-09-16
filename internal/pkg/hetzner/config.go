@@ -460,6 +460,29 @@ func (t *Topology) PublicIPv4Enabled() bool {
 	return t.Network.PublicIPv4 == nil || *t.Network.PublicIPv4
 }
 
+// TotalWorkers is how many worker nodes every pool adds up to.
+//
+// Exported because two things read it and must agree: NewCluster turns zero
+// workers into scheduling on the control plane, and infra/cluster reports that
+// decision. Computed twice, the report and the cluster could disagree.
+func (t *Topology) TotalWorkers() int {
+	total := 0
+	for _, pool := range t.WorkerPools {
+		total += pool.Count
+	}
+
+	return total
+}
+
+// APILoadBalanced reports whether the API is reached through a load balancer.
+//
+// One control-plane node is its own endpoint; more than one needs something in
+// front of them. The condition lives here rather than being written out at
+// each place that cares, which is what let the decision go unreported.
+func (t *Topology) APILoadBalanced() bool {
+	return t.ControlPlane.Count > 1
+}
+
 // ICMPAllowed reports whether ping is open from the admin CIDRs.
 func (t *Topology) ICMPAllowed() bool {
 	return t.Network.AllowICMP != nil && *t.Network.AllowICMP

@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
@@ -191,4 +193,47 @@ func TestClusterToken_IsASecretWhenStackConfigHasOne(t *testing.T) {
 
 		return nil
 	})
+}
+
+// TestReport_NarratesEveryDecisionTheTopologyMakes is the list, held so a new
+// switch in the topology cannot arrive unreported.
+//
+// This tier used to narrate nothing while every layer narrated its own
+// choices. Pulumi prints the resources, so what was missing was never the
+// actions — it was the handful of decisions derived from the topology, which
+// are the ones that produce a cluster that comes up and then puzzles somebody.
+func TestReport_NarratesEveryDecisionTheTopologyMakes(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile("main.go")
+	require.NoError(t, err)
+
+	body := string(raw)
+
+	start := strings.Index(body, "func report(")
+	require.Positive(t, start, "report() is gone, and with it every decision this tier reports")
+
+	end := strings.Index(body[start:], "\n}\n")
+	require.Positive(t, end, "report() has no end")
+
+	reported := body[start : start+end]
+
+	// One line per decision a reader of the output has to be able to see.
+	for component, why := range map[string]string{
+		"control-plane": "how many nodes of what type, and where",
+		"api":           "whether a load balancer fronts the API, or one node is its own endpoint",
+		"scheduling":    "whether workloads may run on the control plane, which zero workers decides",
+		"talos":         "which version and architecture, and what selected the image",
+		"addressing":    "publicIPv4 off, which stops talosctl reaching a node from outside",
+	} {
+		assert.Contains(t, reported, `"`+component+`"`,
+			"report() no longer mentions %q: %s", component, why)
+	}
+
+	// Through the predicates rather than by recomputing: a report that
+	// derives a decision its own way can describe a cluster nobody built.
+	for _, predicate := range []string{"TotalWorkers()", "APILoadBalanced()", "PublicIPv4Enabled()"} {
+		assert.Contains(t, reported, predicate,
+			"report() does not use %s, so it can disagree with what NewCluster decided", predicate)
+	}
 }
