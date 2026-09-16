@@ -12,11 +12,14 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
+	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -47,16 +50,59 @@ const (
 // RecordsPerDomain is how many RRSets one domain gets: an A and an AAAA.
 const RecordsPerDomain = 2
 
-// Components are what this layer deploys. One of them — what the table buys
-// here is the enumeration: layertest asserts the chart is pinned and that
-// internal/pkg/workloads knows what it produces.
-var Components = layer.Components{
-	{
-		Chart: Chart,
-		ValuesFrom: func(r *layer.Runner) pulumi.Output {
-			return IngressData(r.Cluster.NodeSubnet)
+// BalancerComponent is the load balancer's name in the set, and what the
+// exports below read it back by.
+const BalancerComponent = "load-balancer"
+
+// components is what this layer deploys.
+//
+// A function rather than a var because one of them needs the Hetzner provider,
+// which exists only once the cluster tier's token has been read. The provider
+// is created once in deploy and closed over, rather than per component: two
+// providers would be two resources in state for one credential.
+//
+// The load balancer is IN the table now. It used to be created by hand after
+// r.Deploy returned, which left half of what this layer makes outside the
+// enumeration layertest checks — and the half in question is the billable one.
+//
+// It carries no After, and that absence is the point. The load balancer
+// health-checks a node port, so it converges on its own once Traefik is
+// listening; making it wait for the release would mean an ingress address that
+// does not exist until a chart somewhere else is healthy. Written as a missing
+// After rather than as a paragraph, the table now says so itself.
+func components(provider pulumi.ProviderResource) layer.Components {
+	return layer.Components{
+		{
+			Chart: Chart,
+			ValuesFrom: func(r *layer.Runner) pulumi.Output {
+				return IngressData(r.Cluster.NodeSubnet)
+			},
 		},
-	},
+		{
+			Name:   BalancerComponent,
+			Create: createBalancer(provider),
+		},
+	}
+}
+
+// createBalancer puts the load balancer in front of the node ports.
+func createBalancer(provider pulumi.ProviderResource) layer.CreateFunc {
+	return func(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
+		// Said out loud, because this is the one billable resource a platform
+		// layer creates and its size is a config decision.
+		balancerType := r.StringOr("loadBalancerType", DefaultLoadBalancerType)
+		// Type only: the location is the cluster's, and the cluster tier
+		// reports it. Reading it here would mean resolving an Output to print
+		// a word.
+		r.Log.Step(BalancerComponent, balancerType)
+
+		return hetzner.NewIngressLoadBalancer(r.Ctx, "ingress", hetzner.IngressLoadBalancerArgs{
+			ClusterName:      r.Cluster.ClusterName,
+			Location:         r.Cluster.Location,
+			NetworkID:        r.Cluster.NetworkID,
+			LoadBalancerType: balancerType,
+		}, append(layer.DependsOn(dependencies), pulumi.Provider(provider))...)
+	}
 }
 
 // IngressData resolves the cluster tier's outputs into the template's data.
@@ -84,10 +130,6 @@ func IngressData(nodeSubnet pulumi.StringInput) pulumi.Output {
 // listening — and making it wait for the release would mean an ingress address
 // that does not exist until a chart somewhere else is healthy.
 func deploy(r *layer.Runner) error {
-	if _, err := r.Deploy(Components); err != nil {
-		return err
-	}
-
 	// A provider of its own, because this is the first layer to create
 	// anything in Hetzner rather than in Kubernetes. r.Options carries the
 	// Kubernetes provider, which this must not inherit.
@@ -96,27 +138,22 @@ func deploy(r *layer.Runner) error {
 		return err
 	}
 
-	// Said out loud, because this is the one billable resource a platform
-	// layer creates and its size is a config decision. The three lines this
-	// layer already prints are all about DNS, so the load balancer — the thing
-	// that costs money every hour — was the quiet one.
-	balancerType := r.StringOr("loadBalancerType", DefaultLoadBalancerType)
-	// Type only: the location is the cluster's, and the cluster tier reports
-	// it. Reading it here would mean resolving an Output to print a word.
-	r.Log.Step("load-balancer", balancerType)
-
-	balancer, err := hetzner.NewIngressLoadBalancer(r.Ctx, "ingress", hetzner.IngressLoadBalancerArgs{
-		ClusterName:      r.Cluster.ClusterName,
-		Location:         r.Cluster.Location,
-		NetworkID:        r.Cluster.NetworkID,
-		LoadBalancerType: balancerType,
-	}, pulumi.Provider(hcloudProvider))
+	deployed, err := r.Deploy(components(hcloudProvider))
 	if err != nil {
 		return err
 	}
 
-	r.Ctx.Export(OutputAddress, balancer.IPv4)
-	r.Ctx.Export(OutputAddressIPv6, balancer.IPv6)
+	// Read back out of the set, because the exports below need the addresses
+	// and Deployed holds resources. The assertion is the price of putting the
+	// load balancer in the table, and it is worth paying: what this layer
+	// creates is now enumerable.
+	balancer, ok := deployed[BalancerComponent].(*hcloud.LoadBalancer)
+	if !ok {
+		return fmt.Errorf("%s was not created as a load balancer", BalancerComponent)
+	}
+
+	r.Ctx.Export(OutputAddress, balancer.Ipv4)
+	r.Ctx.Export(OutputAddressIPv6, balancer.Ipv6)
 	r.Ctx.Export(OutputHostname, r.Cluster.Domain)
 
 	// Exported so the engine awaits it: the records are created inside an
@@ -129,6 +166,15 @@ func deploy(r *layer.Runner) error {
 // records points the domain at the load balancer, when there is a domain and
 // Hetzner holds its zone.
 //
+// NOT a component, and that is a limit of the table rather than an oversight.
+// A component's membership is decided before anything resolves — order() runs
+// first, and Create is called for every entry — so a component can decline on
+// CONFIG the way 50-gitops's root does. These records exist only if two
+// StackReference outputs say so, and those are known inside an apply and
+// nowhere earlier. NewIngressRecords also hands back no resource for a
+// component to return, because it looks the zone up and writes two RRSets
+// inside that same apply.
+//
 // Both halves are optional and mean different things, so both are logged. No
 // domain is a new environment. A domain with no zone here is a domain hosted
 // somewhere else, which is a supported arrangement — the records are then
@@ -140,7 +186,7 @@ func deploy(r *layer.Runner) error {
 // never surface — the same reason internal/pkg/layer exports its contract check.
 func records(
 	r *layer.Runner,
-	balancer *hetzner.IngressLoadBalancer,
+	balancer *hcloud.LoadBalancer,
 	provider pulumi.ProviderResource,
 ) pulumi.IntOutput {
 	return pulumi.All(r.Cluster.Domain, r.Cluster.DNSZone).
@@ -164,8 +210,8 @@ func records(
 			if err := hetzner.NewIngressRecords(r.Ctx, "ingress", hetzner.IngressRecordsArgs{
 				Zone:   zone,
 				Domain: domain,
-				IPv4:   balancer.IPv4,
-				IPv6:   balancer.IPv6,
+				IPv4:   balancer.Ipv4,
+				IPv6:   balancer.Ipv6,
 			}, pulumi.Provider(provider)); err != nil {
 				return 0, err
 			}
