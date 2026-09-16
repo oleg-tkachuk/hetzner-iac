@@ -21,6 +21,7 @@ carry them.
 |-----------|--------|
 | `adr_test.go` | each record's status and heading against the row the index gives it, both ways |
 | `bots_test.go` | one bot updates dependencies, so two do not open the same pull request |
+| `clustertasks_test.go` | the two agreements between cluster tasks no error would report: a snapshot's sidecar name, and which node a talosctl call is aimed at |
 | `committype_test.go` | the commit-type rule both the workflow and the commit hook run: what it answers, and the boundary it may not cross |
 | `componentoutputs_test.go` | a component's registered outputs against the fields they are tagged as |
 | `configkeys_test.go` | each layer's declared config against the config its code reads, and both documentation tables |
@@ -39,8 +40,11 @@ carry them.
 | `readmes_test.go` | every tool and every internal package documents itself; no README names a file that is not in the tree; the docs index lists every document |
 | `renovate_test.go` | Renovate against itself: its own regex matches every annotated pin and every pin is annotated, the paths it watches exist, and its schedule is not narrower than a best-effort cron can meet |
 | `resourceoptions_test.go` | no `append` onto a shared option slice, which silently writes into the caller's array |
-| `taskargs_test.go` | every task's arguments, guards and documented row |
+| `taskdocs_test.go` | every task a document tells somebody to run exists, and none is one the library include leaves out |
+| `taskguards_test.go` | the arguments a task takes and what it refuses without them: the stack, the layer, the usage it prints, the question before it changes anything |
 | `tasklib_test.go` | every remote taskfile has the checksum Task will look for, ref included |
+| `taskoutput_test.go` | what a task prints: the glyph vocabulary it shares with `internal/pkg/pulumilog`, and naming the layer when an operation finishes |
+| `tasks_test.go` | — reading the taskfiles and cutting one into its tasks, which the four above share |
 | `vendored_test.go` | each vendored manifest against its recorded digest; the half that asks upstream what it serves runs in the nightly workflow, which is the only place with a network |
 | `workflows_test.go` | the workflows' own logic: relevance, caching, job wiring |
 
