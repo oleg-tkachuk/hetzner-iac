@@ -247,6 +247,9 @@ func fetchIndex(ctx context.Context, client *http.Client, repo string) (*repoInd
 	if err != nil {
 		return nil, fmt.Errorf("fetch index: %w", err)
 	}
+	// The body is read below and this only releases the connection. A Close
+	// error here would say nothing about whether the read succeeded, which
+	// is the only question this function answers.
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {

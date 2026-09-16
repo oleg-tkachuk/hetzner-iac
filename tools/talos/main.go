@@ -215,6 +215,8 @@ func validateTopology(ctx context.Context, talosctl, path string, topology *hetz
 		return fmt.Errorf("temp dir: %w", err)
 	}
 
+	// A scratch directory this function made. Leaving it behind on a failed
+	// removal costs a directory in /tmp, not correctness.
 	defer func() { _ = os.RemoveAll(workDir) }()
 
 	if err := generate(ctx, talosctl, workDir, topology); err != nil {
