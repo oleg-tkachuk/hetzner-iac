@@ -74,6 +74,8 @@ func program(ctx *pulumi.Context) error {
 	// reviewable in a diff and reproducible from a clone — three switches
 	// in stack config left somebody's shell as the only record of them.
 	// Stack config keeps the token, because a token must not be in git.
+	report(pulumilog.New(ctx), topology)
+
 	cluster, err := hetzner.NewCluster(ctx, topology.Metadata.Name, &hetzner.ClusterArgs{
 		Topology:      topology,
 		ImageSelector: topology.Talos.ImageSelector,
@@ -89,6 +91,61 @@ func program(ctx *pulumi.Context) error {
 	}
 
 	return nil
+}
+
+// report says out loud what the topology decided.
+//
+// The layers each narrate their own decisions and this tier narrated nothing,
+// which is the wrong way round: Pulumi prints every resource it creates, so
+// the ACTIONS were always visible, and what was not is the handful of choices
+// derived from the topology. They are the expensive ones — a cluster where
+// nothing can be scheduled, or an API with no load balancer in front of three
+// nodes, is a cluster that comes up and then puzzles somebody.
+//
+// Derived from the same predicates NewCluster uses, so the report cannot
+// describe a cluster other than the one being built.
+func report(log *pulumilog.Logger, topology *hetzner.Topology) {
+	workers := topology.TotalWorkers()
+
+	log.Step("control-plane", fmt.Sprintf("%d node(s) of %s in %s",
+		topology.ControlPlane.Count, topology.ControlPlane.ServerType, topology.Placement.Location))
+
+	if topology.APILoadBalanced() {
+		log.Step("api", "reached through a load balancer of type "+topology.ControlPlane.APILoadBalancerType)
+	} else {
+		log.Skipped("api", "one control-plane node, so it is its own endpoint and no load balancer is created")
+	}
+
+	if workers == 0 {
+		// Not a warning: it is the supported shape for a small cluster, and
+		// the machine config says so. But it is the difference between "no
+		// pod can run" and "pods run on the control plane", and nothing else
+		// in the output mentions it.
+		log.Step("scheduling", "no worker pools, so workloads are allowed on the control plane")
+	} else {
+		log.Step("workers", fmt.Sprintf("%d node(s) across %d pool(s)", workers, len(topology.WorkerPools)))
+	}
+
+	// The EFFECTIVE selector, not the configured one. An empty imageSelector
+	// is the ordinary case — lookupTalosImage falls back to the labels
+	// cluster:image:bake stamps — and printing the empty string left the line
+	// reading "image selected by " with nothing after it, which is how this
+	// was found on the first preview.
+	selector := topology.Talos.ImageSelector
+	if selector == "" {
+		selector = hetzner.TalosImageSelector(topology.Talos.Version)
+	}
+
+	log.Step("talos", topology.Talos.Version+" "+topology.Talos.Architecture+
+		", image matching "+selector)
+
+	if !topology.PublicIPv4Enabled() {
+		// Worth a warning rather than a step: every task that reaches a node
+		// over talosctl or SSH stops working, and the cause is one topology
+		// field away from the symptom.
+		log.Warn("addressing", "publicIPv4 is off — nodes have no routable address, "+
+			"so talosctl reaches them only from inside the network")
+	}
 }
 
 // exports pairs every output name in the contract with the value this tier
