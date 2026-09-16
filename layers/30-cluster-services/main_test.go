@@ -8,7 +8,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -82,7 +81,7 @@ func TestIssuerSpec_UsesTheProductionACMEEndpoint(t *testing.T) {
 	// a misconfiguration.
 	acme := acmeSection(t, IssuerSpec("ops@example.test", false))
 
-	assert.Equal(t, pulumi.String(LetsEncryptProduction), acme["server"])
+	assert.Equal(t, LetsEncryptProduction, acme["server"])
 	assert.Contains(t, LetsEncryptProduction, "acme-v02.api.letsencrypt.org")
 }
 
@@ -99,12 +98,12 @@ func TestIssuerSpec_StagingIsAWholeSwitch(t *testing.T) {
 	staging := acmeSection(t, IssuerSpec("ops@example.test", true))
 	production := acmeSection(t, IssuerSpec("ops@example.test", false))
 
-	assert.Equal(t, pulumi.String(LetsEncryptStaging), staging["server"])
+	assert.Equal(t, LetsEncryptStaging, staging["server"])
 	assert.Contains(t, LetsEncryptStaging, "acme-staging-v02.api.letsencrypt.org")
 
-	stagingKey, ok := staging["privateKeySecretRef"].(pulumi.Map)
+	stagingKey, ok := staging["privateKeySecretRef"].(map[string]any)
 	require.True(t, ok)
-	productionKey, ok := production["privateKeySecretRef"].(pulumi.Map)
+	productionKey, ok := production["privateKeySecretRef"].(map[string]any)
 	require.True(t, ok)
 
 	assert.NotEqual(t, productionKey["name"], stagingKey["name"],
@@ -123,7 +122,7 @@ func TestIssuerSpec_CarriesTheContactEmail(t *testing.T) {
 	// warnings to this address.
 	acme := acmeSection(t, IssuerSpec("ops@example.test", false))
 
-	assert.Equal(t, pulumi.String("ops@example.test"), acme["email"])
+	assert.Equal(t, "ops@example.test", acme["email"])
 }
 
 func TestIssuerSpec_SolvesOverTheClassTheIngressLayerRegisters(t *testing.T) {
@@ -140,20 +139,17 @@ func TestIssuerSpec_SolvesOverTheClassTheIngressLayerRegisters(t *testing.T) {
 	// drift from what 40-ingress registers.
 	acme := acmeSection(t, IssuerSpec("ops@example.test", false))
 
-	solvers, ok := acme["solvers"].(pulumi.Array)
+	solvers, ok := acme["solvers"].([]map[string]any)
 	require.True(t, ok)
 	require.Len(t, solvers, 1)
 
-	solver, ok := solvers[0].(pulumi.Map)
+	http01, ok := solvers[0]["http01"].(map[string]any)
 	require.True(t, ok)
 
-	http01, ok := solver["http01"].(pulumi.Map)
+	ingress, ok := http01["ingress"].(map[string]any)
 	require.True(t, ok)
 
-	ingress, ok := http01["ingress"].(pulumi.Map)
-	require.True(t, ok)
-
-	assert.Equal(t, pulumi.String(platform.IngressClass), ingress["ingressClassName"])
+	assert.Equal(t, platform.IngressClass, ingress["ingressClassName"])
 }
 
 func TestExternalSecretsValues_InstallsItsCRDs(t *testing.T) {
@@ -179,10 +175,10 @@ func TestNoLayerCreatesServiceMonitors(t *testing.T) {
 	assert.Equal(t, false, externalSecrets["enabled"])
 }
 
-func acmeSection(t *testing.T, spec pulumi.Map) pulumi.Map {
+func acmeSection(t *testing.T, spec map[string]any) map[string]any {
 	t.Helper()
 
-	acme, ok := spec["acme"].(pulumi.Map)
+	acme, ok := spec["acme"].(map[string]any)
 	require.True(t, ok)
 
 	return acme

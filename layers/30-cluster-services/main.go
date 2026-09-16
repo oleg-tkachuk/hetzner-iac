@@ -172,24 +172,30 @@ func MetricsServerData() values.MetricsServer {
 // have sat pending for ever with nothing reporting an error. The same literal
 // had already been fixed once, in the gitops layer — internal/pkg/platform exists
 // because of it — and this copy survived in a second place.
-func IssuerSpec(email string, staging bool) pulumi.Map {
+func IssuerSpec(email string, staging bool) map[string]any {
 	directory, accountKey := LetsEncryptProduction, accountKeyProduction
 	if staging {
 		directory, accountKey = LetsEncryptStaging, accountKeyStaging
 	}
 
-	return pulumi.Map{
-		"acme": pulumi.Map{
-			"server": pulumi.String(directory),
-			"email":  pulumi.String(email),
-			"privateKeySecretRef": pulumi.Map{
-				"name": pulumi.String(accountKey),
+	// map[string]any, which is what OtherFields takes, and the same spelling
+	// 50-gitops uses for its two specs. It was pulumi.Map and pulumi.String
+	// throughout, wrapping values that are all static — an email, a URL, a
+	// class name — in Input types nothing ever resolved. Two spellings for one
+	// job, and the wrapping had to be read past to see there was no Output in
+	// here at all.
+	return map[string]any{
+		"acme": map[string]any{
+			"server": directory,
+			"email":  email,
+			"privateKeySecretRef": map[string]any{
+				"name": accountKey,
 			},
-			"solvers": pulumi.Array{
-				pulumi.Map{
-					"http01": pulumi.Map{
-						"ingress": pulumi.Map{
-							"ingressClassName": pulumi.String(platform.IngressClass),
+			"solvers": []map[string]any{
+				{
+					"http01": map[string]any{
+						"ingress": map[string]any{
+							"ingressClassName": platform.IngressClass,
 						},
 					},
 				},
