@@ -41,6 +41,7 @@ package pulumilog
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -67,9 +68,23 @@ const (
 	colourReset  = "\x1b[0m"
 )
 
+// sink is where a finished line goes.
+//
+// A named destination rather than the context itself, because until there was
+// one nothing could observe what a program reported. This package's tests
+// asserted on line(), the formatter — so the FORMAT was covered and the
+// content was not, and a gate that wanted to check which decisions a program
+// announced had to grep the program's source instead.
+//
+// *pulumi.Context's Log satisfies it as it stands; so does Recording below.
+type sink interface {
+	Info(msg string, args *pulumi.LogArgs) error
+	Warn(msg string, args *pulumi.LogArgs) error
+}
+
 // Logger writes one layer's lines.
 type Logger struct {
-	ctx   *pulumi.Context
+	out   sink
 	scope string
 	// colour is resolved once, at construction. Reading the environment per
 	// call would let output change style halfway through a run.
@@ -78,7 +93,63 @@ type Logger struct {
 
 // New builds a logger scoped to the running project, which is the layer name.
 func New(ctx *pulumi.Context) *Logger {
-	return &Logger{ctx: ctx, scope: ctx.Project(), colour: colourEnabled()}
+	return &Logger{out: ctx.Log, scope: ctx.Project(), colour: colourEnabled()}
+}
+
+// Recorder builds a logger that keeps its lines instead of sending them, and
+// the Recording holding them.
+//
+// For a test that wants to assert what a program REPORTED — which decisions it
+// announced, and in what words — rather than how one line is formatted. The
+// lines are recorded finished, exactly as they would reach Pulumi, because a
+// recording of the parts before formatting could pass while the line an
+// operator reads is broken.
+//
+// Colourless, so an assertion is about words rather than escape codes.
+func Recorder(scope string) (*Logger, *Recording) {
+	recording := &Recording{}
+
+	return &Logger{out: recording, scope: scope, colour: false}, recording
+}
+
+// Recording is the sink Recorder writes to.
+type Recording struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+// Info records a line. It satisfies sink; the error is always nil, because
+// there is nothing here that can fail.
+func (r *Recording) Info(msg string, _ *pulumi.LogArgs) error {
+	r.add(msg)
+
+	return nil
+}
+
+// Warn records a line, the same way Info does: what separates them in Pulumi
+// is the run's warning count, and a test asserting on words does not care.
+func (r *Recording) Warn(msg string, _ *pulumi.LogArgs) error {
+	r.add(msg)
+
+	return nil
+}
+
+// Lines returns what was recorded, in order.
+func (r *Recording) Lines() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]string, len(r.lines))
+	copy(out, r.lines)
+
+	return out
+}
+
+func (r *Recording) add(line string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.lines = append(r.lines, line)
 }
 
 // colourEnabled honours NO_COLOR, the convention taskfiles/ follows and the
@@ -116,7 +187,7 @@ func (l *Logger) Skipped(component, detail string) {
 // Warn reports a configuration that will not do what it looks like it does.
 // Permanent, and Pulumi counts it in the run's warning total.
 func (l *Logger) Warn(component, format string, args ...any) {
-	if l == nil || l.ctx == nil {
+	if l == nil || l.out == nil {
 		return
 	}
 
@@ -126,17 +197,17 @@ func (l *Logger) Warn(component, format string, args ...any) {
 	// shortcut: the only way to report that logging failed is to log. A
 	// returned error would put an `if err != nil` at every call site in the
 	// codebase for a failure nobody could act on.
-	_ = l.ctx.Log.Warn(line, &pulumi.LogArgs{Ephemeral: false})
+	_ = l.out.Warn(line, &pulumi.LogArgs{Ephemeral: false})
 }
 
 func (l *Logger) info(glyph, colour, component, detail string, ephemeral bool) {
-	if l == nil || l.ctx == nil {
+	if l == nil || l.out == nil {
 		return
 	}
 
 	// Discarded for the reason Warn gives: reporting a failure to report has
 	// nowhere to go.
-	_ = l.ctx.Log.Info(
+	_ = l.out.Info(
 		l.line(glyph, colour, component, detail),
 		&pulumi.LogArgs{Ephemeral: ephemeral})
 }
