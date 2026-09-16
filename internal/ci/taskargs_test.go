@@ -418,8 +418,13 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 	require.NoError(t, err)
 
 	// The records too. Leaving them out is how `task cluster:image-bake`
-	// survived the colon rename in ADR-0005 — and an Accepted record is the
-	// document a reader trusts most.
+	// survived the colon rename: the stale name was only in docs/adr, and the
+	// glob above stops at docs/.
+	//
+	// docs/adr is gitignored, so this half finds nothing in CI and nothing in
+	// a fresh clone. It is a local check until that directory is published,
+	// and naming that here is cheaper than somebody concluding the records are
+	// covered.
 	records, err := filepath.Glob(filepath.Join(root, "docs", "adr", "*.md"))
 	require.NoError(t, err)
 
