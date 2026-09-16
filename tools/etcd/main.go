@@ -93,6 +93,9 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("%s is not a readable bbolt database, so it is not an etcd snapshot: %w", path, err)
 	}
+	// Opened read-only, so a Close error cannot mean data was lost — and the
+	// verdict this function returns is about the file's contents, which have
+	// already been read by the time this runs.
 	defer func() { _ = db.Close() }()
 
 	facts, err := inspect(db)

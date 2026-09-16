@@ -121,6 +121,11 @@ func (l *Logger) Warn(component, format string, args ...any) {
 	}
 
 	line := l.line(GlyphWarning, colourYellow, component, fmt.Sprintf(format, args...))
+
+	// Discarded deliberately, and this is the one place where that is not a
+	// shortcut: the only way to report that logging failed is to log. A
+	// returned error would put an `if err != nil` at every call site in the
+	// codebase for a failure nobody could act on.
 	_ = l.ctx.Log.Warn(line, &pulumi.LogArgs{Ephemeral: false})
 }
 
@@ -129,6 +134,8 @@ func (l *Logger) info(glyph, colour, component, detail string, ephemeral bool) {
 		return
 	}
 
+	// Discarded for the reason Warn gives: reporting a failure to report has
+	// nowhere to go.
 	_ = l.ctx.Log.Info(
 		l.line(glyph, colour, component, detail),
 		&pulumi.LogArgs{Ephemeral: ephemeral})

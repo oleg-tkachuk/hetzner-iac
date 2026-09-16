@@ -449,6 +449,8 @@ func renderRaw(ctx context.Context, chart charts.Chart, release, namespace, key 
 	}
 
 	if valuesFile != "" {
+		// A temp file this function made. Failing to remove it leaves a file in
+		// the OS temp directory, which is not worth failing a render over.
 		defer func() { _ = os.Remove(valuesFile) }()
 
 		args = append(args, "--values", valuesFile)
@@ -568,6 +570,10 @@ func writeValues(key string) (string, error) {
 	}
 
 	if _, err := file.Write(content); err != nil {
+		// The write error is the one worth reporting; a Close error on top of
+		// it would replace a cause with a consequence. The SUCCESSFUL path
+		// below checks Close, because there a failure means bytes never
+		// reached the disk.
 		_ = file.Close()
 
 		return "", fmt.Errorf("write values: %w", err)

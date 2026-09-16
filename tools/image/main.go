@@ -269,6 +269,9 @@ func schematicID(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("image factory: %w", err)
 	}
+	// The body is read below and this only releases the connection. A Close
+	// error here would say nothing about whether the read succeeded, which
+	// is the only question this function answers.
 	defer func() { _ = response.Body.Close() }()
 
 	if !createdSchematic(response.StatusCode) {
