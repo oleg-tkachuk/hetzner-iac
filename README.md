@@ -187,6 +187,7 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 | [operations.md](docs/operations.md) | running a cluster that exists: stopping, starting, the checks, kubectl |
 | [ci.md](docs/ci.md) | how changes land, the scanners, what the suites prove, chart upgrades |
 | [ROADMAP.md](ROADMAP.md) | what is intended next, and what is deliberately not planned |
+| [adr/](docs/adr/) | the decisions this is built on: what was decided, and the consequences accepted |
 | [SECURITY.md](.github/SECURITY.md) | reporting a vulnerability, and what is in scope |
 
 ## Layout
