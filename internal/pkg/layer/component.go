@@ -83,7 +83,7 @@ type Component struct {
 	// stays in the set, so it is still enumerated and still ordered, and
 	// nothing is created. That keeps the set static and readable rather than
 	// assembled behind an `if` where a test cannot see it.
-	Create func(*Runner, []pulumi.Resource) (pulumi.Resource, error)
+	Create CreateFunc
 
 	// Release overrides the Helm release name. Empty uses the chart key.
 	Release string
@@ -130,6 +130,15 @@ func (c Component) Key() string {
 
 	return c.Chart
 }
+
+// CreateFunc is what a component that is not a chart does.
+//
+// Named because there are now two ways to write one: a plain function, and a
+// function that RETURNS one — layers/40-ingress closes over the Hetzner
+// provider that way, since the provider exists only once the cluster tier's
+// token has been read. An unnamed signature written at both is the same
+// contract twice.
+type CreateFunc func(*Runner, []pulumi.Resource) (pulumi.Resource, error)
 
 // Deployed is what Deploy created, by component name. A component that
 // declined to create anything is absent.

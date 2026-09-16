@@ -158,5 +158,7 @@ func TestValues_SurviveANodeFailure(t *testing.T) {
 func TestComponents(t *testing.T) {
 	t.Parallel()
 
-	layertest.Check(t, Components)
+	// nil provider: layertest never calls Create, so the set can be built
+	// without one — it checks ordering, chart pins and declared workloads.
+	layertest.Check(t, components(nil))
 }

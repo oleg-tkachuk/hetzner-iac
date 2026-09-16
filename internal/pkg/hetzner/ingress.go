@@ -65,7 +65,7 @@ func NewIngressLoadBalancer(
 	name string,
 	args IngressLoadBalancerArgs,
 	opts ...pulumi.ResourceOption,
-) (*IngressLoadBalancer, error) {
+) (*hcloud.LoadBalancer, error) {
 	labels := pulumi.StringMap{
 		LabelCluster:   args.ClusterName,
 		LabelManagedBy: pulumi.String(ManagedBy),
@@ -155,18 +155,14 @@ func NewIngressLoadBalancer(
 		return nil, fmt.Errorf("hcloud ingress load balancer target: %w", err)
 	}
 
-	return &IngressLoadBalancer{IPv4: loadBalancer.Ipv4, IPv6: loadBalancer.Ipv6}, nil
-}
-
-// IngressLoadBalancer is the load balancer's two public addresses.
-//
-// Both, because Hetzner gives every load balancer an IPv4 and an IPv6 and a
-// dual-stack load balancer behind an A record alone is a half-answer: an
-// IPv6-only client resolves nothing, which looks like the site being down
-// rather than like a missing record.
-type IngressLoadBalancer struct {
-	IPv4 pulumi.StringOutput
-	IPv6 pulumi.StringOutput
+	// The resource itself, not a copy of two of its fields.
+	//
+	// It used to return an IngressLoadBalancer holding Ipv4 and Ipv6, which
+	// read as a component and was not one: no ResourceState, so it did not
+	// satisfy pulumi.Resource and a layer.Components entry could not return
+	// it. That is why this layer's Hetzner half sat outside the table. The
+	// hcloud resource carries both addresses already.
+	return loadBalancer, nil
 }
 
 // ingressID is idToInt for a load balancer, named so the three call sites read

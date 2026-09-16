@@ -57,7 +57,12 @@ func TestEveryLayer_ChecksItsComponents(t *testing.T) {
 			continue
 		}
 
-		assert.True(t, contains(t, dir, "layertest.Check(t, Components)"),
+		// The call, not one exact spelling of it. layers/40-ingress builds its
+		// set with a function — one component needs the Hetzner provider,
+		// which exists only once the cluster tier's token is read — so the
+		// argument is components(nil) there, and grepping for `Components)`
+		// would have called that layer unchecked while it is checked.
+		assert.True(t, contains(t, dir, "layertest.Check(t, "),
 			"layers/%s declares a component set but never calls layertest.Check, "+
 				"so none of the invariants are asserted for it", layer)
 
