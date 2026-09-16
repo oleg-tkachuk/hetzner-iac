@@ -96,11 +96,20 @@ func deploy(r *layer.Runner) error {
 		return err
 	}
 
+	// Said out loud, because this is the one billable resource a platform
+	// layer creates and its size is a config decision. The three lines this
+	// layer already prints are all about DNS, so the load balancer — the thing
+	// that costs money every hour — was the quiet one.
+	balancerType := r.StringOr("loadBalancerType", DefaultLoadBalancerType)
+	// Type only: the location is the cluster's, and the cluster tier reports
+	// it. Reading it here would mean resolving an Output to print a word.
+	r.Log.Step("load-balancer", balancerType)
+
 	balancer, err := hetzner.NewIngressLoadBalancer(r.Ctx, "ingress", hetzner.IngressLoadBalancerArgs{
 		ClusterName:      r.Cluster.ClusterName,
 		Location:         r.Cluster.Location,
 		NetworkID:        r.Cluster.NetworkID,
-		LoadBalancerType: r.StringOr("loadBalancerType", DefaultLoadBalancerType),
+		LoadBalancerType: balancerType,
 	}, pulumi.Provider(hcloudProvider))
 	if err != nil {
 		return err
