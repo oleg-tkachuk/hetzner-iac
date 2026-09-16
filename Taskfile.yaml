@@ -9,7 +9,7 @@ vars:
   # The git form is the default because someone who clones this repository has
   # no sibling checkout. Working on the library itself:
   #   TASKLIB: '../taskfiles/%s'
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.0.1'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.1.0'
 
   PROJECT_NAME: hetzner-iac
   ROOT: { sh: pwd }
