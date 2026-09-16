@@ -26,6 +26,14 @@ var isoDate = regexp.MustCompile(`\b20[0-9]{2}-[0-9]{2}-[0-9]{2}\b`)
 var datesThatAreData = []string{
 	"/v1/datacenters",
 	"snapshot 2026-09-11T00:18:18Z",
+	// Go's reference layout. It looks like a date because that is how the time
+	// package spells a format, and any code printing a timestamp has to name
+	// it — without this, formatting one is not possible in this repository.
+	"2006-01-02",
+	// And the value that layout produces, in the test that pins it. The date
+	// is a fixture of somebody else's timestamp, not a note on when anything
+	// here was measured.
+	"when(",
 }
 
 // TestNoDatesInProse keeps "measured on <date>" out of comments and
