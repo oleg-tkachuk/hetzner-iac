@@ -33,6 +33,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/blang/semver"
@@ -72,8 +73,13 @@ var adminPorts = map[string]string{
 }
 
 func main() {
+	// The same line and the same exit code as every other program here. It
+	// panicked, which printed a Go stack trace over the one sentence that
+	// matters and exited 2 rather than 1 — and the gate that unified this read
+	// only tools/*/main.go, so policy/ was outside its scope.
 	if err := policyx.Main(newPolicyPack); err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
