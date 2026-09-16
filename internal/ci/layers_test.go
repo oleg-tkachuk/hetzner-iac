@@ -184,10 +184,27 @@ func TestEveryLayerReference_PointsAtADirectoryThatExists(t *testing.T) {
 func TestBackupLayer_ExportsThePasswordAsASecret(t *testing.T) {
 	t.Parallel()
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", "layers", "60-backup", "main.go"))
+	// Every Go file in that layer, for the reason the outputs gate reads them
+	// all: a file added beside main.go could carry the export away and leave
+	// this reading the wrong one.
+	sources, err := filepath.Glob(filepath.Join("..", "..", "layers", "60-backup", "*.go"))
 	require.NoError(t, err)
+	require.NotEmpty(t, sources)
 
-	body := string(raw)
+	var joined strings.Builder
+
+	for _, path := range sources {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+
+		raw, readErr := os.ReadFile(path)
+		require.NoError(t, readErr, path)
+
+		joined.Write(raw)
+	}
+
+	body := joined.String()
 
 	require.Contains(t, body, "OutputPassword",
 		"the backup layer no longer exports a password; this test is checking nothing")
