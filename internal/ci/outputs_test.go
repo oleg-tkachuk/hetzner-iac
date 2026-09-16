@@ -31,14 +31,30 @@ func producers(t *testing.T) []string {
 
 	root := filepath.Join("..", "..")
 
-	paths, err := filepath.Glob(filepath.Join(root, "layers", "*", "main.go"))
-	require.NoError(t, err)
-	require.NotEmpty(t, paths, "no layers found")
+	// Every Go file in each project, not main.go alone. A layer that grows a
+	// second file — layers/10-node-platform splits its create functions and
+	// its chart data out — would otherwise take its output constants with it
+	// and leave this check reading a file that no longer holds them, which is
+	// a pass that proves nothing.
+	var paths []string
 
-	return append(paths,
-		filepath.Join(root, "infra", "cluster", "main.go"),
-		filepath.Join(root, "internal", "pkg", "clusterref", "clusterref.go"),
-	)
+	for _, pattern := range []string{
+		filepath.Join(root, "layers", "*", "*.go"),
+		filepath.Join(root, "infra", "cluster", "*.go"),
+	} {
+		matched, err := filepath.Glob(pattern)
+		require.NoError(t, err)
+
+		for _, path := range matched {
+			if !strings.HasSuffix(path, "_test.go") {
+				paths = append(paths, path)
+			}
+		}
+	}
+
+	require.NotEmpty(t, paths, "no layer sources found")
+
+	return append(paths, filepath.Join(root, "internal", "pkg", "clusterref", "clusterref.go"))
 }
 
 // TestLayers_ExportOnlyNamedOutputs is the convention, and it is deliberately

@@ -83,7 +83,12 @@ func mainPackages(t *testing.T, root string) ([]string, error) {
 			return filepath.SkipDir
 		}
 
-		if entry.IsDir() || entry.Name() != "main.go" {
+		// Any Go file in a main package, not main.go alone: a program that
+		// splits its entry point from its wiring — layers/10-node-platform
+		// does — would otherwise be able to move the failure line into a file
+		// this never opens.
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") ||
+			strings.HasSuffix(entry.Name(), "_test.go") {
 			return nil
 		}
 
