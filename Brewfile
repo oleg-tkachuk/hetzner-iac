@@ -84,7 +84,9 @@ brew "helm"
 brew "kubeconform"
 
 brew "lychee"        # task docs:links
-brew "golangci-lint" # task security:lint
+# task security:lint. `task lint` runs the version CI pins instead, from
+# bin/golangci-lint — see tools/golangci — so this one is for everything else.
+brew "golangci-lint"
 brew "gitleaks"      # task security:secrets
 brew "gosec"         # nightly, and task security:gosec
 brew "trivy"         # task security:trivy

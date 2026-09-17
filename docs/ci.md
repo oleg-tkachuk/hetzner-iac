@@ -229,7 +229,7 @@ locally. On macOS `brew bundle` installs every one.
 | `helm` | `task charts:render-check` — renders each chart and compares it against what `internal/pkg/workloads` declares it produces |
 | `kubeconform` | `task charts:validate` — validates what those charts render against the Kubernetes version the topology pins |
 | `lychee` | `task docs:links` |
-| `golangci-lint` | `task security:lint` |
+| `golangci-lint` | `task lint`, which runs the version this workflow pins and refuses another — `task lint:install` writes it into `bin/`; also `task security:lint` |
 | `gitleaks` | `task security:secrets` |
 | `gosec` | `task security:gosec`, and the nightly run |
 | `trivy` | `task security:trivy` |
