@@ -191,15 +191,13 @@ pre-push:
       tags: [go, test]
       run: go test -count=1 ./...
 
+    # Through tools/golangci, not the bare binary: it runs the version CI pins
+    # and refuses a different one. A push was once blocked by eight findings
+    # that exist only in an older linter — red here, green in the pull request,
+    # and neither message named a version.
     - name: lint
       tags: [go, lint]
-      run: |
-        set -euo pipefail
-        command -v golangci-lint >/dev/null 2>&1 || {
-          printf '%s\n' "ERROR: golangci-lint is not installed — brew install golangci-lint" >&2
-          exit 1
-        }
-        golangci-lint run ./...
+      run: go run ./tools/golangci run ./...
 
     - name: vet
       tags: [go]

@@ -21,6 +21,7 @@ bin/
 /charts
 /cluster
 /etcd
+/golangci
 /image
 /orphans
 /secrets
