@@ -168,7 +168,9 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 | `task go:deps:outdated` / `task go:deps:update` | dependency reports and bumps |
 | `task go:fmt:check` | fail if `gofmt -s` would change anything; what `task fmt-check` runs |
 | `task go:fmt` / `task go:tidy` | format; tidy the module |
-| `task go:lint` | golangci-lint |
+| `task lint` | golangci-lint at the version CI pins; `task lint -- ./internal/...` narrows it |
+| `task lint:install` | write that pinned version into `bin/`, for this platform |
+| `task go:lint` | golangci-lint from PATH, whichever version that is |
 | `task go:test` | the unit suite |
 | `task go:test:coverage` | unit suite with an HTML coverage report |
 | `task go:test:tagged:compile` | type-check the `e2e` suite, which the default run never compiles |
