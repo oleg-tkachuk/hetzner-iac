@@ -88,11 +88,14 @@ first.
 
 ## Who did what
 
-The API server writes an audit log and Talos is what configures it — not this
-repository. It sets `--audit-policy-file`, `--audit-log-path` and the three
-rotation flags itself, so the log exists on every control-plane node from the
-first boot, at `/var/log/audit/kube/kube-apiserver.log`, rotated at 100 MB and
-kept for 30 days or 10 files.
+The API server writes an audit log, and Talos is what turns it on: it sets
+`--audit-policy-file`, `--audit-log-path` and the three rotation flags itself,
+so the log exists on every control-plane node from the first boot, at
+`/var/log/audit/kube/kube-apiserver.log`, rotated at 100 MB and kept for 30
+days or 10 files.
+
+What it records is this repository's: the cluster patch replaces Talos's
+default policy with [`internal/pkg/hetzner/auditpolicy.yaml`](../internal/pkg/hetzner/auditpolicy.yaml).
 
 ```bash
 task cluster:audit stack=dev            # last 200 events per node
@@ -106,13 +109,27 @@ one request is answered by whichever node happened to serve it.
 Two things about it are worth knowing before an incident rather than during
 one.
 
-**The policy Talos ships is `level: Metadata` on everything.** Every request
-is recorded as who, when, verb, resource and response code — and no request or
-response bodies at all. So it answers "who deleted that Deployment at 14:02"
-and cannot answer "what was in the object they created". Tuning that is a
-machine-config patch and a separate decision; the one rule it must keep is
-that `secrets` never rises above `Metadata`, because the level above it writes
-secret values into a file with 30-day retention.
+**Most events are `Metadata`: who, when, verb, resource, response code — and
+no bodies.** Four kinds of event are recorded with their request body instead,
+because metadata alone does not answer the question anybody asks about them:
+changes to RBAC (what was granted, and to whom), `pods/exec`, `pods/attach`
+and `pods/portforward` (which command), and admission webhooks (what was
+configured). And the noise is dropped rather than recorded: health and
+discovery endpoints, the control plane reading its own state, kubelet reads,
+and leader-election leases — which in an idle cluster is most of the volume.
+
+`secrets`, `configmaps` and `serviceaccounts/token` are pinned at `Metadata`,
+and their rule is deliberately the FIRST one. That placement does both jobs a
+comment cannot: nothing can raise them, because a rule that did would have to
+be placed above it; and nothing can drop them, because the rule dropping
+kubelet reads comes later — a node reading somebody else's secret stays
+recorded. The level above `Metadata` writes the request body, and for a Secret
+the body is the secret.
+
+Talos does not check any of this — its own reference calls the policy an
+unstructured object, and the API server ignores fields it does not recognise,
+so a misspelt selector silently matches nobody. The file is decoded strictly
+in Go, and every claim above is a test.
 
 **The directory is on Talos's EPHEMERAL partition**, which is its own word for
 it. `talosctl reset` takes the log, a replaced control-plane server takes it,

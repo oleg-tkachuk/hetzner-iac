@@ -1,0 +1,148 @@
+# What the Kubernetes API server records, and what it deliberately does not.
+#
+# This REPLACES the policy Talos ships, which is `level: Metadata` with no
+# rules of its own. That default is defensible and both too much and too
+# little: every read is recorded, and no request body is kept for the changes
+# somebody will want to reconstruct after an incident.
+#
+# Talos does not validate this. Its own reference calls auditPolicy an
+# unstructured object, so a misspelt field reaches the API server, which
+# ignores what it does not recognise — the rule silently stops selecting
+# anything. internal/pkg/hetzner/auditpolicy.go decodes this file STRICTLY and
+# checks the invariants below, and that test is the only thing standing between
+# a typo here and a gap nobody notices for months.
+#
+# ORDER IS THE SEMANTICS: the first rule that matches an event decides its
+# level, and nothing after it is consulted. Every block below is placed rather
+# than listed.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+
+# RequestReceived carries no outcome — no status code, no response — so every
+# request appears twice and only the second appearance says whether it was
+# allowed. Dropping it here halves the volume at the source rather than in
+# whatever reads the log.
+omitStages:
+  - RequestReceived
+
+rules:
+  # ─── Secrets first, and that placement is the point ────────────────────────
+  #
+  # Metadata, which is what the catch-all at the bottom would give them
+  # anyway — so this rule changes nothing today and exists for two reasons
+  # that both bite later.
+  #
+  # It is a CEILING. Any rule that would raise these above Metadata now has to
+  # be placed above this one, which cannot be done by accident. The level above
+  # Metadata writes the request body, and for a Secret the body is the secret:
+  # a log with 30-day retention would become the least protected copy of every
+  # credential in the cluster.
+  #
+  # And it is a FLOOR. The node rule further down drops kubelet reads as noise,
+  # which is correct for pods and endpoints and wrong for these: kubelet
+  # credentials are node-scoped precisely so that a compromised node can reach
+  # only its own secrets, and the audit log is what would show it reaching
+  # further. Placed here, those reads survive that rule.
+  - level: Metadata
+    resources:
+      - group: ""
+        resources:
+          - secrets
+          - configmaps
+          - serviceaccounts/token
+
+  # ─── Noise, dropped before anything else is evaluated ──────────────────────
+  #
+  # Health and discovery endpoints. Every probe, every scrape, every client
+  # negotiating the API surface — high volume, no forensic content.
+  - level: None
+    nonResourceURLs:
+      - /healthz*
+      - /livez*
+      - /readyz*
+      - /version
+      - /metrics
+      - /openapi*
+      - /apis
+      - /apis/*
+      - /api
+      - /api/*
+
+  # The control plane reading its own state. These are the loops that make
+  # Kubernetes work: they never stop, and a record of them answers nothing
+  # about who did what.
+  - level: None
+    users:
+      - system:apiserver
+      - system:kube-scheduler
+      - system:kube-controller-manager
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Kubelets reading what they need to run pods. Secrets and configmaps are
+  # NOT in this set — the rule above caught them already.
+  - level: None
+    userGroups:
+      - system:nodes
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Leader election, which is a write every couple of seconds from every
+  # controller that has a lease. The largest single source of write volume in
+  # an idle cluster, and it records nothing but liveness.
+  - level: None
+    verbs:
+      - get
+      - update
+      - patch
+    resources:
+      - group: coordination.k8s.io
+        resources:
+          - leases
+    namespaces:
+      - kube-system
+      - kube-node-lease
+
+  # ─── Depth where the answer needs a body ───────────────────────────────────
+  #
+  # Authorization. This is how privilege is granted, and metadata alone says
+  # that a ClusterRoleBinding was created without saying what it granted or to
+  # whom — which is the entire question.
+  - level: RequestResponse
+    resources:
+      - group: rbac.authorization.k8s.io
+        resources:
+          - roles
+          - rolebindings
+          - clusterroles
+          - clusterrolebindings
+
+  # Getting a shell. The request carries the command, and without it the log
+  # shows that somebody exec'd into a pod and not what they ran.
+  - level: RequestResponse
+    resources:
+      - group: ""
+        resources:
+          - pods/exec
+          - pods/attach
+          - pods/portforward
+
+  # Admission webhooks intercept every write in the cluster, so one added
+  # quietly is a cluster-wide backdoor. Request rather than RequestResponse:
+  # what matters is the configuration sent, and the response only echoes it.
+  - level: Request
+    resources:
+      - group: admissionregistration.k8s.io
+        resources:
+          - mutatingwebhookconfigurations
+          - validatingwebhookconfigurations
+
+  # ─── Everything else ───────────────────────────────────────────────────────
+  #
+  # Who, when, which verb, which resource, which response code. The same level
+  # Talos defaults to, kept as the floor rather than as the whole policy.
+  - level: Metadata

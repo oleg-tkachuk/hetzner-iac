@@ -391,10 +391,17 @@ func TestBuildClusterPatch_DoesNotPassCloudProviderToTheAPIServer(t *testing.T) 
 	cluster, ok := patch["cluster"].(map[string]any)
 	require.True(t, ok)
 
-	apiServer, present := cluster["apiServer"]
+	// The section exists now, because it carries the audit policy — so this
+	// asserts what it is actually about rather than the section's absence.
+	// --cloud-provider can only arrive through extraArgs, and the API server
+	// needs none of those at all.
+	apiServer, ok := cluster["apiServer"].(map[string]any)
+	require.True(t, ok, "no apiServer section, so the audit policy is not being set either")
+
+	extraArgs, present := apiServer["extraArgs"]
 	assert.False(t, present,
 		"the API server needs no extraArgs at all; it grew a cloud-provider flag once and that cost a bring-up: %v",
-		apiServer)
+		extraArgs)
 
 	// The two that do take it must keep it: the CCM clears the uninitialized
 	// taint and programmes pod routes, and neither happens without this.
