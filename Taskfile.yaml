@@ -352,12 +352,23 @@ tasks:
       # Flags live in .checkov.yaml, not here, so a local run and the CI job
       # assert the same thing. pipx as the fallback because checkov is a
       # Python tool and CI installs it that way.
+      #
+      # The version is READ from the workflow, not written here. It was written
+      # here — `${CHECKOV_VERSION:-3.3.17}` — and that default is only ever
+      # used locally, because CI sets the variable. So the moment the pin moved
+      # to 3.3.18 a local run installed 3.3.17 and asserted against different
+      # rules, silently. One copy, in the file Renovate already bumps.
       - cmd: |
           set -euo pipefail
           if command -v checkov >/dev/null; then
             checkov --config-file "{{.ROOT}}/.checkov.yaml"
           else
-            pipx run "checkov==${CHECKOV_VERSION:-3.3.17}" --config-file "{{.ROOT}}/.checkov.yaml"
+            version="${CHECKOV_VERSION:-$(awk -F'"' '/CHECKOV_VERSION:/ {print $2}' "{{.ROOT}}/.github/workflows/ci.yaml")}"
+            if [ -z "$version" ]; then
+              printf '%s\n' "{{._ERR}} hetzner-iac · checkov · no CHECKOV_VERSION in .github/workflows/ci.yaml" >&2
+              exit 1
+            fi
+            pipx run "checkov==${version}" --config-file "{{.ROOT}}/.checkov.yaml"
           fi
 
   docs:links:

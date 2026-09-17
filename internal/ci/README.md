@@ -29,6 +29,7 @@ carry them.
 | `diagrams_test.go` | every layer a diagram names exists, and every diagram reference resolves |
 | `discards_test.go` | every discarded error says why it is discarded |
 | `exits_test.go` | every main package reports a failure the same way, and none of them panics |
+| `externaltools_test.go` | every binary this repository runs is named in the prerequisites, the checks' list or the Brewfile |
 | `gatemarkers_test.go` | the † in the command reference against the tasks the workflows run |
 | `gitignore_test.go` | every main package's binary name has a `.gitignore` entry |
 | `identifiers_test.go` | no tracked file names a real address, domain or ACME contact of this project's own; examples stay in the ranges RFC 5737 and RFC 2606 reserve |
