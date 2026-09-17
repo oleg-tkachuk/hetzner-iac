@@ -83,8 +83,8 @@ brew "helm"
 # the topology pins. It fetches the schemas, so this one needs egress.
 brew "kubeconform"
 
-brew "lychee"        # task docs:links
-# task security:lint. `task lint` runs the version CI pins instead, from
+brew "lychee"        # task ci:docs:links
+# task security:lint. `task ci:lint` runs the version CI pins instead, from
 # bin/golangci-lint — see tools/golangci — so this one is for everything else.
 brew "golangci-lint"
 brew "gitleaks"      # task security:secrets

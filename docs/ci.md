@@ -200,7 +200,7 @@ vulnerable, and a gate that only runs on push would never say so.
 
 Each job installs its tool and then calls the same task an operator runs
 locally, so the flags live in one place rather than being restated in YAML.
-`task scan` is the whole set.
+`task ci:scan` is the whole set.
 
 Accepted findings live in `.trivyignore.yaml` and `.checkov.yaml`, each with
 the reason it stands. Entries are removed as soon as a fix lands — a stale
@@ -228,8 +228,8 @@ locally. On macOS `brew bundle` installs every one.
 |------|-------------------------|
 | `helm` | `task charts:render-check` — renders each chart and compares it against what `internal/pkg/workloads` declares it produces |
 | `kubeconform` | `task charts:validate` — validates what those charts render against the Kubernetes version the topology pins |
-| `lychee` | `task docs:links` |
-| `golangci-lint` | `task lint`, which runs the version this workflow pins and refuses another — `task lint:install` writes it into `bin/`; also `task security:lint` |
+| `lychee` | `task ci:docs:links` |
+| `golangci-lint` | `task ci:lint`, which runs the version this workflow pins and refuses another — `task ci:lint:install` writes it into `bin/`; also `task security:lint` |
 | `gitleaks` | `task security:secrets` |
 | `gosec` | `task security:gosec`, and the nightly run |
 | `trivy` | `task security:trivy` |

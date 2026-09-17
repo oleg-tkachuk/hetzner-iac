@@ -160,8 +160,8 @@ from its committed topology.
 | `task cluster:status` | nodes, then anything not Running |
 | `task platform:status` | which layers are deployed |
 | `task e2e` | verify a running cluster; read-only |
-| `task verify` | everything checkable without a cluster |
-| `task scan` | every scanner CI runs |
+| `task ci:verify` | everything checkable without a cluster |
+| `task ci:scan` | every scanner CI runs |
 
 Full reference: [commands.md](docs/commands.md).
 

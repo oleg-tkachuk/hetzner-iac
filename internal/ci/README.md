@@ -12,7 +12,7 @@ go test ./internal/ci/                                  # all of them
 go test ./internal/ci/ -run TestGateMarkers -v           # one
 ```
 
-They run as part of the unit suite, so `task go:test`, `task verify` and CI all
+They run as part of the unit suite, so `task go:test`, `task ci:verify` and CI all
 carry them.
 
 ## What each guards

@@ -331,12 +331,14 @@ func TestCI_DocumentationLinkGateIgnoresRelevance(t *testing.T) {
 func TestDocsLinkTask_ChecksFragmentsOffline(t *testing.T) {
 	t.Parallel()
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", "Taskfile.yaml"))
+	// In the CI taskfile, not the root one: the root manages the IaC, and the
+	// checks that mirror the pipeline live beside each other.
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "ci.task.yaml"))
 	require.NoError(t, err)
 
 	block := regexp.MustCompile(`(?ms)^  docs:links:\n(.*?)(?:^  [a-z][a-z0-9:-]*:\n)`).
 		FindStringSubmatch(string(raw))
-	require.Len(t, block, 2, "no docs:links task in Taskfile.yaml")
+	require.Len(t, block, 2, "no docs:links task in tasks/ci.task.yaml")
 
 	for _, flag := range []string{"--offline", "--include-fragments"} {
 		assert.Contains(t, block[1], flag,
