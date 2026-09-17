@@ -10,9 +10,11 @@ rest of the design — what owns what, the layers, the output contract — is
 `layers/20-network-policy` sits immediately after the CNI because Cilium is
 what enforces its resources — the CRDs do not exist until the chart is
 installed. What it carries is a `CiliumClusterwideNetworkPolicy` per flow the
-cluster cannot lose (host to pod, pod to DNS, pod to the API server through
-KubePrism, scraping, the few pod-to-pod paths the platform actually uses) and
-one default deny, separately.
+cluster cannot lose — host to pod, pod to DNS, pod to the API server through
+KubePrism, scraping, the few pod-to-pod paths the platform uses, cert-manager
+reaching Let's Encrypt, the CSI driver and the cloud controller manager
+reaching `api.hetzner.cloud`, and Argo CD reaching the repositories and charts
+it reconciles — and one default deny, separately.
 
 `network-policy:enabled` is `false` by default, and that is not timidity. In
 Cilium, *any* policy that selects an endpoint puts that endpoint into
@@ -47,6 +49,29 @@ interpreting.
 
 Turn it on with the flows in front of you: `task cluster:hubble` prints what
 the cluster is doing now.
+
+### What each allow policy cost to write
+
+Most of them were measured from Hubble on a live cluster, and two were not,
+for opposite reasons worth knowing before adding a third.
+
+`60-allow-hcloud-api` was missed entirely by the first two captures and found
+only when a PersistentVolumeClaim provoked it: both clients call that API on
+demand, so a capture is a window rather than an inventory. A flow that happens
+on demand has to be provoked, not waited for.
+
+`70-allow-argocd-git` could not be measured at all — `gitops:repoURL` is
+unset, so the flow does not exist yet. It is written anyway, because the
+alternative is that the first apply which sets that key looks like a broken
+repository. It is also the one policy here that permits `toEntities: world`
+rather than named hosts, and deliberately: Argo CD reaches the forge that key
+names and every chart registry any child Application references, which is not
+a set anybody can list in advance.
+
+The flow this was once also waiting for — Alertmanager reaching a receiver —
+is not a gap today: no observability is installed, so there is nothing to
+drop. It becomes one again the moment that arrives, which is why it is written
+down here rather than only in a backlog.
 
 ## How a request reaches a pod
 

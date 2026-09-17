@@ -1,0 +1,63 @@
+# Argo CD fetching what it reconciles.
+#
+# The last of the flows the default deny was waiting for. Under the deny this
+# is dropped, the root Application reports that it cannot fetch, and the
+# symptom reads as a wrong repository or a bad credential — the same
+# misreading layers/50-gitops now validates against, arriving from the other
+# direction.
+#
+# It is written before the flow exists rather than after. `gitops:repoURL` is
+# unset, so there is nothing to measure yet; writing it now is what keeps the
+# first apply that sets that key from looking like a broken repository.
+#
+# NOT toFQDNs, which is what both neighbouring policies use and the wrong
+# choice here. Those name endpoints a vendor owns and a flag switches between —
+# a fixed set. This workload's destinations are not a set at all: it reaches
+# the forge named by `gitops:repoURL`, and every Helm or OCI registry any child
+# Application references. An allowlist would need editing each time an
+# application is added, and each omission would read as a broken application
+# rather than as policy. That is a gate people learn to turn off.
+#
+# So toEntities: world, which is the first use of it here and deliberately
+# broad: outside the cluster, on the two ports git and chart registries speak.
+# What it does NOT permit is anything else — no other namespace gains egress,
+# and this one still reaches the API server only through 20-allow-apiserver.
+#
+# Both ports, because which one is used follows from `gitops:repoURL`: 443 for
+# an https:// repository and for every chart pull, 22 for git@host:path. Naming
+# one turns the other into an outage the moment that key moves, which is the
+# argument 50-allow-acme.yaml makes about staging and production.
+#
+# THE NAMESPACE RATHER THAN THE REPO-SERVER, and that is a measurement debt
+# rather than a decision. The repo-server is what fetches today, but the flow
+# cannot be observed while it does not exist, and 60-allow-hcloud-api.yaml is
+# the local precedent for what guessing narrowly about an unmeasured on-demand
+# flow costs: that one was missed entirely until a PersistentVolumeClaim
+# provoked it. Narrow this to
+#
+#   k8s:app.kubernetes.io/name: argocd-repo-server
+#
+# once Hubble shows which pods actually leave the cluster — look for flows out
+# of the argocd namespace to :443 after a sync, and for :22 if the repository
+# is reached over SSH.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-argocd-git
+spec:
+  description: Argo CD fetches the repositories and charts it reconciles
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: argocd
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "22"
+              protocol: TCP
