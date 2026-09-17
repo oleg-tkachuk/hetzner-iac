@@ -32,6 +32,8 @@
 # control plane to bound a cost that requests already bound by scheduling.
 
 controller:
+  # Creating and attaching volumes at all.
+  priorityClassName: system-cluster-critical
   # THE CONTROLLER IS TOLD ITS LOCATION, NOT LEFT TO FIND IT.
   #
   # The chart's own words for the empty default: "If set the controller could
@@ -96,6 +98,10 @@ controller:
         memory: 128Mi
 
 node:
+  # A DaemonSet, and node-critical rather than cluster-critical because its
+  # loss is a node-level failure: the plugin evicted here means every pod with
+  # a volume on this node stays Pending, with nothing wrong on the volume.
+  priorityClassName: system-node-critical
   resources:
     hcloudCSIDriver:
       requests:

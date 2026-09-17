@@ -1,5 +1,12 @@
 # cert-manager.
 
+# One key for the controller, the webhook and the cainjector — the chart's own
+# spelling. The webhook sits in the admission path for every Certificate, so
+# losing it stops renewal with nothing said; that failure arrives ninety days
+# later, as an expired certificate.
+global:
+  priorityClassName: system-cluster-critical
+
 crds:
   # CRDs come with the release. Managing them separately is right when several
   # things install cert-manager; this cluster has one.

@@ -119,6 +119,50 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 		chartsettings.HcloudCSIDefaultLocation)
 }
 
+// TestTemplates_SetThePriorityClassEachComponentNeeds is the same half again,
+// for a setting whose absence is invisible until a node runs out of memory.
+//
+// The render check proves each chart honours the key. It renders with its own
+// `--set`, so it passes whether or not a template sets anything — and an
+// unset priority is not a failure, it is a pod ranked beside the workloads it
+// serves. Nothing else would notice.
+//
+// Argo CD is deliberately absent, and asserted absent: it reconciles rather
+// than serves, so marking it cluster-critical would let it outrank the
+// workloads under exactly the pressure where they matter more.
+func TestTemplates_SetThePriorityClassEachComponentNeeds(t *testing.T) {
+	t.Parallel()
+
+	for chart, want := range map[string][]string{
+		"traefik":      {chartsettings.PriorityClusterCritical},
+		"cert-manager": {chartsettings.PriorityClusterCritical},
+		"hcloud-ccm":   {chartsettings.PriorityClusterCritical},
+		// Two, and not the same one: the node plugin is a DaemonSet.
+		"hcloud-csi": {chartsettings.PriorityClusterCritical, chartsettings.PriorityNodeCritical},
+	} {
+		source, err := values.Source(chart)
+		require.NoError(t, err, chart)
+
+		assert.Contains(t, source, chartsettings.PriorityClassName,
+			"the %s template no longer spells %q the way the render check asserts it",
+			chart, chartsettings.PriorityClassName)
+
+		for _, class := range want {
+			assert.Contains(t, source, class,
+				"the %s template no longer asks for %s, so the kubelet ranks it beside the "+
+					"workloads it serves", chart, class)
+		}
+	}
+
+	argo, err := values.Source("argo-cd")
+	require.NoError(t, err)
+
+	assert.NotContains(t, argo, chartsettings.PriorityClassName,
+		"argo-cd has been given a priority class. It reconciles rather than serves, so this "+
+			"lets it outrank workloads under memory pressure — if that is intended, say why "+
+			"in internal/pkg/chartsettings and change this")
+}
+
 // TestHcloudCSI_LocationIsRenderedNotLeftEmpty is the value's own failure mode:
 // an empty string is valid YAML and a valid chart value, and it puts the
 // controller straight back on the discovery path.

@@ -12,6 +12,12 @@
 # through the Hetzner provider, selecting its targets by cluster label — a
 # Hetzner concept that knows nothing about that Kubernetes label.
 
+# Ingress is how anything reaches this cluster from outside, and this chart
+# sets no priority of its own — so under node memory pressure the kubelet ranks
+# Traefik beside the workloads it serves. internal/pkg/chartsettings says which
+# components get a class and which deliberately do not.
+priorityClassName: system-cluster-critical
+
 deployment:
   # Two, so losing one node does not take ingress with it.
   replicas: {{ .Replicas }}
