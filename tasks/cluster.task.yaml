@@ -576,7 +576,7 @@ tasks:
             esac
           else
             printf '%s\n' "$out" >&2
-            printf '%s\n' "{{._ERR}} cluster · status · cannot reach the cluster — is KUBECONFIG set?" >&2
+            printf '%s\n' "{{._ERR}} cluster · status · cannot reach the cluster — the API server is down, or this address is not in network.adminCIDRs" >&2
             exit 1
           fi
 
