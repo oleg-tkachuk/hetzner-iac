@@ -150,6 +150,26 @@ throughput and can only add memory pressure.
 Two triggers decide *how often* Renovate runs, and `renovate.json` decides what
 it may *do* once running. Getting that pair wrong is silent, and it was:
 
+### What its token has to allow
+
+`RENOVATE_TOKEN` is a fine-grained personal access token, not `GITHUB_TOKEN`:
+a pull request opened with the latter starts no `pull_request` workflow, so no
+required check would ever report and branch protection would block every
+upgrade. The workflow states the permissions it needs and refuses to start
+without the secret.
+
+One of them is **Dependabot alerts: read**, and it is the one that fails
+quietly. `renovate.json` configures `vulnerabilityAlerts` so a security fix
+ignores the schedule and the concurrency limits; without that permission
+Renovate logs
+
+    WARN: Cannot access vulnerability alerts.
+
+and carries on with everything else. The repository setting is separate and
+also required — Dependabot alerts have to be enabled on the repository at all —
+so a working setup needs both, and having one is indistinguishable from having
+both until a vulnerability is published.
+
 - `schedule` in `renovate.json` was `before 09:00 on monday`, which with
   `timezone: Europe/Kyiv` is **Sunday 21:00 to Monday 06:00 UTC**;
 - the workflow's cron is `0 6 * * *` — **06:00 UTC**, exactly as that window
