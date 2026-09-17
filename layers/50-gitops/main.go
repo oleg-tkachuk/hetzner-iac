@@ -103,8 +103,18 @@ var Components = layer.Components{
 		},
 	},
 	{
-		Name:   RootApplication,
+		Name:   RepositoryCredential,
 		After:  []string{Chart},
+		Create: createRepoCredential,
+	},
+	{
+		Name: RootApplication,
+		// After the credential as well as the chart: an Application that
+		// syncs before its Secret exists reports an authentication error and
+		// is retried, which is recoverable and reads like a broken
+		// repository. A component that declined is simply absent from the
+		// set, so this is not a dependency on a credential being configured.
+		After:  []string{Chart, RepositoryCredential},
 		Create: createRoot,
 	},
 }
