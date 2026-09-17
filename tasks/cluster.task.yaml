@@ -23,6 +23,24 @@ vars:
     nodes="$(hcloud server list -l "cluster=${cluster},role=control-plane" -o noheader -o columns=ipv4)"
     test -n "$nodes"
 
+  # Where the API server writes its audit log, which Talos configures and this
+  # repository does not.
+  #
+  # Not a choice made here: Talos sets --audit-policy-file, --audit-log-path
+  # and the three rotation flags itself, in
+  # internal/app/machined/pkg/controllers/k8s/control_plane_final.go, and the
+  # path is its KubernetesAuditLogDir constant — EphemeralMountPoint plus
+  # log/audit/kube. Written down here because the task below reads it and
+  # nothing else in this repository would say where it is.
+  #
+  # EPHEMERAL is the word Talos's own comment uses for that directory, and it
+  # is the property that matters: `talosctl reset` takes it, a replaced
+  # control-plane server takes it, and cluster:etcd:restore wipes every
+  # control-plane node — so the procedure for an incident destroys the record
+  # of it. Thirty days of retention is what the API server rotates to, not what
+  # survives.
+  _CL_AUDIT_LOG: /var/log/audit/kube/kube-apiserver.log
+
   # The suffix of the file written beside a snapshot, holding what the
   # snapshot said about itself when it was taken.
   #
@@ -620,6 +638,90 @@ tasks:
           done
 
           hubble --server "$server" observe --last "{{.last}}"
+
+  audit:
+    desc: "Who did what to this cluster's API, from every control-plane node; read-only"
+    deps: [talosconfig]
+    vars:
+      # Per node, not in total. Three API servers each write their own log and
+      # the load balancer spreads requests across them, so a question about
+      # one request is answered by whichever node happened to serve it — which
+      # is why this reads all of them and sorts the result rather than picking
+      # one.
+      last: '{{.last | default "200"}}'
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v jq >/dev/null
+        msg: "jq not installed — brew bundle, or brew install jq. The log is JSON lines"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          export TALOSCONFIG="{{.ROOT}}/talosconfig"
+
+          {{._CL_CONTROL_PLANE}}
+
+          # One line per event, sorted across nodes, because the useful
+          # question is "what happened at 14:02" and not "what did node 3 see".
+          #
+          # ResponseComplete only. At Metadata level the policy Talos ships
+          # emits RequestReceived as well, so every request appears twice —
+          # and it is the second one that carries the status code, which is
+          # what says whether the thing was allowed.
+          filter='select(.stage == "ResponseComplete")
+            | [ .stageTimestamp,
+                (.user.username // "-"),
+                .verb,
+                ((.objectRef.resource // "-")
+                  + (if .objectRef.namespace then "/" + .objectRef.namespace else "" end)
+                  + (if .objectRef.name then "/" + .objectRef.name else "" end)),
+                ((.responseStatus.code // "-") | tostring) ]
+            | @tsv'
+
+          collected="$(mktemp)"
+          trap 'rm -f "${collected}"' EXIT
+
+          missing=""
+
+          for node in $nodes; do
+            # --endpoints as well as --nodes, for the reason etcd:restore
+            # carries at length: with --nodes alone talosctl asks the endpoint
+            # to proxy to the node, and a peer's public address is not a path
+            # the endpoint can route to.
+            #
+            # A node with no log is reported rather than fatal. A control plane
+            # that came up minutes ago has nothing to read yet, and refusing
+            # to show the other two would answer nothing.
+            if ! talosctl --endpoints "$node" --nodes "$node" \
+                 read "{{._CL_AUDIT_LOG}}" 2>/dev/null \
+                 | tail -n "{{.last}}" \
+                 | jq -r "$filter" \
+                 | awk -v node="$node" -F'\t' \
+                     '{ printf "%s\t%s\t%s\t%s\t%s\t%s\n", $1, node, $2, $3, $4, $5 }' \
+                 >> "${collected}"; then
+              missing="${missing} ${node}"
+            fi
+          done
+
+          if [ -n "$missing" ]; then
+            printf '%s\n' "{{._WARN}} cluster · audit · no log on:${missing}"
+          fi
+
+          if [ ! -s "${collected}" ]; then
+            printf '%s\n' "{{._ERR}} cluster · audit · nothing read from any control-plane node" >&2
+            exit 1
+          fi
+
+          sort "${collected}" | awk -F'\t' \
+            'BEGIN { printf "%-28s %-15s %-32s %-7s %s\n", "TIME", "NODE", "USER", "VERB", "RESOURCE (CODE)" }
+             # A long service-account name pushes its own line and leaves the
+             # rest aligned, which is the trade a fixed width buys: TIME is
+             # what a reader scans down.
+             { printf "%-28s %-15s %-32s %-7s %s (%s)\n", $1, $2, $3, $4, $5, $6 }'
+
+          printf '\n%s\n' "{{._OK}} cluster · audit · last {{.last}} event(s) per node, ResponseComplete only"
+          printf '%s\n' "{{._SKIP}} cluster · audit · the whole file, unfiltered:"
+          printf '%s\n' "    talosctl --endpoints <node> --nodes <node> read {{._CL_AUDIT_LOG}}"
 
   orphans:
     desc: "Hetzner resources nothing claims any more — volumes, load balancers, servers, addresses, snapshots. Works after a teardown too"

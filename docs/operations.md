@@ -86,6 +86,41 @@ hcloud server describe platform-dev-control-plane-0
 A wrapper per API call would be a second, worse CLI to keep in step with the
 first.
 
+## Who did what
+
+The API server writes an audit log and Talos is what configures it — not this
+repository. It sets `--audit-policy-file`, `--audit-log-path` and the three
+rotation flags itself, so the log exists on every control-plane node from the
+first boot, at `/var/log/audit/kube/kube-apiserver.log`, rotated at 100 MB and
+kept for 30 days or 10 files.
+
+```bash
+task cluster:audit stack=dev            # last 200 events per node
+task cluster:audit stack=dev last=5000
+```
+
+All three nodes, sorted into one stream. That is not tidiness: each API server
+writes its own log and the load balancer spreads requests, so a question about
+one request is answered by whichever node happened to serve it.
+
+Two things about it are worth knowing before an incident rather than during
+one.
+
+**The policy Talos ships is `level: Metadata` on everything.** Every request
+is recorded as who, when, verb, resource and response code — and no request or
+response bodies at all. So it answers "who deleted that Deployment at 14:02"
+and cannot answer "what was in the object they created". Tuning that is a
+machine-config patch and a separate decision; the one rule it must keep is
+that `secrets` never rises above `Metadata`, because the level above it writes
+secret values into a file with 30-day retention.
+
+**The directory is on Talos's EPHEMERAL partition**, which is its own word for
+it. `talosctl reset` takes the log, a replaced control-plane server takes it,
+and `cluster:etcd:restore` wipes every control-plane node — so the procedure
+for recovering from an incident destroys the record of it. Thirty days is what
+the API server rotates to, not what survives. Getting it off the node needs
+somewhere to put it, and that is still open.
+
 ## Checks worth running
 
 | Task | Answers |

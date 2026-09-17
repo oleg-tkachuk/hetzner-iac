@@ -93,6 +93,7 @@ entry point that has the task.
 | Task | Does |
 |------|------|
 | `task cluster:apply` | provision or converge the cluster; asks first |
+| `task cluster:audit` | who did what to the API, from every control-plane node; `last=<n>` to widen |
 | `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA, which is protected |
 | `task cluster:encryption:check` | the system volumes are really encrypted, not just configured to be |
 | `task cluster:etcd:restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
