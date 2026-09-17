@@ -40,6 +40,7 @@ carry them.
 | `platformnames_test.go` | a shared name is declared once, in internal/pkg/platform, not twice |
 | `readmes_test.go` | every tool and every internal package documents itself; no README names a file that is not in the tree; the docs index lists every document |
 | `renovate_test.go` | Renovate against itself: its own regex matches every annotated pin and every pin is annotated, the paths it watches exist, and its schedule is not narrower than a best-effort cron can meet |
+| `renovatealerts_test.go` | vulnerabilityAlerts in renovate.json against the token permission the workflow tells you to grant |
 | `resourceoptions_test.go` | no `append` onto a shared option slice, which silently writes into the caller's array |
 | `taskdocs_test.go` | every task a document tells somebody to run exists, and none is one the library include leaves out |
 | `taskguards_test.go` | the arguments a task takes and what it refuses without them: the stack, the layer, the usage it prints, the question before it changes anything |

@@ -163,10 +163,22 @@ jobs:
           Create a fine-grained personal access token scoped to this
           repository with:
 
-            Contents        read and write
-            Pull requests   read and write
-            Issues          read and write   (the Dependency Dashboard)
-            Workflows       read and write   (only to bump pinned actions)
+            Contents           read and write
+            Pull requests      read and write
+            Issues             read and write   (the Dependency Dashboard)
+            Workflows          read and write   (only to bump pinned actions)
+            Dependabot alerts  read             (see below)
+
+          The last one is what renovate.json's `vulnerabilityAlerts` needs, and
+          without it Renovate says so once per run and carries on:
+
+            WARN: Cannot access vulnerability alerts.
+                  Please ensure permissions have been granted.
+
+          A configured feature then does nothing — security fixes stop
+          overriding the schedule and the concurrency limits, which is the one
+          case those limits exist to be overridden for — and the only sign is
+          a line in a log nobody reads.
 
           Then: gh secret set RENOVATE_TOKEN
           EOF
