@@ -703,6 +703,77 @@ tasks:
   # Upgrades and backups
   # ---------------------------------------------------------------------------
 
+  # ─── Getting the cluster back when Pulumi's state is what was lost ─────────
+
+  recovery-kit:
+    desc: "Print everything a recovery needs that lives nowhere but Pulumi state — pipe it into a password store"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    cmds:
+      # No prompt and no `set -euo pipefail` wrapper: the tool writes to
+      # stdout and nothing else, so the caller's pipe is the whole interface.
+      # It refuses a terminal on its own and names the pipe to use.
+      #
+      # Why this exists beside secrets:export rather than instead of it: the
+      # bundle alone does not open the snapshots. restic's repository password
+      # is generated into layers/60-backup's state, and re-applying that layer
+      # produces a different one — so the state holds both halves of its own
+      # backup, and this is the command that takes them out together.
+      - cmd: go run {{.ROOT}}/tools/recoverykit "{{._CL_STACK}}"
+
+  state:export:
+    desc: "Export every stack's Pulumi state into .backups/state/ — the answer to a stack somebody deleted"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+
+          dir="{{.ROOT}}/.backups/state"
+          mkdir -p "$dir"
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+
+          # Ciphertext, deliberately. `--show-secrets` would put the cluster
+          # CA and the Hetzner token in a file on a disk, and that is what
+          # `task cluster:recovery-kit` is for — piped into a password store,
+          # never written down. Ciphertext is enough for what this answers: a
+          # stack somebody removed, where the account still works and
+          # `pulumi stack import` can read it back.
+          #
+          # Every tier, because the irreplaceable part is not only in the
+          # cluster's: layers/60-backup generates the restic password into its
+          # own state, and which layer holds something generated is exactly
+          # the judgement that goes stale.
+          printf '%s\n' "{{._RUN}} cluster · state:export · {{._CL_STACK}} into .backups/state/"
+
+          exported=0
+
+          for project in infra/cluster {{range $layer := splitList " " .LAYERS}}layers/{{$layer}} {{end}}; do
+            name="$(printf '%s' "$project" | tr / -)"
+            out="${dir}/${name}.{{._CL_STACK}}.${stamp}.json"
+
+            # A stack that was never created is not a failure of this task: a
+            # layer nobody applied has no state to export, and refusing to
+            # write the ones that do exist would be the worse outcome.
+            if ( cd "{{.ROOT}}/${project}" && \
+                 pulumi --non-interactive --stack "{{._CL_STACK}}" stack export > "${out}" ) 2>/dev/null; then
+              exported=$((exported + 1))
+            else
+              rm -f "${out}"
+              printf '%s\n' "{{._SKIP}} cluster · state:export · ${project} has no {{._CL_STACK}} stack"
+            fi
+          done
+
+          if [ "${exported}" -eq 0 ]; then
+            printf '%s\n' "{{._ERR}} cluster · state:export · nothing exported — is this the right stack?" >&2
+            exit 1
+          fi
+
+          printf '%s\n' "{{._OK}} cluster · state:export · ${exported} stack(s) into .backups/state/"
+          printf '%s\n' "{{._WARN}} cluster · state:export · secrets stay encrypted by this backend's key, so this copy needs the backend. task cluster:recovery-kit is the one that does not"
+
   secrets:export:
     desc: "Print the cluster's Talos secrets bundle — pipe it into a password store. Without it an etcd snapshot restores nothing."
     preconditions:

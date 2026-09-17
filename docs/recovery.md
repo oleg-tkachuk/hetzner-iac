@@ -36,7 +36,7 @@ available* in `fsn1`, while `hel1` and `nbg1` report it available. See
 [configuration.md](configuration.md#cpu-architecture) for what Arm costs, which
 locations have it, and the probe to run before planning an Arm cluster.
 
-### The two halves of a backup
+### The three parts of a backup
 
 An etcd snapshot on its own restores nothing. `talosctl` accepts one only
 against the same cluster secrets, and the `secrets` resource inside it is
@@ -55,6 +55,26 @@ scrollback. Store it where the Hetzner token already lives.
 
 Re-export it only if the bundle is ever regenerated, which nothing but
 `task cluster:secrets:destroy` does.
+
+The third part is the one that is easy to miss, because it makes the other two
+unreadable rather than incomplete. restic encrypts the repository on the
+Storage Box with a password that `layers/60-backup` **generates into its own
+Pulumi state** — nothing types it, and re-applying that layer produces a
+different one that does not open the existing repository. So the state holds
+both the key to the snapshots and the secrets that make a restored snapshot
+mean anything, and losing it turns every snapshot on the box into ciphertext
+nobody can open.
+
+One command takes all three out together:
+
+    task cluster:recovery-kit stack=dev | pass insert -m hetzner/dev/recovery-kit
+
+The bundle, every generated output of the backup layer, and the topology file —
+which is gitignored, because it names the networks the cluster is administered
+from, so a fresh clone does not carry it. It refuses a terminal for the same
+reason `secrets:export` does, and a part it could not read is named in the
+document rather than left out: a kit is written on a good day and read on a
+bad one.
 
 ### Uploading a snapshot
 
@@ -157,3 +177,36 @@ nothing across a restore.
 
 The snapshots still write to the operator's machine, on no schedule, with no
 copy anywhere else. That half is a gap, not a design.
+
+## What to keep, and what each thing answers
+
+Two copies, and they answer different failures. Keeping only the cheaper one
+leaves the worse failure uncovered.
+
+| What broke | What recovers it |
+|---|---|
+| Somebody deleted a stack | the state export, read back with `pulumi stack import` |
+| The state backend is out of reach — a lost account, a removed organization | the recovery kit: the bundle, the backup credentials, the topology |
+| The laptop is gone | nothing is lost, as long as the topology is not only there |
+| Pulumi Cloud is down | nothing; wait |
+
+```bash
+task cluster:state:export stack=dev     # every tier, into .backups/state/
+```
+
+That writes **ciphertext**: `pulumi stack export` leaves secrets encrypted by
+the stack's secrets provider, which by default here is Pulumi Cloud's own key.
+That is enough for the first row — the account still works, so the export can
+be imported back — and no use at all for the second, which is why the recovery
+kit is a separate command rather than a flag on this one.
+
+`--show-secrets` would make the export self-sufficient and put the cluster CA
+and the Hetzner token in a file on a disk. The kit is the same content through
+a pipe instead, which is where a certificate authority belongs.
+
+A third option closes the gap differently: give the stack a passphrase secrets
+provider, so the ciphertext is decryptable by something you hold and the export
+alone answers both rows. `Pulumi.<stack>.yaml` is gitignored here, so the
+objection that makes that unsafe on a committed file does not apply —
+[configuration.md](configuration.md#one-rule-changes-with-it) has what it
+costs.

@@ -87,7 +87,7 @@ the cluster descends from a secrets bundle that exists only in Pulumi's state:
 `Protect` stops a destroy from taking it, which is not the same as a second
 copy existing anywhere. It is also what makes an etcd snapshot restorable at
 all, so `task cluster:secrets:export` writes it somewhere else — see
-[recovery.md](recovery.md#the-two-halves-of-a-backup).
+[recovery.md](recovery.md#the-three-parts-of-a-backup).
 
 ## Each layer is its own Pulumi project
 

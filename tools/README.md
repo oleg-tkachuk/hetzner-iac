@@ -8,9 +8,11 @@ implementation.
 |------|---------|
 | [charts/](charts) | what each chart pin is, whether it is behind upstream, and whether it still renders |
 | [etcd/](etcd) | is this file really an etcd snapshot, and how far had it applied |
+| [golangci/](golangci) | run golangci-lint at the version CI pins, and refuse another |
 | [image/](image) | bake the Talos snapshot the topology names, idempotently |
 | [lines/](lines) | the line-oriented parsing, one awk op per question |
 | [orphans/](orphans) | which Hetzner resources nothing claims any more |
+| [recoverykit/](recoverykit) | the parts of a cluster that live nowhere but Pulumi's state |
 | [secrets/](secrets) | print a stack's Talos secrets bundle |
 | [smoke/](smoke) | can this cluster actually run a workload |
 | [stack/](stack) | does a Pulumi stack exist — and make sure it does |
