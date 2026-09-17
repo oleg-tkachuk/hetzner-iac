@@ -1,0 +1,330 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+# Working ON this repository: the checks, the scanners, the formatters and the
+# chart pins. Nothing here operates a cluster.
+#
+#   task -t Taskfile.dev.yaml --list
+#   task -t Taskfile.dev.yaml verify     # before pushing
+#
+# Why a second entry point at all. `task` with no arguments is the list an
+# operator reads, and a third of it was work they never run — the unit suite,
+# four scanners, a linter, gofmt, dependency bumps. Those are not commands for
+# somebody bringing up a cluster, and hiding them is not possible: Task's
+# `internal: true` removes a namespace from the list AND from the command
+# line, so a hidden task cannot be called by CI either. Measured — a direct
+# call exits 202 with "is internal". Two entry points is the mechanism Task
+# actually offers.
+#
+# Named dev rather than ci because CI is a caller, not the definition. `fmt`,
+# `go:deps:update` and `charts:list` live here and no pipeline runs them; what
+# they have in common with the gates is the repository, not the pipeline.
+#
+# Held in place by TestRootTaskfile_HoldsNoCheck and
+# TestWorkflows_CallTasksThroughTheDevTaskfile: the root keeps no check, and
+# every `task` a workflow runs carries `-t Taskfile.dev.yaml`. Without the
+# second one a workflow step that forgets the flag resolves against the root,
+# which no longer has the task — or worse, has one by the same name.
+
+silent: true
+
+vars:
+  # Shared task library — github.com/oleg-tkachuk/taskfiles, pinned.
+  #
+  # The second copy of this pin, and it has to be: Task resolves `includes:`
+  # before it loads `dotenv:`, and an included taskfile may not declare
+  # `dotenv:` at all — so there is no file both entry points can read it from.
+  # Measured both ways. TestTasklib_EveryRemoteTaskfileHasItsChecksum holds
+  # the two equal, because a half-applied bump otherwise fails one entry point
+  # with a message about trust rather than about the version.
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.1.2'
+
+  ROOT: { sh: pwd }
+
+  # Status markers, the same vocabulary as the root taskfile and as
+  # internal/pkg/pulumilog. Only the three these tasks print are defined.
+  #
+  # Redefined rather than inherited, and the failure of forgetting is silent:
+  # Task renders an undefined variable as the empty string, so `{{._ERR}}`
+  # would print an error line with nothing in front of it rather than raising
+  # anything. TestTaskGlyphs_MatchThePulumiLogger reads both entry points.
+  _RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
+  _OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
+  _ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+
+includes:
+  # `excludes:` genuinely removes a task rather than hiding it, so what is left
+  # is what actually works here. A module task that cannot succeed in this
+  # repository is worse than a missing one: it is a command someone runs once,
+  # in an emergency, and gets a confusing failure from.
+  go:
+    taskfile: '{{printf .TASKLIB "go"}}'
+    dir: .
+    vars:
+      # Points test:tagged:compile at the e2e suite, which is the only
+      # build-tagged code here. Without this it type-checks the `integration`
+      # tag, which nothing in this repository uses.
+      GO_TEST_TAGS: e2e
+    excludes:
+      # No ./cmd/... to build: the Pulumi programs are compiled by Pulumi's own
+      # language host into .cache, and the tools are run with `go run`.
+      - build
+      # No benchmarks.
+      - bench
+      # No integration suite. The e2e suite uses its own tag and needs a live
+      # cluster, so it has its own entry point — `task e2e`.
+      - test:integration
+
+  security:
+    taskfile: '{{printf .TASKLIB "security"}}'
+    dir: .
+    vars:
+      # trivy does not pick the ignore file up by itself.
+      TRIVY_FLAGS: "--ignorefile .trivyignore.yaml"
+      # Bound gosec's memory. It loads every analysed package with full syntax
+      # AND full type information for the whole transitive graph
+      # (packages.NeedSyntax|NeedTypes|NeedTypesInfo), and processes up to
+      # -concurrency packages at once — which defaults to the core count.
+      #
+      # This module's graph is 208 modules dominated by the generated Pulumi
+      # Kubernetes SDK, so one worker's graph is already large; fourteen of
+      # them on a developer laptop exhausts memory and the machine swaps.
+      #
+      # Computed rather than fixed, because the fixed value was wrong about the
+      # machine it claimed to suit. It said 4 "is the CI runner's core count,
+      # so this costs nothing there" — a standard runner on a PRIVATE
+      # repository has TWO cores and 8 GB, four being what a public one gets.
+      # So on CI the cap was not a cap at all: it oversubscribed two cores
+      # twofold, which cannot add throughput and can only add memory pressure,
+      # the exact opposite of what it is for.
+      #
+      # min(4, cores) keeps the laptop capped and lets the runner use what it
+      # actually has, with no belief about either encoded here.
+      GOSEC_FLAGS:
+        sh: |
+          cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '%s' 2)"
+          [ "$cores" -gt 4 ] && cores=4
+          # The value as an ARGUMENT to %s, never as the format: it begins
+          # with a dash, and Task's embedded shell reads `printf --` with the
+          # dashes as the format string itself — which silently produced the
+          # flag "--" on the first attempt, and gosec would have taken it.
+          printf '%s' "-concurrency=$cores"
+    excludes:
+      # No protobuf here.
+      - proto:breaking
+      # No Dockerfile here either: this repository ships infrastructure code,
+      # not an image. hadolint over nothing printed nothing and exited zero,
+      # which is the confusing kind of success — a check that appears to run
+      # and asserts nothing.
+      - dockerfile
+
+
+  # The chart pins. Four of the five tasks are judgments — the pins resolve,
+  # the renders still produce the expected workloads, each AppVersion is what
+  # the chart ships, each pin against upstream — so the file belongs on this
+  # side whole rather than split across both.
+  charts: { taskfile: tasks/charts.task.yaml, dir: . }
+
+  # The IaC entry point, for the two checks that need something it declares:
+  # the machine-config validation and the layer list CI builds its matrix
+  # from. Included rather than copied, so each of those has one definition.
+  #
+  # `internal: true` is what keeps this from being a second way to run a
+  # cluster: the tasks stay callable FROM a task here and refuse a direct
+  # command line. So `task -t Taskfile.dev.yaml --list` shows the checks and
+  # not fifty cluster operations, and anything CI needs from the root goes
+  # through a task here that says so.
+  iac:
+    taskfile: ./Taskfile.yaml
+    dir: .
+    internal: true
+
+tasks:
+  default:
+    desc: "List the tasks for working on this repository"
+    cmds:
+      - task -t Taskfile.dev.yaml --list
+
+  lint:
+    desc: "golangci-lint at the version CI pins, not whatever PATH offers"
+    cmds:
+      - go run {{.ROOT}}/tools/golangci run {{.CLI_ARGS | default "./..."}}
+
+  lint:install:
+    desc: "Download the golangci-lint CI pins into bin/, for this platform"
+    # The same shape as cluster:talosctl:install, and for the same reason:
+    # Homebrew carries one golangci-lint and a Go install carries another, and
+    # a linter whose version differs from CI's reports different findings —
+    # measured, eight of them, on an untouched main.
+    #
+    # The version is read from the workflow rather than written here, so there
+    # is one thing to bump and Renovate already bumps it.
+    preconditions:
+      - sh: command -v curl >/dev/null
+        msg: "curl not installed — it ships with macOS, so this is unexpected"
+      - sh: command -v tar >/dev/null
+        msg: "tar not installed"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+
+          version="$(awk -F\" '/GOLANGCI_VERSION:/ {print $2}' "{{.ROOT}}/.github/workflows/ci.yaml")"
+          if [ -z "${version}" ]; then
+            printf '%s\n' "{{._ERR}} hetzner-iac · lint · no GOLANGCI_VERSION in .github/workflows/ci.yaml" >&2
+            exit 1
+          fi
+
+          # The release assets carry the version without its v, and the tag
+          # carries it with one.
+          bare="${version#v}"
+
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          case "$(uname -m)" in
+            x86_64|amd64) arch=amd64 ;;
+            arm64|aarch64) arch=arm64 ;;
+            *) printf '%s\n' "{{._ERR}} hetzner-iac · lint · unknown architecture $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          name="golangci-lint-${bare}-${os}-${arch}"
+          url="https://github.com/golangci/golangci-lint/releases/download/${version}/${name}.tar.gz"
+
+          printf '%s\n' "{{._RUN}} hetzner-iac · lint · ${version} for ${os}/${arch}"
+
+          mkdir -p "{{.ROOT}}/bin"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "${tmp}"' EXIT
+
+          curl -sSfL "$url" | tar -xz -C "${tmp}" "${name}/golangci-lint"
+          install -m 0755 "${tmp}/${name}/golangci-lint" "{{.ROOT}}/bin/golangci-lint"
+
+          # Proves the download is what it claims before anything depends on
+          # it: a 404 saved to disk is executable-shaped and fails later with
+          # something unrelated.
+          got="$("{{.ROOT}}/bin/golangci-lint" --version | awk '/has version/ {print $4}')"
+          if [ "${got}" != "${bare}" ]; then
+            printf '%s\n' "{{._ERR}} hetzner-iac · lint · downloaded ${got}, wanted ${bare}" >&2
+            exit 1
+          fi
+
+          printf '%s\n' "{{._OK}} hetzner-iac · lint · bin/golangci-lint is ${got}, which is what CI runs"
+
+  verify:
+    desc: "Everything checkable without a cluster — needs helm, kubeconform, talosctl and lychee"
+    cmds:
+      # No leading colon on any of these: the colon is for an INCLUDED
+      # taskfile reaching back to the root, and this file IS the root when
+      # Task is pointed at it. `:go:test` here fails with "does not exist".
+      - task: fmt-check
+      - task: go:test
+      # Not go:lint: that runs whatever golangci-lint is on PATH, and this one
+      # runs the version CI pins.
+      - task: lint
+      - task: go:vuln
+      - task: charts:validate
+      - task: charts:render-check
+      - task: docs:links
+      # The checks that ask the real tool rather than trusting our own tests.
+      # Each states what to install if it is missing: a gate that skips itself
+      # when a tool is absent is a gate that quietly stops running.
+      - task: iac:cluster:machine-config:check
+
+  scan:
+    desc: "Every scanner CI runs — needs gitleaks, gosec, trivy and checkov installed"
+    cmds:
+      # Named one by one, and NOT the module's composite, for two reasons that
+      # both came out of the v7.0.0 bump.
+      #
+      # It was broken. The include excludes `dockerfile` — deliberately, see
+      # the comment there — and a task removed by `excludes` is not skipped
+      # inside a composite, it is missing. So the aggregate died with
+      # `Task "security:dockerfile" does not exist`, on v6.0.0 too, and
+      # nothing noticed because CI calls the scans as separate jobs and never
+      # this task.
+      #
+      # And it was inaccurate. The composite also runs `lint`, which CI does
+      # not: golangci-lint runs there through its own action in the Go lint
+      # job. The list below is what the workflows actually call — which is the
+      # only thing that makes the claim above true.
+      - task: security:secrets
+      - task: security:vuln
+      - task: security:trivy
+      - task: security:gosec
+      - task: checkov
+
+  checkov:
+    desc: "checkov — hardening rules over the manifests and workflows this repository ships"
+    preconditions:
+      - sh: command -v checkov >/dev/null || command -v pipx >/dev/null
+        msg: "checkov is not installed — pipx install checkov, or brew install checkov"
+    cmds:
+      # Flags live in .checkov.yaml, not here, so a local run and the CI job
+      # assert the same thing. pipx as the fallback because checkov is a
+      # Python tool and CI installs it that way.
+      #
+      # The version is READ from the workflow, not written here. It was written
+      # here — `${CHECKOV_VERSION:-3.3.17}` — and that default is only ever
+      # used locally, because CI sets the variable. So the moment the pin moved
+      # to 3.3.18 a local run installed 3.3.17 and asserted against different
+      # rules, silently. One copy, in the file Renovate already bumps.
+      - cmd: |
+          set -euo pipefail
+          if command -v checkov >/dev/null; then
+            checkov --config-file "{{.ROOT}}/.checkov.yaml"
+          else
+            version="${CHECKOV_VERSION:-$(awk -F'"' '/CHECKOV_VERSION:/ {print $2}' "{{.ROOT}}/.github/workflows/ci.yaml")}"
+            if [ -z "$version" ]; then
+              printf '%s\n' "{{._ERR}} hetzner-iac · checkov · no CHECKOV_VERSION in .github/workflows/ci.yaml" >&2
+              exit 1
+            fi
+            pipx run "checkov==${version}" --config-file "{{.ROOT}}/.checkov.yaml"
+          fi
+
+  docs:links:
+    desc: "Do the documentation's own links point at files and headings that exist? — needs lychee"
+    preconditions:
+      - sh: command -v lychee >/dev/null
+        msg: "lychee is not installed — brew install lychee, or take the pinned version from .github/workflows/ci.yaml"
+    cmds:
+      # Offline on purpose, and that is the whole design. This answers "does
+      # what the documentation points at exist", which is a property of this
+      # tree; whether some vendor's marketing page is up today is not, and a
+      # gate that fails on somebody else's outage is a gate people learn to
+      # re-run rather than read. GitHub's own release downloads returned 504
+      # for twenty minutes while this was being written.
+      #
+      # --include-fragments=full is the half a path check misses: a heading
+      # renamed in docs/operations.md leaves every `#anchor` pointing at it
+      # silently wrong, and GitHub renders that as the top of the page rather
+      # than as an error.
+      #
+      # Two globs because lychee expands them itself and `**` does not descend
+      # into a dot directory, so .github/SECURITY.md needs naming.
+      - cmd: |
+          set -euo pipefail
+          cd "{{.ROOT}}"
+          lychee --offline --include-fragments=full --include-mail=false --no-progress \
+            '**/*.md' '.github/**/*.md'
+
+  fmt-check:
+    desc: "Fail if any Go file is not gofmt-clean"
+    # The library's gate rather than eight lines of `gofmt -l` here. It
+    # checks `gofmt -s`, which is strictly more than this task did: the
+    # simplifications gofmt -s makes were never asserted, so a file could be
+    # gofmt-clean here and rewritten by `fmt` on the next run.
+    cmds:
+      - task: go:fmt:check
+
+  fmt:
+    desc: "Format every Go file and tidy the module"
+    cmds:
+      - task: go:fmt
+      - task: go:tidy
+
+  layers:
+    desc: "The layer order, which CI derives its matrix from"
+    # A thin pass-through, and deliberately not a second copy of the list:
+    # LAYERS lives in the root taskfile because `platform:apply layer=all`
+    # walks it. This exists so the matrix step has an entry point here rather
+    # than reaching past this file into the root.
+    cmds:
+      - task: iac:platform:layers

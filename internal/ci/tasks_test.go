@@ -20,7 +20,7 @@ import (
 // taskName matches a task declaration at the top of a taskfile's tasks block.
 var taskName = regexp.MustCompile(`^  ([a-zA-Z_][\w:-]*):\s*$`)
 
-// taskfiles is every taskfile in the repository: the root one and each
+// taskfiles is every taskfile in the repository: both entry points and each
 // include.
 //
 // Derived from the directory rather than listed, because both tests below
@@ -36,7 +36,10 @@ func taskfiles(t *testing.T) []string {
 	require.NoError(t, err)
 	require.NotEmpty(t, includes, "no taskfiles under tasks/")
 
-	return append([]string{filepath.Join(root, "Taskfile.yaml")}, includes...)
+	return append([]string{
+		filepath.Join(root, "Taskfile.yaml"),
+		filepath.Join(root, devTaskfile),
+	}, includes...)
 }
 
 // tasksIn splits a taskfile's tasks block into one body per task.

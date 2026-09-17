@@ -147,11 +147,11 @@ clone missing one of these is not a broken clone.
 
 ## Commands
 
-`task` on its own lists everything. Every cluster and layer task takes
-`stack=<name>`, and there is no default — a task that assumed one is a task
-that can be aimed at the wrong environment by forgetting a word. It is the
-only deployment parameter: where a cluster lives and how it is shaped comes
-from its committed topology.
+`task` on its own lists every command for operating a cluster. Each cluster
+and layer task takes `stack=<name>`, and there is no default — a task that
+assumed one is a task that can be aimed at the wrong environment by forgetting
+a word. It is the only deployment parameter: where a cluster lives and how it
+is shaped comes from its committed topology.
 
 | Task | Does |
 |------|------|
@@ -160,10 +160,10 @@ from its committed topology.
 | `task cluster:status` | nodes, then anything not Running |
 | `task platform:status` | which layers are deployed |
 | `task e2e` | verify a running cluster; read-only |
-| `task ci:verify` | everything checkable without a cluster |
-| `task ci:scan` | every scanner CI runs |
 
-Full reference: [commands.md](docs/commands.md).
+Full reference: [commands.md](docs/commands.md). The checks and scanners are a
+separate entry point, `Taskfile.dev.yaml`, and are for working on this
+repository rather than running it: [commands.md](docs/commands.md#working-on-this-repository).
 
 ## Configuration
 
@@ -219,7 +219,8 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 | [internal/ci/](internal/ci) | the repository's own gates: the cross-file contracts nothing else compares |
 | [tools/](tools) | the small commands: chart pins, topology, orphaned resources, stack state, snapshot and secrets |
 | [test/e2e/](test/e2e) | verification against a running cluster |
-| [tasks/](tasks) | task definitions |
+| [tasks/](tasks) | the cluster and layer task definitions the root Taskfile includes |
+| [Taskfile.dev.yaml](Taskfile.dev.yaml) | the second entry point: the checks, the scanners, the formatters and the chart pins |
 | [docs/](docs) | the documents above |
 
 ### Not a Go library

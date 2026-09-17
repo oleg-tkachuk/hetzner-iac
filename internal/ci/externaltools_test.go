@@ -60,7 +60,7 @@ func TestExternalTools_AreNamedWhereSomebodyWouldLook(t *testing.T) {
 			continue
 		case strings.HasSuffix(path, ".go"):
 			record(t, root, path, execCall, needed)
-		case path == "Taskfile.yaml" || strings.HasPrefix(path, "tasks/"):
+		case strings.HasPrefix(path, "Taskfile.") || strings.HasPrefix(path, "tasks/"):
 			record(t, root, path, declaredDependency, needed)
 		}
 	}

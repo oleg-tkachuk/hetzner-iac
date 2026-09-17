@@ -43,7 +43,7 @@ from `main`.
 
 That is free until `go.sum` changes. Then the exact key misses, the restore-key
 prefix hands back the *previous* dependencies, and anything that type-checks the
-module has to compile the difference — which on a `task go:deps:update` pull
+module has to compile the difference — which on a `go:deps:update` pull
 request is close to a full rebuild. Measured on one:
 
 | Job | Usually | On a deps update | Bound |
@@ -221,7 +221,7 @@ vulnerable, and a gate that only runs on push would never say so.
 
 Each job installs its tool and then calls the same task an operator runs
 locally, so the flags live in one place rather than being restated in YAML.
-`task ci:scan` is the whole set.
+`task -t Taskfile.dev.yaml scan` is the whole set.
 
 Accepted findings live in `.trivyignore.yaml` and `.checkov.yaml`, each with
 the reason it stands. Entries are removed as soon as a fix lands — a stale
@@ -239,6 +239,28 @@ what this code can actually reach, trivy reports everything present in the
 dependency graph. Both are useful, and a finding in one and not the other is
 information rather than a contradiction.
 
+## The entry point the jobs call
+
+Every step that runs a task passes `-t Taskfile.dev.yaml`:
+
+```
+- run: task -t Taskfile.dev.yaml security:gosec
+```
+
+The checks are on a second entry point because `task` on its own is the list
+an operator reads, and a third of it was work they never run. Task finds
+`Taskfile.yaml` by itself and offers no environment variable for a second
+file, so the flag is the whole mechanism — and forgetting it is quiet: the
+step resolves against the root entry point, which either fails with "does not
+exist" or, for a name both files declare, runs the wrong task.
+TestWorkflows_CallTasksThroughTheDevTaskfile refuses a step without it, and
+TestRootTaskfile_HoldsNoCheck refuses a check added back to the root.
+
+It is still the same task an operator runs; the flag names where it lives, not
+a second copy of it. Two of these tasks read a pinned version out of this
+workflow — `GOLANGCI_VERSION` and `CHECKOV_VERSION` — which is the other
+reason they are not on the entry point a clone uses to apply a cluster.
+
 ## Tools the checks need
 
 None of these builds a cluster, which is why the README's prerequisites leave
@@ -247,14 +269,14 @@ locally. On macOS `brew bundle` installs every one.
 
 | Tool | The check that wants it |
 |------|-------------------------|
-| `helm` | `task charts:render-check` — renders each chart and compares it against what `internal/pkg/workloads` declares it produces |
-| `kubeconform` | `task charts:validate` — validates what those charts render against the Kubernetes version the topology pins |
-| `lychee` | `task ci:docs:links` |
-| `golangci-lint` | `task ci:lint`, which runs the version this workflow pins and refuses another — `task ci:lint:install` writes it into `bin/`; also `task security:lint` |
-| `gitleaks` | `task security:secrets` |
-| `gosec` | `task security:gosec`, and the nightly run |
-| `trivy` | `task security:trivy` |
-| `checkov` | `task checkov`, and `pipx` when checkov itself is not installed — the task installs the pinned version through it |
+| `helm` | `charts:render-check` — renders each chart and compares it against what `internal/pkg/workloads` declares it produces |
+| `kubeconform` | `charts:validate` — validates what those charts render against the Kubernetes version the topology pins |
+| `lychee` | `task -t Taskfile.dev.yaml docs:links` |
+| `golangci-lint` | `task -t Taskfile.dev.yaml lint`, which runs the version this workflow pins and refuses another — `task -t Taskfile.dev.yaml lint:install` writes it into `bin/` |
+| `gitleaks` | `security:secrets` |
+| `gosec` | `security:gosec`, and the nightly run |
+| `trivy` | `security:trivy` |
+| `checkov` | `task -t Taskfile.dev.yaml checkov`, and `pipx` when checkov itself is not installed — the task installs the pinned version through it |
 | `actionlint` | workflow syntax — run by hand, the same check CI runs |
 | `zizmor` | workflow permissions — the same |
 | `lefthook` | the commit and push hooks, opt in per clone with `lefthook install` |
@@ -394,10 +416,10 @@ required check unreported, and a branch waiting forever, is a workflow-level
 The filter names what is **inert** — markdown, `docs/`, `LICENSE`,
 `.gitignore`, issue templates, images — rather than what is code. It was an
 inclusion list once, naming `.go`, `go.mod` and `.golangci.yaml`, and that is
-the wrong direction: the test suite asserts against `Taskfile.yaml`, the
-per-layer taskfiles, every layer's manifests and `Pulumi.yaml`, the committed
-topology and these workflows, so a change to any of them skipped the tests
-written to guard it. Excluding documentation cannot fail that way — a kind of
+the wrong direction: the test suite asserts against both taskfile entry
+points, the per-layer taskfiles, every layer's manifests and `Pulumi.yaml`,
+the committed topology and these workflows, so a change to any of them skipped
+the tests written to guard it. Excluding documentation cannot fail that way — a kind of
 file nobody has classified yet is relevant by default.
 
 Three tests in [internal/ci](../internal/ci) hold it: the classifier against a
@@ -430,7 +452,7 @@ restoring a Go build cache that lychee cannot read.
 ## What the suites prove
 
 ```bash
-task go:test    # unit
+task -t Taskfile.dev.yaml go:test    # unit
 task e2e        # against a running cluster; read-only, needs ./kubeconfig
 ```
 
@@ -481,7 +503,7 @@ Two things about that are worth knowing before a bot's pull request arrives.
 
 **Renovate cannot maintain `AppVersion`.** The helm datasource knows chart
 versions and nothing else, so a bumped pin sits beside an app version the chart
-no longer ships. `task charts:appversions` reads each repository's index and
+no longer ships. `charts:appversions` reads each repository's index and
 fails when they disagree — mostly a misleading comment, but not only a comment
 once something derives a value from the field, as a validation image tag was
 derived from alloy's while that chart was pinned here. The pull request says so

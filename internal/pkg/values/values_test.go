@@ -54,7 +54,7 @@ func TestRender_RefusesAFieldTheDataDoesNotHave(t *testing.T) {
 func TestTemplates_RenderValidYAMLFromProbeData(t *testing.T) {
 	t.Parallel()
 
-	// Every template, rendered the way `task charts:render-check` renders it.
+	// Every template, rendered the way `charts:render-check` renders it.
 	// A template that only parses as YAML when a value happens to be non-empty
 	// is a template that breaks on an empty config key — and one whose action
 	// supplies an indented block, as Alloy's collector config does, cannot be

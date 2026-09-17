@@ -3,8 +3,8 @@
 Runs golangci-lint at the version CI pins, and refuses to run a different one.
 
 ```bash
-go run ./tools/golangci run ./...      # what task ci:lint does
-task ci:lint:install                      # writes the pinned copy into bin/
+go run ./tools/golangci run ./...      # what the lint task does
+task -t Taskfile.dev.yaml lint:install    # writes the pinned copy into bin/
 ```
 
 The version comes from `GOLANGCI_VERSION` in `.github/workflows/ci.yaml` — the
@@ -22,7 +22,7 @@ were 2.12.2 and 2.13.2, CI pins 2.13.2, and the older one reported eight
 
     tools/etcd/main.go:75:34: string `verify` has 6 occurrences (goconst)
 
-`task go:lint` was red, the pull request was green, and the pre-push hook
+`go:lint` was red, the pull request was green, and the pre-push hook
 refused to push work that was fine. Nothing in either message named a version,
 so the only way to find it was `which -a`.
 

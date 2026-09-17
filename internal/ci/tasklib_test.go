@@ -20,7 +20,7 @@ var (
 	// tasklibPin is the shared task library's URL, ref and all.
 	tasklibPin = regexp.MustCompile(`(?m)^\s*TASKLIB:\s*'([^']+)'`)
 
-	// tasklibInclude is one remote taskfile the root file includes.
+	// tasklibInclude is one remote taskfile an entry point includes.
 	tasklibInclude = regexp.MustCompile(`{{printf \.TASKLIB "([a-z0-9-]+)"}}`)
 )
 
@@ -42,51 +42,73 @@ const remoteCache = ".task/remote"
 //
 // It has happened twice: once mid-session, and once as PR #178, which changed
 // Taskfile.yaml alone.
+//
+// Both entry points are read, and holding their pins equal is the other half.
+// The pin has to be written twice — Task resolves `includes:` before it loads
+// `dotenv:`, and an included taskfile may not declare `dotenv:` at all, so
+// there is no third file both can read it from. A bump applied to one leaves
+// the other fetching a ref whose checksums were just replaced, and the message
+// is about trust rather than about the version.
 func TestTasklib_EveryRemoteTaskfileHasItsChecksum(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..")
 
-	raw, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
-	require.NoError(t, err)
-
-	pin := tasklibPin.FindStringSubmatch(string(raw))
-	require.NotNil(t, pin, "Taskfile.yaml declares no TASKLIB")
-
-	template := pin[1]
-	if !strings.HasPrefix(template, "http") {
-		// The local form, for working on the library itself. Nothing is
-		// downloaded, so nothing needs trusting.
-		t.Logf("TASKLIB is the local form %q; no remote taskfile to trust", template)
-
-		return
-	}
-
-	names := tasklibInclude.FindAllStringSubmatch(string(raw), -1)
-	require.NotEmpty(t, names, "Taskfile.yaml includes no remote taskfile")
+	entryPoints := []string{"Taskfile.yaml", devTaskfile}
 
 	expected := map[string]string{}
 
-	for _, match := range names {
-		name := match[1]
-		remote := fmt.Sprintf(template, name)
+	var pinned string
 
-		parsed, parseErr := url.Parse(remote)
-		require.NoError(t, parseErr, remote)
+	for _, name := range entryPoints {
+		raw, err := os.ReadFile(filepath.Join(root, name))
+		require.NoError(t, err, name)
 
-		// Task names the file for the sha256 of the whole URL, which is why
-		// the ref is part of it and why a bump invalidates every one.
-		sum := sha256.Sum256([]byte(remote))
-		expected[fmt.Sprintf("git.%s.%s.%s.checksum",
-			parsed.Host, name, hex.EncodeToString(sum[:]))] = remote
+		pin := tasklibPin.FindStringSubmatch(string(raw))
+		require.NotNil(t, pin, "%s declares no TASKLIB", name)
+
+		if pinned == "" {
+			pinned = pin[1]
+		}
+
+		require.Equal(t, pinned, pin[1],
+			"%s pins the task library at a different ref from %s. Both entry points fetch "+
+				"the same modules, and the checksums under %s are named for the URL — so one "+
+				"of them is about to be refused as untrusted",
+			name, entryPoints[0], remoteCache)
+
+		if !strings.HasPrefix(pinned, "http") {
+			// The local form, for working on the library itself. Nothing is
+			// downloaded, so nothing needs trusting.
+			t.Logf("TASKLIB is the local form %q; no remote taskfile to trust", pinned)
+
+			return
+		}
+
+		includes := tasklibInclude.FindAllStringSubmatch(string(raw), -1)
+		require.NotEmpty(t, includes, "%s includes no remote taskfile", name)
+
+		for _, match := range includes {
+			module := match[1]
+			remote := fmt.Sprintf(pinned, module)
+
+			parsed, parseErr := url.Parse(remote)
+			require.NoError(t, parseErr, remote)
+
+			// Task names the file for the sha256 of the whole URL, which is
+			// why the ref is part of it and why a bump invalidates every one.
+			sum := sha256.Sum256([]byte(remote))
+			expected[fmt.Sprintf("git.%s.%s.%s.checksum",
+				parsed.Host, module, hex.EncodeToString(sum[:]))] = remote
+		}
 	}
 
 	present := map[string]bool{}
 
-	entries, err := os.ReadDir(filepath.Join(root, remoteCache))
+	cached, err := os.ReadDir(filepath.Join(root, remoteCache))
 	require.NoError(t, err, "%s is missing, so no remote taskfile is trusted", remoteCache)
 
-	for _, entry := range entries {
+	for _, entry := range cached {
 		if strings.HasSuffix(entry.Name(), ".checksum") {
 			present[entry.Name()] = true
 		}

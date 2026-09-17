@@ -4,7 +4,7 @@
 // A pin scattered across five programs is five places to audit when a CVE
 // lands, and it is five places for the same component to drift to different
 // versions between environments. Here, an upgrade is a one-line diff a
-// reviewer can see, and `task charts:outdated` has one file to compare
+// reviewer can see, and `charts:outdated` has one file to compare
 // against upstream.
 //
 // Floating tags are deliberately impossible: there is no "latest", and

@@ -60,7 +60,7 @@ func ordersDependenciesFirst(t *testing.T, components layer.Components) {
 // declaresWorkloads pairs the component set with internal/pkg/workloads.
 //
 // A component with no declared workloads is a chart nothing verifies: the e2e
-// suite has nothing to assert is healthy, and `task charts:render-check` has
+// suite has nothing to assert is healthy, and `charts:render-check` has
 // nothing to prove the chart still produces. Both pass, having checked nothing.
 func declaresWorkloads(t *testing.T, components layer.Components) {
 	t.Helper()

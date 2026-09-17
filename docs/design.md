@@ -99,8 +99,8 @@ Independence has a boundary worth stating: layers are independently
 *appliable*, not order-free. On an empty cluster nothing schedules before the
 cloud controller manager clears Talos's `uninitialized` taint, and nothing
 networks before the CNI. `task platform:apply layer=all` walks them in order; the
-order lives once, in the Taskfile, and CI derives its matrix from the same
-list.
+order lives once, in the root Taskfile, and CI derives its matrix from the
+same list through `task -t Taskfile.dev.yaml layers`.
 
 ## Every stack output is a named constant
 
@@ -284,7 +284,7 @@ is already running, the path is `task cluster:destroy` and a fresh
 ## Every chart version is pinned in one place
 
 `internal/pkg/charts` is the registry; floating tags are rejected by validation rather
-than by convention. `task charts:outdated` compares each pin against its
+than by convention. `charts:outdated` compares each pin against its
 upstream repository, and Renovate opens one pull request per chart — see
 [ci.md](ci.md#chart-upgrades-arrive-as-pull-requests).
 
@@ -332,11 +332,11 @@ proves nothing about what Helm or Talos will accept:
 
 | Check | Asks |
 |-------|------|
-| `task charts:validate` | the upstream repositories, that every pin is an exact version that resolves |
-| `task charts:render-check` | `helm template`, then the pinned Kubernetes version's own schema |
+| `charts:validate` | the upstream repositories, that every pin is an exact version that resolves |
+| `charts:render-check` | `helm template`, then the pinned Kubernetes version's own schema |
 | `task cluster:machine-config:check` | `talosctl`, that the machine configuration is one it would apply |
 
-`task ci:verify` runs all three. They need `helm`, a `talosctl` matching the
+`task -t Taskfile.dev.yaml verify` runs all three. They need `helm`, a `talosctl` matching the
 pinned Talos minor, and a running Docker.
 
 What they have caught, none of which would have failed a `pulumi up`:
