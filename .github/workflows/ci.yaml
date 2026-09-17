@@ -142,7 +142,7 @@ jobs:
     # Its second role, gating the expensive half on the cheap scanners, moved
     # to those jobs depending on `security` directly.
     if: github.event_name == 'push'
-    needs: [changes, security]
+    needs: [changes]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -307,7 +307,7 @@ jobs:
       needs.changes.outputs.relevant == 'true' &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
-    needs: [changes, security]
+    needs: [changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -381,7 +381,7 @@ jobs:
   lint:
     name: Go lint
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
-    needs: [changes, security]
+    needs: [changes]
     runs-on: ubuntu-latest
     # Above golangci's own --timeout, or the runner kills the job first and the
     # log says nothing useful.
@@ -416,7 +416,7 @@ jobs:
     # of about five minutes. Locally it is 2m42s from a cold build cache and 7s
     # from a warm one.
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
-    needs: [changes, security]
+    needs: [changes]
     runs-on: ubuntu-latest
     # 25, and the number is the point. gosec's cost is not gosec: it type-checks
     # the whole transitive graph, so its runtime is whatever the build cache
@@ -527,7 +527,7 @@ jobs:
     # Accepted findings live in .checkov.yaml with the reason each one stands,
     # the same convention as .trivyignore.yaml.
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
-    needs: [changes, security]
+    needs: [changes]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -550,7 +550,7 @@ jobs:
   charts:
     name: Chart pins
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
-    needs: [changes, security]
+    needs: [changes]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -598,7 +598,7 @@ jobs:
   topology:
     name: Cluster topology
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
-    needs: [changes, security]
+    needs: [changes]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -632,6 +632,20 @@ jobs:
   # Extracted into its own workflow so it can ALSO run on a schedule: a CVE
   # published today makes yesterday's green commit vulnerable, and a gate that
   # only runs on push would never say so.
+  #
+  # DELIBERATELY NOT IN THE `needs:` OF THE JOBS BELOW IT, and that is a change
+  # from how this was wired. Every compiling job used to name it, which put
+  # five scanners on the critical path of the six slowest jobs — and by this
+  # repository's own measurements they do seconds of work each: gitleaks scans
+  # for two seconds, trivy for fifteen, checkov for twenty-six. What the wait
+  # bought was fail-fast: not burning eight minutes of gosec on a pull request
+  # that commits a secret. On a public repository standard runners are free, so
+  # that bought politeness to the queue and paid for it in time to feedback.
+  #
+  # What is NOT affected: these are required checks on the branch, so a red
+  # scanner still blocks the merge, and `release` keeps `security` in its
+  # `needs:` — that is the one place the dependency is load-bearing, and the
+  # comment there says why.
   security:
     name: Security
     needs: [changes]

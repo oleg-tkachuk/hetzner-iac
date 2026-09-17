@@ -291,6 +291,15 @@ same day. One check runs nightly instead — **the race detector**, which
 compiles the whole tree a second time with build IDs nothing else can reuse,
 twelve minutes that would sit on the critical path of every pipeline.
 
+**Nothing waits for the scanners.** Every compiling job used to name
+`security` in its `needs:`, which put five scanners on the critical path of
+the six slowest jobs — and each does seconds of work: gitleaks two, trivy
+fifteen, checkov twenty-six. The wait bought fail-fast, which on a public
+repository buys politeness to a free queue and pays for it in time to
+feedback. They are required checks, so a red scanner still blocks the merge;
+the one place the dependency is load-bearing is `release`, which keeps it,
+because v1.0.2 was once cut from a commit whose CI was failing.
+
 Standalone gosec used to be nightly for the same stated reason and is back on
 every pull request. Measured, both it and `Tests and vet` now take about four
 minutes and run in parallel, so it adds nothing to the wall clock — and it
