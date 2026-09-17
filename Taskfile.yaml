@@ -303,12 +303,77 @@ tasks:
       - cmd: 'printf "%s\n" "{{._OK}} hetzner-iac · build · $(ls {{.ROOT}}/bin | awk "END {print NR}") programs into bin/"'
         silent: true
 
+  lint:
+    desc: "golangci-lint at the version CI pins, not whatever PATH offers"
+    cmds:
+      - go run {{.ROOT}}/tools/golangci run {{.CLI_ARGS | default "./..."}}
+
+  lint:install:
+    desc: "Download the golangci-lint CI pins into bin/, for this platform"
+    # The same shape as cluster:talosctl:install, and for the same reason:
+    # Homebrew carries one golangci-lint and a Go install carries another, and
+    # a linter whose version differs from CI's reports different findings —
+    # measured, eight of them, on an untouched main.
+    #
+    # The version is read from the workflow rather than written here, so there
+    # is one thing to bump and Renovate already bumps it.
+    preconditions:
+      - sh: command -v curl >/dev/null
+        msg: "curl not installed — it ships with macOS, so this is unexpected"
+      - sh: command -v tar >/dev/null
+        msg: "tar not installed"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+
+          version="$(awk -F\" '/GOLANGCI_VERSION:/ {print $2}' "{{.ROOT}}/.github/workflows/ci.yaml")"
+          if [ -z "${version}" ]; then
+            printf '%s\n' "{{._ERR}} hetzner-iac · lint · no GOLANGCI_VERSION in .github/workflows/ci.yaml" >&2
+            exit 1
+          fi
+
+          # The release assets carry the version without its v, and the tag
+          # carries it with one.
+          bare="${version#v}"
+
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          case "$(uname -m)" in
+            x86_64|amd64) arch=amd64 ;;
+            arm64|aarch64) arch=arm64 ;;
+            *) printf '%s\n' "{{._ERR}} hetzner-iac · lint · unknown architecture $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          name="golangci-lint-${bare}-${os}-${arch}"
+          url="https://github.com/golangci/golangci-lint/releases/download/${version}/${name}.tar.gz"
+
+          printf '%s\n' "{{._RUN}} hetzner-iac · lint · ${version} for ${os}/${arch}"
+
+          mkdir -p "{{.ROOT}}/bin"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "${tmp}"' EXIT
+
+          curl -sSfL "$url" | tar -xz -C "${tmp}" "${name}/golangci-lint"
+          install -m 0755 "${tmp}/${name}/golangci-lint" "{{.ROOT}}/bin/golangci-lint"
+
+          # Proves the download is what it claims before anything depends on
+          # it: a 404 saved to disk is executable-shaped and fails later with
+          # something unrelated.
+          got="$("{{.ROOT}}/bin/golangci-lint" --version | awk '/has version/ {print $4}')"
+          if [ "${got}" != "${bare}" ]; then
+            printf '%s\n' "{{._ERR}} hetzner-iac · lint · downloaded ${got}, wanted ${bare}" >&2
+            exit 1
+          fi
+
+          printf '%s\n' "{{._OK}} hetzner-iac · lint · bin/golangci-lint is ${got}, which is what CI runs"
+
   verify:
     desc: "Everything checkable without a cluster — needs helm, kubeconform, talosctl and lychee"
     cmds:
       - task: fmt-check
       - task: go:test
-      - task: go:lint
+      # Not go:lint: that runs whatever golangci-lint is on PATH, and this one
+      # runs the version CI pins.
+      - task: lint
       - task: go:vuln
       - task: charts:validate
       - task: charts:render-check
