@@ -150,25 +150,32 @@ throughput and can only add memory pressure.
 Two triggers decide *how often* Renovate runs, and `renovate.json` decides what
 it may *do* once running. Getting that pair wrong is silent, and it was:
 
-### What its token has to allow
+### Its token, and why vulnerability alerts are off
 
-`RENOVATE_TOKEN` is a fine-grained personal access token, not `GITHUB_TOKEN`:
-a pull request opened with the latter starts no `pull_request` workflow, so no
-required check would ever report and branch protection would block every
-upgrade. The workflow states the permissions it needs and refuses to start
-without the secret.
+`RENOVATE_TOKEN` is a personal access token, not `GITHUB_TOKEN`: a pull request
+opened with the latter starts no `pull_request` workflow, so no required check
+would ever report and branch protection would block every upgrade. The workflow
+states the permissions it needs and refuses to start without the secret.
 
-One of them is **Dependabot alerts: read**, and it is the one that fails
-quietly. `renovate.json` configures `vulnerabilityAlerts` so a security fix
-ignores the schedule and the concurrency limits; without that permission
-Renovate logs
+`vulnerabilityAlerts` is **off**, and that is a decision rather than an
+oversight. Reading those alerts needs `Dependabot alerts: Read-only` on a
+fine-grained token — or the `security_events` scope on a classic one — which
+this token does not have. While it was enabled without that access, every run
+logged
 
     WARN: Cannot access vulnerability alerts.
 
-and carries on with everything else. The repository setting is separate and
-also required — Dependabot alerts have to be enabled on the repository at all —
-so a working setup needs both, and having one is indistinguishable from having
-both until a vulnerability is published.
+and carried on: the feature was configured, believed, and dead. A setting that
+is off says what it does; one that is on and unreachable does not.
+
+What still reports a vulnerability: Dependabot alerts on the repository itself,
+govulncheck in *Reachable vulnerabilities*, and trivy over `go.sum` and the
+manifests. What is lost is the fast path — a security fix no longer overrides
+the schedule, so it arrives with Monday's batch.
+
+Turning it back on is one change, not two: grant the permission and flip the
+setting together. `TestRenovateAlerts_AgreeWithWhatTheTokenIsToldToAllow`
+refuses either half alone.
 
 - `schedule` in `renovate.json` was `before 09:00 on monday`, which with
   `timezone: Europe/Kyiv` is **Sunday 21:00 to Monday 06:00 UTC**;

@@ -410,14 +410,18 @@ func TestRenovateScheduleIsNotNarrowerThanADay(t *testing.T) {
 	}
 }
 
-// TestRenovateCronIsDailyForSecurityFixes holds the other half of the pair.
+// TestRenovateCronIsDaily holds the other half of the pair.
 //
-// The daily cron is not redundant with a weekly schedule: `vulnerabilityAlerts`
-// is exempt from the schedule, so a security fix can land on any morning's pass
-// while ordinary updates still batch into Monday. A weekly cron would delay a
-// security fix by up to seven days, which is the one thing self-hosting must
-// not cost — and it is stated in the workflow beside the cron.
-func TestRenovateCronIsDailyForSecurityFixes(t *testing.T) {
+// The daily cron is not redundant with a weekly schedule, and the reason
+// changed when vulnerabilityAlerts were turned off. It was the security fast
+// path: alerts were exempt from the schedule, so a fix could land on any
+// morning. Now it is the best-effort cron — one Monday pass was observed 5h49m
+// late, and a weekly cron that slips costs a week of updates while a daily one
+// only has to be on time once.
+//
+// Either way the assertion is the same, which is why the test survived the
+// change and only its name and reason did not.
+func TestRenovateCronIsDaily(t *testing.T) {
 	t.Parallel()
 
 	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "renovate.yaml"))
