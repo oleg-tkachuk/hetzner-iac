@@ -545,7 +545,7 @@ jobs:
       - run: pipx install "checkov==${CHECKOV_VERSION}"
       # The same task an operator runs, so the flags live in .checkov.yaml
       # rather than being restated here.
-      - run: task -t Taskfile.dev.yaml checkov
+      - run: task -t Taskfile.dev.yaml checkov:scan
 
   charts:
     name: Chart pins

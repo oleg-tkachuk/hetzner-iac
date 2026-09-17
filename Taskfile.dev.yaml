@@ -37,7 +37,7 @@ vars:
   # Measured both ways. TestTasklib_EveryRemoteTaskfileHasItsChecksum holds
   # the two equal, because a half-applied bump otherwise fails one entry point
   # with a message about trust rather than about the version.
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.2.2'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.3.0'
 
   ROOT: { sh: pwd }
 
@@ -118,6 +118,33 @@ includes:
       # and asserts nothing.
       - dockerfile
 
+
+  # checkov, at the version CI pins. The module resolves that itself since
+  # taskfiles v7.3.0: PATH's checkov when it already reports that version,
+  # `pipx run checkov==<version>` otherwise — which is what a machine without
+  # it gets, and what this repository's own task used to do by hand.
+  #
+  # The version is READ from the workflow rather than written here. It was
+  # written here once, as `${CHECKOV_VERSION:-3.3.17}`, and that default is
+  # only ever used locally because CI sets the variable — so the moment the pin
+  # moved to 3.3.18 a local run asserted against different rules, silently. One
+  # copy, in the file Renovate already bumps.
+  checkov:
+    taskfile: '{{printf .TASKLIB "checkov"}}'
+    dir: .
+    vars:
+      CHECKOV_VERSION_CMD: >-
+        awk -F'"' '/CHECKOV_VERSION:/ {print $2}'
+        {{.ROOT}}/.github/workflows/ci.yaml
+    excludes:
+      # A baseline accepts every current finding at once, with nothing saying
+      # why any of them stands. This repository accepts findings the other way
+      # — `skip-check` in .checkov.yaml, each with its reason written beside
+      # it — and that file says so: "A skip with no reason is a finding
+      # somebody hid." A task that writes the unexplained kind is one command
+      # away from undoing that, and TestLibraryExcludes_StayInPlace holds the
+      # exclusion.
+      - baseline
 
   # The chart pins. Four of the five tasks are judgments — the pins resolve,
   # the renders still produce the expected workloads, each AppVersion is what
@@ -249,35 +276,7 @@ tasks:
       - task: security:vuln
       - task: security:trivy
       - task: security:gosec
-      - task: checkov
-
-  checkov:
-    desc: "checkov — hardening rules over the manifests and workflows this repository ships"
-    preconditions:
-      - sh: command -v checkov >/dev/null || command -v pipx >/dev/null
-        msg: "checkov is not installed — pipx install checkov, or brew install checkov"
-    cmds:
-      # Flags live in .checkov.yaml, not here, so a local run and the CI job
-      # assert the same thing. pipx as the fallback because checkov is a
-      # Python tool and CI installs it that way.
-      #
-      # The version is READ from the workflow, not written here. It was written
-      # here — `${CHECKOV_VERSION:-3.3.17}` — and that default is only ever
-      # used locally, because CI sets the variable. So the moment the pin moved
-      # to 3.3.18 a local run installed 3.3.17 and asserted against different
-      # rules, silently. One copy, in the file Renovate already bumps.
-      - cmd: |
-          set -euo pipefail
-          if command -v checkov >/dev/null; then
-            checkov --config-file "{{.ROOT}}/.checkov.yaml"
-          else
-            version="${CHECKOV_VERSION:-$(awk -F'"' '/CHECKOV_VERSION:/ {print $2}' "{{.ROOT}}/.github/workflows/ci.yaml")}"
-            if [ -z "$version" ]; then
-              printf '%s\n' "{{._ERR}} hetzner-iac · checkov · no CHECKOV_VERSION in .github/workflows/ci.yaml" >&2
-              exit 1
-            fi
-            pipx run "checkov==${version}" --config-file "{{.ROOT}}/.checkov.yaml"
-          fi
+      - task: checkov:scan
 
   docs:links:
     desc: "Do the documentation's own links point at files and headings that exist? — needs lychee"

@@ -182,7 +182,8 @@ TestRootTaskfile_HoldsNoCheck keeps them here.
 | `task -t Taskfile.dev.yaml fmt` | format and tidy |
 | `task -t Taskfile.dev.yaml fmt-check` † | fail if `gofmt -s` would change anything |
 | `task -t Taskfile.dev.yaml docs:links` † | do the documentation's own links point at files and headings that exist? — needs lychee |
-| `task -t Taskfile.dev.yaml checkov` † | hardening rules over the manifests and workflows this repository ships |
+| `task -t Taskfile.dev.yaml checkov:scan` † | hardening rules over the manifests and workflows this repository ships |
+| `task -t Taskfile.dev.yaml checkov:triage` | every finding, including the ones `.checkov.yaml` skips — for deciding what to fix, never a gate |
 | `task -t Taskfile.dev.yaml layers` † | the layer order, for CI's matrix — a pass-through to `platform:layers` |
 
 ### Charts
