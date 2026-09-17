@@ -487,3 +487,54 @@ func TestWorkflows_AnIssueCannotStartAJobForAStranger(t *testing.T) {
 
 	assert.Positive(t, checked, "no workflow listens for issues; this test is checking nothing")
 }
+
+// freeDiskAction is the composite action that makes room for the shared cache.
+const freeDiskAction = ".github/actions/free-disk/action.yml"
+
+// diskThreshold matches the shell variable holding how much room a cold build
+// needs, and a bare use of the same number.
+var (
+	diskThreshold = regexp.MustCompile(`(?m)^\s*need=(\d+)\s*$`)
+	bareMegabytes = regexp.MustCompile(`\b(\d{5,})\b`)
+)
+
+// TestFreeDisk_HasOneThresholdAndUsesItTwice keeps the decision to make room
+// and the check that enough was made from disagreeing.
+//
+// They are the same standard: below it every preinstalled toolchain goes,
+// above it nothing is removed, and after a removal the job fails if it is
+// still short. Written as two numbers, one of them drifts — and the drift is
+// silent in the worst direction, an action that frees nothing and then passes
+// its own guard.
+func TestFreeDisk_HasOneThresholdAndUsesItTwice(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", freeDiskAction))
+	require.NoError(t, err)
+
+	body := string(raw)
+
+	found := diskThreshold.FindAllStringSubmatch(body, -1)
+	require.Len(t, found, 1, "%s must name its threshold exactly once", freeDiskAction)
+
+	threshold := found[0][1]
+
+	// Both readers, by name rather than by value.
+	for _, use := range []string{`[ "$before" -ge "$need" ]`, `[ "$after" -lt "$need" ]`} {
+		assert.Contains(t, body, use,
+			"%s no longer reads its threshold through $need at %q, so the two places can "+
+				"disagree about how much room a cold build needs", freeDiskAction, use)
+	}
+
+	// And nowhere a second copy of the number itself. The description quotes
+	// measurements with spaces in them — "87 476 MB" — which is why this looks
+	// for the bare digits a shell would read.
+	for _, match := range bareMegabytes.FindAllString(body, -1) {
+		if match == threshold {
+			continue
+		}
+
+		assert.NotContains(t, body, "need="+match,
+			"%s assigns the threshold more than once", freeDiskAction)
+	}
+}

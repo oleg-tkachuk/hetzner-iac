@@ -407,9 +407,18 @@ and the stored artifact from 2.0 GB to 1.1.
 
 Two answers worth keeping for whoever changes this again. The build cache does
 earn its restore — 332 seconds with it against 713 with the module cache alone.
-And `free-disk` is headroom rather than necessity: removing it measures slower
-(250 seconds against 209), so it stays, and
-[the action itself](../.github/actions/free-disk/action.yml) has the rest.
+And `free-disk` is headroom rather than necessity: removing it measured
+slower — 250 seconds against 209 — so it stays.
+
+What changed since that measurement is the ground under it. It was taken on a
+runner with 13.7 GB free, where clearing space made the restore itself faster;
+run 35282937571 measured **87 476 MB free before the action ran**, against a
+shared cache of **1 127 MB**. So it was freeing 22 GB to make room for one,
+and charging 30 seconds for it in one job and 74 in another. It now skips the
+removal when the space is already there, at the same 20 000 MB its own guard
+enforces — below that threshold it behaves exactly as before, which is what
+keeps the 250-against-209 result from being contradicted rather than ignored.
+[The action itself](../.github/actions/free-disk/action.yml) has the rest.
 
 ## What a change does not run
 
