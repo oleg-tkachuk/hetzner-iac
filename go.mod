@@ -7,7 +7,7 @@ require (
 	github.com/hetznercloud/hcloud-go/v2 v2.48.0
 	github.com/pulumi/pulumi-hcloud/sdk v1.42.0
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.34.1
-	github.com/pulumi/pulumi-random/sdk/v4 v4.21.1
+	github.com/pulumi/pulumi-random/sdk/v4 v4.21.2
 	github.com/pulumi/pulumi/sdk/v3 v3.263.0
 	github.com/pulumiverse/pulumi-talos/sdk v0.8.1
 	github.com/stretchr/testify v1.12.1
