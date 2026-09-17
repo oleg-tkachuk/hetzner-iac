@@ -84,7 +84,7 @@ Argo CD, the only service so far worth exposing, has its Ingress.
 **Blocked on:** a domain in the topology. That is an input rather than work,
 which is what **blocked** means above, and it is listed because the cluster
 this repository describes has not been given one — not because anything is
-missing. [configuration.md](docs/configuration.md#the-domain) is what to set,
+missing. [domain.md](docs/domain.md) is what to set,
 whether or not Hetzner serves the zone.
 
 ### A server keeps its address when it is replaced

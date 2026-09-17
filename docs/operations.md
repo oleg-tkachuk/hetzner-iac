@@ -143,7 +143,7 @@ The second one was added after the failure it would have caught. Pod-to-pod
 traffic across nodes had no route at all for thirteen hours, and nothing said
 so: every node `Ready`, every pod `Running`, and about a third of DNS queries
 timing out. It surfaced as the CSI controller crash-looping — see
-[design.md](design.md#how-pod-traffic-crosses-a-node-boundary) for the chain.
+[networking.md](networking.md#how-pod-traffic-crosses-a-node-boundary) for the chain.
 
 It works by asking the cluster's DNS from a node that runs **no** DNS replica,
 so every backend it can reach is on another node and the query has to cross a
