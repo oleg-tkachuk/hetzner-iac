@@ -61,14 +61,19 @@ ipv6:
   enabled: false
 loadBalancer:
   algorithm: maglev
-externalIPs:
-  enabled: true
-nodePort:
-  enabled: true
-hostPort:
-  enabled: true
 socketLB:
   hostNamespaceOnly: true
+
+# externalIPs, nodePort and hostPort are deliberately absent, and it took
+# reading the chart to know that. This file set `enabled: true` on all three;
+# Cilium 1.15 read them, 1.20 does not — they are in neither its values.yaml
+# nor its templates, so Helm accepted three keys and ignored them.
+#
+# Nothing was lost by that, which is the uncomfortable half: with
+# kubeProxyReplacement on, the agent serves NodePort, ExternalIPs and HostPort
+# itself, and the rendered configmap carries no per-feature flag to set. The
+# lines were doing nothing either way, and a value that does nothing is worse
+# than no value — it reads as the reason a feature works.
 
 # Talos mounts the cgroup filesystem itself and runs a read-only root, so
 # Cilium must not try to mount it, and must be granted the capabilities it

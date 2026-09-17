@@ -49,8 +49,8 @@ var registry = map[string]Chart{
 	"cilium": {
 		Name:       "cilium",
 		Repo:       "https://helm.cilium.io",
-		Version:    "1.20.1", // app 1.20.1
-		AppVersion: "1.20.1",
+		Version:    "1.20.2", // app 1.20.2
+		AppVersion: "1.20.2",
 		Namespace:  "kube-system",
 	},
 
@@ -96,7 +96,7 @@ var registry = map[string]Chart{
 	"traefik": {
 		Name:       "traefik",
 		Repo:       "https://traefik.github.io/charts",
-		Version:    "41.5.0", // app v3.7.13
+		Version:    "41.6.0", // app v3.7.13
 		AppVersion: "v3.7.13",
 		Namespace:  "traefik",
 	},
@@ -105,7 +105,7 @@ var registry = map[string]Chart{
 	"argo-cd": {
 		Name:       "argo-cd",
 		Repo:       "https://argoproj.github.io/argo-helm",
-		Version:    "10.9.1", // app v3.5.3
+		Version:    "10.9.2", // app v3.5.3
 		AppVersion: "v3.5.3",
 		Namespace:  "argocd",
 	},
