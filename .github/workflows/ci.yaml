@@ -435,11 +435,15 @@ jobs:
     # it pays 2m08s restoring the cache and 1m18s on `go install gosec` BEFORE
     # the compilation those two spend their whole budget on.
     #
-    # Where the minutes come from: locally the work is 1 916 CPU-seconds. A
-    # standard runner on a PRIVATE repository has TWO cores — four is what a
-    # public one gets — so 1916/2 is 958s, which is the 15m58s that a 15-minute
-    # bound cannot fit. The step below prints the runner's actual cores, so the
-    # next reader measures this instead of looking it up.
+    # Where the minutes come from: locally the work is 1 916 CPU-seconds, and
+    # the runner divides it. This repository is public now and its runner
+    # measures 4 cores and 15 Gi, so 1916/4 is about 8m; on the 2 cores a
+    # private repository gets it was 958s, the 15m58s a 15-minute bound could
+    # not fit. The step below prints both, so the next reader measures this
+    # instead of looking it up.
+    #
+    # The bound stays at 25 regardless: what it was raised for is a cold cache
+    # on a dependency update, and more cores do not remove that.
     #
     # So this is the same margin `Tests and vet` has, plus that overhead. A
     # tighter bound does not make it faster, it only hides the cause behind

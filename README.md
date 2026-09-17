@@ -201,6 +201,7 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 | [configuration.md](docs/configuration.md) | the topology file, stack config, state and secrets |
 | [commands.md](docs/commands.md) | every task, as tables |
 | [operations.md](docs/operations.md) | running a cluster that exists: stopping, starting, the checks, kubectl |
+| [recovery.md](docs/recovery.md) | upgrades, etcd snapshots and restoring from one |
 | [ci.md](docs/ci.md) | how changes land, the scanners, what the suites prove, chart upgrades |
 | [ROADMAP.md](ROADMAP.md) | what is intended next, and what is deliberately not planned |
 | [adr/](docs/adr/) | the decisions this is built on: what was decided, and the consequences accepted |
