@@ -1,8 +1,10 @@
 # Running it day to day
 
-Everything here is about a cluster that already exists. How it is built is
-[the command reference](commands.md); why it is shaped this way is
-[design.md](design.md).
+A cluster that already exists: stopping it, starting it, asking whether it
+works, and reaching it with a plain kubectl. Upgrades, snapshots and restores
+are [recovery.md](recovery.md) — a different question, asked at a different
+moment. How a cluster is built is [the command reference](commands.md); why it
+is shaped this way is [design.md](design.md).
 
 ## Stopping and starting
 
@@ -141,7 +143,7 @@ The second one was added after the failure it would have caught. Pod-to-pod
 traffic across nodes had no route at all for thirteen hours, and nothing said
 so: every node `Ready`, every pod `Running`, and about a third of DNS queries
 timing out. It surfaced as the CSI controller crash-looping — see
-[design.md](design.md#how-pod-traffic-crosses-a-node-boundary) for the chain.
+[networking.md](networking.md#how-pod-traffic-crosses-a-node-boundary) for the chain.
 
 It works by asking the cluster's DNS from a node that runs **no** DNS replica,
 so every backend it can reach is on another node and the query has to cross a
@@ -181,161 +183,6 @@ checks could not run" — a missing kubeconfig, an unreachable API server. Both
 `go run` and `task` flatten any non-zero child to their own `1`, so a caller
 that needs the difference has to build the binary:
 `go build -o smoke ./tools/smoke`.
-
-## Upgrades and backups
-
-| Task | Does |
-|------|------|
-| `task cluster:etcd:restore` | restore etcd from a snapshot; wipes the control plane first, asks first |
-| `task cluster:etcd:snapshot` | snapshot etcd into `.backups/`, read it back, record what it holds |
-| `task cluster:etcd:upload` | upload a snapshot to the Storage Box with restic; keeps the last ten |
-| `task cluster:secrets:export` | print the Talos secrets bundle, to pipe into a password store |
-| `task cluster:upgrade:k8s` | upgrade Kubernetes in place; asks first |
-| `task cluster:upgrade:talos` | upgrade Talos, one node at a time; asks first |
-
-Both upgrades are Talos operations and both ask before they start. The Talos
-version comes from the topology, not the task: bump `talos.version`, run
-`task cluster:image:bake`, then upgrade — the image selector keys off the
-version label, so a bump without a bake fails at plan time rather than
-halfway.
-
-`talos.architecture` needs the same re-bake, and for a sharper reason. The
-version lives in a label; the architecture does not — Hetzner records it as a
-field on the image. The bake asks about both, so a project holding an x86
-snapshot and a topology asking for `arm` bakes a second one instead of
-reporting the first as good enough. It did the latter until this was fixed, and
-the pair of steps then pointed at each other: the bake said "already present"
-and apply said "run `task cluster:image:bake`".
-
-The bake also runs in the topology's `placement.location`, not
-`hcloud-upload-image`'s default of `fsn1`. It works by creating a real server,
-so the location has to be one that offers the server type — and for Arm the
-default was the wrong one: Hetzner reports the `cax` line as *supported but not
-available* in `fsn1`, while `hel1` and `nbg1` report it available. See
-[configuration.md](configuration.md#cpu-architecture) for what Arm costs, which
-locations have it, and the probe to run before planning an Arm cluster.
-
-### The two halves of a backup
-
-An etcd snapshot on its own restores nothing. `talosctl` accepts one only
-against the same cluster secrets, and the `secrets` resource inside it is
-ciphertext under the secretbox key that lives in those secrets. The bundle is
-not an accessory to the snapshot; it is what makes the snapshot mean anything.
-
-The bundle exists in exactly one place — Pulumi's state — where `Protect`
-stops a destroy from taking it. That is not a second copy, and losing access
-to the state backend loses the cluster's root of trust with it.
-
-    task cluster:secrets:export stack=dev | pass insert -m hetzner/dev/talos-secrets
-
-It prints to stdout and nothing else, and refuses a terminal: the one thing
-worse than having no copy of a certificate authority is having one in
-scrollback. Store it where the Hetzner token already lives.
-
-Re-export it only if the bundle is ever regenerated, which nothing but
-`task cluster:secrets:destroy` does.
-
-### Uploading a snapshot
-
-`task cluster:etcd:snapshot` leaves the snapshot and its `.info` in `.backups/`
-on the machine that ran it, which is one disk failure from having no backup at
-all. `task cluster:etcd:upload` sends both to the Storage Box that
-`layers/60-backup` creates:
-
-```bash
-task cluster:etcd:upload stack=dev trust_host_key=yes   # first time only
-task cluster:etcd:upload stack=dev
-```
-
-With no `snapshot=`, it takes the newest file in `.backups/`.
-
-restic does the work — upload, deduplication, encryption, retention and
-verification — and rclone is only its transport: restic's own SFTP backend
-speaks key authentication, and the box's credential is a generated password.
-Both are in the `Brewfile`.
-
-Nothing is configured by hand. The host, the login, both passwords and the path
-are stack outputs of `layers/60-backup`, read through
-`pulumi stack output --show-secrets`, and the rclone remote is assembled in the
-command's own environment, so no credential is written to a config file.
-
-The first run needs `trust_host_key=yes`, which reads the box's host key with
-`ssh-keyscan` into a gitignored `.known_hosts` and prints its fingerprints —
-compare them with the ones the Hetzner console shows for the box. Every run
-after that verifies against that file and refuses a key that has changed.
-
-**Copy the repository password out of the stack once.** It encrypts the
-repository, so the uploads are unreadable without it:
-
-```bash
-pulumi -C layers/60-backup -s dev stack output backupRepositoryPassword --show-secrets
-```
-
-The Storage Box carries delete protection, so `task destroy` cannot take it —
-but Pulumi's state is what holds that password, and a lost state leaves the
-uploads on the box as bytes nothing can read. Put it in the same password store
-as `task cluster:secrets:export`, which is the other half a restore needs.
-
-### Restoring
-
-    task cluster:etcd:restore stack=dev snapshot=.backups/etcd-<stamp>.db
-
-This is the procedure Talos documents, with nothing on top: wipe the EPHEMERAL
-partition of every control-plane node, wait for each to come back with etcd in
-`Preparing`, then bootstrap one of them from the snapshot. The others rejoin
-once the control-plane endpoint answers.
-
-Three things it does before touching anything:
-
-- **checks the snapshot,** through the library that defines the format. A
-  snapshot is a bbolt database, so opening it read-only validates the magic,
-  the format version, the page size and the meta checksum; the buckets etcd
-  puts there — `key`, `meta`, `members`, `cluster` — are what say it is an
-  etcd snapshot rather than somebody else's database. It reports the revision
-  count and the consistent index, so a snapshot can be told from another one;
-- **finds the nodes through Hetzner,** not `talosctl get members`, which needs
-  the etcd that is broken;
-- **asks.** Everything written after the snapshot is gone.
-
-The node list comes from the `role=control-plane` label, so this works
-unchanged on one node or three — three is what ships.
-
-Afterwards the cluster converges on its own, and the sequence is worth knowing
-because the middle of it looks like a failure. Measured on a single-node
-cluster, from a 45 MB snapshot:
-
-| | |
-|---|---|
-| the task itself | about 1m40s — reset, reboot, wait for `Preparing`, bootstrap |
-| the API answers | ~10s after the bootstrap |
-| the node | `NotReady,SchedulingDisabled` for ~50s, then `NotReady`, then `Ready` at ~1m40s |
-| workloads | back to the pre-restore count by ~3m, with no operator action |
-
-Nothing needed re-applying: the snapshot holds the Helm release state as well
-as the workloads, so the layers were already what they had been. Re-apply only
-if something was created after the snapshot was taken — and that is exactly
-what the restore cannot bring back.
-
-Each snapshot is read back before the task reports success, and what it holds
-is written beside it as `<snapshot>.info`:
-
-    taken:     20260913T140204Z
-    talosctl:  snapshot info: hash 68be579d, revision 39170, total keys 1616, …
-    read back: …/etcd-20260913T140204Z.db — 45273120 bytes, 3278 revisions, consistent index 6028
-
-A snapshot nobody has opened is a file of the right size, and the moment to
-find that out is not the incident it was taken for. `cluster:etcd:restore`
-prints that record beside what it reads back itself, so a file that changed
-after it was written shows up before the wipe rather than after.
-
-The two numbers are different counters and neither is the other: `revision` is
-the MVCC revision, `consistent index` is how far raft had applied. The
-consistent index also restarts after a recovery bootstrap, because that begins
-a new raft cluster — so it tells two snapshots of one cluster apart and says
-nothing across a restore.
-
-The snapshots still write to the operator's machine, on no schedule, with no
-copy anywhere else. That half is a gap, not a design.
 
 ## Reaching the cluster with a plain kubectl
 

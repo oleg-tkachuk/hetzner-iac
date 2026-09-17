@@ -58,7 +58,7 @@ anywhere else works the same way: leave `metadata.dnsZone` empty and two
 records are yours to write, which is the only difference. Leave it out and every command below still works; the ingress layer writes
 no records, `50-gitops` no Ingress, and the Argo CD UI is reached with
 `kubectl port-forward`. What the domain has to be, and the order to obtain the
-certificate in: [The domain](docs/configuration.md#the-domain).
+certificate in: [domain.md](docs/domain.md).
 
 Everything below creates **billable**
 [Hetzner resources](https://www.hetzner.com/cloud#pricing);
@@ -187,8 +187,8 @@ Argo CD's hostname is **not** stack config, and neither is the cluster's
 domain: both come from `metadata.domain` in the topology, so `40-ingress` and
 `50-gitops` cannot spell it differently. It is a prerequisite of being
 reachable rather than of installing —
-[The domain](docs/configuration.md#the-domain) has the two fields, the
-delegation and the staging-first order for the certificate.
+[domain.md](docs/domain.md) has the two fields, the delegation and the
+staging-first order for the certificate.
 
 Details, including where the encrypted token lives and how to keep state
 at Hetzner instead: [configuration.md](docs/configuration.md).
@@ -198,9 +198,12 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 | Document | Covers |
 |----------|--------|
 | [design.md](docs/design.md) | why it is shaped this way: layers, the committed topology, encryption, version pinning |
+| [networking.md](docs/networking.md) | how a request reaches a pod, how pod traffic crosses nodes, and the default deny |
+| [domain.md](docs/domain.md) | what being reachable from outside needs, and in what order |
 | [configuration.md](docs/configuration.md) | the topology file, stack config, state and secrets |
 | [commands.md](docs/commands.md) | every task, as tables |
 | [operations.md](docs/operations.md) | running a cluster that exists: stopping, starting, the checks, kubectl |
+| [recovery.md](docs/recovery.md) | upgrades, etcd snapshots and restoring from one |
 | [ci.md](docs/ci.md) | how changes land, the scanners, what the suites prove, chart upgrades |
 | [ROADMAP.md](ROADMAP.md) | what is intended next, and what is deliberately not planned |
 | [adr/](docs/adr/) | the decisions this is built on: what was decided, and the consequences accepted |

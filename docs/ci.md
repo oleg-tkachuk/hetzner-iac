@@ -52,17 +52,12 @@ request is close to a full rebuild. Measured on one:
 | `Go lint` | ~2m | **9m35s** | 20m |
 | `Insecure patterns` (gosec) | ~5m, of which gosec is 23s | **killed twice** | 15m → **25m** |
 
-gosec's cost is not gosec. It type-checks the whole transitive graph, so its
-runtime is whatever the cache does not hold — 23 seconds warm, and the same
-work as `Tests and vet` cold. It also pays 2m08s restoring the cache and 1m18s
-on `go install gosec` before that compilation starts, which is why 15 minutes
-was enough for the other two jobs and not for this one. It now has the same
-proportional margin they do.
-
-Raising the bound does not make it faster; it makes the cause readable. Both
-failures arrived as `exit status 143` with a truncated log, which says nothing
-about a cache — so the job now prints the runner's cores and memory before it
-starts.
+gosec's cost is not gosec: it type-checks the whole transitive graph, so its
+runtime is whatever the cache does not hold — 23 seconds warm, the same work as
+`Tests and vet` cold, plus the cache restore and its own install before that
+starts. Hence the larger bound, which does not make it faster; it makes the
+cause readable, because both failures arrived as `exit status 143` with a
+truncated log. The job prints the runner's cores and memory first now.
 
 ### gosec is downloaded, not compiled
 
@@ -122,34 +117,33 @@ configuration and assert that every pin is matched, that every datasource is one
 of the three, and that `extractVersion` is present exactly where the `v` is
 missing. Each was checked by breaking it on purpose.
 
-### Two cores, not four
+### How many cores, and what that decides
 
-The work is 1 916 CPU-seconds, measured locally. What turns that into sixteen
-minutes is the runner: a standard GitHub-hosted Linux runner has **2 cores and
-8 GB on a private repository**, and 4 cores with 16 GB on a public one. 1916/2
-is 958s — 15m58s, against a bound of 15.
+The work is 1 916 CPU-seconds, measured locally. What turns that into minutes
+is the runner, and the runner changed when this repository went public:
+measured on a run after the switch, `nproc` says **4 cores and 15 Gi**, against
+the 2 cores and 8 GB a standard runner gets on a private repository. The job
+prints both before it starts, so the next reader measures this rather than
+looking it up.
 
-This also fixed a live misconfiguration. `GOSEC_FLAGS` was `-concurrency=4`
-with a comment saying four "is the CI runner's core count, so this costs
-nothing there". It is not: on two cores that cap oversubscribed them twofold,
-which cannot add throughput and can only add memory pressure on 8 GB — the
-opposite of what the flag is for. It is now `min(4, cores)`, computed, so
-neither machine is assumed.
+| | cores | scaled from 1 916 CPU-s |
+|---|---|---|
+| `ubuntu-slim` | 1 | ~32m |
+| `ubuntu-latest`, private repository | 2 | ~16m |
+| `ubuntu-latest`, public — **this one** | 4 | ~8m |
+| larger runner | 8 | ~4m, and not open to a personal account |
 
-Would a different runner help? It is the one lever that would, and the sizes
-above are the whole answer:
+Scaling by cores assumes the work parallelises, which Go compilation largely
+does; treat the figures as the shape of the answer rather than a promise.
 
-| | cores | scaled from 1 916 CPU-s | available here |
-|---|---|---|---|
-| `ubuntu-slim` | 1 | ~32m | yes, and worse |
-| `ubuntu-latest`, private repo | 2 | ~16m | **today** |
-| `ubuntu-latest`, public repo | 4 | ~8m | on going public — free and unlimited |
-| larger runner, 8 core | 8 | ~4m | no — organisations on Team or Enterprise only |
+The bound on that job stays at 25 minutes. What it was raised for is a cold
+cache on a dependency update — the case above — and halving the compile time
+does not remove it.
 
-Larger runners are not open to a personal account, so for this repository the
-only real choice is the second row or the third. Scaling by cores assumes the
-work parallelises, which Go compilation largely does; treat the figures as the
-shape of the answer rather than a promise.
+`GOSEC_FLAGS` is `min(4, cores)`, computed rather than assumed. It was a flat
+`-concurrency=4` with a comment calling four "the CI runner's core count",
+which oversubscribed two cores twofold on the private runner: that cannot add
+throughput and can only add memory pressure.
 
 ## Renovate runs when you ask it to
 
@@ -321,81 +315,43 @@ ranges are 6980 rotating CIDRs of shared Azure.
 ## Why the pipeline is not slow any more
 
 Every run used to pay for a cold compile of a 208-module graph dominated by the
-generated Pulumi Kubernetes SDK. Two separate causes.
+generated Pulumi Kubernetes SDK. Four decisions fixed it, and each one is
+commented where it is implemented — with the measurement that chose it, since
+that is where somebody about to reverse it will be standing.
 
-**The shared Go cache was poisoned.** `actions/setup-go` caches the module and
-build directories under a key derived from `go.sum`, and that key is immutable:
-whichever job saves first owns it for good. Early runs failed before they
-touched Go, saved a 31 MB cache, and every later run restored those 31 MB and
-rebuilt everything.
+**One writer for the shared cache.** `actions/setup-go` derives its key from
+`go.sum` and an Actions key is immutable, so whichever job saves first owns it:
+early runs failed before they touched Go, saved 31 MB, and every later run
+restored those 31 MB and rebuilt everything. `.github/actions/setup-go` takes a
+`cache-mode` now — one writer, on a push to `main`, everything else
+`restore` — and CI asserts that exactly one writer exists, because a comment
+did not prevent the second occurrence.
 
-The roles are explicit now: `.github/actions/setup-go` takes a `cache-mode`,
-the priming job is the only writer and only on a push to `main`, everything
-else is `restore`, and a race build opts out entirely because its artifacts
-carry build IDs nothing else can reuse. CI asserts that exactly one writer
-exists, because a comment did not prevent the second occurrence.
-
-The priming job builds unconditionally. The first version skipped the build
+**The priming job builds unconditionally.** The first version skipped the build
 when no Go had changed, saved an empty cache under the immutable key, and
-poisoned it again on the very run that introduced it. It is also push-only: on
-a pull request `cache-mode` resolves to `restore`, so the job compiled for 277
-seconds and wrote nothing, while the four jobs waiting on it restored the same
-cache from `main` they would have restored anyway.
+poisoned it on the run that introduced it.
 
-**gosec's memory.** It loads every package with full syntax *and* type
-information for the whole transitive graph, and processes `-concurrency` of
-them at once — defaulting to the core count, so fourteen large graphs at once
-on a developer machine. `GOSEC_FLAGS: -concurrency=4` in the Taskfile caps it.
+**A job that compiles nothing does not restore the cache.** Restoring it costs
+minutes; gitleaks scans for two seconds, trivy for fifteen, checkov is a Python
+tool, and lychee is a Rust binary. Even govulncheck, which does compile, saves
+26 seconds of work against 191 of restore. They all take `cache-mode: off`, and
+`TestWorkflows_RestoreTheGoCacheOnlyWhereSomethingReadsIt` refuses the next job
+that pays for a cache nothing reads — five had been fixed one at a time before
+it existed.
 
-**Setup, once the compile was no longer the cost.** With the cache working,
-what a run spent its time on was getting ready to work. Measured across the
-ten jobs of one pull-request run:
+**The cache is cleaned before it is saved.** A cold build produces 4 635 MB;
+the saved one had reached 14 235 MB, because Go trims entries untouched for
+five days and a cache restored fresh every run never ages. The priming job runs
+`go clean -cache` first, and the key carries a generation — bumped with the
+previous one still in `restore-keys`, or the first pull request is cold
+everywhere and gosec dies on its bound. On the same job: 429 seconds to 249,
+and the stored artifact from 2.0 GB to 1.1.
 
-- `free-disk`, which `rm -rf`s five preinstalled toolchains from inside
-  `setup-go`, took 38 to 175 seconds per job — up to fifteen minutes of runner
-  time per pull request, for a description that claimed 24 seconds. Both disk
-  failures it was written for were a job filling the runner with the shared
-  cache, so it runs only where that cache is restored.
-- Restoring the cache took 184 to 331 seconds. gitleaks scanned for two
-  seconds behind three hundred of it, trivy for fifteen, checkov — a Python
-  tool — for sixteen. Those jobs take `cache-mode: off`.
-- govulncheck was the one scanner with a real claim on the cache, since it
-  compiles the module. Measured with both arms in a single run: 234 seconds
-  with the cache, 70 without. It saves 26 seconds of work and costs 191 of
-  restore, so it takes `cache-mode: off` too.
-
-**The cache itself, which was two thirds waste.** Restoring it was still the
-largest single cost of a reader job — 327 of the 429 seconds `Tests and vet`
-took — so the next question was whether the build cache earns its restore.
-
-It does, and by a distance: measured on three otherwise identical jobs, 332
-seconds with the module and build caches against 713 with the module cache
-alone. Compiling this dependency graph cold is worth far more than reading
-14 GB.
-
-What did not earn anything was most of those 14 GB. A complete cold build
-produces a **4 635 MB** build cache; the saved one had reached **14 235 MB**,
-because Go trims entries untouched for five days and a cache restored fresh on
-every run never ages. So the priming job now runs `go clean -cache` before it
-builds, and the key carries a generation (`go2-`) because an Actions key is
-immutable — the old entries would have kept their size until `go.sum` changed.
-
-The result, on the same job: **429 seconds to 249**, and the stored artifact
-from 2.0 GB compressed to 1.1. It costs the priming job one cold compile, once
-per merge.
-
-Two things that fell out of measuring it, both worth knowing before anyone
-changes this again:
-
-- **the key generation has to come with a fallback.** Bumped alone it made the
-  first pull request cold everywhere, and gosec went past its fifteen-minute
-  bound and was killed. The previous generation stayed in `restore-keys` until
-  a `go2-` cache existed, and then came out.
-- **`free-disk` is headroom now, not necessity.** At 15.6 GB of cache a reader
-  without it died at the restore with no logs at all. At 6 GB the same job
-  finishes with 5 732 MB to spare — but removing it measures *slower* (250
-  seconds against 209), so it stays. The full reasoning is in
-  [the action itself](../.github/actions/free-disk/action.yml).
+Two answers worth keeping for whoever changes this again. The build cache does
+earn its restore — 332 seconds with it against 713 with the module cache alone.
+And `free-disk` is headroom rather than necessity: removing it measures slower
+(250 seconds against 209), so it stays, and
+[the action itself](../.github/actions/free-disk/action.yml) has the rest.
 
 ## What a change does not run
 
@@ -441,12 +397,8 @@ and the manifests, zizmor and actionlint read the workflow files. None of those
 is something a document can change, so running them re-asserts what the
 previous run asserted.
 
-Measured on the run that prompted this: a prose-only pull request cost 331
-seconds across seven jobs, of which 211 were the documentation job restoring a
-Go build cache that lychee — a Rust binary — cannot read. It is four jobs now,
-and `TestWorkflows_RestoreTheGoCacheOnlyWhereSomethingReadsIt` refuses the next
-job that pays for a cache with no reader; five jobs had already been fixed one
-at a time before it existed.
+It was seven jobs and 331 seconds, of which 211 were the documentation job
+restoring a Go build cache that lychee cannot read.
 
 ## What the suites prove
 
