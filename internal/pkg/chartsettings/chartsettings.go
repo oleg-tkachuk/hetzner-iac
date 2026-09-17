@@ -91,6 +91,69 @@ func TraefikProxyProtocolSet(entryPoint, cidr string) string {
 		TraefikTrustedIPs + "[0]=" + cidr
 }
 
+// Priority classes for the platform's own workloads, and the two names
+// Kubernetes ships built in.
+//
+// What they decide is eviction order, not scheduling luck. Under node memory
+// pressure the kubelet ranks pods by QoS class and then by priority, so a
+// platform component with no priority is ranked beside the workloads it exists
+// to serve — and the ones that hurt are not symmetrical. Losing the CSI node
+// plugin means volumes stop mounting on that node; losing the ingress means
+// nothing reaches the cluster from outside at all.
+//
+// Only what the charts do not already do. Measured by rendering each pinned
+// chart with its defaults: Cilium sets system-node-critical for the agent and
+// system-cluster-critical for its operator, metrics-server sets
+// system-cluster-critical, and the Hetzner cloud controller manager defaults
+// to system-cluster-critical — that last one is set here anyway, because a
+// default this repository relies on and does not state is one an upstream
+// release can remove quietly.
+//
+// Argo CD deliberately gets none. It reconciles; it does not serve. A cluster
+// whose Argo CD has been evicted keeps running everything it was told to run,
+// and marking it cluster-critical would let it outrank the workloads under the
+// exact pressure where they matter more.
+//
+// There is no namespace restriction on either class — Traefik and cert-manager
+// are in their own namespaces and use them, which the Kubernetes documentation
+// on pod priority permits. ResourceQuota is the mechanism for limiting them,
+// and this cluster sets none.
+const (
+	PriorityClusterCritical = "system-cluster-critical"
+	PriorityNodeCritical    = "system-node-critical"
+
+	// PriorityClassName is the key itself. Every chart here spells it the
+	// same; what differs is the path to it, which is why the segments below
+	// are separate constants rather than three dotted strings.
+	PriorityClassName = "priorityClassName"
+
+	// CertManagerGlobal is where cert-manager takes it — one key covering the
+	// controller, the webhook and the cainjector, per the chart's own values.
+	CertManagerGlobal = "global"
+
+	// HcloudCSIController and HcloudCSINode are the chart's two components,
+	// and they take different classes: the node plugin is a DaemonSet, and
+	// its loss is a node-level failure rather than a cluster-level one.
+	HcloudCSIController = "controller"
+	HcloudCSINode       = "node"
+)
+
+// PriorityLine and PriorityLineQuoted are the rendered line to look for, and
+// the quoting is the CHART's rather than a choice here: Traefik's template
+// emits the value bare while cert-manager, hcloud-csi and the cloud controller
+// manager all quote it. Measured by rendering each at its pinned version, after
+// asserting the bare form everywhere and watching three of the four fail with
+// the value correctly applied — a check that is wrong about the spelling of a
+// setting that works.
+func PriorityLine(class string) string {
+	return PriorityClassName + ": " + class
+}
+
+// PriorityLineQuoted is the same line as a chart writes it when it quotes.
+func PriorityLineQuoted(class string) string {
+	return PriorityClassName + `: "` + class + `"`
+}
+
 // MetricsServerAddressTypes pins kubelet address resolution to the node's
 // internal address. Talos kubelet certificates carry that address, and the
 // chart default tries the hostname first — metrics-server then starts and
@@ -159,6 +222,40 @@ var Effects = []Effect{
 		Why: "left empty the controller discovers its location at startup, through the metadata " +
 			"service and an api.hetzner.cloud lookup that needs CoreDNS, inside the twenty seconds " +
 			"its liveness probe allows — a CrashLoopBackOff with nothing logged past its start line",
+	},
+	{
+		Chart: "traefik", Release: "traefik", Namespace: "traefik",
+		Set:    []string{PriorityClassName + "=" + PriorityClusterCritical},
+		Expect: PriorityLine(PriorityClusterCritical),
+		Why: "ingress is how anything reaches this cluster from outside, and with no priority " +
+			"the kubelet evicts it beside the workloads it serves",
+	},
+	{
+		Chart: "cert-manager", Release: "cert-manager", Namespace: "cert-manager",
+		Set:    []string{CertManagerGlobal + "." + PriorityClassName + "=" + PriorityClusterCritical},
+		Expect: PriorityLineQuoted(PriorityClusterCritical),
+		Why: "the webhook is in the admission path for every Certificate, so losing it stops " +
+			"renewal silently — the failure arrives ninety days later",
+	},
+	{
+		Chart: "hcloud-csi", Release: "hcloud-csi", Namespace: "kube-system",
+		Set:    []string{HcloudCSINode + "." + PriorityClassName + "=" + PriorityNodeCritical},
+		Expect: PriorityLineQuoted(PriorityNodeCritical),
+		Why: "the node plugin is what mounts volumes on its node; evicted, every pod with a " +
+			"volume there stays Pending with nothing wrong on the volume itself",
+	},
+	{
+		Chart: "hcloud-csi", Release: "hcloud-csi", Namespace: "kube-system",
+		Set:    []string{HcloudCSIController + "." + PriorityClassName + "=" + PriorityClusterCritical},
+		Expect: PriorityLineQuoted(PriorityClusterCritical),
+		Why:    "the controller is what creates and attaches volumes at all",
+	},
+	{
+		Chart: "hcloud-ccm", Release: "hcloud-ccm", Namespace: "kube-system",
+		Set:    []string{PriorityClassName + "=" + PriorityClusterCritical},
+		Expect: PriorityLineQuoted(PriorityClusterCritical),
+		Why: "it clears Talos's uninitialized taint, so without it a new or replaced node " +
+			"never becomes schedulable",
 	},
 	{
 		Chart: "traefik", Release: "traefik", Namespace: "traefik",

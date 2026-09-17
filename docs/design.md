@@ -281,6 +281,26 @@ means wiping STATE, which is where its configuration lives. On a cluster that
 is already running, the path is `task cluster:destroy` and a fresh
 `cluster:apply`, then the layers.
 
+## What the platform outranks, and what it does not
+
+Under node memory pressure the kubelet evicts by QoS class and then by
+priority, so a platform component with no priority is ranked beside the
+workloads it exists to serve. The ones that hurt are not symmetrical: losing
+the CSI node plugin leaves every pod with a volume on that node Pending, and
+losing ingress means nothing reaches the cluster from outside at all.
+
+So Traefik, cert-manager, the CSI controller and the cloud controller manager
+ask for `system-cluster-critical`, and the CSI node plugin — a DaemonSet whose
+loss is node-level rather than cluster-level — asks for
+`system-node-critical`. Cilium and metrics-server set their own; the values
+here only add what a chart does not already do.
+
+Argo CD deliberately asks for nothing. It reconciles rather than serves, and a
+cluster whose Argo CD has been evicted keeps running everything it was told to
+run. `internal/pkg/chartsettings` holds the reasoning and the render check
+proves each value reaches the rendered pod spec, quoting included — three of
+the four charts quote it and Traefik does not.
+
 ## Every chart version is pinned in one place
 
 `internal/pkg/charts` is the registry; floating tags are rejected by validation rather

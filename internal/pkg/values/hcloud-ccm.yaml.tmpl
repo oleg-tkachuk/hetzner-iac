@@ -3,6 +3,12 @@
 # It clears Talos's `uninitialized` taint, sets provider IDs, and programmes a
 # route per node — which is what lets Cilium route natively.
 
+# The chart already defaults to this. Stated anyway: it is what clears Talos's
+# uninitialized taint, so without it a replaced node never becomes
+# schedulable — and a default this repository depends on and does not write
+# down is one an upstream release can remove quietly.
+priorityClassName: system-cluster-critical
+
 networking:
   enabled: true
   clusterCIDR: {{ .PodCIDR }}
