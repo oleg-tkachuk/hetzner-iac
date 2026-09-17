@@ -1,7 +1,11 @@
 # Findings accepted as known. Each entry says what it is and why it stands.
 #
 # trivy does not read this file on its own — the security include passes
-# TRIVY_FLAGS: --ignorefile .trivyignore.yaml.
+# TRIVY_FLAGS: --ignorefile .trivyignore.yaml, and since taskfiles v7.2.2 that
+# reaches both of its invocations rather than the dependency scan alone. So a
+# `misconfigurations:` section here would take effect too; there is none,
+# because those findings are report-only and .checkov.yaml is where hardening
+# decisions are written down.
 #
 # Entries are removed as soon as a fix lands. A stale ignore is worse than none:
 # it masks the finding coming back.

@@ -37,7 +37,7 @@ vars:
   # Measured both ways. TestTasklib_EveryRemoteTaskfileHasItsChecksum holds
   # the two equal, because a half-applied bump otherwise fails one entry point
   # with a message about trust rather than about the version.
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.1.2'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.2.2'
 
   ROOT: { sh: pwd }
 
