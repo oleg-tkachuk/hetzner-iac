@@ -292,8 +292,11 @@ tasks:
       # the input, and it reads standard input when something is piped — so
       # both the interactive and the scripted path keep the token out of argv:
       #
-      #   task cluster:token stack=dev                 # prompts, hidden
-      #   pass hetzner/token | task cluster:token      # from a secret manager
+      #   task cluster:token stack=dev                       # prompts, hidden
+      #   pass hetzner/token | task cluster:token stack=dev  # a secret manager
+      #
+      # The piped form needs the stack too: without it the precondition prints
+      # the usage and stdin is never read, which reads as the pipe failing.
       #
       # Interactive by necessity: --non-interactive would refuse to prompt.
       - cmd: |

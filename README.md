@@ -78,9 +78,9 @@ pulumi login
 cp infra/cluster/cluster.example.yaml infra/cluster/cluster.dev.yaml
 $EDITOR infra/cluster/cluster.dev.yaml
 
-# 3. Create the stack and store the token. This is the only place it is
-#    typed; the task prompts and hides the input, so it never reaches the
-#    shell history. `pass hetzner/token | task cluster:token` also works.
+# 3. Create the stack and store the token, encrypted. Typed once: every
+#    task and both Pulumi tiers read it back from here. Never as a task
+#    argument — argv is visible to `ps` and lands in the shell history.
 task cluster:token stack=dev
 
 # 4. Bake the Talos snapshot. Once per Talos version; idempotent.
@@ -101,6 +101,24 @@ task cluster:kubeconfig stack=dev
 task cluster:status stack=dev
 task e2e
 ```
+
+Step 3 prompts and hides the input. It reads standard input too, so a secret
+manager can supply it without the value ever appearing in a terminal:
+
+```bash
+pass hetzner/token | task cluster:token stack=dev
+```
+
+The stack is required in both forms — without it the task prints its usage and
+never reads stdin, which reads as the pipe having failed.
+
+The token lands in `infra/cluster/Pulumi.dev.yaml` as ciphertext, encrypted by
+that stack's secrets provider, and that file is gitignored — so no plaintext
+copy exists anywhere. The task is a wrapper around `pulumi config set --secret
+hcloud:token` run in `infra/cluster`, which is the same thing by hand. Only the
+cluster tier holds a token; the layers reach it through the stack reference. An
+exported `HCLOUD_TOKEN` wins over the stored one, which is how CI and a shell
+already holding a token for another project keep working.
 
 Nodes stay `NotReady` between steps 5 and 6. That is the handover point, not a
 failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
