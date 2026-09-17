@@ -336,7 +336,7 @@ proves nothing about what Helm or Talos will accept:
 | `task charts:render-check` | `helm template`, then the pinned Kubernetes version's own schema |
 | `task cluster:machine-config:check` | `talosctl`, that the machine configuration is one it would apply |
 
-`task verify` runs all three. They need `helm`, a `talosctl` matching the
+`task ci:verify` runs all three. They need `helm`, a `talosctl` matching the
 pinned Talos minor, and a running Docker.
 
 What they have caught, none of which would have failed a `pulumi up`:

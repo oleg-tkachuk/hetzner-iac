@@ -57,7 +57,7 @@ Tasks marked **†** are the ones a workflow runs itself, so a green local run
 of one is a green pull request for that check and nobody has to type it by
 hand. The other checks CI performs it runs directly rather than through a task
 — the unit suite, `go vet`, `go build -o bin/`, golangci-lint — and `task
-verify` and `task scan` are the local aggregates that mirror those.
+ci:verify` and `task ci:scan` are the local aggregates that mirror those.
 `internal/ci` holds the repository's own gates, which run as part of the unit
 suite. TestGateMarkers_MatchTheWorkflows keeps this marker equal to what the
 workflows actually invoke.
@@ -69,14 +69,10 @@ workflows actually invoke.
 | `task build` | compile every program into `bin/` |
 | `task clean` | remove build output: `bin/` and the layer binaries under `.cache` |
 | `task destroy` | destroy everything: every layer, then the cluster. Asks first, and says what survives |
-| `task docs:links` † | do the documentation's own links point at files and headings that exist? — needs lychee |
 | `task e2e` | verify a running cluster; read-only |
 | `task fmt` | format and tidy |
-| `task fmt-check` † | fail if `gofmt -s` would change anything; the library's gate, and what CI runs |
 | `task plan` | preview the cluster and every layer; change nothing |
-| `task scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
 | `task up` | cluster, then every layer in dependency order; asks twice |
-| `task verify` | everything checkable without a cluster — needs helm, talosctl, docker and lychee |
 
 ## Cluster
 
@@ -160,16 +156,31 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 | `task charts:render-check` | the charts still produce the workloads and honour the values |
 | `task charts:validate` | pins are exact versions, not floating tags |
 
+## Checks
+
+These mirror the pipeline, and they live in
+[`tasks/ci.task.yaml`](../tasks/ci.task.yaml) rather than in the root
+Taskfile — which manages the IaC and should not need a pipeline's
+configuration to apply a cluster.
+
+| Task | Does |
+|------|------|
+| `task ci:verify` | everything checkable without a cluster — needs helm, kubeconform, talosctl and lychee |
+| `task ci:scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
+| `task ci:lint` | golangci-lint at the version CI pins, and refuses another; `task ci:lint -- ./internal/...` narrows it |
+| `task ci:lint:install` | write that pinned version into `bin/`, for this platform |
+| `task ci:fmt-check` † | fail if `gofmt -s` would change anything |
+| `task ci:docs:links` † | do the documentation's own links point at files and headings that exist? — needs lychee |
+| `task ci:checkov` † | hardening rules over the manifests and workflows this repository ships |
+
 ## Code
 
 | Task | Does |
 |------|------|
 | `task go:compile` | type-check without writing a binary |
 | `task go:deps:outdated` / `task go:deps:update` | dependency reports and bumps |
-| `task go:fmt:check` | fail if `gofmt -s` would change anything; what `task fmt-check` runs |
+| `task go:fmt:check` | fail if `gofmt -s` would change anything; what `task ci:fmt-check` runs |
 | `task go:fmt` / `task go:tidy` | format; tidy the module |
-| `task lint` | golangci-lint at the version CI pins; `task lint -- ./internal/...` narrows it |
-| `task lint:install` | write that pinned version into `bin/`, for this platform |
 | `task go:lint` | golangci-lint from PATH, whichever version that is |
 | `task go:test` | the unit suite |
 | `task go:test:coverage` | unit suite with an HTML coverage report |
@@ -180,9 +191,8 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 
 | Task | Does |
 |------|------|
-| `task checkov` † | hardening rules over the manifests and workflows this repository ships |
 | `task security:gosec` † | insecure patterns the compiler is happy with |
-| `task security:scan` | the module's own aggregate: secrets, filesystem, Go vuln, lint and SAST. `task scan` runs the four CI runs instead, not this |
+| `task security:scan` | the module's own aggregate: secrets, filesystem, Go vuln, lint and SAST. `task ci:scan` runs the four CI runs instead, not this |
 | `task security:secrets` † | gitleaks over the whole history |
 | `task security:trivy` † | vulnerable dependencies and secrets, plus IaC misconfig |
 | `task security:vuln` † | govulncheck across every module |

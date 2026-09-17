@@ -328,7 +328,7 @@ jobs:
       # now that the task is the library's `gofmt -s` gate — so a file could
       # pass here and be rewritten by `task fmt` locally.
       - name: gofmt
-        run: task fmt-check --yes
+        run: task ci:fmt-check --yes
       - name: go vet
         run: go vet ./...
       # The e2e suite is behind a build tag, so `go test ./...` never compiles
@@ -376,7 +376,7 @@ jobs:
           curl -sSfL "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/lychee-x86_64-unknown-linux-gnu.tar.gz" \
             | tar -xz -C /usr/local/bin --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
       - name: Documentation links
-        run: task docs:links
+        run: task ci:docs:links
 
   lint:
     name: Go lint
@@ -545,7 +545,7 @@ jobs:
       - run: pipx install "checkov==${CHECKOV_VERSION}"
       # The same task an operator runs, so the flags live in .checkov.yaml
       # rather than being restated here.
-      - run: task checkov
+      - run: task ci:checkov
 
   charts:
     name: Chart pins

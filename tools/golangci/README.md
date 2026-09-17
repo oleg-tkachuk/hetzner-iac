@@ -3,8 +3,8 @@
 Runs golangci-lint at the version CI pins, and refuses to run a different one.
 
 ```bash
-go run ./tools/golangci run ./...      # what task lint does
-task lint:install                      # writes the pinned copy into bin/
+go run ./tools/golangci run ./...      # what task ci:lint does
+task ci:lint:install                      # writes the pinned copy into bin/
 ```
 
 The version comes from `GOLANGCI_VERSION` in `.github/workflows/ci.yaml` — the
