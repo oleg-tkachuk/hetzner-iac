@@ -3,6 +3,26 @@ description: >
   Removes preinstalled toolchains this repository never uses, to make room for
   a cold Go build.
 
+  IT NOW SKIPS ITSELF WHEN THE ROOM IS ALREADY THERE, and the two numbers that
+  make that safe were measured on run 35282937571:
+
+    free before removal    87 476 MB
+    shared cache             1 127 MB
+
+  So it was freeing 22 GB to make room for one, and charging 30 seconds in one
+  job and 74 in another for it. Both premises below have moved: the runner
+  image is no longer a 13.7 GB disk, and the cache is no longer 15.6 GB — the
+  `go2-` generation and a priming job that builds from empty did that.
+
+  What is kept is the protection rather than the cost. The threshold is the
+  same 20 000 MB the guard at the bottom already enforces, so no new number
+  enters: below it, every toolchain still goes; above it, nothing is removed
+  and the job says so. If a future runner image ships a small disk, or the
+  cache grows back, this behaves exactly as it did.
+
+  Everything below is the history that made it, and is why the removal is
+  still here rather than deleted.
+
   A hosted runner starts with 13.7 GB free, and this repository's cache fits
   in that — now. It did not this morning, and the difference is worth reading
   before anyone removes this action.
@@ -68,6 +88,22 @@ runs:
         # yielding an empty string that the arithmetic below would treat as 0.
         before=$(df --output=avail -BM / | awk -f tools/lines/main.awk -v op=avail-mb)
 
+        # What a cold Go build of this tree needs, and the one number in this
+        # action. It is both the condition below and the guard at the bottom:
+        # the same standard decides whether to make room and whether enough
+        # was made, so the two cannot disagree.
+        need=20000
+
+        # Nothing to do when the room is already there, which is the ordinary
+        # case now. Measured on run 35282937571: 87 476 MB free before this
+        # ran, against a shared cache of 1 127 MB — 22 GB freed for one, at 30
+        # seconds in one job and 74 in another.
+        if [ "$before" -ge "$need" ]; then
+          echo "free space: ${before} MB, already above ${need} MB — nothing removed"
+          df -h /
+          exit 0
+        fi
+
         # Each of these is a preinstalled toolchain for a language or platform
         # this repository does not use. Removed rather than pruned: there is
         # nothing here to keep.
@@ -93,7 +129,7 @@ runs:
         # A guard rather than a hope. If a future runner image drops these
         # paths, this action silently frees nothing and the job fails again
         # with the confusing disk error rather than here, with the reason.
-        if [ "$after" -lt 20000 ]; then
-          echo "::error::only ${after} MB free after cleanup; a cold Go build of this tree needs more"
+        if [ "$after" -lt "$need" ]; then
+          echo "::error::only ${after} MB free after cleanup; a cold Go build of this tree needs ${need} MB"
           exit 1
         fi
