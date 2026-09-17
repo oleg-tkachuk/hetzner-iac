@@ -233,6 +233,7 @@ locally. On macOS `brew bundle` installs every one.
 | `gitleaks` | `task security:secrets` |
 | `gosec` | `task security:gosec`, and the nightly run |
 | `trivy` | `task security:trivy` |
+| `checkov` | `task checkov`, and `pipx` when checkov itself is not installed — the task installs the pinned version through it |
 | `actionlint` | workflow syntax — run by hand, the same check CI runs |
 | `zizmor` | workflow permissions — the same |
 | `lefthook` | the commit and push hooks, opt in per clone with `lefthook install` |

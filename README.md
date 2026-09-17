@@ -135,10 +135,12 @@ version from the committed topologies. It writes that version into `bin/`,
 which the check prefers, so Homebrew's copy can stay on PATH for everything
 else.
 
-Two more for one task. `task cluster:etcd:upload` needs `restic`, which does
-the upload, the retention and the integrity check, and `rclone`, which is only
-its transport — restic's own sftp backend speaks key authentication and a
-Storage Box credential is a generated password.
+Three more for one task each. `task cluster:etcd:upload` needs `restic`, which
+does the upload, the retention and the integrity check, and `rclone`, which is
+only its transport — restic's own sftp backend speaks key authentication and a
+Storage Box credential is a generated password. `task cluster:hubble` needs
+[`hubble`](https://github.com/cilium/hubble), the CLI that reads the flows
+`layers/20-network-policy` is built from.
 
 Every task says what to install rather than skipping itself silently, so a
 clone missing one of these is not a broken clone.

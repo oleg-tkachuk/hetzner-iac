@@ -65,6 +65,10 @@ brew "talosctl"
 brew "restic"
 brew "rclone"
 
+# task cluster:hubble. The CLI reads pod flows out of the Hubble relay, which
+# is where the evidence for every rule in layers/20-network-policy came from.
+brew "hubble"
+
 # --- The checks, which build nothing -----------------------------------------
 #
 # docs/ci.md lists these with the check each one serves. Every task states what
