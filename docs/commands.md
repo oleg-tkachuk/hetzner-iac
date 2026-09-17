@@ -199,4 +199,5 @@ What each suite proves, and why e2e does not run in CI:
 ## Running it day to day
 
 Stopping and starting, reaching the cluster with a plain `kubectl`, the checks
-worth running and where the wrappers stop: [operations.md](operations.md).
+worth running and where the wrappers stop: [operations.md](operations.md),
+and [recovery.md](recovery.md) for upgrades, snapshots and restores.

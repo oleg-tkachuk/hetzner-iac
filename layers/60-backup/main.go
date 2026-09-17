@@ -132,7 +132,7 @@ func deploy(r *layer.Runner) error {
 	//
 	// It is not interchangeable with the two above. Those open the box; this
 	// one opens what is IN it, and losing it leaves the uploads on the box as
-	// bytes nothing can read. See docs/operations.md — an operator should copy
+	// bytes nothing can read. See docs/recovery.md — an operator should copy
 	// it out of the stack once, because Pulumi's state then stops being the
 	// only thing standing between the cluster and its backups.
 	resticPassword, err := random.NewRandomPassword(r.Ctx, "restic", passwordArgs())
