@@ -30,6 +30,10 @@ type policy struct {
 			Egress  *bool `json:"egress"`
 		} `json:"enableDefaultDeny"`
 		Egress []struct {
+			ToEntities []string `json:"toEntities"`
+			ToFQDNs    []struct {
+				MatchName string `json:"matchName"`
+			} `json:"toFQDNs"`
 			ToPorts []struct {
 				Ports []struct {
 					Port     string `json:"port"`
@@ -283,4 +287,60 @@ func TestAPIServerPolicy_NamesThePortsTheClusterListensOn(t *testing.T) {
 
 	assert.Equal(t, listening, permitted,
 		"%s permits %v while the cluster answers on %v", apiServerPolicy, permitted, listening)
+}
+
+// argoCDGitPolicy is the file, named once so the test below and a future
+// reader agree on which policy is being argued about.
+const argoCDGitPolicy = "70-allow-argocd-git.yaml"
+
+// TestArgoCDGitPolicy_StaysBroadOnPurpose pins a decision that reads like an
+// oversight.
+//
+// `toEntities: world` is the only one in this directory, and narrowing it to a
+// list of names is the obvious tidy-up — both neighbouring policies do exactly
+// that. It would be wrong here: Argo CD reaches the forge `gitops:repoURL`
+// names AND every Helm or OCI registry any child Application references, so an
+// allowlist needs editing each time an application is added. Each omission
+// then reads as a broken application rather than as policy, which is how a
+// gate becomes one people turn off.
+//
+// Both ports for the reason 50-allow-acme.yaml gives about staging and
+// production: which one is used follows from a config key, and naming one
+// turns the other into an outage the moment that key moves.
+func TestArgoCDGitPolicy_StaysBroadOnPurpose(t *testing.T) {
+	t.Parallel()
+
+	policies, found := manifests(t)[argoCDGitPolicy]
+	require.True(t, found, "%s is gone, and Argo CD cannot fetch under the deny", argoCDGitPolicy)
+	require.Len(t, policies, 1)
+
+	var (
+		entities []string
+		ports    []string
+	)
+
+	for _, rule := range policies[0].Spec.Egress {
+		entities = append(entities, rule.ToEntities...)
+
+		assert.Empty(t, rule.ToFQDNs,
+			"%s has been narrowed to named hosts. Every chart an Application references "+
+				"would have to be listed here, and each one missed reads as a broken "+
+				"application rather than as policy", argoCDGitPolicy)
+
+		for _, block := range rule.ToPorts {
+			for _, port := range block.Ports {
+				assert.Equal(t, "TCP", port.Protocol)
+
+				ports = append(ports, port.Port)
+			}
+		}
+	}
+
+	assert.Contains(t, entities, "world",
+		"%s no longer permits egress outside the cluster, which is the whole flow",
+		argoCDGitPolicy)
+
+	assert.ElementsMatch(t, []string{"443", "22"}, ports,
+		"%s must name both: 443 for an https:// repository and every chart pull, 22 for "+
+			"git@host:path. Which is used follows from gitops:repoURL", argoCDGitPolicy)
 }

@@ -50,6 +50,13 @@ skip-check:
   # that is permanently red is a gate everyone learns to ignore:
   #
   #   images are pinned by tag, not by digest;
-  #   nothing has a NetworkPolicy — the cluster has no default-deny at all.
+  #   no Kubernetes NetworkPolicy object exists.
+  #
+  # The second one is not the absence of policy. layers/20-network-policy
+  # carries seven CiliumClusterwideNetworkPolicy objects and a default deny
+  # behind `network-policy:enabled`, and checkov does not recognise a CRD as a
+  # NetworkPolicy — so this rule would stay red however complete that layer
+  # became. What is genuinely outstanding is the switch, not the policies:
+  # docs/networking.md, "The default deny is opt-in".
   - CKV_K8S_43
   - CKV2_K8S_6
