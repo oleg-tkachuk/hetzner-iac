@@ -262,6 +262,7 @@ func TestCI_ClassifiesDocumentationAsInert(t *testing.T) {
 		".golangci.yaml":                                 false,
 		"internal/pkg/values/loki.yaml.tmpl":             false,
 		"Taskfile.yaml":                                  false,
+		"Taskfile.dev.yaml":                              false,
 		"tasks/platform.task.yaml":                       false,
 		"layers/20-network-policy/Pulumi.yaml":           false,
 		"layers/20-network-policy/manifests/10-dns.yaml": false,
@@ -331,14 +332,14 @@ func TestCI_DocumentationLinkGateIgnoresRelevance(t *testing.T) {
 func TestDocsLinkTask_ChecksFragmentsOffline(t *testing.T) {
 	t.Parallel()
 
-	// In the CI taskfile, not the root one: the root manages the IaC, and the
-	// checks that mirror the pipeline live beside each other.
-	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "ci.task.yaml"))
+	// In the dev taskfile, not the root one: the root manages the IaC, and the
+	// checks live beside each other in the other entry point.
+	raw, err := os.ReadFile(filepath.Join("..", "..", devTaskfile))
 	require.NoError(t, err)
 
 	block := regexp.MustCompile(`(?ms)^  docs:links:\n(.*?)(?:^  [a-z][a-z0-9:-]*:\n)`).
 		FindStringSubmatch(string(raw))
-	require.Len(t, block, 2, "no docs:links task in tasks/ci.task.yaml")
+	require.Len(t, block, 2, "no docs:links task in %s", devTaskfile)
 
 	for _, flag := range []string{"--offline", "--include-fragments"} {
 		assert.Contains(t, block[1], flag,
@@ -353,8 +354,11 @@ var cacheReaders = []string{
 	"go test", "go vet", "go run", "go build",
 	// golangci-lint compiles every package it lints.
 	"golangci/golangci-lint-action",
-	// gosec type-checks the tree, through the task an operator runs.
-	"task security:gosec",
+	// gosec type-checks the tree, through the task an operator runs. Named
+	// without the `task` verb because the invocation carries `-t
+	// Taskfile.dev.yaml` between the two — see
+	// TestWorkflows_CallTasksThroughTheDevTaskfile.
+	"security:gosec",
 }
 
 // cacheModes that mean the job is not restoring the shared cache for nothing:

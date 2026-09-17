@@ -21,5 +21,5 @@ turns the check red, while `helm template` renders the typo and exits zero.
 It renders with `--repo` rather than `helm repo add`, so a read-only check does
 not mutate the operator's Helm configuration.
 
-Run by `task charts:list`, `charts:outdated`, `charts:render-check`,
+Run by `charts:list`, `charts:outdated`, `charts:render-check`,
 `charts:appversions`, and by CI.

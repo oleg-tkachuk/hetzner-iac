@@ -235,7 +235,7 @@ jobs:
           cache-mode: "off"
       - run: |
           set -euo pipefail
-          declared="$(task platform:layers --yes | sort)"
+          declared="$(task -t Taskfile.dev.yaml layers --yes | sort)"
           onDisk="$(find layers -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"
           if [ "$declared" != "$onDisk" ]; then
             printf '%s\n' "Taskfile LAYERS and layers/ disagree:" >&2
@@ -326,9 +326,9 @@ jobs:
       # The same task an operator runs, not a second copy of it. This step
       # used to hand-roll `gofmt -l .`, which asserts less than the task does
       # now that the task is the library's `gofmt -s` gate — so a file could
-      # pass here and be rewritten by `task fmt` locally.
+      # pass here and be rewritten by `task -t Taskfile.dev.yaml fmt` locally.
       - name: gofmt
-        run: task ci:fmt-check --yes
+        run: task -t Taskfile.dev.yaml fmt-check --yes
       - name: go vet
         run: go vet ./...
       # The e2e suite is behind a build tag, so `go test ./...` never compiles
@@ -376,7 +376,7 @@ jobs:
           curl -sSfL "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/lychee-x86_64-unknown-linux-gnu.tar.gz" \
             | tar -xz -C /usr/local/bin --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
       - name: Documentation links
-        run: task ci:docs:links
+        run: task -t Taskfile.dev.yaml docs:links
 
   lint:
     name: Go lint
@@ -511,7 +511,7 @@ jobs:
       # Suppressions are written as #nosec, which both this and the gosec
       # inside golangci-lint honour — //nolint:gosec would satisfy the lint job
       # and fail this one.
-      - run: task security:gosec
+      - run: task -t Taskfile.dev.yaml security:gosec
 
   checkov:
     name: Manifest hardening
@@ -545,7 +545,7 @@ jobs:
       - run: pipx install "checkov==${CHECKOV_VERSION}"
       # The same task an operator runs, so the flags live in .checkov.yaml
       # rather than being restated here.
-      - run: task ci:checkov
+      - run: task -t Taskfile.dev.yaml checkov
 
   charts:
     name: Chart pins

@@ -51,8 +51,11 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
+		// Neither entry point namespaces its own tasks: `task plan` and
+		// `task -t Taskfile.dev.yaml verify` are both bare. Only the files
+		// under tasks/ are included under a name.
 		namespace := ""
-		if base := filepath.Base(path); base != "Taskfile.yaml" {
+		if base := filepath.Base(path); strings.HasSuffix(base, ".task.yaml") {
 			namespace = strings.TrimSuffix(base, ".task.yaml") + ":"
 		}
 
@@ -63,43 +66,9 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 
 	require.NotEmpty(t, declared, "no tasks found to compare against")
 
-	docs, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
-	require.NoError(t, err)
-
-	// The records too. Leaving them out is how `task cluster:image-bake`
-	// survived the colon rename: the stale name was only in docs/adr, and the
-	// glob above stops at docs/.
-	records, err := filepath.Glob(filepath.Join(root, "docs", "adr", "*.md"))
-	require.NoError(t, err)
-
-	docs = append(docs, records...)
-
-	// The community files too — SECURITY.md and CONTRIBUTING.md live under
-	// .github rather than docs, and are read by people who have never run a
-	// task here.
-	community, err := filepath.Glob(filepath.Join(root, ".github", "*.md"))
-	require.NoError(t, err)
-
-	docs = append(docs, community...)
-
-	// And the Brewfile, which is prose about tasks even though it is not
-	// Markdown. Leaving it out is how `task cluster:config-check` survived in
-	// it — a task that has never existed under that name, in the one file a
-	// new clone reads before anything else works.
-	docs = append(docs, filepath.Join(root, "Brewfile"))
-
 	var checked int
 
-	for _, path := range append(docs, filepath.Join(root, "README.md")) {
-		// BACKLOG.md is planning, and planning names the task it wants
-		// before that task exists — which is the point of writing it down.
-		// It is gitignored for the same reason it is skipped here: it is not
-		// documentation an operator copies from. On a clean clone the glob
-		// never finds it.
-		if filepath.Base(path) == "BACKLOG.md" {
-			continue
-		}
-
+	for _, path := range documents(t, root) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -191,19 +160,25 @@ func TestDocs_NameNoExcludedTask(t *testing.T) {
 
 	root := filepath.Join("..", "..")
 
-	raw, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
-	require.NoError(t, err)
-
-	_, includes, found := strings.Cut(string(raw), "\nincludes:\n")
-	require.True(t, found, "the root taskfile has no includes block")
-
-	includes, _, _ = strings.Cut(includes, "\ntasks:\n")
-
 	excluded := map[string]bool{}
 
-	for _, include := range includeWithExcludes.FindAllStringSubmatch(includes, -1) {
-		for _, entry := range excludedTask.FindAllStringSubmatch(include[2], -1) {
-			excluded[include[1]+":"+entry[1]] = true
+	// Both entry points: the go and security modules are included by the dev
+	// taskfile and carry most of the excludes, so reading the root alone would
+	// leave every `task security:…` mention in the documentation unchecked —
+	// which is the hole this test exists to close.
+	for _, name := range []string{"Taskfile.yaml", devTaskfile} {
+		raw, err := os.ReadFile(filepath.Join(root, name))
+		require.NoError(t, err, name)
+
+		_, includes, found := strings.Cut(string(raw), "\nincludes:\n")
+		require.True(t, found, "%s has no includes block", name)
+
+		includes, _, _ = strings.Cut(includes, "\ntasks:\n")
+
+		for _, include := range includeWithExcludes.FindAllStringSubmatch(includes, -1) {
+			for _, entry := range excludedTask.FindAllStringSubmatch(include[2], -1) {
+				excluded[include[1]+":"+entry[1]] = true
+			}
 		}
 	}
 
@@ -239,4 +214,59 @@ func TestDocs_NameNoExcludedTask(t *testing.T) {
 				filepath.Base(path), name)
 		}
 	}
+}
+
+// documents is every file that tells somebody to run a task: the
+// documentation, the records, the community files, the Brewfile and the
+// README.
+//
+// Shared with TestDocs_NameTheEntryPointThatHasTheTask, because a second copy
+// of this list is how one of the two checks silently stops reading a file.
+// Each entry below is here because something stale survived in it.
+func documents(t *testing.T, root string) []string {
+	t.Helper()
+
+	docs, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
+	require.NoError(t, err)
+
+	// The records too. Leaving them out is how `task cluster:image-bake`
+	// survived the colon rename: the stale name was only in docs/adr, and the
+	// glob above stops at docs/.
+	records, err := filepath.Glob(filepath.Join(root, "docs", "adr", "*.md"))
+	require.NoError(t, err)
+
+	docs = append(docs, records...)
+
+	// The community files too — SECURITY.md and CONTRIBUTING.md live under
+	// .github rather than docs, and are read by people who have never run a
+	// task here.
+	community, err := filepath.Glob(filepath.Join(root, ".github", "*.md"))
+	require.NoError(t, err)
+
+	docs = append(docs, community...)
+
+	// And the Brewfile, which is prose about tasks even though it is not
+	// Markdown. Leaving it out is how `task cluster:config-check` survived in
+	// it — a task that has never existed under that name, in the one file a
+	// new clone reads before anything else works.
+	docs = append(docs, filepath.Join(root, "Brewfile"), filepath.Join(root, "README.md"))
+
+	kept := make([]string, 0, len(docs))
+
+	for _, path := range docs {
+		// BACKLOG.md is planning, and planning names the task it wants
+		// before that task exists — which is the point of writing it down.
+		// It is gitignored for the same reason it is skipped here: it is not
+		// documentation an operator copies from. On a clean clone the glob
+		// never finds it.
+		if filepath.Base(path) == "BACKLOG.md" {
+			continue
+		}
+
+		kept = append(kept, path)
+	}
+
+	require.NotEmpty(t, kept, "no documents found, so nothing was checked")
+
+	return kept
 }

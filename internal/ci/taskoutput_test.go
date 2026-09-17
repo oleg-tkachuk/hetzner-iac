@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// glyphVar matches a marker definition in the root taskfile, and goGlyph the
-// matching constant in the logger.
+// glyphVar matches a marker definition in an entry point's vars, and goGlyph
+// the matching constant in the logger.
 var (
 	glyphVar = regexp.MustCompile(`(?m)^  _([A-Z]+): '\{\{if \.NO_COLOR\}\}(.)\{\{else\}\}\{\{"\\x1b\[(\d+)m(.)\\x1b\[0m"\}\}`)
 	goGlyph  = regexp.MustCompile(`(?m)^\t(Glyph\w+)\s+= "(.)"`)
@@ -32,9 +32,6 @@ func TestTaskGlyphs_MatchThePulumiLogger(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..")
-
-	taskfile, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
-	require.NoError(t, err)
 
 	logger, err := os.ReadFile(filepath.Join(root, "internal", "pkg", "pulumilog", "pulumilog.go"))
 	require.NoError(t, err)
@@ -54,40 +51,73 @@ func TestTaskGlyphs_MatchThePulumiLogger(t *testing.T) {
 	// The taskfile's marker name → the logger's constant. ERR has no pair:
 	// a layer reports failure by returning an error, which Pulumi formats
 	// itself, so pulumilog deliberately has no error glyph.
-	for marker, constant := range map[string]string{
+	markers := map[string]string{
 		"RUN":  "GlyphRunning",
 		"OK":   "GlyphOK",
 		"SKIP": "GlyphSkipped",
 		"WARN": "GlyphWarning",
-	} {
-		glyph, colour := glyphOf(t, string(taskfile), marker)
+	}
 
-		assert.Equal(t, glyphs[constant], glyph,
-			"_%s in the taskfile and %s in pulumilog are different glyphs", marker, constant)
-		assert.True(t, colours[colour],
-			"_%s is coloured \\x1b[%sm in the taskfile, which pulumilog does not use", marker, colour)
+	// Both entry points, because both print. Each defines the markers its own
+	// tasks use rather than all of them, so the check is per marker DECLARED
+	// — and the union below has to cover every constant the logger has, or a
+	// marker could quietly stop being defined anywhere.
+	//
+	// Forgetting one is silent: Task renders an undefined variable as the
+	// empty string, so a status line loses its glyph and prints anyway.
+	defined := map[string]bool{}
+
+	for _, name := range []string{"Taskfile.yaml", devTaskfile} {
+		raw, readErr := os.ReadFile(filepath.Join(root, name))
+		require.NoError(t, readErr, name)
+
+		var declared int
+
+		for marker, constant := range markers {
+			glyph, colour, found := glyphOf(t, string(raw), marker)
+			if !found {
+				continue
+			}
+
+			declared++
+			defined[marker] = true
+
+			assert.Equal(t, glyphs[constant], glyph,
+				"_%s in %s and %s in pulumilog are different glyphs", marker, name, constant)
+			assert.True(t, colours[colour],
+				"_%s is coloured \\x1b[%sm in %s, which pulumilog does not use",
+				marker, colour, name)
+		}
+
+		assert.Positive(t, declared,
+			"%s defines no status marker, so every status line it prints is missing its glyph",
+			name)
+	}
+
+	for marker := range markers {
+		assert.True(t, defined[marker],
+			"no entry point defines _%s any more, and pulumilog still has its pair", marker)
 	}
 }
 
-// glyphOf returns one marker's glyph and its ANSI colour code, and fails if
-// the plain and coloured halves of the definition disagree.
-func glyphOf(t *testing.T, taskfile, marker string) (glyph, colour string) {
+// glyphOf returns one marker's glyph and its ANSI colour code, whether the
+// taskfile defines it at all, and fails if the plain and coloured halves of
+// the definition disagree.
+func glyphOf(t *testing.T, taskfile, marker string) (glyph, colour string, found bool) {
 	t.Helper()
 
-	for _, found := range glyphVar.FindAllStringSubmatch(taskfile, -1) {
-		if found[1] != marker {
+	for _, match := range glyphVar.FindAllStringSubmatch(taskfile, -1) {
+		if match[1] != marker {
 			continue
 		}
 
-		require.Equal(t, found[2], found[4],
+		require.Equal(t, match[2], match[4],
 			"_%s prints one glyph without colour and another with it", marker)
 
-		return found[2], found[3]
+		return match[2], match[3], true
 	}
 
-	t.Fatalf("no _%s marker in the root taskfile", marker)
-
-	return "", ""
+	return "", "", false
 }
 
 // layerLoop is the shell loop that runs one Pulumi operation per layer.

@@ -1,6 +1,18 @@
 # Command reference
 
-`task` on its own lists everything. Every cluster and layer task takes
+There are two entry points, and which one a command is on decides how it is
+typed. `task` is the cluster: provisioning, upgrades, teardown, and everything
+that reads a running one. The checks, the scanners, the formatters and the
+chart pins are on the second, and every command for them says so:
+
+    task -t Taskfile.dev.yaml verify
+
+Task finds `Taskfile.yaml` by itself and has no environment variable for a
+second file, so the flag is not optional. What it buys is the list `task`
+prints on its own: cluster operations, and none of the work somebody bringing
+up a cluster never runs.
+
+`task` on its own lists the first of those. Every cluster and layer task takes
 `stack=<name>`, and there is no default. A task that assumed one is a task
 that can be aimed at the wrong environment by forgetting a word, so running
 one without it prints the usage instead:
@@ -47,20 +59,23 @@ of its own.
 
 Tasks from the shared library
 ([oleg-tkachuk/taskfiles](https://github.com/oleg-tkachuk/taskfiles), pinned)
-are trimmed with `excludes:` to what works here. Four modules are included:
-`go`, `security`, `helm` and `hcloud` — the last one is where every
-`hcloud:` task below comes from. A module task that cannot
-succeed in this repository is worse than a missing one: it is a command
-someone runs once, in an emergency, and gets a confusing failure from.
+are trimmed with `excludes:` to what works here. Four modules are included,
+split by entry point: `hcloud` and `helm` act on a live cluster and are on the
+first; `go` and `security` answer questions about this repository and are on
+the second. A module task that cannot succeed in this repository is worse than
+a missing one: it is a command someone runs once, in an emergency, and gets a
+confusing failure from.
 
 Tasks marked **†** are the ones a workflow runs itself, so a green local run
 of one is a green pull request for that check and nobody has to type it by
 hand. The other checks CI performs it runs directly rather than through a task
-— the unit suite, `go vet`, `go build -o bin/`, golangci-lint — and `task
-ci:verify` and `task ci:scan` are the local aggregates that mirror those.
-`internal/ci` holds the repository's own gates, which run as part of the unit
-suite. TestGateMarkers_MatchTheWorkflows keeps this marker equal to what the
-workflows actually invoke.
+— the unit suite, `go vet`, and golangci-lint through its own action — and
+`task -t Taskfile.dev.yaml verify` and `… scan` are the local aggregates that
+mirror those. `internal/ci` holds the repository's own gates, which run as
+part of the unit suite. TestGateMarkers_MatchTheWorkflows keeps this marker
+equal to what the workflows actually invoke, and
+TestWorkflows_CallTasksThroughTheDevTaskfile keeps every workflow step on the
+entry point that has the task.
 
 ## Whole platform
 
@@ -70,7 +85,6 @@ workflows actually invoke.
 | `task clean` | remove build output: `bin/` and the layer binaries under `.cache` |
 | `task destroy` | destroy everything: every layer, then the cluster. Asks first, and says what survives |
 | `task e2e` | verify a running cluster; read-only |
-| `task fmt` | format and tidy |
 | `task plan` | preview the cluster and every layer; change nothing |
 | `task up` | cluster, then every layer in dependency order; asks twice |
 
@@ -140,73 +154,77 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 | `task platform:apply layer=10-node-platform` | apply one layer, or `layer=all` in dependency order; asks first |
 | `task platform:destroy layer=50-gitops` | destroy one layer, or `layer=all` in reverse; asks first |
 | `task platform:init` | create every layer's stack and point it at the cluster |
-| `task platform:layers` † | the layer order; CI derives its matrix from this |
+| `task platform:layers` | the layer order, in dependency order |
 | `task platform:outputs layer=50-gitops` | one layer's stack outputs, or `layer=all` |
 | `task platform:plan layer=10-node-platform` | preview one layer, or `layer=all` for every one in order |
 | `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
 | `task platform:status` | which layers are deployed, and how large |
 
-## Charts
+## Working on this repository
+
+Everything below is on the second entry point, so every command carries
+`-t Taskfile.dev.yaml`. They live in
+[`Taskfile.dev.yaml`](../Taskfile.dev.yaml) rather than beside the cluster
+tasks for two reasons: `task` on its own should list operations rather than
+checks, and two of these read a pinned version out of
+`.github/workflows/ci.yaml` — a clone that only wants to apply a cluster
+should not need a pipeline's configuration to do it.
+TestRootTaskfile_HoldsNoCheck keeps them here.
+
+### Checks
 
 | Task | Does |
 |------|------|
-| `task charts:appversions` | each `AppVersion` is what the pinned chart ships |
-| `task charts:list` | every pinned chart |
-| `task charts:outdated` | each pin against the latest upstream chart |
-| `task charts:render-check` | the charts still produce the workloads and honour the values |
-| `task charts:validate` | pins are exact versions, not floating tags |
+| `task -t Taskfile.dev.yaml verify` | everything checkable without a cluster — needs helm, kubeconform, talosctl and lychee |
+| `task -t Taskfile.dev.yaml scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
+| `task -t Taskfile.dev.yaml lint` | golangci-lint at the version CI pins, and refuses another; `-- ./internal/...` narrows it |
+| `task -t Taskfile.dev.yaml lint:install` | write that pinned version into `bin/`, for this platform |
+| `task -t Taskfile.dev.yaml fmt` | format and tidy |
+| `task -t Taskfile.dev.yaml fmt-check` † | fail if `gofmt -s` would change anything |
+| `task -t Taskfile.dev.yaml docs:links` † | do the documentation's own links point at files and headings that exist? — needs lychee |
+| `task -t Taskfile.dev.yaml checkov` † | hardening rules over the manifests and workflows this repository ships |
+| `task -t Taskfile.dev.yaml layers` † | the layer order, for CI's matrix — a pass-through to `platform:layers` |
 
-## Checks
-
-These mirror the pipeline, and they live in
-[`tasks/ci.task.yaml`](../tasks/ci.task.yaml) rather than in the root
-Taskfile — which manages the IaC and should not need a pipeline's
-configuration to apply a cluster.
-
-| Task | Does |
-|------|------|
-| `task ci:verify` | everything checkable without a cluster — needs helm, kubeconform, talosctl and lychee |
-| `task ci:scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
-| `task ci:lint` | golangci-lint at the version CI pins, and refuses another; `task ci:lint -- ./internal/...` narrows it |
-| `task ci:lint:install` | write that pinned version into `bin/`, for this platform |
-| `task ci:fmt-check` † | fail if `gofmt -s` would change anything |
-| `task ci:docs:links` † | do the documentation's own links point at files and headings that exist? — needs lychee |
-| `task ci:checkov` † | hardening rules over the manifests and workflows this repository ships |
-
-## Code
+### Charts
 
 | Task | Does |
 |------|------|
-| `task go:compile` | type-check without writing a binary |
-| `task go:deps:outdated` / `task go:deps:update` | dependency reports and bumps |
-| `task go:fmt:check` | fail if `gofmt -s` would change anything; what `task ci:fmt-check` runs |
-| `task go:fmt` / `task go:tidy` | format; tidy the module |
-| `task go:lint` | golangci-lint from PATH, whichever version that is |
-| `task go:test` | the unit suite |
-| `task go:test:coverage` | unit suite with an HTML coverage report |
-| `task go:test:tagged:compile` | type-check the `e2e` suite, which the default run never compiles |
-| `task go:vuln` | govulncheck |
+| `task -t Taskfile.dev.yaml charts:appversions` | each `AppVersion` is what the pinned chart ships |
+| `task -t Taskfile.dev.yaml charts:list` | every pinned chart |
+| `task -t Taskfile.dev.yaml charts:outdated` | each pin against the latest upstream chart |
+| `task -t Taskfile.dev.yaml charts:render-check` | the charts still produce the workloads and honour the values |
+| `task -t Taskfile.dev.yaml charts:validate` | pins are exact versions, not floating tags |
 
-## Security
+### Code
 
 | Task | Does |
 |------|------|
-| `task security:gosec` † | insecure patterns the compiler is happy with |
-| `task security:scan` | the module's own aggregate: secrets, filesystem, Go vuln, lint and SAST. `task ci:scan` runs the four CI runs instead, not this |
-| `task security:secrets` † | gitleaks over the whole history |
-| `task security:trivy` † | vulnerable dependencies and secrets, plus IaC misconfig |
-| `task security:vuln` † | govulncheck across every module |
-| `task security:lint` | golangci-lint across every module; CI runs the linter through its own action, not this |
+| `task -t Taskfile.dev.yaml go:compile` | type-check without writing a binary |
+| `task -t Taskfile.dev.yaml go:deps:outdated` | dependencies with a newer version available |
+| `task -t Taskfile.dev.yaml go:deps:update` | bump the direct dependencies, tidy, then prove it still builds |
+| `task -t Taskfile.dev.yaml go:fmt` | format |
+| `task -t Taskfile.dev.yaml go:fmt:check` | fail if `gofmt -s` would change anything; what `fmt-check` runs |
+| `task -t Taskfile.dev.yaml go:lint` | golangci-lint from PATH, whichever version that is |
+| `task -t Taskfile.dev.yaml go:test` | the unit suite |
+| `task -t Taskfile.dev.yaml go:test:coverage` | unit suite with an HTML coverage report |
+| `task -t Taskfile.dev.yaml go:test:tagged:compile` | type-check the `e2e` suite, which the default run never compiles |
+| `task -t Taskfile.dev.yaml go:tidy` | tidy the module |
+| `task -t Taskfile.dev.yaml go:vuln` | govulncheck |
 
-## Testing
+What each suite proves, and why the e2e one does not run in CI:
+[ci.md](ci.md#what-the-suites-prove). `task e2e` is on the other entry point —
+it needs a cluster.
+
+### Security
 
 | Task | Does |
 |------|------|
-| `task e2e` | verify a running cluster; read-only, needs `./kubeconfig` |
-| `task go:test` | the unit suite |
-
-What each suite proves, and why e2e does not run in CI:
-[ci.md](ci.md#what-the-suites-prove).
+| `task -t Taskfile.dev.yaml security:gosec` † | insecure patterns the compiler is happy with |
+| `task -t Taskfile.dev.yaml security:secrets` † | gitleaks over the whole history |
+| `task -t Taskfile.dev.yaml security:trivy` † | vulnerable dependencies and secrets, plus IaC misconfig |
+| `task -t Taskfile.dev.yaml security:vuln` † | govulncheck across every module |
+| `task -t Taskfile.dev.yaml security:lint` | golangci-lint across every module; CI runs the linter through its own action, not this |
+| `task -t Taskfile.dev.yaml security:scan` | the module's own aggregate: secrets, filesystem, Go vuln, lint and SAST. `scan` above runs the four CI runs instead, not this |
 
 ## Running it day to day
 

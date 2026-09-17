@@ -3,7 +3,7 @@
 // The failure it exists for, measured: a `go install`-built golangci-lint in
 // ~/go/bin shadowed Homebrew's, the two were 2.12.2 and 2.13.2, and the older
 // one reported eight goconst findings on an untouched main that CI — which
-// pins 2.13.2 — does not report. `task go:lint` was red, the pull request was
+// pins 2.13.2 — does not report. `go:lint` was red, the pull request was
 // green, and the pre-push hook refused to push work that was fine.
 //
 // So the version is not a detail of somebody's machine. It is the same pin CI
@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// LocalBinary is where task lint:install writes the pinned copy.
+// LocalBinary is where the lint:install task writes the pinned copy.
 //
 // Preferred over PATH, and that is the whole point: Homebrew carries one
 // golangci-lint and a Go install carries another, and neither is necessarily
@@ -74,7 +74,7 @@ func run(ctx context.Context, args []string) error {
 	if installed != pinned {
 		return fmt.Errorf("%s is %s and CI pins %s: a different linter reports different "+
 			"findings, which is a red local run against a green pull request.\n"+
-			"`task lint:install` writes the pinned one into %s, which this prefers over PATH",
+			"`task -t Taskfile.dev.yaml lint:install` writes the pinned one into %s, which this prefers over PATH",
 			binary, installed, pinned, LocalBinary)
 	}
 
@@ -82,7 +82,7 @@ func run(ctx context.Context, args []string) error {
 	// reports progress, and a wrapper that buffers both makes a slow run look
 	// like a hung one.
 	// #nosec G204,G702 -- the binary is the pinned linter, resolved from bin/ or
-	// PATH, and the arguments are the ones the operator typed after `task lint`.
+	// PATH, and the arguments are the ones the operator typed after `lint`.
 	// Running a linter with the caller's own flags is the whole purpose.
 	linter := exec.CommandContext(ctx, binary, args...)
 	linter.Stdin, linter.Stdout, linter.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -162,7 +162,7 @@ func resolve(root string) (string, error) {
 	found, err := exec.LookPath("golangci-lint")
 	if err != nil {
 		return "", fmt.Errorf("golangci-lint is not installed and %s does not exist either: "+
-			"`task lint:install` writes the pinned one there: %w", LocalBinary, err)
+			"`task -t Taskfile.dev.yaml lint:install` writes the pinned one there: %w", LocalBinary, err)
 	}
 
 	return found, nil

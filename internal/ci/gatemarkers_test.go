@@ -11,18 +11,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// entryPoint is the `-t Taskfile.dev.yaml` a check carries, in a documented
+// command and in a workflow step alike. Optional: the cluster tasks are on the
+// root entry point and carry nothing.
+const entryPoint = `(?:-t \S+ )?`
+
 // gateMarker is the dagger docs/commands.md puts after a task a workflow runs,
-// in a table row: `| `+"`task fmt-check`"+` † | … |`.
-var gateMarker = regexp.MustCompile("(?m)^\\| `task ([a-z][a-z0-9:-]*)`[^|]*† \\|")
+// in a table row: `| `+"`task -t Taskfile.dev.yaml fmt-check`"+` † | … |`.
+var gateMarker = regexp.MustCompile("(?m)^\\| `task " + entryPoint + "([a-z][a-z0-9:-]*)`[^|]*† \\|")
 
 // taskRow is any task the reference documents, marked or not.
-var taskRow = regexp.MustCompile("(?m)^\\| `task ([a-z][a-z0-9:-]*)`")
+var taskRow = regexp.MustCompile("(?m)^\\| `task " + entryPoint + "([a-z][a-z0-9:-]*)`")
 
 // workflowInvocation matches a task a workflow runs. Comment lines are dropped
 // before this is applied: the workflows talk about tasks in prose constantly —
 // "the same task an operator runs", "a new task is a real feat" — and every
 // one of those is in a comment.
-var workflowInvocation = regexp.MustCompile(`\btask ([a-z][a-z0-9:-]*)`)
+var workflowInvocation = regexp.MustCompile(`\btask ` + entryPoint + `([a-z][a-z0-9:-]*)`)
 
 // TestGateMarkers_MatchTheWorkflows holds the dagger in docs/commands.md equal
 // to the tasks the workflows actually invoke.

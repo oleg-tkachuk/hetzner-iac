@@ -17,7 +17,7 @@ import (
 
 // TestWorkloads checks every object the platform is expected to run.
 //
-// The list comes from internal/pkg/workloads, the same table `task charts:render-check`
+// The list comes from internal/pkg/workloads, the same table `charts:render-check`
 // proves the charts still produce. That check runs offline in seconds; this one
 // runs against a cluster. A rename caught by the first never reaches the second.
 func TestWorkloads(t *testing.T) {

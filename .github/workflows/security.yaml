@@ -117,7 +117,7 @@ jobs:
       #
       # The range needs the base commit present, which is why the checkout
       # above still fetches everything — the clone is cheap, the scan was not.
-      - run: task security:secrets
+      - run: task -t Taskfile.dev.yaml security:secrets
         env:
           GITLEAKS_FLAGS: >-
             ${{ github.event_name == 'pull_request'
@@ -158,7 +158,7 @@ jobs:
       - run: go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
       # Reachability-based: it reports the vulnerabilities this code actually
       # calls, not every advisory touching the dependency tree.
-      - run: task security:vuln
+      - run: task -t Taskfile.dev.yaml security:vuln
 
   filesystem:
     name: Dependencies and filesystem
@@ -188,7 +188,7 @@ jobs:
           curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
             | tar -xz -C "${RUNNER_TEMP}" trivy
           printf '%s\n' "${RUNNER_TEMP}" >>"$GITHUB_PATH"
-      - run: task security:trivy
+      - run: task -t Taskfile.dev.yaml security:trivy
 
   workflows:
     name: Workflow permissions

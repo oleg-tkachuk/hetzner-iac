@@ -75,7 +75,7 @@ brew "hubble"
 # to install rather than skipping itself silently, so a clone without them is
 # not a broken clone.
 
-# Chart rendering: `task charts:render-check` proves a chart still produces the
+# Chart rendering: `charts:render-check` proves a chart still produces the
 # workloads internal/pkg/workloads declares.
 brew "helm"
 
@@ -83,13 +83,13 @@ brew "helm"
 # the topology pins. It fetches the schemas, so this one needs egress.
 brew "kubeconform"
 
-brew "lychee"        # task ci:docs:links
-# task security:lint. `task ci:lint` runs the version CI pins instead, from
+brew "lychee"        # task -t Taskfile.dev.yaml docs:links
+# security:lint. The `lint` task runs the version CI pins instead, from
 # bin/golangci-lint — see tools/golangci — so this one is for everything else.
 brew "golangci-lint"
-brew "gitleaks"      # task security:secrets
-brew "gosec"         # nightly, and task security:gosec
-brew "trivy"         # task security:trivy
+brew "gitleaks"      # security:secrets
+brew "gosec"         # nightly, and security:gosec
+brew "trivy"         # security:trivy
 brew "lefthook"      # the commit and push hooks; opt in with `lefthook install`
 brew "actionlint"    # workflow syntax, the same check CI runs
 brew "zizmor"        # workflow permissions, the same check CI runs

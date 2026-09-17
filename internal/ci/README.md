@@ -12,7 +12,7 @@ go test ./internal/ci/                                  # all of them
 go test ./internal/ci/ -run TestGateMarkers -v           # one
 ```
 
-They run as part of the unit suite, so `task go:test`, `task ci:verify` and CI all
+They run as part of the unit suite, so `task -t Taskfile.dev.yaml go:test`, `task -t Taskfile.dev.yaml verify` and CI all
 carry them.
 
 ## What each guards
@@ -43,10 +43,11 @@ carry them.
 | `renovatealerts_test.go` | vulnerabilityAlerts in renovate.json against the token permission the workflow tells you to grant, in whichever direction it is set |
 | `resourceoptions_test.go` | no `append` onto a shared option slice, which silently writes into the caller's array |
 | `taskdocs_test.go` | every task a document tells somebody to run exists, and none is one the library include leaves out |
+| `taskfilesplit_test.go` | the line between the two entry points: the root taskfile holds no check, every workflow step passes `-t Taskfile.dev.yaml`, and each documented command names the entry point that has it |
 | `taskguards_test.go` | the arguments a task takes and what it refuses without them: the stack, the layer, the usage it prints, the question before it changes anything |
 | `tasklib_test.go` | every remote taskfile has the checksum Task will look for, ref included |
 | `taskoutput_test.go` | what a task prints: the glyph vocabulary it shares with `internal/pkg/pulumilog`, and naming the layer when an operation finishes |
-| `tasks_test.go` | — reading the taskfiles and cutting one into its tasks, which the four above share |
+| `tasks_test.go` | — reading the taskfiles and cutting one into its tasks, which the five above share |
 | `vendored_test.go` | each vendored manifest against its recorded digest; the half that asks upstream what it serves runs in the nightly workflow, which is the only place with a network |
 | `workflows_test.go` | the workflows' own logic: relevance, caching, job wiring |
 

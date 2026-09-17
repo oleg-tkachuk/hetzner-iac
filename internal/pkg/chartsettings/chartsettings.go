@@ -135,7 +135,7 @@ const HcloudCSIProbeLocation = clusterref.ProbeLocation
 // verified is that the key reaches the rendered arguments at all.
 const ProxyProtocolProbeCIDR = "192.0.2.0/24"
 
-// Effects is what `task charts:render-check` verifies.
+// Effects is what `charts:render-check` verifies.
 var Effects = []Effect{
 	{
 		Chart: "cilium", Release: "cilium", Namespace: "kube-system",

@@ -6,7 +6,7 @@ package values
 // The structs live beside the templates rather than in the layers that fill
 // them, for two reasons. A template and the fields it names are one thing, so
 // renaming a field should be a compile error in the same package. And
-// `task charts:render-check` has to render every template offline — it has no
+// `charts:render-check` has to render every template offline — it has no
 // cluster to read a CIDR from, so it renders with Probe.
 
 import (

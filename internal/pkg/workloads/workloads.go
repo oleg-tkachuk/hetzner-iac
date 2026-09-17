@@ -1,7 +1,7 @@
 // Package workloads names the Kubernetes objects each layer's charts create.
 //
 // One table, read by two things: the e2e suite asserts these are healthy on a
-// real cluster, and `task charts:render-check` proves the charts still produce
+// real cluster, and `charts:render-check` proves the charts still produce
 // them by rendering offline. Keeping the names in one place is what makes the
 // offline check meaningful — a chart upgrade that renames a Deployment fails
 // in seconds instead of at 3am against production.
@@ -47,7 +47,7 @@ type Workload struct {
 // Expected is every workload the platform layers install.
 //
 // Verified against the pinned chart versions by rendering them; see
-// `task charts:render-check`.
+// `charts:render-check`.
 var Expected = []Workload{
 	// Layer 10 — cloud integration.
 	{Chart: "hcloud-ccm", Release: "hcloud-cloud-controller-manager", Namespace: "kube-system", Kind: Deployment, Name: "hcloud-cloud-controller-manager"},
