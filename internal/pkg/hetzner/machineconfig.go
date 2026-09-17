@@ -247,6 +247,29 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 		},
 	}
 
+	// The audit policy, which replaces the `level: Metadata` one Talos ships.
+	//
+	// Merged in rather than written above: it is a document of its own, it is
+	// static, and internal/pkg/hetzner/auditpolicy.yaml is where it can be
+	// read against Kubernetes' own examples and diffed when it changes.
+	//
+	// The error is not decoration. Talos passes this through unstructured and
+	// the API server ignores fields it does not recognise, so the checks in
+	// AuditPolicy are the only thing between a misspelt selector and a rule
+	// that quietly matches nobody — and `talosctl validate` will not say a
+	// word, for the same reason the cloud-provider note above gives.
+	auditPolicy, err := AuditPolicy()
+	if err != nil {
+		return "", fmt.Errorf("cluster patch: %w", err)
+	}
+
+	cluster, ok := patch["cluster"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("cluster patch: the cluster section is not a map")
+	}
+
+	cluster["apiServer"] = map[string]any{"auditPolicy": auditPolicy}
+
 	rendered, err := marshalPatch(patch)
 	if err != nil {
 		return "", err
