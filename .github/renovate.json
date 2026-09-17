@@ -25,9 +25,13 @@
   },
 
   "vulnerabilityAlerts": {
-    "description": "Security fixes ignore the schedule and the concurrency limits.",
-    "schedule": ["at any time"],
-    "labels": ["security"]
+    "description": [
+      "Off, because the token cannot read the alerts and a feature that is configured and dead is worse than one that is off.",
+      "Renovate needs `Dependabot alerts: Read-only` on a fine-grained token, or the `security_events` scope on a classic one. Neither is granted, and every run said so: `WARN: Cannot access vulnerability alerts`.",
+      "What still reports a vulnerability: Dependabot alerts on the repository itself, govulncheck in the Reachable vulnerabilities job, and trivy over go.sum and the manifests.",
+      "Turning this back on means granting that permission in the same change — internal/ci/renovatealerts_test.go holds the two together."
+    ],
+    "enabled": false
   },
 
   "customManagers": [

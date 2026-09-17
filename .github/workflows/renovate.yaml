@@ -61,13 +61,18 @@ on:
     # Daily, 06:00 UTC — and the two schedules here are not a contradiction.
     #
     # This one decides how often Renovate *runs*. renovate.json's decides what
-    # it is allowed to *do* when it runs: regular updates wait for Monday, and
-    # vulnerabilityAlerts are exempt. Together, security fixes can arrive any
-    # morning while chart upgrades still batch into one weekly review.
+    # it is allowed to *do* when it runs: `* * * * 1` batches every update into
+    # Monday. So six of seven passes find nothing to do, and that is the point:
+    # GitHub runs scheduled workflows best-effort and one Monday pass was
+    # observed 5h49m late. A weekly cron that slips is a week without updates;
+    # a daily one only has to be on time once.
     #
-    # A weekly cron alone would delay a security fix by up to seven days,
-    # which is the one thing self-hosting must not cost. A pass over this
-    # repository takes a couple of minutes.
+    # It used to say security fixes arrive any morning because
+    # vulnerabilityAlerts were exempt from the schedule. They are off now —
+    # renovate.json says why — so there is no fast path here, and the ones that
+    # report a vulnerability are Dependabot alerts on the repository,
+    # govulncheck and trivy. A pass over this repository takes a couple of
+    # minutes.
     - cron: "0 6 * * *"
 
 permissions:
@@ -163,22 +168,16 @@ jobs:
           Create a fine-grained personal access token scoped to this
           repository with:
 
-            Contents           read and write
-            Pull requests      read and write
-            Issues             read and write   (the Dependency Dashboard)
-            Workflows          read and write   (only to bump pinned actions)
-            Dependabot alerts  read             (see below)
+            Contents        read and write
+            Pull requests   read and write
+            Issues          read and write   (the Dependency Dashboard)
+            Workflows       read and write   (only to bump pinned actions)
 
-          The last one is what renovate.json's `vulnerabilityAlerts` needs, and
-          without it Renovate says so once per run and carries on:
-
-            WARN: Cannot access vulnerability alerts.
-                  Please ensure permissions have been granted.
-
-          A configured feature then does nothing — security fixes stop
-          overriding the schedule and the concurrency limits, which is the one
-          case those limits exist to be overridden for — and the only sign is
-          a line in a log nobody reads.
+          Not `Dependabot alerts`, because renovate.json turns
+          `vulnerabilityAlerts` off. Granting it and turning them back on is
+          one change, not two: without the permission Renovate logs `WARN:
+          Cannot access vulnerability alerts` once per run and carries on, so
+          the feature reads as configured and does nothing.
 
           Then: gh secret set RENOVATE_TOKEN
           EOF
