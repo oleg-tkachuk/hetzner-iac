@@ -107,10 +107,12 @@ entry point that has the task.
 | `task cluster:nodes` | list nodes |
 | `task cluster:orphans` | Hetzner resources nothing claims, with or without a live cluster; read-only |
 | `task cluster:outputs` | stack outputs, secrets redacted |
+| `task cluster:recovery-kit` | everything a recovery needs that lives nowhere but Pulumi state — pipe it into a password store |
 | `task cluster:plan` | show what applying would change |
 | `task cluster:reboot` | reboot the nodes through Talos; they come back by themselves |
 | `task cluster:secrets:destroy` | delete the cluster CA as well; unrecoverable |
 | `task cluster:secrets:export` | print the Talos secrets bundle — pipe it into a password store |
+| `task cluster:state:export` | every tier's Pulumi state into `.backups/state/`, secrets left encrypted |
 | `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer |
 | `task cluster:stacks` | every stack, with what the backend and its topology say about it; takes no `stack=` |
 | `task cluster:status` | nodes, then anything not Running |

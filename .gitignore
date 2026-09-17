@@ -24,6 +24,7 @@ bin/
 /golangci
 /image
 /orphans
+/recoverykit
 /secrets
 /smoke
 /stack

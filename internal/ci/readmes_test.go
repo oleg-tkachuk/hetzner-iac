@@ -161,6 +161,49 @@ func anywhere(root, name string) bool {
 // docsLink matches a link in the documentation index, capturing its target.
 var docsLink = regexp.MustCompile(`\]\(([^)]+)\)`)
 
+// TestToolsIndex_ListsEveryTool keeps the index of tools/ complete.
+//
+// The same property TestDocsIndex_ListsEveryDocument holds for docs/, and it
+// was missing here: TestEveryToolDocumentsItself asks each directory for a
+// README and says nothing about whether the table above them mentions it. So
+// tools/golangci shipped with a README nothing linked, and the table read as
+// complete — eleven rows for twelve tools.
+func TestToolsIndex_ListsEveryTool(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	index, err := os.ReadFile(filepath.Join(root, "tools", "README.md"))
+	require.NoError(t, err)
+
+	linked := map[string]bool{}
+
+	for _, link := range docsLink.FindAllStringSubmatch(string(index), -1) {
+		linked[strings.TrimSuffix(link[1], "/")] = true
+	}
+
+	require.NotEmpty(t, linked, "the index links nothing, so this test proved nothing")
+
+	entries, err := os.ReadDir(filepath.Join(root, "tools"))
+	require.NoError(t, err)
+
+	var checked int
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		checked++
+
+		assert.True(t, linked[entry.Name()],
+			"tools/README.md does not link %s, so a reader browsing the directory does not "+
+				"find it — and the table reads as complete", entry.Name())
+	}
+
+	assert.Positive(t, checked, "no tools found, so this test proved nothing")
+}
+
 // TestDocsIndex_ListsEveryDocument keeps the index of docs/ complete.
 //
 // GitHub renders this one when somebody browses the directory, so it is the
