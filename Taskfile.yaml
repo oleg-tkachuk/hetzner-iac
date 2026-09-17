@@ -9,7 +9,7 @@ vars:
   # The git form is the default because someone who clones this repository has
   # no sibling checkout. Working on the library itself:
   #   TASKLIB: '../taskfiles/%s'
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.2.2'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.3.0'
 
   PROJECT_NAME: hetzner-iac
   ROOT: { sh: pwd }
@@ -119,8 +119,8 @@ includes:
       # the module does not have removes nothing, and says nothing. It was
       # `uninstall-all` until taskfiles v6.0.0 renamed it — so the bump that
       # carried the rename would have quietly handed this repository a helm
-      # uninstall it must not have. TestHelmUninstall_IsNotAvailable is the
-      # thing that notices.
+      # uninstall it must not have. TestLibraryExcludes_StayInPlace is the thing
+      # that notices.
       - uninstall
 
   # The k8s module is deliberately NOT included. Every task in it assumes the

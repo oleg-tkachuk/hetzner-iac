@@ -90,6 +90,13 @@ brew "golangci-lint"
 brew "gitleaks"      # security:secrets
 brew "gosec"         # nightly, and security:gosec
 brew "trivy"         # security:trivy
+
+# checkov, and pipx rather than the formula on purpose. `checkov:scan` runs the
+# version .github/workflows/ci.yaml pins, and uses an installed checkov only
+# when it already reports that version — Homebrew's trails the pin, so the
+# formula would be downloaded and then bypassed. pipx is what fetches the
+# pinned one, and the shared taskfiles module does it.
+brew "pipx"          # checkov:scan
 brew "lefthook"      # the commit and push hooks; opt in with `lefthook install`
 brew "actionlint"    # workflow syntax, the same check CI runs
 brew "zizmor"        # workflow permissions, the same check CI runs
