@@ -192,6 +192,9 @@ ships as a task here and the decision stays with whoever owns the organisation.
 | `gitops:repoURL` | [`50-gitops`](../layers/50-gitops) | the repository Argo CD reconciles; omit it and Argo CD is installed and reconciles nothing |
 | `gitops:path` | [`50-gitops`](../layers/50-gitops) | where the tree of Applications starts in that repository, default the root |
 | `gitops:revision` | [`50-gitops`](../layers/50-gitops) | branch, tag or commit to track, default `HEAD` |
+| `gitops:repoUsername` | [`50-gitops`](../layers/50-gitops) | HTTPS username for a private repository; any non-empty string when the password is a token (secret) |
+| `gitops:repoPassword` | [`50-gitops`](../layers/50-gitops) | HTTPS password or token for a private repository (secret) |
+| `gitops:repoSSHPrivateKey` | [`50-gitops`](../layers/50-gitops) | SSH private key for a private repository, in place of the two above — a read-only deploy key is enough (secret) |
 | `backup:storageBoxType` | [`60-backup`](../layers/60-backup) | Hetzner Storage Box type, default `bx11` |
 
 Layer config is about what a layer deploys, not about the cluster. The three

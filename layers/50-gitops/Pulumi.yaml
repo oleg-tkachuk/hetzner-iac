@@ -36,7 +36,38 @@ config:
 
       This layer ships the mechanism, not the content: which repository is
       a deployment decision, not a property of this one. A private repository
-      needs a credential Argo CD can read, which is not this key.
+      needs a credential as well — the three repo* keys below.
+  # The credential for a private root repository, in one form or the other.
+  # Empty is correct for a public repository and is what a clone starts with;
+  # set for a private one, and the layer refuses the combinations Argo CD would
+  # accept and then fail on — an SSH key against an https:// URL, half of a
+  # username/password pair, or a credential with no repoURL to authenticate to.
+  #
+  # Always through --secret, so the value is encrypted in Pulumi.<stack>.yaml
+  # rather than sitting in a committed file:
+  #
+  #   pulumi config set --secret gitops:repoSSHPrivateKey -- "$(cat deploy_key)"
+  #   pulumi config set --secret gitops:repoUsername git
+  #   pulumi config set --secret gitops:repoPassword <token>
+  #
+  # A deploy key gives Argo CD read access to one repository; a forge token
+  # gives it whatever the token can reach, which is usually the whole account.
+  gitops:repoUsername:
+    default: ""
+    description: |
+      Username for an HTTPS repository. For a forge token this is any
+      non-empty string — the token goes in repoPassword — and both halves have
+      to be set or neither.
+  gitops:repoPassword:
+    default: ""
+    description: |
+      Password or token for an HTTPS repository. Set with --secret.
+  gitops:repoSSHPrivateKey:
+    default: ""
+    description: |
+      Private key for an ssh:// or git@host:path repository, in place of the
+      username and password. A read-only deploy key is the least it needs.
+      Set with --secret.
   gitops:path:
     default: ""
     description: |

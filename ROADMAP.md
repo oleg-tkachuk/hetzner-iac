@@ -99,6 +99,13 @@ Adding a workload is a commit rather than a task, once Argo CD is pointed at
 the repository holding them: `gitops:repoURL`, with `gitops:path` and
 `gitops:revision` beside it. Unset, Argo CD installs and reconciles nothing,
 and says so.
+
+A private repository works too: `gitops:repoSSHPrivateKey`, or
+`gitops:repoUsername` with `gitops:repoPassword`, become the Secret Argo CD
+authenticates with. The layer refuses the combinations Argo CD would accept and
+then fail on — a key against an https:// URL, half of a username and password,
+a credential with no repository — because each of those surfaces as an
+authentication error in a UI minutes after a successful apply.
 **Blocked on:** nothing here — which repository is a deployment decision, and
 this layer no longer has an opinion about it.
 
