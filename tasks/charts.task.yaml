@@ -7,7 +7,7 @@ tasks:
   validate:
     desc: "Check every chart pin is an exact version and resolves upstream"
     cmds:
-      - go test ./pkg/charts/ -count=1
+      - go test ./internal/pkg/charts/ -count=1
 
   list:
     desc: "Show every pinned chart"
