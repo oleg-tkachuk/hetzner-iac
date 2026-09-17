@@ -46,9 +46,9 @@ infra/cluster              the only project that talks to the Hetzner API
 You need three things: a [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud) token with read+write scope
 ([how to create one](https://docs.hetzner.com/cloud/api/getting-started/generating-api-token/)), a
 [Pulumi Cloud](https://app.pulumi.com/signup) account for state — free for an
-individual, and `pulumi login` is how you get one on this machine — and the
-tools in [Prerequisites](#prerequisites). State can live in your own S3 bucket
-instead: [configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
+individual — and the tools in [Prerequisites](#prerequisites). State can live
+in your own S3 bucket instead, which changes step 1 and nothing else:
+[configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
 
 A **domain** is the fourth thing, and it is needed only for the step none of
 the commands below is: reaching the cluster from outside. `40-ingress` creates
@@ -66,40 +66,46 @@ Everything below creates **billable**
 `task destroy` removes them — every layer, then the cluster.
 
 ```bash
-# 1. Describe the cluster. Set network.adminCIDRs to the address you apply
+# 1. The repository, and the backend that will hold the state. Bare
+#    `pulumi login` is Pulumi Cloud; an S3 bucket is the same command with a
+#    URL, and then PULUMI_CONFIG_PASSPHRASE has to be in the environment.
+git clone https://github.com/oleg-tkachuk/hetzner-iac.git && cd hetzner-iac
+pulumi login
+
+# 2. Describe the cluster. Set network.adminCIDRs to the address you apply
 #    from: Talos configuration goes over the Talos API, and a host outside
 #    that list hangs with the port filtered.
 cp infra/cluster/cluster.example.yaml infra/cluster/cluster.dev.yaml
 $EDITOR infra/cluster/cluster.dev.yaml
 
-# 2. Create the stack and store the token. This is the only place it is
+# 3. Create the stack and store the token. This is the only place it is
 #    typed; the task prompts and hides the input, so it never reaches the
 #    shell history. `pass hetzner/token | task cluster:token` also works.
 task cluster:token stack=dev
 
-# 3. Bake the Talos snapshot. Once per Talos version; idempotent.
+# 4. Bake the Talos snapshot. Once per Talos version; idempotent.
 task cluster:image:bake stack=dev
 
-# 4. Build the cluster, reading the diff first.
+# 5. Build the cluster, reading the diff first.
 task cluster:plan stack=dev
 task cluster:apply stack=dev
 
-# 5. Point every layer at it, then apply them in order. No token here — the
-#    CCM and the CSI driver read the one from step 2, through the same stack
+# 6. Point every layer at it, then apply them in order. No token here — the
+#    CCM and the CSI driver read the one from step 3, through the same stack
 #    reference that carries the kubeconfig.
 task platform:init stack=dev
 task platform:apply layer=all stack=dev
 
-# 6. Check what you built.
+# 7. Check what you built.
 task cluster:kubeconfig stack=dev
 task cluster:status stack=dev
 task e2e
 ```
 
-Nodes stay `NotReady` between steps 4 and 5. That is the handover point, not a
+Nodes stay `NotReady` between steps 5 and 6. That is the handover point, not a
 failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 
-`task up stack=dev` does steps 4 and 5 in one go, once the stacks exist.
+`task up stack=dev` does steps 5 and 6 in one go, once the stacks exist.
 
 ## Getting back in
 
@@ -110,7 +116,8 @@ bundle. `./kubeconfig` and `./talosconfig` are gitignored working copies, and
 both are written from the stack rather than kept.
 
 ```bash
-# 1. The tools from Prerequisites, then the backend that holds the state.
+# 1. The same first step as above: the repository, and the backend that holds
+#    the state. Nothing is created here — the stack already exists.
 git clone https://github.com/oleg-tkachuk/hetzner-iac.git && cd hetzner-iac
 pulumi login
 
