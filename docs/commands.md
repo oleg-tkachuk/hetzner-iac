@@ -29,7 +29,7 @@ forgotten word aims the command at whatever that happens to be rather than
 failing.
 
 It is the only deployment parameter: where a cluster lives and how it is
-shaped comes from its committed topology file.
+shaped comes from its topology file.
 
 The suggestion names both, because a message that named only the missing
 argument handed over a command that failed on the one already passed. `layer=`

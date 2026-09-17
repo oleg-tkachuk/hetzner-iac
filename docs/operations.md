@@ -219,3 +219,35 @@ needs the key written to a temporary file first.
 It backs the target up with a timestamp, refuses outright if a cluster of that
 name already points somewhere else, and does not switch the current context —
 it prints the command that would.
+
+### From a machine the firewall does not know
+
+The perimeter has exactly two ingress rules — the Kubernetes API and the Talos
+API — and both are sourced from `network.adminCIDRs`. Nothing else is open. So
+on a console at an address that list does not name, a correct kubeconfig still
+times out, and so does `talosctl`. The failure looks like a broken cluster and
+is a filtered port.
+
+Reaching it again means widening that list, which means having the topology
+file: `infra/cluster/cluster.<stack>.yaml` is gitignored, because it names the
+networks an operator administers from and this repository is public. It is the
+one thing the stack does not hand back as a file — the credentials, the token
+and the Talos secrets all come out of `pulumi stack output`, and the topology
+does not. Keep a copy where the Hetzner token lives.
+
+If it is gone, `pulumi stack export` holds the inputs every resource was
+created with, which is what the file has to agree with. Rebuild it from
+`cluster.example.yaml`, then let `task cluster:plan` judge: the only change you
+want is the firewall, and anything that reads as a replacement means a value
+does not match what the cluster was built with.
+
+When the address is not a stable one, the choices are the ordinary ones and
+each has a cost. A `/32` added per move keeps the list exact and makes every
+move a firewall update. An ISP range keeps it quiet and admits everyone else on
+that range. A jump host or a VPN endpoint with an address of its own is the one
+that stays honest, and it is a resource this repository does not create.
+
+Note what still works while the list is wrong: `task hcloud:*` acts through the
+Hetzner API rather than through the cluster, so power state, a VNC console and
+the inventory all answer — those need the topology too, for the cluster label
+they select on. Tasks that only read the Pulumi backend need neither.

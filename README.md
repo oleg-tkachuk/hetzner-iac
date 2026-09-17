@@ -33,6 +33,7 @@ infra/cluster              the only project that talks to the Hetzner API
 ## Contents
 
 - [Quick start](#quick-start) — from nothing to a running platform
+- [Getting back in](#getting-back-in) — a new machine, or a new console
 - [Prerequisites](#prerequisites) — what has to be installed
 - [Commands](#commands) — the handful worth knowing
 - [Configuration](#configuration) — the topology file and stack config
@@ -100,6 +101,60 @@ failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
 
 `task up stack=dev` does steps 4 and 5 in one go, once the stacks exist.
 
+## Getting back in
+
+A new machine, or a new console, needs nothing from the old shell. Everything
+about the cluster is in the Pulumi stack: its state, the Hetzner token
+encrypted in its config, the kubeconfig, the talosconfig and the Talos secrets
+bundle. `./kubeconfig` and `./talosconfig` are gitignored working copies, and
+both are written from the stack rather than kept.
+
+```bash
+# 1. The tools from Prerequisites, then the backend that holds the state.
+git clone https://github.com/oleg-tkachuk/hetzner-iac.git && cd hetzner-iac
+pulumi login
+
+# 2. What stacks exist, and which of them this clone can describe. First,
+#    because it reports a stack whose topology file is missing here rather
+#    than failing three commands later.
+task cluster:stacks
+
+# 3. The credentials, out of the stack. No token, no topology file and no
+#    network path to the cluster: this reads the backend, not the servers.
+task cluster:kubeconfig stack=dev
+task cluster:talosconfig stack=dev
+
+# 4. Check they answer.
+task cluster:status stack=dev
+```
+
+If the state is in your own S3 bucket rather than Pulumi Cloud, step 1 is
+`pulumi login 's3://…'` and the secrets need the passphrase that encrypted
+them — `export PULUMI_CONFIG_PASSPHRASE=…` before step 3, or `pulumi stack
+output` cannot decrypt:
+[configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
+
+**Step 4 hangs if the address you are on is not in `network.adminCIDRs`.** The
+firewall opens the Kubernetes API and the Talos API to those CIDRs and to
+nothing else, so a console on a different network reaches neither — the
+credentials are right and the packets never arrive. That is the one case that
+needs the topology file back, and `infra/cluster/cluster.<stack>.yaml` is
+gitignored: it names the networks you administer from, and this repository is
+public. So it comes from wherever you kept it.
+
+```bash
+# Restore the topology, add the address, then read the diff before applying.
+$EDITOR infra/cluster/cluster.dev.yaml
+task cluster:plan stack=dev     # the only change you want is the firewall
+task cluster:apply stack=dev
+```
+
+Why the plan and not just the apply: a topology rebuilt from
+`cluster.example.yaml` instead of restored can differ from what the cluster
+was built with, and a value that forces a replacement replaces a server.
+[operations.md](docs/operations.md#from-a-machine-the-firewall-does-not-know)
+has the rest, including what to do when the address is not a stable one.
+
 ## Prerequisites
 
 What building and running a cluster needs. The tools the checks use — linters,
@@ -151,7 +206,7 @@ clone missing one of these is not a broken clone.
 and layer task takes `stack=<name>`, and there is no default — a task that
 assumed one is a task that can be aimed at the wrong environment by forgetting
 a word. It is the only deployment parameter: where a cluster lives and how it
-is shaped comes from its committed topology.
+is shaped comes from its topology file.
 
 | Task | Does |
 |------|------|
