@@ -11,7 +11,7 @@ Three parts, and each opens the next:
 1. **talos-secrets** — the cluster CA. `talosctl bootstrap --recover-from`
    accepts an etcd snapshot only against these, so without it a snapshot
    restores nothing. Same value as [secrets](../secrets) prints alone.
-2. **backup-outputs** — every output of `layers/60-backup`, secrets decrypted:
+2. **backup-outputs** — every output of `infra/backup`, secrets decrypted:
    the Storage Box and the restic repository password the snapshots are
    encrypted with.
 3. **topology** — `cluster.<stack>.yaml`, which is gitignored because it names
@@ -25,8 +25,8 @@ dependency runs the wrong way:
 ```
 etcd snapshot on the Storage Box
   └─ encrypted by restic
-       └─ repository password: random.NewRandomPassword in layers/60-backup's state
-            └─ re-applying that layer generates a DIFFERENT one,
+       └─ repository password: random.NewRandomPassword in infra/backup's state
+            └─ re-applying that tier generates a DIFFERENT one,
                which does not open the existing repository
 ```
 

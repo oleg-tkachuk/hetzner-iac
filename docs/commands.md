@@ -38,7 +38,7 @@ present, so a typo is caught before anything runs:
 
     $ task platform:plan stack=dev layer=30-cor
     task: ... layer has an invalid value : '30-cor'
-      (allowed values : [all 10-node-platform 20-network-policy 30-cluster-services 40-ingress 50-gitops 60-backup])
+      (allowed values : [all 10-node-platform 20-network-policy 30-cluster-services 40-ingress 50-gitops])
 
 `task platform:init` needs no reference: it reads the cluster tier's stack name
 from `infra/cluster` and writes that into every layer. `ref=` overrides it, for
@@ -88,6 +88,10 @@ entry point that has the task.
 | `task plan` | preview the cluster and every layer; change nothing |
 | `task up` | cluster, then every layer in dependency order; asks twice |
 
+None of the four reaches the backup tier. `up` does not create the Storage Box
+and `destroy` does not take it — that is the point of it being a tier, and
+[`backup:*`](#backup) below is where it is applied and destroyed.
+
 ## Cluster
 
 | Task | Does |
@@ -133,6 +137,35 @@ entry point that has the task.
 
 Why a policy pack when the components validate: see
 [configuration.md](configuration.md#what-the-policy-pack-enforces).
+
+`policy:check` walks every tier and every layer. `policy:cluster` narrows to the
+cluster tier and `policy:layer` to one layer; there is no per-tier narrowing
+beyond that, because there are two tiers and one of them has it.
+
+## Backup
+
+A tier of its own rather than a platform layer, so it is neither in
+`layer=all`'s order nor in what `task destroy` takes — the reasons are in
+[design.md](design.md#what-decides-a-layer-boundary). It creates the Hetzner
+Storage Box that `task cluster:etcd:upload` sends snapshots to, and generates
+the three credentials that reach it, into its own state.
+
+| Task | Does |
+|------|------|
+| `task backup:init` | create the tier's stack and point it at the cluster; `ref=` overrides the derived reference |
+| `task backup:plan` | preview it; changes nothing |
+| `task backup:apply` | create the Storage Box and its credentials; asks first, because the box is billable |
+| `task backup:destroy` | destroy it; asks first, and says that the uploaded snapshots are on it |
+| `task backup:outputs` | the sftp destination, secrets redacted |
+
+`backup:destroy` is the one destroy in this repository that usually fails, and
+correctly: the Storage Box carries Hetzner's own delete protection, so the API
+refuses the delete. Clearing that is a deliberate act in the Hetzner console.
+
+The restic repository password is generated into this tier's state and nothing
+types it, so re-applying the tier after destroying it produces a password that
+does not open the existing repository — see
+[recovery.md](recovery.md#the-three-parts-of-a-backup).
 
 ## Hetzner instances
 
