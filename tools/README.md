@@ -17,6 +17,7 @@ implementation.
 | [smoke/](smoke) | can this cluster actually run a workload |
 | [stack/](stack) | does a Pulumi stack exist — and make sure it does |
 | [talos/](talos) | does Talos itself accept the machine-config patches |
+| [taskshell/](taskshell) | shellcheck over the shell inside the taskfiles |
 | [token/](token) | the Hetzner token for a stack, on stdout |
 | [topology/](topology) | validate every committed topology, and read one field out of one |
 

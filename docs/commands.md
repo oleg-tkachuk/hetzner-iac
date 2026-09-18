@@ -182,6 +182,7 @@ TestRootTaskfile_HoldsNoCheck keeps them here.
 | `task -t Taskfile.dev.yaml scan` | every scanner CI runs — gitleaks, trivy, govulncheck, gosec, checkov |
 | `task -t Taskfile.dev.yaml lint` | golangci-lint at the version CI pins, and refuses another; `-- ./internal/...` narrows it |
 | `task -t Taskfile.dev.yaml lint:install` | write that pinned version into `bin/`, for this platform |
+| `task -t Taskfile.dev.yaml shell` † | shellcheck over the shell inside the taskfiles — needs shellcheck |
 | `task -t Taskfile.dev.yaml fmt` | format and tidy |
 | `task -t Taskfile.dev.yaml fmt-check` † | fail if `gofmt -s` would change anything |
 | `task -t Taskfile.dev.yaml docs:links` † | do the documentation's own links point at files and headings that exist? — needs lychee |

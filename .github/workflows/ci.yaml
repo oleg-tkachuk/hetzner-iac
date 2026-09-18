@@ -399,6 +399,34 @@ jobs:
           # hide the findings it repaired.
           args: --timeout=15m --fix=false
 
+  taskshell:
+    name: Taskfile shell
+    # Gated like the other linters. The taskfiles are not in the inert list —
+    # a change to one is a code change — so this runs whenever they do, and a
+    # documentation-only pull request skips it.
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          # For the task below. The flags belong in the task an operator runs,
+          # not in a second copy of them here that drifts from it.
+          task: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # No cache. This compiles one small program that imports a YAML
+          # parser and the standard library, which is seconds from cold —
+          # against the minutes the shared build cache takes to restore.
+          cache-mode: "off"
+      - name: Taskfile shell
+        # shellcheck is on the runner image already; the task says what to
+        # install if it ever is not, rather than skipping itself.
+        run: task -t Taskfile.dev.yaml shell
+
   gosec:
     name: Insecure patterns
     # Whole-repo, which is the half golangci-lint cannot cover: it runs gosec

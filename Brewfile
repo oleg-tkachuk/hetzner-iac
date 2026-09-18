@@ -99,6 +99,7 @@ brew "trivy"         # security:trivy
 brew "pipx"          # checkov:scan
 brew "lefthook"      # the commit and push hooks; opt in with `lefthook install`
 brew "actionlint"    # workflow syntax, the same check CI runs
+brew "shellcheck"    # the shell inside the taskfiles, through `task -t Taskfile.dev.yaml shell`
 brew "zizmor"        # workflow permissions, the same check CI runs
 
 # --- Not in Homebrew ---------------------------------------------------------

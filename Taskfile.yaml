@@ -243,8 +243,10 @@ tasks:
       # the working directory, where the names collide with the tools/,
       # layers/ and infra/ directory names — which is how a 52 MB layer binary
       # came to be committed once, and how two more reached the tree since.
-      - go build -o {{.ROOT}}/bin/ ./...
-      - cmd: 'printf "%s\n" "{{._OK}} hetzner-iac · build · $(ls {{.ROOT}}/bin | awk "END {print NR}") programs into bin/"'
+      - go build -o "{{.ROOT}}/bin/" ./...
+      - cmd: |
+          programs="$(find "{{.ROOT}}/bin" -maxdepth 1 -type f | awk 'END {print NR}')"
+          printf '%s\n' "{{._OK}} hetzner-iac · build · ${programs} programs into bin/"
         silent: true
 
   e2e:
@@ -273,4 +275,6 @@ tasks:
       # buildTarget per project. Removing only the second left 988 MB of
       # binaries behind, which is how a full disk turned into
       # `link: mapping output file failed: no space left on device`.
-      - rm -rf {{.ROOT}}/bin {{.ROOT}}/.cache/pulumi-bin
+      - cmd: |
+          root="{{.ROOT}}"
+          rm -rf "${root:?}/bin" "${root:?}/.cache/pulumi-bin"

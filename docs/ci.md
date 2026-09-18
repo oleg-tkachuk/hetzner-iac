@@ -277,12 +277,31 @@ locally. On macOS `brew bundle` installs every one.
 | `gosec` | `security:gosec`, and the nightly run |
 | `trivy` | `security:trivy` |
 | `checkov` | `task -t Taskfile.dev.yaml checkov:scan`, and `pipx` when checkov itself is not installed — the shared module runs the pinned version through it, reading the version out of this workflow |
+| `shellcheck` | `task -t Taskfile.dev.yaml shell` — the shell inside the taskfiles, through `tools/taskshell` |
 | `actionlint` | workflow syntax — run by hand, the same check CI runs |
 | `zizmor` | workflow permissions — the same |
 | `lefthook` | the commit and push hooks, opt in per clone with `lefthook install` |
 
 Each task states what to install rather than skipping itself silently: a gate
 that skips itself when a tool is absent is a gate that quietly stops running.
+
+### Two linters read shell, and they read different files
+
+actionlint runs shellcheck over every `run:` block in `.github/workflows/`. It
+stops there, because those are the only files it knows how to read.
+
+The taskfiles hold more shell than the workflows do, and none of it was read by
+anything — including `cluster:etcd:upload` and `cluster:etcd:restore`, the two
+procedures that put a cluster back after it is gone. `tools/taskshell` closes
+that: it extracts the shell out of the YAML scalars, resolves the template
+actions as far as the taskfile itself resolves them, and maps shellcheck's
+findings back to the line of the taskfile they came from.
+
+The first run reported 24 findings. Two of them were a directive that had been
+written to silence a third: `# shellcheck disable=SC2086 -- splitting is
+intended` is a parse error — shellcheck takes the reason after a `#`, not after
+a `--` — so the code it named was never disabled and the rest of that block was
+never analysed either.
 
 ## What runs when
 
