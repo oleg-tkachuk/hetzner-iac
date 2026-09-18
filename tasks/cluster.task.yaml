@@ -18,7 +18,8 @@ vars:
   # Refuses an empty match rather than looping zero times and reporting
   # success — an empty selector would match every server in the project.
   _CL_CONTROL_PLANE: |
-    export HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._CL_STACK}}")"
+    HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._CL_STACK}}")"
+    export HCLOUD_TOKEN
     cluster="$(go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}")"
     nodes="$(hcloud server list -l "cluster=${cluster},role=control-plane" -o noheader -o columns=ipv4)"
     test -n "$nodes"
@@ -161,7 +162,7 @@ tasks:
       # evaluates BEFORE preconditions, so the precondition holding the remedy
       # could never print. All of it is tools/image now, where it is
       # testable and where `jq` and `curl` are not needed at all.
-      - go run {{.ROOT}}/tools/image "{{._CL_TOPOLOGY}}" "{{._CL_STACK}}"
+      - go run "{{.ROOT}}/tools/image" "{{._CL_TOPOLOGY}}" "{{._CL_STACK}}"
 
   talosctl:install:
     desc: "Download the talosctl the topologies pin into bin/, for this platform"
@@ -195,10 +196,10 @@ tasks:
           versions=""
           for topology in "{{.ROOT}}"/infra/cluster/cluster.*.yaml; do
             [ -f "$topology" ] || continue
-            versions="${versions} $(go run {{.ROOT}}/tools/topology get talos-version "$topology")"
+            versions="${versions} $(go run "{{.ROOT}}/tools/topology" get talos-version "$topology")"
           done
 
-          # shellcheck disable=SC2086 -- splitting is intended
+          # shellcheck disable=SC2086 # splitting is intended
           distinct="$(printf '%s\n' ${versions} | awk 'NF' | sort -u)"
           count="$(printf '%s' "${distinct}" | awk 'NF {n++} END {print n + 0}')"
 
@@ -261,7 +262,7 @@ tasks:
       # talosctl must match the pinned minor version — the tool refuses
       # otherwise, because a mismatched binary reports conflicts that will not
       # happen.
-      - go run {{.ROOT}}/tools/talos {{.ROOT}}/infra/cluster
+      - go run "{{.ROOT}}/tools/talos" "{{.ROOT}}/infra/cluster"
 
   # ---------------------------------------------------------------------------
   # Bring-up
@@ -292,7 +293,7 @@ tasks:
       # runs want in their output is the stack's name, not a path.
       - cmd: |
           set -euo pipefail
-          state="$(go run {{.ROOT}}/tools/stack ensure "{{._CL_DIR}}" "{{._CL_STACK}}")"
+          state="$(go run "{{.ROOT}}/tools/stack" ensure "{{._CL_DIR}}" "{{._CL_STACK}}")"
           printf '%s\n' "{{._RUN}} cluster · stack · {{._CL_STACK}} ${state}"
 
   token:
@@ -822,7 +823,7 @@ tasks:
       # is generated into layers/60-backup's state, and re-applying that layer
       # produces a different one — so the state holds both halves of its own
       # backup, and this is the command that takes them out together.
-      - cmd: go run {{.ROOT}}/tools/recoverykit "{{._CL_STACK}}"
+      - cmd: go run "{{.ROOT}}/tools/recoverykit" "{{._CL_STACK}}"
 
   state:export:
     desc: "Export every stack's Pulumi state into .backups/state/ — the answer to a stack somebody deleted"
@@ -886,7 +887,7 @@ tasks:
       # stdout and nothing else, so the caller's pipe is the whole interface.
       # It refuses a terminal on its own and names the pipe to use — a
       # certificate authority in scrollback outlives the session.
-      - cmd: go run {{.ROOT}}/tools/secrets "{{._CL_STACK}}"
+      - cmd: go run "{{.ROOT}}/tools/secrets" "{{._CL_STACK}}"
 
   etcd:snapshot:
     desc: "Take an etcd snapshot into .backups/, read it back, and record what it holds"
@@ -1102,6 +1103,7 @@ tasks:
           # carry a UTC stamp, but mtime is what survives a copy.
           snapshot="{{.snapshot}}"
           if [ -z "$snapshot" ]; then
+            # shellcheck disable=SC2012 # ls -t orders by mtime; find -printf is GNU-only and this runs on macOS
             snapshot="$(ls -t "{{.ROOT}}"/.backups/*.db 2>/dev/null | awk 'NR == 1')"
           fi
 
@@ -1276,10 +1278,10 @@ tasks:
           versions=""
           for topology in "{{.ROOT}}"/infra/cluster/cluster.*.yaml; do
             [ -f "$topology" ] || continue
-            versions="${versions} $(go run {{.ROOT}}/tools/topology get talos-version "$topology")"
+            versions="${versions} $(go run "{{.ROOT}}/tools/topology" get talos-version "$topology")"
           done
 
-          # shellcheck disable=SC2086 -- splitting is intended
+          # shellcheck disable=SC2086 # splitting is intended
           distinct="$(printf '%s\n' ${versions} | awk 'NF' | sort -u)"
           count="$(printf '%s' "${distinct}" | awk 'NF {n++} END {print n + 0}')"
 
@@ -1324,6 +1326,6 @@ tasks:
     cmds:
       - cmd: |
           set -euo pipefail
-          version="$(go run {{.ROOT}}/tools/topology get kubernetes-version "{{._CL_TOPOLOGY}}")"
+          version="$(go run "{{.ROOT}}/tools/topology" get kubernetes-version "{{._CL_TOPOLOGY}}")"
           export TALOSCONFIG="{{.ROOT}}/talosconfig"
           talosctl upgrade-k8s --to "${version}"

@@ -92,7 +92,7 @@ tasks:
               # repository already got wrong once in cluster:image:bake.
               if grep -q 'clusterStackRef' Pulumi.yaml; then
                 pulumi --non-interactive --stack "{{._PL_STACK}}" config set "${project}:clusterStackRef" "$ref"
-                reference=set
+                reference="set"
               else
                 reference="not declared"
               fi
@@ -220,6 +220,7 @@ tasks:
           # CNI is removed while workloads still need to talk. One awk op
           # rather than the twelve lines that probed for `tac` and fell back
           # to `tail -r` — GNU has one, BSD the other, and awk has both.
+          # shellcheck disable=SC2013 # a word list is what tools/lines reverses, not lines
           for layer in $(awk -f "{{.ROOT}}/tools/lines/main.awk" -v op=reverse-words \
                          <<<"$selected"); do
             printf '%s\n' "{{._RUN}} platform · ${layer} · destroy"
