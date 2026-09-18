@@ -175,7 +175,20 @@ tasks:
   lint:
     desc: "golangci-lint at the version CI pins, not whatever PATH offers"
     cmds:
-      - go run {{.ROOT}}/tools/golangci run {{.CLI_ARGS | default "./..."}}
+      - cmd: |
+          # shellcheck disable=SC2086 # CLI_ARGS is several arguments, so it splits on purpose
+          go run "{{.ROOT}}/tools/golangci" run {{.CLI_ARGS | default "./..."}}
+
+  shell:
+    desc: "shellcheck over the shell inside the taskfiles — needs shellcheck"
+    # The shell in tasks/ is read by nothing else: actionlint runs shellcheck
+    # over every `run:` block in .github/workflows/, and stops there. tools/
+    # taskshell extracts the scalars Task runs and maps the findings back.
+    preconditions:
+      - sh: command -v shellcheck >/dev/null
+        msg: "shellcheck not installed — brew bundle, or brew install shellcheck"
+    cmds:
+      - go run "{{.ROOT}}/tools/taskshell"
 
   lint:install:
     desc: "Download the golangci-lint CI pins into bin/, for this platform"
@@ -246,6 +259,7 @@ tasks:
       # Not go:lint: that runs whatever golangci-lint is on PATH, and this one
       # runs the version CI pins.
       - task: lint
+      - task: shell
       - task: go:vuln
       - task: charts:validate
       - task: charts:render-check

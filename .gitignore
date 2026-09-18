@@ -29,6 +29,7 @@ bin/
 /smoke
 /stack
 /talos
+/taskshell
 /token
 /topology
 /[0-9][0-9]-*
