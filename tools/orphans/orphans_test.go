@@ -94,7 +94,7 @@ func TestOrphans_LoadBalancers(t *testing.T) {
 //
 // Both load balancers here are created through the Hetzner provider rather
 // than by the CCM — the API one in infra/cluster, the ingress one in
-// layers/40-ingress — because the CCM refuses to target a control-plane node.
+// layers/30-cluster-services — because the CCM refuses to target a control-plane node.
 // Neither carries a CCM label, and the absence used to be read as "not this
 // cluster's": two findings and exit 1 with nothing wrong. `task destroy` runs
 // this check last, so the teardown reported a failure it did not have.

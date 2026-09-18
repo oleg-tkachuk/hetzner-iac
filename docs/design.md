@@ -38,7 +38,7 @@ flowchart TB
         end
 
         apilb(["load balancer for the API<br/>the endpoint every certificate names"])
-        inglb(["load balancer for ingress<br/>layers/40-ingress"])
+        inglb(["load balancer for ingress<br/>layers/30-cluster-services"])
         box[("Storage Box + subaccount<br/>layers/60-backup")]
     end
 
@@ -54,7 +54,7 @@ flowchart TB
         pol["cluster-wide policy<br/>layers/20-network-policy"]
         cmns["cert-manager, external-secrets<br/>layers/30-cluster-services"]
         kedans["keda<br/>layers/30-cluster-services, when kedaEnabled"]
-        tns["traefik<br/>layers/40-ingress"]
+        tns["traefik<br/>layers/30-cluster-services, group Ingress"]
         argons["argocd<br/>layers/50-gitops"]
     end
 
@@ -149,7 +149,7 @@ and `AAAA` records, and the Storage Box with its subaccount.
 | A Talos or Kubernetes upgrade | `talosctl` | a procedure with an order, not a desired state |
 | Workloads | Argo CD | that is what the GitOps layer is for |
 
-**DNS records are `40-ingress`'s**, because that layer is where the load
+**DNS records are the ingress group's**, because that is where the load
 balancer's address is known. The zone is LOOKED UP, never created: a zone is
 delegated once, by pointing a registrar's `NS` records at Hetzner's
 nameservers, and that delegation outlives any cluster here — a zone this stack

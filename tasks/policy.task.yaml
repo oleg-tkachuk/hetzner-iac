@@ -60,11 +60,11 @@ tasks:
             --policy-pack "{{._PO_PACK}}"
 
   layer:
-    desc: "Run the policy pack over one layer — task policy:layer stack=dev layer=40-ingress"
+    desc: "Run the policy pack over one layer — task policy:layer stack=dev layer=30-cluster-services"
     requires:
       vars:
         - name: layer
-          enum: [10-node-platform, 20-network-policy, 30-cluster-services, 40-ingress, 50-gitops]
+          enum: [10-node-platform, 20-network-policy, 30-cluster-services, 50-gitops]
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_LAYER_USAGE}}"

@@ -116,6 +116,14 @@ type Component struct {
 	// sets both rather than picking one silently.
 	ValuesFrom func(*Runner) pulumi.Output
 
+	// Group parents this component's resources under a component resource, so
+	// the state says which former layer they belong to. Empty leaves them
+	// where they are, directly under the stack.
+	//
+	// Grouping is not ordering: see Group. A layer that was never merged with
+	// another needs none.
+	Group Group
+
 	// SkipCRDs leaves custom resource definitions alone.
 	SkipCRDs bool
 
@@ -155,7 +163,7 @@ func (c Component) Key() string {
 // CreateFunc is what a component that is not a chart does.
 //
 // Named because there are now two ways to write one: a plain function, and a
-// function that RETURNS one — layers/40-ingress closes over the Hetzner
+// function that RETURNS one — layers/30-cluster-services closes over the Hetzner
 // provider that way, since the provider exists only once the cluster tier's
 // token has been read. An unnamed signature written at both is the same
 // contract twice.
@@ -197,11 +205,23 @@ func (r *Runner) Deploy(components Components) (Deployed, error) {
 	}
 
 	deployed := make(Deployed, len(ordered))
+	parents := make(map[Group]*groupParent)
 
 	for _, component := range ordered {
 		dependencies := resourcesFor(deployed, component.After)
 
-		resource, createErr := r.create(component, dependencies)
+		scoped := r
+
+		if !component.Group.Empty() {
+			parent, groupErr := r.parentFor(parents, component.Group)
+			if groupErr != nil {
+				return nil, groupErr
+			}
+
+			scoped = r.inGroup(parent)
+		}
+
+		resource, createErr := scoped.create(component, dependencies)
 		if createErr != nil {
 			return nil, createErr
 		}
@@ -211,6 +231,18 @@ func (r *Runner) Deploy(components Components) (Deployed, error) {
 		// DependsOn cannot be handed a nil resource.
 		if resource != nil {
 			deployed[component.Key()] = resource
+		}
+	}
+
+	// After the children, because that is when a component resource's outputs
+	// are registered. What each group held is the one thing the state can say
+	// about a grouping node, and it is what answers "what would --target on
+	// this group have taken" without re-reading the program.
+	for group, keys := range groupsOf(ordered) {
+		if err := r.Ctx.RegisterResourceOutputs(parents[group], pulumi.Map{
+			"components": pulumi.ToStringArray(keys),
+		}); err != nil {
+			return nil, fmt.Errorf("register outputs for group %s: %w", group, err)
 		}
 	}
 
@@ -405,6 +437,21 @@ func order(components Components) (Components, error) {
 				return fmt.Errorf(
 					"component %q must follow %q, which is not in this set",
 					key, dependency)
+			}
+
+			// Refused, because a group is meant to be independently
+			// appliable. Two former layers in one project stay separable only
+			// while nothing in one waits for anything in the other: an After
+			// across the boundary becomes a DependsOn, and then
+			// `destroy --target` on one group refuses without
+			// --target-dependents and takes the other group's resource with it
+			// when given one. If the dependency is real, the two belong in one
+			// group and the merge was the wrong shape.
+			if other := byName[dependency].Group; other != component.Group {
+				return fmt.Errorf(
+					"component %q in group %s must follow %q in group %s: a dependency "+
+						"across groups makes neither group independently appliable",
+					key, component.Group, dependency, other)
 			}
 
 			if err := visit(dependency, append(path, key)); err != nil {

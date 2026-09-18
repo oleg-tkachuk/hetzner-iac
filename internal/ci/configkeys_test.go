@@ -48,7 +48,7 @@ var configTables = []struct {
 
 // layerProject returns each layer's Pulumi project name and the directory it
 // lives in, read from the Pulumi.yaml rather than assumed from the directory —
-// the two differ on purpose (`layers/40-ingress` is project `ingress`).
+// the two differ on purpose (`50-gitops` is project `gitops`).
 func layerProjects(t *testing.T) map[string]string {
 	t.Helper()
 

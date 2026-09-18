@@ -95,7 +95,7 @@ through the load balancer. The load balancer is told to send a PROXY header;
 Traefik accepts one only from addresses it is told to trust, and its default is
 to trust nobody.
 
-The load balancer is created by `layers/40-ingress` through the Hetzner
+The load balancer is created by `layers/30-cluster-services` through the Hetzner
 provider, not by the cloud controller manager. A Service of type LoadBalancer
 would hand the job to the CCM, and that was measured to cost two things: the load balancer was invisible to `plan` and `destroy` and showed
 up only in the bill, and it had no targets at all — the CCM will not target a

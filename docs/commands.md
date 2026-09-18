@@ -20,7 +20,7 @@ one without it prints the usage instead:
     $ task platform:plan layer=all
     task: platform:plan needs a stack and a layer, and neither has a default.
 
-        task platform:plan stack=dev layer=40-ingress
+        task platform:plan stack=dev layer=30-cluster-services
 
 There is no default because an empty one is not an error. `pulumi --stack ""`
 ignores the empty value and uses the stack selected in the workspace — local,
@@ -38,7 +38,7 @@ present, so a typo is caught before anything runs:
 
     $ task platform:plan stack=dev layer=30-cor
     task: ... layer has an invalid value : '30-cor'
-      (allowed values : [all 10-node-platform 20-network-policy 30-cluster-services 40-ingress 50-gitops 60-backup])
+      (allowed values : [all 10-node-platform 20-network-policy 30-cluster-services 50-gitops 60-backup])
 
 `task platform:init` needs no reference: it reads the cluster tier's stack name
 from `infra/cluster` and writes that into every layer. `ref=` overrides it, for
@@ -129,7 +129,7 @@ entry point that has the task.
 |------|------|
 | `task policy:check` | run the CrossGuard pack over the cluster tier and every layer; changes nothing |
 | `task policy:cluster` | run it over the cluster tier only |
-| `task policy:layer` | run it over one layer — `layer=40-ingress` |
+| `task policy:layer` | run it over one layer — `layer=30-cluster-services` |
 
 Why a policy pack when the components validate: see
 [configuration.md](configuration.md#what-the-policy-pack-enforces).
@@ -160,7 +160,7 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 | `task platform:layers` | the layer order, in dependency order |
 | `task platform:outputs layer=50-gitops` | one layer's stack outputs, or `layer=all` |
 | `task platform:plan layer=10-node-platform` | preview one layer, or `layer=all` for every one in order |
-| `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
+| `task platform:refresh layer=30-cluster-services` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
 | `task platform:status` | which layers are deployed, and how large |
 
 ## Working on this repository

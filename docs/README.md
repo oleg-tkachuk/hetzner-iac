@@ -12,6 +12,7 @@ What each document covers, and when it is the one to open.
 | [operations.md](operations.md) | a cluster exists and you are running it: stopping and starting, the checks worth running, reaching it with kubectl |
 | [recovery.md](recovery.md) | a version moves or something is wrong: upgrades, etcd snapshots, uploading one, restoring from one |
 | [ci.md](ci.md) | you are changing what lands, or working out why a check ran — or did not |
+| [merged-layers.md](merged-layers.md) | you are looking at the experiment that puts two former layers in one Pulumi project: what keeps them apart, what keeps them independent, and what the state migration costs |
 | [adr/](adr/) | you want the decisions this is built on, and the consequences accepted with them |
 
 The [root README](../README.md) is the entry point: what this builds, the

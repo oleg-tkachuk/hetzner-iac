@@ -16,7 +16,7 @@ package platform
 // the Deployment saying why.
 const StorageClass = "hcloud-volumes"
 
-// IngressClass is the class layers/40-ingress registers, and the one an
+// IngressClass is the class layers/30-cluster-services registers, and the one an
 // Ingress elsewhere has to ask for by name.
 //
 // It was the literal "nginx" in the gitops layer, which stopped being true

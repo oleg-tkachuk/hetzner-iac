@@ -57,7 +57,7 @@ func TestEveryLayer_ChecksItsComponents(t *testing.T) {
 			continue
 		}
 
-		// The call, not one exact spelling of it. layers/40-ingress builds its
+		// The call, not one exact spelling of it. 30-cluster-services builds its
 		// set with a function — one component needs the Hetzner provider,
 		// which exists only once the cluster tier's token is read — so the
 		// argument is components(nil) there, and grepping for `Components)`

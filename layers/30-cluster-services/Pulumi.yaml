@@ -5,12 +5,21 @@ runtime:
     # Stable build path so repeated previews skip the link step; content
     # hashing still rebuilds when sources change.
     buildTarget: ../../.cache/pulumi-bin/cluster-services
+# Two groups: cluster services and ingress. Everything above assumes the first
+# exists — ingress wants certificates, workloads want secrets, the horizontal
+# pod autoscaler wants metrics.
+#
+# They were separate projects, layers/30-cluster-services and 40-ingress,
+# merged as an experiment. main.go's package comment says what keeps them
+# distinguishable in the state and what keeps them independent of each other.
+#
+# Kept short deliberately: this becomes the stack's `pulumi:description` TAG,
+# and Pulumi Cloud refuses a tag over 256 characters — `pulumi stack init`
+# fails, not `pulumi up`, so the failure lands on whoever creates the next
+# environment rather than on whoever wrote the prose.
 description: |
-  Core platform: cert-manager, external-secrets and metrics-server, and KEDA
-  when kedaEnabled is set.
-
-  Everything above assumes these exist: ingress wants certificates, workloads
-  want secrets, and the horizontal pod autoscaler wants metrics.
+  Core platform and ingress: cert-manager, external-secrets, metrics-server,
+  KEDA when asked for, Traefik and its load balancer.
 
 # State backend. Declared here rather than left to `pulumi login`, so the
 # backend is a property of the repository and not of whoever runs it.
@@ -41,6 +50,16 @@ config:
       ClusterIssuer, and the layer says so on every apply — installing
       cert-manager with no issuer leaves every Certificate pending with
       nothing to satisfy it.
+
+  cluster-services:loadBalancerType:
+    default: "lb11"
+    description: |
+      Hetzner load balancer type for the ingress group. lb11 carries an ingress
+      comfortably; the reason to change it is throughput, not availability.
+
+      This was `ingress:loadBalancerType` while ingress was its own project. A
+      Pulumi config key is namespaced by the project, so the merge renamed it —
+      a stack that had the old key set has to have it set again here.
 
   cluster-services:kedaEnabled:
     default: "false"

@@ -34,7 +34,7 @@ var ownConstant = regexp.MustCompile(`(?m)^\s*(?:const\s+)?([A-Z][A-Za-z]*)\s*=\
 // So: whatever platform NAMES, nothing else may name again.
 //
 // By name and not by value, and that is a decision this test made after
-// getting it wrong. Comparing values reported layers/40-ingress declaring
+// getting it wrong. Comparing values reported the ingress layer declaring
 // `Chart = "traefik"` against platform's `IngressClass = "traefik"` — a chart
 // registry key and a Kubernetes IngressClass name, two different things that
 // happen to share a word and are under no obligation to keep sharing it. A

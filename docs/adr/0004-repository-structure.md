@@ -22,7 +22,8 @@ infra/cluster/          the cluster tier — the only project that talks to
 layers/10-node-platform/    Cilium, hcloud CCM and CSI
 layers/20-network-policy/   Cilium network policy
 layers/30-cluster-services/ cert-manager, external-secrets, metrics-server
-layers/40-ingress/          Traefik, the ingress load balancer, DNS records
+40-ingress/                 Traefik, the ingress load balancer, DNS records
+                            (merged into 30-cluster-services on an experiment branch)
 layers/50-gitops/           Argo CD
 layers/60-backup/           Storage Box for etcd snapshots
 policy/                 the CrossGuard pack every project is previewed against

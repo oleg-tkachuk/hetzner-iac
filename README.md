@@ -25,7 +25,7 @@ infra/cluster              the only project that talks to the Hetzner API
   └─ exports kubeconfig ──► layers/10-node-platform       Cilium, hcloud CCM + CSI
                             layers/20-network-policy      Cilium network policy (opt-in)
                             layers/30-cluster-services    cert-manager, ESO, metrics-server
-                            layers/40-ingress             Traefik
+                            layers/30-cluster-services    Traefik, ingress LB
                             layers/50-gitops              Argo CD
                             layers/60-backup              Storage Box for etcd snapshots
 ```
@@ -51,7 +51,8 @@ in your own S3 bucket instead, which changes step 1 and nothing else:
 [configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
 
 A **domain** is the fourth thing, and it is needed only for the step none of
-the commands below is: reaching the cluster from outside. `40-ingress` creates
+the commands below is: reaching the cluster from outside. The ingress group of
+`30-cluster-services` creates
 the DNS records and `30-cluster-services` orders the certificate, both from
 `metadata.domain` in the topology — `platform.example.com`, with
 `metadata.dnsZone: example.com` when Hetzner serves that zone. A domain hosted
@@ -260,11 +261,11 @@ layer deploys:
 | `network-policy:enabled` | [`20-network-policy`](layers/20-network-policy) | create the policies; off by default, because the first one to select an endpoint denies what it does not name |
 | `cluster-services:acmeEmail` | [`30-cluster-services`](layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `cluster-services:acmeStaging` | [`30-cluster-services`](layers/30-cluster-services) | order from Let's Encrypt's staging endpoint: untrusted certificates, and where a new domain's first attempt belongs |
-| `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | [Hetzner load balancer](https://www.hetzner.com/cloud/load-balancer) type, default `lb11` |
+| `cluster-services:loadBalancerType` | [`30-cluster-services`](layers/30-cluster-services) | [Hetzner load balancer](https://www.hetzner.com/cloud/load-balancer) type, default `lb11` |
 | `backup:storageBoxType` | [`60-backup`](layers/60-backup) | [Storage Box](https://www.hetzner.com/storage/storage-box) type, default `bx11` |
 
 Argo CD's hostname is **not** stack config, and neither is the cluster's
-domain: both come from `metadata.domain` in the topology, so `40-ingress` and
+domain: both come from `metadata.domain` in the topology, so `30-cluster-services` and
 `50-gitops` cannot spell it differently. It is a prerequisite of being
 reachable rather than of installing —
 [domain.md](docs/domain.md) has the two fields, the delegation and the

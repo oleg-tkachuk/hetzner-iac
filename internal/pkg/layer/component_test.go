@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -396,4 +397,136 @@ func TestDeploy_WhenIsAskedBeforeTheValuesAreRendered(t *testing.T) {
 
 		return err
 	}))
+}
+
+// Two groups, as a merged layer has them.
+var (
+	testServices = layer.Group{Type: "hetzner-iac:test:Services", Name: "services"}
+	testIngress  = layer.Group{Type: "hetzner-iac:test:Ingress", Name: "ingress"}
+)
+
+// TestDeploy_AGroupPutsItsTypeInEveryChildURN is the property the whole
+// mechanism exists for.
+//
+// Two former layers in one project are only separable if the STATE says which
+// is which. The group's type is what carries that, because it lands in every
+// child's URN — and a URN is what `--target '**:Ingress$**'` matches. Asserted
+// on the URN itself rather than on the mock, because the URN is the thing the
+// CLI will be given.
+func TestDeploy_AGroupPutsItsTypeInEveryChildURN(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	require.NoError(t, run(t, newMocks(), func(runner *layer.Runner) error {
+		deployed, err := runner.Deploy(layer.Components{
+			{Group: testServices, Chart: "cert-manager"},
+			{Group: testIngress, Chart: "external-secrets"},
+		})
+		require.NoError(t, err)
+
+		for chart, group := range map[string]layer.Group{
+			"cert-manager":     testServices,
+			"external-secrets": testIngress,
+		} {
+			release, ok := deployed.Release(chart)
+			require.True(t, ok, chart)
+
+			urn, awaitErr := internals.UnsafeAwaitOutput(runner.Ctx.Context(), release.URN())
+			require.NoError(t, awaitErr, chart)
+
+			assert.Contains(t, urn.Value, group.Type,
+				"%s is not under %s, so its group is invisible in the state and "+
+					"--target cannot select it", chart, group.Type)
+		}
+
+		return nil
+	}))
+}
+
+// TestDeploy_TwoGroupsAreToldApartByTheirURNs is the same property from the
+// angle that matters: not just present, but DISTINCT. One shared type would
+// put both sets under one name and leave them indistinguishable, which is the
+// outcome the merge must not have.
+func TestDeploy_TwoGroupsAreToldApartByTheirURNs(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	require.NoError(t, run(t, newMocks(), func(runner *layer.Runner) error {
+		deployed, err := runner.Deploy(layer.Components{
+			{Group: testServices, Chart: "cert-manager"},
+			{Group: testIngress, Chart: "external-secrets"},
+		})
+		require.NoError(t, err)
+
+		services, _ := deployed.Release("cert-manager")
+		ingress, _ := deployed.Release("external-secrets")
+
+		one, err := internals.UnsafeAwaitOutput(runner.Ctx.Context(), services.URN())
+		require.NoError(t, err)
+		other, err := internals.UnsafeAwaitOutput(runner.Ctx.Context(), ingress.URN())
+		require.NoError(t, err)
+
+		assert.NotContains(t, one.Value, testIngress.Type)
+		assert.NotContains(t, other.Value, testServices.Type)
+
+		return nil
+	}))
+}
+
+// TestDeploy_AnUngroupedComponentStaysWhereItWas keeps the field optional: a
+// layer that was never merged with another must look exactly as it did, or
+// every other layer's state moves for nothing.
+func TestDeploy_AnUngroupedComponentStaysWhereItWas(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	require.NoError(t, run(t, newMocks(), func(runner *layer.Runner) error {
+		deployed, err := runner.Deploy(layer.Components{{Chart: "cert-manager"}})
+		require.NoError(t, err)
+
+		release, ok := deployed.Release("cert-manager")
+		require.True(t, ok)
+
+		urn, awaitErr := internals.UnsafeAwaitOutput(runner.Ctx.Context(), release.URN())
+		require.NoError(t, awaitErr)
+
+		// Straight under the stack: one `$` separator would mean a parent.
+		assert.NotContains(t, urn.Value, "$",
+			"an ungrouped component gained a parent, which moves its URN for nothing")
+
+		return nil
+	}))
+}
+
+// TestOrder_RefusesADependencyAcrossGroups is the invariant that keeps two
+// groups independently appliable.
+//
+// An After becomes a DependsOn. Across a group boundary that means
+// `destroy --target` on one group refuses without --target-dependents, and
+// takes the other group's resource with it when given one — so the merge would
+// have produced one inseparable thing wearing two names.
+func TestOrder_RefusesADependencyAcrossGroups(t *testing.T) {
+	t.Parallel()
+
+	_, err := layer.OrderForTest(layer.Components{
+		{Group: testServices, Chart: "cert-manager"},
+		{Group: testIngress, Chart: "traefik", After: []string{"cert-manager"}},
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "across groups")
+	assert.Contains(t, err.Error(), "traefik")
+	assert.Contains(t, err.Error(), "cert-manager")
+}
+
+// TestOrder_AllowsADependencyInsideAGroup is the other half: grouping must not
+// break the ordering a layer genuinely needs.
+func TestOrder_AllowsADependencyInsideAGroup(t *testing.T) {
+	t.Parallel()
+
+	ordered, err := layer.OrderForTest(layer.Components{
+		{Group: testServices, Chart: "metrics-server", After: []string{"cert-manager"}},
+		{Group: testServices, Chart: "cert-manager"},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, ordered, 2)
+	assert.Equal(t, "cert-manager", ordered[0].Key())
 }

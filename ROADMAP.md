@@ -75,7 +75,7 @@ Nothing checks provenance at admission.
 
 ### Something is reachable from outside
 
-Nothing here is left to build. `40-ingress` creates the `A` and `AAAA` records
+Nothing here is left to build. `30-cluster-services` creates the `A` and `AAAA` records
 for `metadata.domain`, looking the zone up rather than creating it — or says
 the records are somebody else's to write when the DNS is hosted elsewhere.
 `30-cluster-services` orders the certificate, staging or production by config.

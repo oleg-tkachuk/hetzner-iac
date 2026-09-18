@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
@@ -187,7 +188,7 @@ func acmeSection(t *testing.T, spec map[string]any) map[string]any {
 func TestComponents(t *testing.T) {
 	t.Parallel()
 
-	layertest.Check(t, Components)
+	layertest.Check(t, testComponents())
 }
 
 func TestComponents_MetricsServerFollowsTheCertApprover(t *testing.T) {
@@ -203,7 +204,7 @@ func TestComponents_MetricsServerFollowsTheCertApprover(t *testing.T) {
 	// before `atomic` rolled the release back and took the layer with it.
 	var found bool
 
-	for _, component := range Components {
+	for _, component := range testComponents() {
 		if component.Chart != "metrics-server" {
 			continue
 		}
@@ -293,7 +294,7 @@ func TestComponents_KedaIsTheOnlyOptionalChart(t *testing.T) {
 
 	var optional []string
 
-	for _, component := range Components {
+	for _, component := range testComponents() {
 		if component.When != nil {
 			optional = append(optional, component.Key())
 		}
@@ -312,7 +313,7 @@ func TestComponents_KedaIsTheOnlyOptionalChart(t *testing.T) {
 func TestComponents_KedaWaitsForNothing(t *testing.T) {
 	t.Parallel()
 
-	for _, component := range Components {
+	for _, component := range testComponents() {
 		if component.Key() == KedaChart {
 			assert.Empty(t, component.After)
 
@@ -321,4 +322,104 @@ func TestComponents_KedaWaitsForNothing(t *testing.T) {
 	}
 
 	t.Fatalf("no %s component in the set", KedaChart)
+}
+
+// testComponents is the set with a nil Hetzner provider.
+//
+// Nil is safe here and only here: every assertion below reads the TABLE — its
+// order, its groups, its After — and none of them creates a resource. A test
+// that needed the provider would need a Pulumi run, which is what
+// layers/.../main_test.go deliberately does not do.
+func testComponents() layer.Components {
+	return components(nil)
+}
+
+// TestComponents_EveryEntryNamesItsGroup is what makes the merge legible.
+//
+// An entry with no group sits directly under the stack, indistinguishable in
+// the state from either former layer — which is the one outcome merging two
+// projects must not produce. Easy to forget when adding a component, and
+// nothing else would notice.
+func TestComponents_EveryEntryNamesItsGroup(t *testing.T) {
+	t.Parallel()
+
+	for _, component := range testComponents() {
+		assert.False(t, component.Group.Empty(),
+			"component %q names no group, so nothing in the state says which of the two "+
+				"former layers it belongs to", component.Key())
+	}
+}
+
+// TestComponents_TheTwoGroupsHoldWhatTheyUsedTo pins the split itself.
+//
+// The point of the experiment is that merging the projects did not merge the
+// SETS. If a component drifts from one group to the other, `--target` on a
+// group stops meaning what the layer it replaced meant.
+func TestComponents_TheTwoGroupsHoldWhatTheyUsedTo(t *testing.T) {
+	t.Parallel()
+
+	held := map[string][]string{}
+	for _, component := range testComponents() {
+		held[component.Group.Name] = append(held[component.Group.Name], component.Key())
+	}
+
+	assert.ElementsMatch(t, []string{
+		"cert-manager", platform.IssuerName, "external-secrets",
+		CertApproverComponent, KedaChart, "metrics-server",
+	}, held[ClusterServices.Name])
+
+	assert.ElementsMatch(t, []string{IngressChart, BalancerComponent}, held[Ingress.Name])
+}
+
+// TestComponents_TheGroupsHaveDistinctTypes is the property a shared type
+// would silently destroy: the type is what lands in a child's URN, so two
+// groups sharing one are one group as far as the state and `--target` are
+// concerned.
+func TestComponents_TheGroupsHaveDistinctTypes(t *testing.T) {
+	t.Parallel()
+
+	assert.NotEqual(t, ClusterServices.Type, Ingress.Type)
+	assert.NotEmpty(t, ClusterServices.Type)
+	assert.NotEmpty(t, Ingress.Type)
+}
+
+// TestComponents_NothingCrossesTheGroupBoundary holds the independence claim
+// at this layer too, not only in internal/pkg/layer.
+//
+// order() refuses a cross-group After, so a violation is an error rather than a
+// silent coupling — but the error arrives at apply time. This says it at test
+// time, and names the pair.
+func TestComponents_NothingCrossesTheGroupBoundary(t *testing.T) {
+	t.Parallel()
+
+	groupOf := map[string]string{}
+	for _, component := range testComponents() {
+		groupOf[component.Key()] = component.Group.Name
+	}
+
+	for _, component := range testComponents() {
+		for _, after := range component.After {
+			assert.Equal(t, groupOf[component.Key()], groupOf[after],
+				"%q follows %q across a group boundary: neither group is then independently "+
+					"appliable, and `destroy --target` on one takes a resource from the other",
+				component.Key(), after)
+		}
+	}
+}
+
+// TestIngressValues_CarryThePinnedNodePorts is the ingress group's half of the
+// contract with internal/pkg/hetzner, moved here with the code it belongs to.
+func TestIngressValues_CarryThePinnedNodePorts(t *testing.T) {
+	t.Parallel()
+
+	rendered := chartValues(t, IngressChart, values.Traefik{
+		Replicas:      ControllerReplicas,
+		NodeSubnet:    "10.0.1.0/24",
+		NodePortHTTP:  platform.IngressNodePortHTTP,
+		NodePortHTTPS: platform.IngressNodePortHTTPS,
+	})
+
+	ports := nestedMap(t, rendered, "ports")
+	assert.Equal(t, float64(platform.IngressNodePortHTTP), nestedMap(t, ports, "web")["nodePort"])
+	assert.Equal(t, float64(platform.IngressNodePortHTTPS), nestedMap(t, ports, "websecure")["nodePort"])
 }

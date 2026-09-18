@@ -189,7 +189,7 @@ ships as a task here and the decision stays with whoever owns the organisation.
 | `cluster-services:acmeEmail` | [`30-cluster-services`](../layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `cluster-services:acmeStaging` | [`30-cluster-services`](../layers/30-cluster-services) | order from Let's Encrypt's staging endpoint: untrusted certificates, and where a new domain's first attempt belongs |
 | `cluster-services:kedaEnabled` | [`30-cluster-services`](../layers/30-cluster-services) | install KEDA, the event-driven autoscaler; it scales pods and not nodes, so it cannot grow past the pinned worker pools |
-| `ingress:loadBalancerType` | [`40-ingress`](../layers/40-ingress) | Hetzner load balancer type, default `lb11` |
+| `cluster-services:loadBalancerType` | [`30-cluster-services`](../layers/30-cluster-services) | Hetzner load balancer type, default `lb11`; was `ingress:loadBalancerType` before the two layers merged |
 | `gitops:repoURL` | [`50-gitops`](../layers/50-gitops) | the repository Argo CD reconciles; omit it and Argo CD is installed and reconciles nothing |
 | `gitops:path` | [`50-gitops`](../layers/50-gitops) | where the tree of Applications starts in that repository, default the root |
 | `gitops:revision` | [`50-gitops`](../layers/50-gitops) | branch, tag or commit to track, default `HEAD` |
@@ -203,7 +203,7 @@ cluster switches that used to sit here are in the topology now.
 
 The **domain** is one of them, and it used to be listed above as
 `gitops:domain`. It never was a stack config key: `50-gitops` reads
-`metadata.domain` from the cluster tier, because `40-ingress` points DNS at its
+`metadata.domain` from the cluster tier, because `30-cluster-services` points DNS at its
 load balancer and this layer gives Argo CD a hostname — two copies of one name
 drift, and an Ingress for one name behind a record for another is accepted by
 everything and serves nothing. `TestConfigKeys_TheTablesNameKeysThatExist`

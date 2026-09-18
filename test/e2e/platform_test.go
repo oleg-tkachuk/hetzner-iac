@@ -90,7 +90,7 @@ func TestIngressLoadBalancer(t *testing.T) {
 		Assess("the service exposes the node ports the load balancer targets", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// NOT a Service of type LoadBalancer, and this test asserted one
 			// until a live run failed on it. The load balancer is created by
-			// layers/40-ingress through the Hetzner provider, not by asking
+			// layers/30-cluster-services through the Hetzner provider, not by asking
 			// the cloud controller manager for one: the CCM refuses to target
 			// a node carrying
 			// node.kubernetes.io/exclude-from-external-load-balancers, which

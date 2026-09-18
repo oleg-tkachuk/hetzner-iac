@@ -6,7 +6,7 @@ with everything else a topology holds; this is what they mean and what to do
 about them.
 
 Nothing here needs a domain to come up, and two things need one to be useful:
-`40-ingress` creates the DNS records that point at the ingress load balancer,
+`30-cluster-services` creates the DNS records that point at the ingress load balancer,
 and `30-cluster-services` orders the certificate for them. So a domain is a
 prerequisite of being **reachable**, not of installing.
 
@@ -39,7 +39,7 @@ own. Nothing in the name says which, so the zone is a second field rather than
 a guess — and `domain` must equal it or sit under it, or the topology is
 refused.
 
-| `dnsZone` | `domain` | what `40-ingress` writes |
+| `dnsZone` | `domain` | what `30-cluster-services` writes |
 |-----------|----------|--------------------------|
 | `example.com` | `platform.example.com` | a record `platform` in `example.com` |
 | `example.com` | `example.com` | the zone apex |
@@ -76,7 +76,7 @@ Nothing else changes: the load balancer, the Ingress and the certificate are
 the same.
 
 **The certificate does not care who serves the zone.** The ClusterIssuer solves
-HTTP-01 through the ingress class `40-ingress` registers, so Let's Encrypt
+HTTP-01 through the ingress class `30-cluster-services` registers, so Let's Encrypt
 validates by fetching `/.well-known/acme-challenge/` over the load balancer —
 no provider credentials, no DNS-01, nothing a registrar has to support. What it
 does need is for the name to resolve *to that balancer*, so the two records
@@ -84,7 +84,7 @@ come first and the order is the thing that waits: until they resolve, the
 `Certificate` sits pending with an `Order` that keeps retrying, which looks
 like nothing happening and is not an error.
 
-Instead of writing those records, `40-ingress` says on every apply that they
+Instead of writing those records, `30-cluster-services` says on every apply that they
 are not its to write, and names the output holding the value they need:
 
 ```
@@ -93,7 +93,7 @@ at the ingressIp output by hand
 ```
 
 ```bash
-task platform:outputs stack=dev layer=40-ingress
+task platform:outputs stack=dev layer=30-cluster-services
 ```
 
 | Record, for `metadata.domain` | Value | Output |
@@ -128,7 +128,7 @@ metadata:
   dnsZone: dev.example.com
 ```
 
-`40-ingress` writes the records again, and the apex and everything else under
+`30-cluster-services` writes the records again, and the apex and everything else under
 it is untouched. It is also the case that `dnsZone` exists for: the zone cut in
 `platform.dev.example.com` is not its last two labels, and no rule could have
 guessed it.
@@ -162,6 +162,6 @@ replace it.
 ## One name, spelled once
 
 Argo CD's hostname is `metadata.domain` itself, not a key of its own.
-`40-ingress` points the records at its load balancer and `50-gitops` hands Argo
+`30-cluster-services` points the records at its load balancer and `50-gitops` hands Argo
 CD the same name, because two copies of one name drift — and an Ingress for one
 name behind a record for another is accepted by everything and serves nothing.

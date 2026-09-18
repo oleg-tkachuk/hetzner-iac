@@ -47,7 +47,7 @@ vars:
   _STACK_LAYER_USAGE: |
     {{.TASK}} needs a stack and a layer, and neither has a default.
 
-        task {{.TASK}} stack=dev layer=40-ingress
+        task {{.TASK}} stack=dev layer=30-cluster-services
 
     `task platform:layers` prints the layers. The stack names both the Pulumi
     stack and infra/cluster/cluster.<stack>.yaml, which is where everything
@@ -80,7 +80,6 @@ vars:
     10-node-platform
     20-network-policy
     30-cluster-services
-    40-ingress
     50-gitops
     60-backup
 
