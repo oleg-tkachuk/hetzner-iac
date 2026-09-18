@@ -235,3 +235,90 @@ func TestCertApproverManifest_IsVendoredAndPinned(t *testing.T) {
 		"the image must be pinned to an exact version, not a floating tag")
 	assert.Contains(t, body, "v0.12.0", "the provenance comment must name the tag it came from")
 }
+
+// TestParseEnabled_RefusesAValueThatIsNotABoolean is the behaviour the switch
+// exists with rather than without.
+//
+// `kedaEnabled: yes` read as false gives a cluster with no autoscaler and an
+// operator who believes otherwise — the two states look identical from
+// outside, which is why this is an error and not a default.
+func TestParseEnabled_RefusesAValueThatIsNotABoolean(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]struct {
+		value   string
+		want    bool
+		wantErr bool
+	}{
+		"unset is off":            {value: "", want: false},
+		"true":                    {value: "true", want: true},
+		"false":                   {value: "false", want: false},
+		"1 is what strconv takes": {value: "1", want: true},
+		"0":                       {value: "0", want: false},
+		// The one that costs a cluster: a shell-ism, and YAML's own word for
+		// true, which strconv.ParseBool does not accept.
+		"yes is refused, not read as false": {value: "yes", wantErr: true},
+		"on is refused too":                 {value: "on", wantErr: true},
+		"a typo is refused":                 {value: "ture", wantErr: true},
+	}
+
+	for name, one := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			enabled, err := parseEnabled(KedaEnabledKey, one.value)
+
+			if one.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), KedaEnabledKey,
+					"the failure does not name the key the operator has to fix")
+				assert.Contains(t, err.Error(), one.value,
+					"the failure does not quote what was actually set")
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, one.want, enabled)
+		})
+	}
+}
+
+// TestComponents_KedaIsTheOnlyOptionalChart pins the shape rather than the
+// decision: every other chart in this layer is installed unconditionally, and
+// a When appearing on one of those would mean a core service had quietly
+// become optional.
+func TestComponents_KedaIsTheOnlyOptionalChart(t *testing.T) {
+	t.Parallel()
+
+	var optional []string
+
+	for _, component := range Components {
+		if component.When != nil {
+			optional = append(optional, component.Key())
+		}
+	}
+
+	assert.Equal(t, []string{KedaChart}, optional)
+}
+
+// TestComponents_KedaWaitsForNothing holds the reasoning in its comment to the
+// literal.
+//
+// Not cert-manager: KEDA signs its own certificates and patches the
+// APIService's CA bundle itself. Not metrics-server: it serves a different API
+// group. An After here would be a dependency bought for nothing, and it would
+// make KEDA's absence able to delay the rest of the layer.
+func TestComponents_KedaWaitsForNothing(t *testing.T) {
+	t.Parallel()
+
+	for _, component := range Components {
+		if component.Key() == KedaChart {
+			assert.Empty(t, component.After)
+
+			return
+		}
+	}
+
+	t.Fatalf("no %s component in the set", KedaChart)
+}

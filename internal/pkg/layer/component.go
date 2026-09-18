@@ -118,6 +118,27 @@ type Component struct {
 
 	// SkipCRDs leaves custom resource definitions alone.
 	SkipCRDs bool
+
+	// When decides whether this component is created at all, from stack
+	// configuration. Nil means always.
+	//
+	// A Create component already expresses this by returning (nil, nil) — the
+	// ClusterIssuer does, when acmeEmail is unset. A CHART component could
+	// not: everything about installing one is this package's job, so declining
+	// meant writing a Create that repeated values.Static and Runner.Release to
+	// get at one `if`. KEDA is the first optional chart here.
+	//
+	// The entry stays in the set either way — still enumerated, still ordered,
+	// still paired with its workloads by layertest — rather than the decision
+	// being hidden behind an `if` around the literal, where nothing can see
+	// it.
+	//
+	// It returns an error, not just a bool, because the answer comes from a
+	// string an operator typed: `kedaEnabled: yes` is not a boolean, and
+	// reading it as false gives a cluster with no KEDA and an operator who
+	// believes otherwise. layers/20-network-policy makes the same argument
+	// about its own switch.
+	When func(*Runner) (bool, error)
 }
 
 // Key is the name other components refer to this one by: Name, or the chart
@@ -197,6 +218,17 @@ func (r *Runner) Deploy(components Components) (Deployed, error) {
 }
 
 func (r *Runner) create(component Component, dependencies []pulumi.Resource) (pulumi.Resource, error) {
+	if component.When != nil {
+		wanted, err := component.When(r)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", component.Key(), err)
+		}
+
+		if !wanted {
+			return nil, nil
+		}
+	}
+
 	if component.Create != nil {
 		return component.Create(r, dependencies)
 	}

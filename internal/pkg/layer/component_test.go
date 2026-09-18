@@ -1,6 +1,7 @@
 package layer_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -290,5 +291,109 @@ func TestMustRelease_ReturnsTheReleaseWhenItIsThere(t *testing.T) {
 		assert.Error(t, notARelease, "a component that is not in the set must not resolve")
 
 		return nil
+	}))
+}
+
+// TestDeploy_AChartComponentMayDecline is the whole point of When: a chart
+// that a stack has not asked for installs nothing, and nothing else in the set
+// has to know.
+func TestDeploy_AChartComponentMayDecline(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	m := newMocks()
+
+	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
+		deployed, err := runner.Deploy(layer.Components{
+			{
+				Chart: "cilium",
+				When:  func(*layer.Runner) (bool, error) { return false, nil },
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		// Absent from the map rather than nil in it, so a later DependsOn
+		// cannot be handed a nil resource.
+		_, found := deployed.Release("cilium")
+		assert.False(t, found, "a component that declined is in Deployed")
+
+		return nil
+	}))
+
+	assert.Empty(t, m.of(releaseType), "a component that declined installed a release anyway")
+}
+
+// TestDeploy_AComponentAfterOneThatDeclinedIsStillCreated holds the part that
+// would be easy to get wrong: declining is not failing, and the rest of the
+// layer goes on.
+func TestDeploy_AComponentAfterOneThatDeclinedIsStillCreated(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	m := newMocks()
+
+	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
+		_, err := runner.Deploy(layer.Components{
+			{
+				Chart: "cilium",
+				When:  func(*layer.Runner) (bool, error) { return false, nil },
+			},
+			{
+				Chart: "cert-manager",
+				After: []string{"cilium"},
+			},
+		})
+
+		return err
+	}))
+
+	assert.Len(t, m.of(releaseType), 1, "the component after the one that declined did not run")
+}
+
+// TestDeploy_AWhenThatCannotAnswerStopsTheRun is why When returns an error.
+//
+// The answer comes from a string an operator typed. Reading `yes` as false
+// gives a cluster with no KEDA and an operator who believes otherwise, so the
+// layer refuses rather than choosing one of the two states for them.
+func TestDeploy_AWhenThatCannotAnswerStopsTheRun(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	err := run(t, newMocks(), func(runner *layer.Runner) error {
+		_, deployErr := runner.Deploy(layer.Components{
+			{
+				Chart: "cilium",
+				When: func(*layer.Runner) (bool, error) {
+					return false, errors.New(`config "x" is "yes", which is not a boolean`)
+				},
+			},
+		})
+
+		return deployErr
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cilium:", "the failure does not name the component it came from")
+	assert.Contains(t, err.Error(), "not a boolean")
+}
+
+// TestDeploy_WhenIsAskedBeforeTheValuesAreRendered keeps the cheap answer
+// first: a declined component should not need its template to be renderable,
+// which is what makes When usable for a chart whose values come from config
+// that is only set when it is enabled.
+func TestDeploy_WhenIsAskedBeforeTheValuesAreRendered(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	require.NoError(t, run(t, newMocks(), func(runner *layer.Runner) error {
+		_, err := runner.Deploy(layer.Components{
+			{
+				Chart: "cilium",
+				When:  func(*layer.Runner) (bool, error) { return false, nil },
+				// The wrong data shape for this template: rendering it is an
+				// error, and TestDeploy_AFailedRenderStopsTheRun proves that.
+				StaticValues: struct{ NotAField string }{NotAField: "x"},
+			},
+		})
+
+		return err
 	}))
 }
