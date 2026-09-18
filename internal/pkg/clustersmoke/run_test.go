@@ -96,10 +96,10 @@ func resultFor(t *testing.T, report clustersmoke.Report, fragment string) cluste
 	return clustersmoke.Result{}
 }
 
-func TestRun_ReportsAllThreeChecksEvenWhenOneFails(t *testing.T) {
+func TestRun_ReportsEveryCheckEvenWhenOneFails(t *testing.T) {
 	t.Parallel()
 
-	// The three answer independent questions, so a broken CSI must not hide a
+	// They answer independent questions, so a broken CSI must not hide a
 	// broken CCM: finding both in one run is one investigation instead of two.
 	r := runner(t, []runtime.Object{
 		node("cp-0", true),
@@ -112,7 +112,7 @@ func TestRun_ReportsAllThreeChecksEvenWhenOneFails(t *testing.T) {
 
 	report := r.Run(context.Background())
 
-	require.Len(t, report, 4, "a check that returns nothing is a check nobody notices")
+	require.Len(t, report, 5, "a check that returns nothing is a check nobody notices")
 	assert.True(t, report.Failed())
 
 	assert.Equal(t, clustersmoke.StatusPassed, resultFor(t, report, "node is Ready").Status)
@@ -130,10 +130,11 @@ func TestRun_PassesOnAHealthyClusterAndSkipsWhatItCannotJudge(t *testing.T) {
 	report := r.Run(context.Background())
 
 	assert.False(t, report.Failed())
-	// One skip, and only one: the load balancer check, which has nothing to
-	// look at. The cross-node check must NOT be skipping here — a cluster of
+	// Two skips: the load balancer check, which has nothing to look at, and
+	// the external metrics check, because this fixture serves no aggregated
+	// group. The cross-node check must NOT be skipping here — a cluster of
 	// three nodes with DNS on two is exactly where it can run.
-	assert.Equal(t, 1, report.Skipped())
+	assert.Equal(t, 2, report.Skipped())
 	assert.Equal(t, clustersmoke.StatusPassed,
 		resultFor(t, report, "another node").Status)
 
