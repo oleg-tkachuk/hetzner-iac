@@ -195,6 +195,80 @@ func TestPerLayerTasks_ValidateAgainstTheAnchor(t *testing.T) {
 	assert.Equal(t, 5, checked, "five tasks take a layer; the count changed")
 }
 
+// policyLayerEnum and policyTierEnum match the anchors in the policy taskfile.
+//
+// Its own copies because YAML anchors do not cross files, so the enum
+// platform.task.yaml holds cannot be reused there — and until this gate the
+// policy taskfile's layer enum was a THIRD hand-maintained copy of the layer
+// list that TestPerLayerTasks_ValidateAgainstTheAnchor never read, because
+// that test reads platform.task.yaml only.
+var (
+	policyLayerEnum = regexp.MustCompile(`x-layers: &layers \[([^\]]+)\]`)
+	policyTierEnum  = regexp.MustCompile(`x-tiers: &tiers \[([^\]]+)\]`)
+)
+
+// TestPolicyAnchors_MatchTheRootLists holds both of them to the root taskfile.
+func TestPolicyAnchors_MatchTheRootLists(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	rootfile, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	policy, err := os.ReadFile(filepath.Join(root, "tasks", "policy.task.yaml"))
+	require.NoError(t, err)
+
+	layers := layerList.FindStringSubmatch(string(rootfile))
+	require.NotNil(t, layers, "no LAYERS list in the root taskfile")
+
+	tiers := tierList.FindStringSubmatch(string(rootfile))
+	require.NotNil(t, tiers, "no TIERS list in the root taskfile")
+
+	layerAnchor := policyLayerEnum.FindStringSubmatch(string(policy))
+	require.NotNil(t, layerAnchor, "no x-layers anchor in the policy taskfile")
+
+	tierAnchor := policyTierEnum.FindStringSubmatch(string(policy))
+	require.NotNil(t, tierAnchor, "no x-tiers anchor in the policy taskfile")
+
+	// No `all` in either anchor, unlike platform's: policy:check covers
+	// everything, so a selector word would be a second spelling of it.
+	assert.Equal(t, strings.Fields(layers[1]), splitEnum(layerAnchor[1]),
+		"policy:layer validates against a layer list that is not LAYERS")
+	assert.Equal(t, strings.Fields(tiers[1]), splitEnum(tierAnchor[1]),
+		"policy:tier validates against a tier list that is not TIERS")
+}
+
+// TestPolicyTasks_ValidateAgainstTheAnchors is the other half: a task carrying
+// its own inline copy would pass the test above by not being looked at.
+func TestPolicyTasks_ValidateAgainstTheAnchors(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "policy.task.yaml"))
+	require.NoError(t, err)
+
+	var checked int
+
+	for name, body := range tasksIn(string(raw)) {
+		for variable, alias := range map[string]string{
+			"name: layer": "enum: *layers",
+			"name: tier":  "enum: *tiers",
+		} {
+			if !strings.Contains(body, variable) {
+				continue
+			}
+
+			checked++
+
+			assert.Contains(t, body, alias,
+				"policy:%s validates %q against something other than the shared anchor",
+				name, variable)
+		}
+	}
+
+	assert.Equal(t, 2, checked, "policy:layer and policy:tier take one each; the count changed")
+}
+
 // splitEnum reads the items out of a YAML flow sequence.
 func splitEnum(items string) []string {
 	var out []string

@@ -131,16 +131,16 @@ and `destroy` does not take it — that is the point of it being a tier, and
 
 | Task | Does |
 |------|------|
-| `task policy:check` | run the CrossGuard pack over the cluster tier and every layer; changes nothing |
-| `task policy:cluster` | run it over the cluster tier only |
+| `task policy:check` | run the CrossGuard pack over every tier and every layer; changes nothing |
+| `task policy:tier` | run it over one tier — `tier=cluster`, `tier=backup` |
 | `task policy:layer` | run it over one layer — `layer=40-ingress` |
 
 Why a policy pack when the components validate: see
 [configuration.md](configuration.md#what-the-policy-pack-enforces).
 
-`policy:check` walks every tier and every layer. `policy:cluster` narrows to the
-cluster tier and `policy:layer` to one layer; there is no per-tier narrowing
-beyond that, because there are two tiers and one of them has it.
+`policy:check` walks every tier and every layer; `policy:tier` and
+`policy:layer` narrow to one of either. There used to be a task that could only
+mean the cluster tier, which left the backup tier with no narrowing at all.
 
 ## Backup
 

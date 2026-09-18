@@ -8,6 +8,17 @@ version: "3"
 # library include to slip one task in would rename every task in it, and the
 # repo's own gates validate those names.
 
+# Two static copies of lists that live in Taskfile.yaml, for the reason
+# platform.task.yaml's own anchor records: requires.enum is static schema, so a
+# template in it is read as a YAML map and the file stops parsing. One copy
+# each, aliased rather than repeated per task, held equal to LAYERS and TIERS
+# by TestPolicyAnchors_MatchTheRootLists.
+#
+# No `all` in either: `policy:check` is what covers everything, and a selector
+# word here would be a second spelling of it.
+x-layers: &layers [10-node-platform, 20-network-policy, 30-cluster-services, 40-ingress, 50-gitops]
+x-tiers: &tiers [cluster, backup]
+
 silent: true
 
 vars:
@@ -50,15 +61,22 @@ tasks:
 
           printf '%s\n' "{{._OK}} policy · all · no violations"
 
-  cluster:
-    desc: "Run the policy pack over the cluster tier only — task policy:cluster stack=dev"
+  # `policy:tier` replaces `policy:cluster`, which could only ever mean one
+  # tier. One verb per action, the same argument `destroy` makes against a
+  # second name for itself — and the backup tier had no narrowing at all.
+  tier:
+    desc: "Run the policy pack over one tier — task policy:tier stack=dev tier=backup"
+    requires:
+      vars:
+        - name: tier
+          enum: *tiers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
-          cd "{{.ROOT}}/infra/cluster"
+          cd "{{.ROOT}}/infra/{{.tier}}"
           pulumi --non-interactive --stack "{{._PO_STACK}}" preview \
             --policy-pack "{{._PO_PACK}}"
 
@@ -67,7 +85,7 @@ tasks:
     requires:
       vars:
         - name: layer
-          enum: [10-node-platform, 20-network-policy, 30-cluster-services, 40-ingress, 50-gitops]
+          enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_LAYER_USAGE}}"
