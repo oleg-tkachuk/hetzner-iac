@@ -2,6 +2,7 @@ package clusterspec
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -136,13 +137,28 @@ func checkAuditPolicy(raw []byte) error {
 		return fmt.Errorf("audit policy: %w", err)
 	}
 
+	if err := checkAuditDocument(policy); err != nil {
+		return err
+	}
+
+	for i, rule := range policy.Rules {
+		if err := checkAuditRule(i, rule, i == len(policy.Rules)-1); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// checkAuditDocument holds what is true of the policy as a whole.
+func checkAuditDocument(policy auditPolicy) error {
 	if policy.APIVersion != AuditPolicyAPIVersion || policy.Kind != AuditPolicyKind {
 		return fmt.Errorf("audit policy declares %s %s, and the API server reads %s %s",
 			policy.APIVersion, policy.Kind, AuditPolicyAPIVersion, AuditPolicyKind)
 	}
 
 	if len(policy.Rules) == 0 {
-		return fmt.Errorf("audit policy has no rules, which records nothing at all")
+		return errors.New("audit policy has no rules, which records nothing at all")
 	}
 
 	for _, stage := range policy.OmitStages {
@@ -151,40 +167,44 @@ func checkAuditPolicy(raw []byte) error {
 		}
 	}
 
-	secretCeiling := slices.Index(auditLevels, "Metadata")
+	return nil
+}
 
-	for i, rule := range policy.Rules {
-		level := slices.Index(auditLevels, rule.Level)
-		if level < 0 {
-			return fmt.Errorf("audit policy rule %d has level %q, which is not one of %v",
-				i, rule.Level, auditLevels)
+// checkAuditRule holds one rule, and its place in the order.
+//
+// The order is the semantics of an audit policy — the first matching rule
+// decides — so two of these checks are about position rather than content: a
+// rule that selects nothing before the end makes every rule after it dead, and
+// a last rule that selects something leaves everything it does not match
+// recorded at no level and lost.
+func checkAuditRule(i int, rule auditRule, last bool) error {
+	level := slices.Index(auditLevels, rule.Level)
+	if level < 0 {
+		return fmt.Errorf("audit policy rule %d has level %q, which is not one of %v",
+			i, rule.Level, auditLevels)
+	}
+
+	for _, stage := range rule.OmitStages {
+		if !slices.Contains(auditStages, stage) {
+			return fmt.Errorf("audit policy rule %d omits stage %q, which is not one of %v",
+				i, stage, auditStages)
 		}
+	}
 
-		for _, stage := range rule.OmitStages {
-			if !slices.Contains(auditStages, stage) {
-				return fmt.Errorf("audit policy rule %d omits stage %q, which is not one of %v",
-					i, stage, auditStages)
-			}
-		}
+	if rule.mentions(SecretResources) && level > slices.Index(auditLevels, "Metadata") {
+		return fmt.Errorf("audit policy rule %d records %v at %s: the level above Metadata "+
+			"writes the request body, and for these the body is the credential",
+			i, SecretResources, rule.Level)
+	}
 
-		if rule.mentions(SecretResources) && level > secretCeiling {
-			return fmt.Errorf("audit policy rule %d records %v at %s: the level above Metadata "+
-				"writes the request body, and for these the body is the credential",
-				i, SecretResources, rule.Level)
-		}
+	if !rule.selects() && !last {
+		return fmt.Errorf("audit policy rule %d selects nothing and is not the last rule, "+
+			"so it decides every event after it and the rules below it are dead", i)
+	}
 
-		last := i == len(policy.Rules)-1
-
-		if !rule.selects() && !last {
-			return fmt.Errorf("audit policy rule %d selects nothing and is not the last rule, "+
-				"so it decides every event after it and the rules below it are dead",
-				i)
-		}
-
-		if last && rule.selects() {
-			return fmt.Errorf("audit policy's last rule selects %s rather than everything, "+
-				"so an event matching no rule is recorded at no level and is lost", rule.Level)
-		}
+	if last && rule.selects() {
+		return fmt.Errorf("audit policy's last rule selects %s rather than everything, "+
+			"so an event matching no rule is recorded at no level and is lost", rule.Level)
 	}
 
 	return nil

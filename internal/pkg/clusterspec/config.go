@@ -636,10 +636,14 @@ func (t *Topology) validatePlacement() []string {
 func (t *Topology) validateNetwork() []string {
 	var problems []string
 
-	ipRange, ipRangeOK := parsePrefix("network.ipRange", t.Network.IPRange, &problems)
-	nodeSubnet, nodeSubnetOK := parsePrefix("network.nodeSubnet", t.Network.NodeSubnet, &problems)
-	podCIDR, podOK := parsePrefix("network.podCIDR", t.Network.PodCIDR, &problems)
-	serviceCIDR, serviceOK := parsePrefix("network.serviceCIDR", t.Network.ServiceCIDR, &problems)
+	ipRange, ipRangeProblem := parsePrefix("network.ipRange", t.Network.IPRange)
+	ipRangeOK := record(&problems, ipRangeProblem)
+	nodeSubnet, nodeSubnetProblem := parsePrefix("network.nodeSubnet", t.Network.NodeSubnet)
+	nodeSubnetOK := record(&problems, nodeSubnetProblem)
+	podCIDR, podCIDRProblem := parsePrefix("network.podCIDR", t.Network.PodCIDR)
+	podOK := record(&problems, podCIDRProblem)
+	serviceCIDR, serviceCIDRProblem := parsePrefix("network.serviceCIDR", t.Network.ServiceCIDR)
+	serviceOK := record(&problems, serviceCIDRProblem)
 
 	if ipRangeOK && nodeSubnetOK && !ipRange.Overlaps(nodeSubnet) {
 		problems = append(problems, fmt.Sprintf("network.nodeSubnet %s is not inside network.ipRange %s",
@@ -680,7 +684,9 @@ func (t *Topology) validateNetwork() []string {
 	}
 
 	for i, cidr := range t.Network.AdminCIDRs {
-		prefix, parsed := parsePrefix(fmt.Sprintf("network.adminCIDRs[%d]", i), cidr, &problems)
+		prefix, problem := parsePrefix(fmt.Sprintf("network.adminCIDRs[%d]", i), cidr)
+
+		parsed := record(&problems, problem)
 		if parsed && prefix.Bits() == 0 {
 			problems = append(problems, fmt.Sprintf(
 				"network.adminCIDRs[%d] is %s, which is the whole internet: name the operator networks explicitly", i, cidr))
@@ -814,27 +820,40 @@ func (t *Topology) validatePoolCapacity() []string {
 	return nil
 }
 
-func parsePrefix(field, value string, problems *[]string) (netip.Prefix, bool) {
+// parsePrefix reads one CIDR field, or says what is wrong with it.
+//
+// It returns the problem rather than appending to a slice through a pointer.
+// The pointer version read like a parser and behaved like one half of the
+// validator: what it did to its caller's state was invisible at the call site,
+// and the bool it returned said only whether it had already recorded something
+// somewhere else.
+func parsePrefix(field, value string) (netip.Prefix, string) {
 	if value == "" {
-		*problems = append(*problems, field+" is required")
-
-		return netip.Prefix{}, false
+		return netip.Prefix{}, field + " is required"
 	}
 
 	prefix, err := netip.ParsePrefix(value)
 	if err != nil {
-		*problems = append(*problems, fmt.Sprintf("%s %q is not a CIDR: %v", field, value, err))
-
-		return netip.Prefix{}, false
+		return netip.Prefix{}, fmt.Sprintf("%s %q is not a CIDR: %v", field, value, err)
 	}
 
 	if prefix.Addr() != prefix.Masked().Addr() {
-		*problems = append(*problems, fmt.Sprintf("%s %q has host bits set, did you mean %s?", field, value, prefix.Masked()))
-
-		return netip.Prefix{}, false
+		return netip.Prefix{}, fmt.Sprintf("%s %q has host bits set, did you mean %s?", field, value, prefix.Masked())
 	}
 
-	return prefix, true
+	return prefix, ""
+}
+
+// record keeps a problem if there is one, and answers whether the value is
+// usable by the checks that follow.
+func record(problems *[]string, problem string) bool {
+	if problem == "" {
+		return true
+	}
+
+	*problems = append(*problems, problem)
+
+	return false
 }
 
 func sortedKeys(m map[string]string) []string {

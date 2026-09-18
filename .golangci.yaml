@@ -25,6 +25,12 @@ linters:
     - rowserrcheck
     - sqlclosecheck
 
+    # Complexity
+    - cyclop
+    - funlen
+    - gocognit
+    - nestif
+
     # Clarity
     - dupl
     - goconst
@@ -47,6 +53,32 @@ linters:
       # Chart value maps repeat by nature — two layers both setting replicas
       # and a disruption budget is not duplication worth removing.
       threshold: 200
+
+    funlen:
+      # Statements, and lines not at all. This repository's functions are long
+      # from two things that are not complexity: comments, which are most of
+      # some files, and provider argument structs, where twenty fields are one
+      # statement. Counting lines reported a resource constructor as a defect
+      # for declaring what a resource is.
+      #
+      # 50 is where the tree sits, not a claim that 49 statements is fine. It
+      # is a ratchet: what it catches is a function that grew, and the answer
+      # to one is usually the seam it grew across — NewCluster was 41 after
+      # being split into the five steps it already had.
+      lines: -1
+      statements: 50
+
+    gocognit:
+      # Branching, which is the measure that says something about logic. The
+      # two functions this found were doing four independent jobs each, and
+      # both split along the shapes they were switching on.
+      min-complexity: 20
+
+    cyclop:
+      max-complexity: 15
+
+    nestif:
+      min-complexity: 5
 
     exhaustive:
       default-signifies-exhaustive: true
@@ -110,6 +142,13 @@ linters:
           - goconst
           - gosec
           - unparam
+          # A table of cases is long and branchy by construction, and both are
+          # the point: the length is the coverage, and splitting a table to
+          # satisfy a threshold hides how much is being asserted.
+          - cyclop
+          - funlen
+          - gocognit
+          - nestif
 
 formatters:
   enable:
