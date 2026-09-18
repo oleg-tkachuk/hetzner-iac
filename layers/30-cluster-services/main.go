@@ -1,6 +1,7 @@
 // Command cluster-services installs the services the rest of the cluster
 // consumes: cert-manager, external-secrets and metrics-server, plus the
-// ClusterIssuer and the kubelet-serving-certificate approver.
+// ClusterIssuer, the kubelet-serving-certificate approver, and KEDA when it is
+// asked for.
 //
 // Named for what they are rather than for their importance. None of them is
 // needed to make a node Ready — that is 10-node-platform, which holds the CNI
@@ -15,6 +16,9 @@
 package main
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
@@ -55,6 +59,13 @@ const (
 // MetricsServerReplicas is how many metrics-server pods to run.
 const MetricsServerReplicas = 2
 
+// KedaChart is KEDA's key in internal/pkg/charts.
+const KedaChart = "keda"
+
+// KedaEnabledKey is the stack config switch that installs it. Spelled once,
+// here: the layer reads it and Pulumi.yaml declares it.
+const KedaEnabledKey = "kedaEnabled"
+
 // Components are what this layer deploys.
 //
 // The ClusterIssuer is a component that may decline. Its Create returns
@@ -82,6 +93,24 @@ var Components = layer.Components{
 		// self-signed certificate that has no IP SANs.
 		Name:   CertApproverComponent,
 		Create: createCertApprover,
+	},
+	{
+		// Event-driven autoscaling, and the only optional chart here.
+		//
+		// No After, and each half of that is worth stating. Not cert-manager:
+		// KEDA signs its own webhook and metrics-server certificates and
+		// patches the APIService's CA bundle itself, so the cert-manager
+		// integration would be a dependency bought for nothing. Not
+		// metrics-server either: KEDA serves external.metrics.k8s.io, which is
+		// a different API group from the resource metrics metrics-server
+		// serves, and neither needs the other to start.
+		//
+		// What it cannot do is add nodes. The worker pools are pinned in the
+		// committed topology, so scaling past their capacity leaves pods
+		// Pending — the value here is scale-to-zero and bursts inside the
+		// capacity that is already paid for.
+		Chart: KedaChart,
+		When:  kedaRequested,
 	},
 	{
 		// After the approver: metrics-server scrapes the kubelet over TLS and
@@ -148,6 +177,48 @@ func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulum
 
 func main() {
 	layer.RunComponents(Components)
+}
+
+// kedaRequested answers whether this cluster wants KEDA, and says so when it
+// does not.
+//
+// Permanent, so it survives the run: a cluster with cert-manager and no
+// ClusterIssuer is confusing in the same way as one whose ScaledObjects are
+// accepted by the API server — they are just CRs — and then scale nothing,
+// because the controller reading them was never installed.
+func kedaRequested(r *layer.Runner) (bool, error) {
+	enabled, err := parseEnabled(KedaEnabledKey, r.Cfg.Get(KedaEnabledKey))
+	if err != nil {
+		return false, err
+	}
+
+	if !enabled {
+		r.Log.Skipped(KedaChart, KedaEnabledKey+" is not set, so nothing here scales on events")
+	}
+
+	return enabled, nil
+}
+
+// parseEnabled reads a switch, and refuses a value that is not one.
+//
+// An unparseable value is an error rather than a silent false, which is the
+// argument layers/20-network-policy makes about its own switch and it holds
+// here for the same reason: the two states do not look different from outside.
+// A cluster that was never asked for KEDA and a cluster where `kedaEnabled:
+// yes` was read as false both have no autoscaler, and the second one has an
+// operator who believes otherwise.
+func parseEnabled(key, value string) (bool, error) {
+	if value == "" {
+		return false, nil
+	}
+
+	enabled, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf(
+			"config %q is %q, which is not a boolean: set it to true or false", key, value)
+	}
+
+	return enabled, nil
 }
 
 // MetricsServerData is the data the metrics-server template renders with.

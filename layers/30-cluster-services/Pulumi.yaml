@@ -6,7 +6,8 @@ runtime:
     # hashing still rebuilds when sources change.
     buildTarget: ../../.cache/pulumi-bin/cluster-services
 description: |
-  Core platform: cert-manager, external-secrets and metrics-server.
+  Core platform: cert-manager, external-secrets and metrics-server, and KEDA
+  when kedaEnabled is set.
 
   Everything above assumes these exist: ingress wants certificates, workloads
   want secrets, and the horizontal pod autoscaler wants metrics.
@@ -40,6 +41,23 @@ config:
       ClusterIssuer, and the layer says so on every apply — installing
       cert-manager with no issuer leaves every Certificate pending with
       nothing to satisfy it.
+
+  cluster-services:kedaEnabled:
+    default: "false"
+    description: |
+      Install KEDA, the event-driven autoscaler. Off by default because it is
+      not free: three Deployments asking for 300m CPU and 300Mi between them,
+      and an aggregated API group — external.metrics.k8s.io — that the API
+      server then depends on.
+
+      It scales PODS, not nodes. The worker pools are pinned in the committed
+      topology and nothing here adds to them, so scaling past their capacity
+      leaves pods Pending. What it buys on a fixed cluster is scale-to-zero and
+      bursts inside capacity that is already paid for.
+
+      The ScaledObjects themselves belong with the workloads they scale, in
+      Argo CD. This installs the controller and its CRDs, which is the half
+      that has to exist before any of them applies.
 
   cluster-services:acmeStaging:
     default: "false"
