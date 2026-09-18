@@ -7,7 +7,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"strconv"
 
@@ -45,14 +44,6 @@ func createCNI(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource
 	}, layer.DependsOn(dependencies)...)
 }
 
-// base64Of encodes a value for a Secret's data field. Secretness survives the
-// apply, so a token stays marked as one.
-func base64Of(value pulumi.StringOutput) pulumi.StringOutput {
-	return value.ApplyT(func(raw string) string {
-		return base64.StdEncoding.EncodeToString([]byte(raw))
-	}).(pulumi.StringOutput)
-}
-
 // createCredentials makes the Secret both hcloud charts read.
 func createCredentials(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
 	return corev1.NewSecret(r.Ctx, CredentialsSecret, &corev1.SecretArgs{
@@ -66,11 +57,11 @@ func createCredentials(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.
 		// plans to replace the Secret, every time, for ever. This apply is the
 		// last one that replaces it.
 		Data: pulumi.StringMap{
-			"token": base64Of(resolveToken(r)),
+			"token": layer.Base64Of(resolveToken(r)),
 			// The route controller programmes pod routes inside this network.
 			// Without it the CCM starts and silently manages no routes, which
 			// surfaces as pods unable to reach pods on other nodes.
-			"network": base64Of(r.Cluster.NetworkID.ApplyT(strconv.Itoa).(pulumi.StringOutput)),
+			"network": layer.Base64Of(pulumix.Cast[pulumi.StringOutput](pulumix.Apply(r.Cluster.NetworkID, strconv.Itoa))),
 		},
 	}, r.With(layer.DependsOn(dependencies)...)...)
 }

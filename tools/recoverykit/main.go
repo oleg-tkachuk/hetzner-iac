@@ -28,7 +28,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -37,8 +36,7 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/term"
-
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/secretout"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/talossecrets"
 )
 
@@ -63,20 +61,11 @@ const BackupDir = "layers/60-backup"
 const TopologyDir = "infra/cluster"
 
 func main() {
-	if err := run(context.Background(), os.Args[1:], stdoutIsTerminal()); err != nil {
+	if err := run(context.Background(), os.Args[1:], secretout.IsTerminal()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
-
-// stdoutIsTerminal answers whether what this prints lands in scrollback.
-func stdoutIsTerminal() bool {
-	return term.IsTerminal(int(os.Stdout.Fd()))
-}
-
-// ErrTerminal is returned rather than printing a certificate authority to a
-// terminal.
-var ErrTerminal = errors.New("refusing to print the cluster's recovery kit to a terminal")
 
 func run(ctx context.Context, args []string, terminal bool) error {
 	if len(args) != 1 {
@@ -95,9 +84,9 @@ func run(ctx context.Context, args []string, terminal bool) error {
 	}
 
 	if terminal {
-		return fmt.Errorf("%w: pipe it into something that keeps it, for example\n\n"+
-			"  task cluster:recovery-kit stack=%s | pass insert -m hetzner/%s/recovery-kit",
-			ErrTerminal, stack, stack)
+		return secretout.Refuse("the cluster's recovery kit",
+			"task cluster:recovery-kit stack="+stack,
+			"hetzner/"+stack+"/recovery-kit")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)

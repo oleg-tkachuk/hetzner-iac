@@ -226,7 +226,7 @@ func createRepoCredential(r *layer.Runner, dependencies []pulumi.Resource) (pulu
 	data := pulumi.StringMap{FieldURL: pulumi.String(base64.StdEncoding.EncodeToString([]byte(repoURL)))}
 
 	for field, value := range fields {
-		data[field] = base64Of(value)
+		data[field] = layer.Base64Of(value)
 	}
 
 	return corev1.NewSecret(r.Ctx, RepositorySecret, &corev1.SecretArgs{
@@ -242,12 +242,4 @@ func createRepoCredential(r *layer.Runner, dependencies []pulumi.Resource) (pulu
 		// every run, for ever.
 		Data: data,
 	}, r.With(layer.DependsOn(dependencies)...)...)
-}
-
-// base64Of encodes a value for a Secret's data field, keeping its secretness
-// through the apply.
-func base64Of(value pulumi.StringOutput) pulumi.StringOutput {
-	return value.ApplyT(func(raw string) string {
-		return base64.StdEncoding.EncodeToString([]byte(raw))
-	}).(pulumi.StringOutput)
 }

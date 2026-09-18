@@ -9,6 +9,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
 )
 
 // OperatorReplicasWanted is how many Cilium operator replicas to run wherever
@@ -61,15 +62,23 @@ func CiliumData(
 	controlPlaneCount pulumi.IntInput,
 	routingMode pulumi.StringInput,
 ) pulumi.Output {
-	return pulumi.All(podCIDR, controlPlaneCount, routingMode).ApplyT(func(resolved []any) any {
-		return values.Cilium{
-			PodCIDR:          resolved[0].(string),
-			APIHost:          KubePrismHost,
-			APIPort:          clusterspec.KubePrismPort,
-			OperatorReplicas: operatorReplicas(resolved[1].(int)),
-			RoutingMode:      resolved[2].(string),
-		}
-	})
+	// Apply3 takes the three outputs as TYPED arguments. The pulumi.All form
+	// it replaces handed the callback a []any and left all three to be
+	// recovered by position: two of them are strings, so swapping the CIDR and
+	// the routing mode still compiles, still runs, and configures Cilium with
+	// a routing mode of "10.244.0.0/16".
+	return pulumix.Apply3(
+		podCIDR.ToStringOutput(), controlPlaneCount.ToIntOutput(), routingMode.ToStringOutput(),
+		func(podCIDR string, controlPlaneCount int, routingMode string) any {
+			return values.Cilium{
+				PodCIDR:          podCIDR,
+				APIHost:          KubePrismHost,
+				APIPort:          clusterspec.KubePrismPort,
+				OperatorReplicas: operatorReplicas(controlPlaneCount),
+				RoutingMode:      routingMode,
+			}
+		},
+	)
 }
 
 // CSIData resolves what the hcloud-csi template needs.

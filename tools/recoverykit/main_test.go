@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/secretout"
 )
 
 // TestRun_RefusesATerminal is the whole reason this is a tool and not a
@@ -18,7 +20,7 @@ func TestRun_RefusesATerminal(t *testing.T) {
 
 	err := run(context.Background(), []string{"dev"}, true)
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrTerminal)
+	require.ErrorIs(t, err, secretout.ErrTerminal)
 
 	// The message has to carry the pipe, because somebody who hits this is
 	// mid-task and the next thing they do is retype the command.
