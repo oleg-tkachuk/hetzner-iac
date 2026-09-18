@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
@@ -55,7 +56,7 @@ const HcloudCSIDefaultLocation = "hcloudVolumeDefaultLocation"
 // the comment above used to get wrong: it claimed the layer, the machine
 // config and the render check all read one value, while the machine config
 // held a bare 7445 of its own. Two copies and a comment saying otherwise.
-const KubePrismPort = clusterref.KubePrismPort
+const KubePrismPort = clusterspec.KubePrismPort
 
 // Traefik keys, as path segments rather than one dotted string, because the
 // layer writes them as a nested map and the render check writes them as a

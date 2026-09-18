@@ -3,6 +3,7 @@ package hetzner
 import (
 	"fmt"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumiopts"
@@ -67,8 +68,8 @@ func NewIngressLoadBalancer(
 	opts ...pulumi.ResourceOption,
 ) (*hcloud.LoadBalancer, error) {
 	labels := pulumi.StringMap{
-		LabelCluster:   args.ClusterName,
-		LabelManagedBy: pulumi.String(ManagedBy),
+		clusterspec.LabelCluster:   args.ClusterName,
+		clusterspec.LabelManagedBy: pulumi.String(clusterspec.ManagedBy),
 	}
 
 	loadBalancer, err := hcloud.NewLoadBalancer(ctx, name, &hcloud.LoadBalancerArgs{
@@ -149,7 +150,7 @@ func NewIngressLoadBalancer(
 		&hcloud.LoadBalancerTargetArgs{
 			LoadBalancerId: ingressID(loadBalancer),
 			Type:           pulumi.String("label_selector"),
-			LabelSelector:  pulumi.Sprintf("%s=%s", LabelCluster, args.ClusterName),
+			LabelSelector:  pulumi.Sprintf("%s=%s", clusterspec.LabelCluster, args.ClusterName),
 			UsePrivateIp:   pulumi.Bool(true),
 		}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{attachment}))...); err != nil {
 		return nil, fmt.Errorf("hcloud ingress load balancer target: %w", err)

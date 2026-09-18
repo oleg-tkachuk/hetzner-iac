@@ -3,11 +3,12 @@ package workloads_test
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 )
 
 func TestExpected_EveryChartIsPinned(t *testing.T) {
@@ -73,7 +74,7 @@ func TestExpected_WorkloadNamespaceMatchesItsChart(t *testing.T) {
 			continue
 		}
 
-		assert.Contains(t, hetzner.PodSecurityExemptNamespaces, w.Namespace,
+		assert.Contains(t, clusterspec.PodSecurityExemptNamespaces, w.Namespace,
 			"%s is expected in %s, but its chart installs into %s and %s is not a namespace Talos exempts",
 			w.Name, w.Namespace, chart.Namespace, w.Namespace)
 	}

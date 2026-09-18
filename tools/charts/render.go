@@ -35,7 +35,7 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 )
@@ -239,7 +239,7 @@ func checkHostAccess(key, releaseNamespace string, manifests []byte) error {
 		}
 
 		namespace := documentNamespace(doc, releaseNamespace)
-		if slices.Contains(hetzner.PodSecurityExemptNamespaces, namespace) {
+		if slices.Contains(clusterspec.PodSecurityExemptNamespaces, namespace) {
 			continue
 		}
 
@@ -249,7 +249,7 @@ func checkHostAccess(key, releaseNamespace string, manifests []byte) error {
 				"workload reports zero replicas and Helm waits out its timeout.\n"+
 				"Either install it into one of %v, or give it a namespace labelled "+
 				"pod-security.kubernetes.io/enforce=privileged",
-			key, strings.Join(needs, ", "), namespace, hetzner.PodSecurityExemptNamespaces)
+			key, strings.Join(needs, ", "), namespace, clusterspec.PodSecurityExemptNamespaces)
 	}
 
 	return nil
@@ -396,7 +396,7 @@ func kubeconformArgs(version string) []string {
 // asserts every topology states exactly this value.
 func pinnedKubernetesVersion() string {
 	// kubeconform wants 1.36.4, the constant says v1.36.4.
-	return strings.TrimPrefix(hetzner.DefaultKubernetesVersion, "v")
+	return strings.TrimPrefix(clusterspec.DefaultKubernetesVersion, "v")
 }
 
 // clusterAPIVersions are the API versions a chart may branch on, told to

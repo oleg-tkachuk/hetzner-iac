@@ -5,7 +5,7 @@
 package main
 
 import (
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -65,7 +65,7 @@ func CiliumData(
 		return values.Cilium{
 			PodCIDR:          resolved[0].(string),
 			APIHost:          KubePrismHost,
-			APIPort:          clusterref.KubePrismPort,
+			APIPort:          clusterspec.KubePrismPort,
 			OperatorReplicas: operatorReplicas(resolved[1].(int)),
 			RoutingMode:      resolved[2].(string),
 		}

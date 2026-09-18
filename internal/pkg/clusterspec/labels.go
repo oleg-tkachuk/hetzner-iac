@@ -1,4 +1,4 @@
-package hetzner
+package clusterspec
 
 import (
 	"fmt"
@@ -89,7 +89,10 @@ const (
 	protocolICMP = "icmp"
 	protocolGRE  = "gre"
 	protocolESP  = "esp"
-	directionIn  = "in"
+	// DirectionIn is the only direction this repository writes. The perimeter
+	// rules govern what may reach a node; what a node may reach is the
+	// cluster's own egress policy, which layers/20-network-policy owns.
+	DirectionIn = "in"
 )
 
 // The protocols Hetzner Cloud firewall rules accept, split by whether a rule

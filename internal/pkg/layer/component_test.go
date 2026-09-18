@@ -3,11 +3,12 @@ package layer_test
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 )
 
 func chartKeys(components layer.Components) []string {

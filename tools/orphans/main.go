@@ -26,9 +26,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hcloudtoken"
 )
 
 // timeout covers five Hetzner API calls and three kubectl calls on a slow link.
@@ -61,12 +62,12 @@ func run() (clean bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	token, err := hetzner.Token(ctx, stack)
+	token, err := hcloudtoken.Token(ctx, stack)
 	if err != nil {
 		return false, err
 	}
 
-	topology, err := hetzner.LoadTopology(topologyPath)
+	topology, err := clusterspec.LoadTopology(topologyPath)
 	if err != nil {
 		return false, fmt.Errorf("read the pinned Talos version: %w", err)
 	}
@@ -100,7 +101,7 @@ func run() (clean bool, err error) {
 		if err != nil {
 			return false, fmt.Errorf("%w\n\n%d server(s) still carry %s=%s, so the cluster "+
 				"should answer. If it is gone, its servers are not — and they are billed",
-				err, len(servers), hetzner.LabelCluster, topology.Metadata.Name)
+				err, len(servers), clusterspec.LabelCluster, topology.Metadata.Name)
 		}
 	}
 

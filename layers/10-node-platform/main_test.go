@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
@@ -38,7 +38,7 @@ import (
 func ciliumValues(t *testing.T, controlPlaneCount int) map[string]any {
 	t.Helper()
 
-	return ciliumValuesFor(t, controlPlaneCount, hetzner.RoutingModeNative)
+	return ciliumValuesFor(t, controlPlaneCount, clusterspec.RoutingModeNative)
 }
 
 // ciliumValuesFor renders with an explicit routing mode, because the mode is
@@ -108,7 +108,7 @@ func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
 
 	assert.Equal(t, KubePrismHost, rendered[chartsettings.CiliumK8sServiceHost])
 	// The port itself is held against the machine config by
-	// internal/pkg/hetzner's TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt,
+	// internal/pkg/clusterspec's TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt,
 	// which renders the patch Talos is given. What this asserts is the other
 	// half: that the number reaching Cilium is that same constant.
 	assert.Equal(t, float64(chartsettings.KubePrismPort), rendered[chartsettings.CiliumK8sServicePort])
@@ -123,7 +123,7 @@ func TestCiliumValues_UsesNativeRoutingOverThePodCIDR(t *testing.T) {
 	// masquerades traffic that should be routed.
 	rendered := ciliumValues(t, 3)
 
-	assert.Equal(t, hetzner.RoutingModeNative, rendered["routingMode"])
+	assert.Equal(t, clusterspec.RoutingModeNative, rendered["routingMode"])
 	assert.Equal(t, testPodCIDR, rendered["ipv4NativeRoutingCIDR"])
 }
 
@@ -132,7 +132,7 @@ func TestCiliumValues_CarryTheRoutingModeTheTopologyChose(t *testing.T) {
 
 	// Both modes reach Helm from here, so both are rendered. A mode that
 	// silently fell back to the other would be a datapath nobody chose.
-	for _, mode := range hetzner.RoutingModes {
+	for _, mode := range clusterspec.RoutingModes {
 		assert.Equal(t, mode, ciliumValuesFor(t, 3, mode)["routingMode"], mode)
 	}
 }
@@ -146,7 +146,7 @@ func TestCiliumValues_NeverAskForDirectNodeRoutes(t *testing.T) {
 	// on-link. Cilium refuses — "must be directly reachable" — so pod-to-pod
 	// across nodes had no route at all while it was true. A single-node
 	// cluster hid it completely, because nothing crossed a node.
-	for _, mode := range hetzner.RoutingModes {
+	for _, mode := range clusterspec.RoutingModes {
 		assert.Equal(t, false, ciliumValuesFor(t, 3, mode)["autoDirectNodeRoutes"],
 			"%s: autoDirectNodeRoutes cannot work on a Hetzner private network", mode)
 	}
@@ -309,7 +309,7 @@ func (m stackMocks) outputs() resource.PropertyMap {
 		resource.PropertyKey(clusterref.OutputLocation):          resource.NewStringProperty(clusterref.ProbeLocation),
 		resource.PropertyKey(clusterref.OutputHcloudToken):       resource.NewStringProperty(m.exported),
 		resource.PropertyKey(clusterref.OutputControlPlaneCount): resource.NewNumberProperty(3),
-		resource.PropertyKey(clusterref.OutputRoutingMode):       resource.NewStringProperty(hetzner.RoutingModeNative),
+		resource.PropertyKey(clusterref.OutputRoutingMode):       resource.NewStringProperty(clusterspec.RoutingModeNative),
 	}
 }
 

@@ -12,8 +12,8 @@ import (
 	"strconv"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/cni"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
@@ -31,7 +31,7 @@ import (
 func createCNI(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
 	name := r.StringOr("cni", cni.Default)
 
-	chosen, err := cni.Select(name, hetzner.KubeProxyDisabled)
+	chosen, err := cni.Select(name, clusterspec.KubeProxyDisabled)
 	if err != nil {
 		return nil, err
 	}

@@ -178,13 +178,52 @@ serves these from two bases. Storage Boxes are on the unified API —
 `api.hetzner.cloud/v1`. Zones are the other way round. The same project token
 reaches both.
 
+## A cluster as a document, and a cluster as resources
+
+Two packages describe the same cluster, and the split between them is about
+what it costs to read one.
+
+[internal/pkg/clusterspec](../internal/pkg/clusterspec) is the cluster as a
+document: the topology schema and its validation, the defaults, the resource
+labels, the address plan, the Talos machine-config patches, the API server's
+audit policy. It imports the standard library and a YAML parser, and nothing
+else. [internal/pkg/hetzner](../internal/pkg/hetzner) is the cluster as Pulumi
+resources, and it reads the first one.
+
+They were one package, which made every command-line tool expensive. Nine
+programs under `tools/` imported it and not one of them used a resource: they
+wanted a topology, a label, a patch or a token. `tools/topology`, whose whole
+job is to validate a YAML file, linked 816 packages into a 44 MB binary.
+
+The weight is not the provider SDKs. hcloud, Talos and Kubernetes add three
+packages each; what they sit on is Pulumi's own SDK, which is 768. So the split
+is worth what it is worth only while `clusterspec` keeps importing none of it,
+and one import would undo it with nothing failing —
+`TestClusterSpec_PullsNoPulumi` is what notices.
+
+| tool | before | after |
+|------|--------|-------|
+| `topology` | 44.0 MB | 4.7 MB |
+| `stack` | 44.0 MB | 5.0 MB |
+| `talos` | 44.1 MB | 5.3 MB |
+| `secrets` | 43.6 MB | 4.6 MB |
+| `recoverykit` | 43.7 MB | 4.6 MB |
+
+Three tools stay large — `token`, `image` and `orphans` — and that is not an
+oversight. Each reads the Hetzner token out of an encrypted stack, which needs
+Pulumi's automation API, and the automation API needs the SDK underneath it.
+That is [internal/pkg/hcloudtoken](../internal/pkg/hcloudtoken), kept apart so
+that the cost lands only on the programs that cannot avoid it —
+[internal/pkg/talossecrets](../internal/pkg/talossecrets) reads a stack too, by
+running the `pulumi` binary, and is 4.6 MB for it.
+
 ## The cluster is a committed file
 
 `infra/cluster/cluster.<stack>.yaml` describes the topology, so a cluster is
 reviewable in a diff before it exists and reproducible from a clone. The
 template for it is
 [cluster.example.yaml](../infra/cluster/cluster.example.yaml). It is
-sparse — anything omitted keeps the default in `internal/pkg/hetzner` — and it is
+sparse — anything omitted keeps the default in `internal/pkg/clusterspec` — and it is
 validated against the same code the Pulumi program runs, so the check cannot
 drift from the thing it checks.
 
@@ -248,7 +287,7 @@ node has first, and on Hetzner that is the public one — where the perimeter
 firewall opens tcp/6443 and tcp/50000 and nothing else, so the members cannot
 reach each other's tcp/2380. Measured on the first three-member cluster built
 here: two members, one of them a learner for ever, and the third never
-joining. `internal/pkg/hetzner.BuildEtcdPatch` pins it, in a document applied to
+joining. `internal/pkg/clusterspec.BuildEtcdPatch` pins it, in a document applied to
 control planes only — Talos refuses the section on a worker, which
 `task cluster:machine-config:check` says out loud.
 

@@ -5,11 +5,14 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec/clusterspectest"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 )
 
 // The component resources are tested through Pulumi's own mock monitor rather
@@ -158,7 +161,7 @@ func (r *recorder) Call(args pulumi.MockCallArgs) (resource.PropertyMap, error) 
 
 // runCluster builds a cluster under the mock monitor and returns what was
 // registered.
-func runCluster(t *testing.T, topology *hetzner.Topology, args *hetzner.ClusterArgs) *recorder {
+func runCluster(t *testing.T, topology *clusterspec.Topology, args *hetzner.ClusterArgs) *recorder {
 	t.Helper()
 
 	rec := newRecorder()
@@ -175,16 +178,16 @@ func runCluster(t *testing.T, topology *hetzner.Topology, args *hetzner.ClusterA
 	return rec
 }
 
-func haTopology(t *testing.T) *hetzner.Topology {
+func haTopology(t *testing.T) *clusterspec.Topology {
 	t.Helper()
 
-	return mustParse(t, validYAML)
+	return clusterspectest.MustParseValid(t)
 }
 
-func singleNodeTopology(t *testing.T) *hetzner.Topology {
+func singleNodeTopology(t *testing.T) *clusterspec.Topology {
 	t.Helper()
 
-	topology := mustParse(t, validYAML)
+	topology := clusterspectest.MustParseValid(t)
 	topology.ControlPlane.Count = 1
 	topology.ControlPlane.APILoadBalancerType = ""
 

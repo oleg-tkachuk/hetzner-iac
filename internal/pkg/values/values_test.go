@@ -6,6 +6,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
@@ -226,9 +227,9 @@ func TestProbeData_CarriesThePinnedValuesRatherThanACopy(t *testing.T) {
 	cni, ok := cilium.(values.Cilium)
 	require.True(t, ok, "the cilium probe is %T", cilium)
 
-	assert.Equal(t, clusterref.KubePrismPort, cni.APIPort,
+	assert.Equal(t, clusterspec.KubePrismPort, cni.APIPort,
 		"the cilium probe renders port %d while Talos listens on %d",
-		cni.APIPort, clusterref.KubePrismPort)
+		cni.APIPort, clusterspec.KubePrismPort)
 
 	traefik, err := values.Probe("traefik")
 	require.NoError(t, err)

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 func TestProbe(t *testing.T) {
@@ -20,7 +20,7 @@ workerpools:
     count: 2
     serverType: cx33
 `
-	top, err := hetzner.ParseTopology([]byte(lower))
+	top, err := clusterspec.ParseTopology([]byte(lower))
 	fmt.Printf("lowercase key -> err=%v pools=%+v\n", err, top.WorkerPools)
 
 	bogus := `
@@ -32,6 +32,6 @@ network: { adminCIDRs: [203.0.113.4/32] }
 talos: { version: v1.14.0 }
 totallyUnknownKey: 5
 `
-	_, err2 := hetzner.ParseTopology([]byte(bogus))
+	_, err2 := clusterspec.ParseTopology([]byte(bogus))
 	fmt.Printf("unknown key   -> err=%v\n", err2)
 }

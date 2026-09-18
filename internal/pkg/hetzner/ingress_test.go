@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
@@ -63,7 +64,7 @@ func TestIngressLoadBalancer_IsPlacedAndLabelledWithTheCluster(t *testing.T) {
 	// The cluster label is not decoration: it is what the target selector
 	// below matches, so a load balancer without it targets nothing.
 	labels := got["labels"].ObjectValue()
-	assert.Equal(t, testCluster, labels[resource.PropertyKey(hetzner.LabelCluster)].StringValue())
+	assert.Equal(t, testCluster, labels[resource.PropertyKey(clusterspec.LabelCluster)].StringValue())
 }
 
 func TestIngressLoadBalancer_ServesBothEntryPointsOnThePinnedNodePorts(t *testing.T) {
@@ -120,7 +121,7 @@ func TestIngressLoadBalancer_TargetsEveryNodeInTheClusterPrivately(t *testing.T)
 	// on every control-plane node, and the measured result was a load balancer
 	// with an address and zero targets.
 	assert.Equal(t, "label_selector", got["type"].StringValue())
-	assert.Equal(t, hetzner.ClusterSelector(testCluster), got["labelSelector"].StringValue())
+	assert.Equal(t, clusterspec.ClusterSelector(testCluster), got["labelSelector"].StringValue())
 
 	// Private addresses. Public ones would send traffic out of and back into
 	// Hetzner's network — metered, slower, and needing firewall rules that

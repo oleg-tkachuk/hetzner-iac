@@ -2,7 +2,7 @@
 //
 // WHY A POLICY PACK WHEN THE COMPONENTS ALREADY VALIDATE. Because component
 // validation binds only the callers that go through the component, and this
-// repository has a measured example. internal/pkg/hetzner.BuildFirewallRules refuses an
+// repository has a measured example. internal/pkg/clusterspec.BuildFirewallRules refuses an
 // empty AdminCIDRs — ErrEmptyAdminCIDRs exists for exactly that — and then
 // appends FirewallRuleOptions.Extra verbatim. Its per-rule validate() checks
 // the protocol, the port and that the source list is non-empty. It does not
@@ -61,7 +61,7 @@ const (
 // adminPorts are the ports that must never be reachable from the whole
 // internet, and what each one would hand over.
 //
-// Derived from the same two constants internal/pkg/hetzner opens in the baseline rule
+// Derived from the same two constants internal/pkg/clusterspec opens in the baseline rule
 // set — PortKubeAPI and PortTalosdAPI — but spelled here as strings because a
 // policy reads them out of resource properties, where they are strings. The
 // parity is held by a test rather than by an import: the policy pack is a

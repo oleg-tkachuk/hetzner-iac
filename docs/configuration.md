@@ -14,7 +14,7 @@ Everything that shapes a cluster lives in
 `infra/cluster/cluster.<stack>.yaml`, validated by `cluster.schema.json` as you
 type it and by the same Go code the Pulumi program runs when you apply.
 
-It is sparse: anything omitted keeps the default in `internal/pkg/hetzner`. Start from
+It is sparse: anything omitted keeps the default in `internal/pkg/clusterspec`. Start from
 [cluster.example.yaml](../infra/cluster/cluster.example.yaml), which is
 committed with an RFC 5737 placeholder in
 `network.adminCIDRs` — set that to the address you will apply from, because
@@ -143,7 +143,7 @@ this repository provisions through.
 
 Component validation binds only the callers that go through the component, and
 this repository has a measured example of the gap.
-`internal/pkg/hetzner.BuildFirewallRules` refuses an empty `network.adminCIDRs` — that is
+`internal/pkg/clusterspec.BuildFirewallRules` refuses an empty `network.adminCIDRs` — that is
 what `ErrEmptyAdminCIDRs` is for — and then appends `FirewallRuleOptions.Extra`
 verbatim. Its per-rule check looks at the protocol, the port, and that the
 source list is non-empty. It never looks at what the sources *are*, so an extra

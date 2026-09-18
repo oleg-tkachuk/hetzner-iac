@@ -1,9 +1,23 @@
+// Package hetzner builds a Talos-based Kubernetes cluster on Hetzner Cloud:
+// the private network, the public-interface firewall, the control plane and
+// the worker pools.
+//
+// Hetzner has no managed Kubernetes, so this package builds the cluster rather
+// than requesting one. It stops at "a Kubernetes API that answers": the CNI is
+// not installed here, it belongs to layers/10-node-platform, because a cluster
+// and its CNI have different lifecycles and pinning them together makes a CNI
+// upgrade a cluster change.
+//
+// Pulumi resources only. What a cluster IS — the topology, its validation, the
+// labels, the machine-config patches — is internal/pkg/clusterspec, which needs
+// no provider and which the command-line tools read without linking one.
 package hetzner
 
 import (
 	"fmt"
 	"strconv"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumiopts"
 
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
@@ -44,7 +58,7 @@ type Cluster struct {
 // ClusterArgs is the resolved topology plus anything that must not live in a
 // committed file.
 type ClusterArgs struct {
-	Topology *Topology
+	Topology *clusterspec.Topology
 
 	// ImageSelector overrides the label selector used to find the Talos
 	// snapshot. Empty derives it from the Talos version, which is what
@@ -82,7 +96,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 
 	parent := pulumi.Parent(component)
 
-	addressing, err := NewAddressing(topology.Network.NodeSubnet, PoolAddressStride)
+	addressing, err := clusterspec.NewAddressing(topology.Network.NodeSubnet, clusterspec.PoolAddressStride)
 	if err != nil {
 		return nil, err
 	}
@@ -118,12 +132,12 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		return nil, fmt.Errorf("talos secrets: %w", err)
 	}
 
-	etcdPatch, err := BuildEtcdPatch(topology.Network.NodeSubnet)
+	etcdPatch, err := clusterspec.BuildEtcdPatch(topology.Network.NodeSubnet)
 	if err != nil {
 		return nil, err
 	}
 
-	clusterPatch, err := BuildClusterPatch(ClusterPatchArgs{
+	clusterPatch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     topology.Network.PodCIDR,
 		ServiceCIDR: topology.Network.ServiceCIDR,
 		NodeSubnet:  topology.Network.NodeSubnet,
@@ -143,7 +157,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 	placementGroup, err := hcloud.NewPlacementGroup(ctx, name+"-control-plane", &hcloud.PlacementGroupArgs{
 		Name:   pulumi.Sprintf("%s-control-plane", topology.Metadata.Name),
 		Type:   pulumi.String("spread"),
-		Labels: toStringMap(ResourceLabels(topology.Metadata.Name, nil)),
+		Labels: toStringMap(clusterspec.ResourceLabels(topology.Metadata.Name, nil)),
 	}, parent)
 	if err != nil {
 		return nil, fmt.Errorf("hcloud placement group: %w", err)
@@ -266,7 +280,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 func apiEndpointAddress(
 	ctx *pulumi.Context,
 	name string,
-	topology *Topology,
+	topology *clusterspec.Topology,
 	network *Network,
 	opts ...pulumi.ResourceOption,
 ) (pulumi.StringInput, pulumi.StringOutput, error) {
@@ -278,7 +292,7 @@ func apiEndpointAddress(
 		Name:             pulumi.Sprintf("%s-api", topology.Metadata.Name),
 		LoadBalancerType: pulumi.String(topology.ControlPlane.APILoadBalancerType),
 		Location:         pulumi.String(topology.Placement.Location),
-		Labels:           toStringMap(ResourceLabels(topology.Metadata.Name, nil)),
+		Labels:           toStringMap(clusterspec.ResourceLabels(topology.Metadata.Name, nil)),
 	}, opts...)
 	if err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer: %w", err)
@@ -296,11 +310,11 @@ func apiEndpointAddress(
 	if _, err := hcloud.NewLoadBalancerService(ctx, name+"-api-service", &hcloud.LoadBalancerServiceArgs{
 		LoadBalancerId:  loadBalancer.ID().ToStringOutput(),
 		Protocol:        pulumi.String("tcp"),
-		ListenPort:      pulumi.Int(PortKubeAPI),
-		DestinationPort: pulumi.Int(PortKubeAPI),
+		ListenPort:      pulumi.Int(clusterspec.PortKubeAPI),
+		DestinationPort: pulumi.Int(clusterspec.PortKubeAPI),
 		HealthCheck: &hcloud.LoadBalancerServiceHealthCheckArgs{
 			Protocol: pulumi.String("tcp"),
-			Port:     pulumi.Int(PortKubeAPI),
+			Port:     pulumi.Int(clusterspec.PortKubeAPI),
 			Interval: pulumi.Int(healthCheckInterval),
 			Timeout:  pulumi.Int(healthCheckTimeout),
 			Retries:  pulumi.Int(healthCheckRetries),
@@ -327,7 +341,7 @@ func apiEndpointAddress(
 		LoadBalancerId: idToInt(loadBalancer.ID()),
 		Type:           pulumi.String("label_selector"),
 		LabelSelector: pulumi.String(fmt.Sprintf("%s,%s=%s",
-			ClusterSelector(topology.Metadata.Name), LabelRole, RoleControlPlane)),
+			clusterspec.ClusterSelector(topology.Metadata.Name), clusterspec.LabelRole, clusterspec.RoleControlPlane)),
 		UsePrivateIp: pulumi.Bool(true),
 	}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet, attachment}))...); err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer target: %w", err)
@@ -346,7 +360,7 @@ func apiEndpointAddress(
 func lookupTalosImage(ctx *pulumi.Context, args *ClusterArgs) pulumi.StringOutput {
 	selector := args.ImageSelector
 	if selector == "" {
-		selector = TalosImageSelector(args.Topology.Talos.Version)
+		selector = clusterspec.TalosImageSelector(args.Topology.Talos.Version)
 	}
 
 	image := hcloud.GetImageOutput(ctx, hcloud.GetImageOutputArgs{

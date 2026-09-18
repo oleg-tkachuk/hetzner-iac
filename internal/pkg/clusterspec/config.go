@@ -1,13 +1,19 @@
-// Package hetzner builds a Talos-based Kubernetes cluster on Hetzner Cloud:
-// the private network, the public-interface firewall, the control plane and
-// the worker pools.
+// Package clusterspec is the committed description of a cluster, and
+// everything derived from it that does not need a cloud: the topology schema
+// and its validation, the defaults, the resource labels, the address plan, the
+// Talos machine-config patches and the API server's audit policy.
 //
-// Hetzner has no managed Kubernetes, so this package builds the cluster
-// rather than requesting one. It stops at "a Kubernetes API that answers":
-// the CNI is not installed here, it belongs to layers/10-node-platform, because a
-// cluster and its CNI have different lifecycles and pinning them together
-// makes a CNI upgrade a cluster change.
-package hetzner
+// It holds no Pulumi resource, and that is the point of it existing. It was
+// part of internal/pkg/hetzner, beside the component resources, so a program
+// that only reads a topology file linked the hcloud, Talos and Kubernetes
+// provider SDKs to do it: `tools/topology`, which validates a YAML file,
+// pulled 816 packages and compiled to 44 MB. The providers are not the weight
+// — they add three packages each — it is Pulumi's own SDK underneath them, and
+// nothing here needs any of it.
+//
+// The counterpart is internal/pkg/clusterref, which is the same cluster as the
+// stack PUBLISHES it. This is the cluster as the repository DECLARES it.
+package clusterspec
 
 import (
 	"errors"
@@ -17,6 +23,15 @@ import (
 	"slices"
 	"strings"
 )
+
+// ClusterDir is the Pulumi project that holds the cluster: the one project
+// that talks to the Hetzner API, so the one stack with a token in it, and the
+// directory every cluster.<stack>.yaml lives in.
+//
+// A constant because four places had to spell it identically — the token
+// resolver, the state reader, `tools/topology` and `tools/talos` — and three
+// of them spelled it as a literal.
+const ClusterDir = "infra/cluster"
 
 // Topology is the committed description of a cluster: what
 // infra/cluster/cluster.<stack>.yaml deserialises into.

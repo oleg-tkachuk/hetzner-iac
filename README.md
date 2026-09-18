@@ -295,7 +295,7 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 |------|-------|
 | [infra/cluster/](infra/cluster) | the Hetzner cluster: network, firewall, control plane, workers |
 | [layers/](layers) | one Pulumi project per platform layer |
-| [internal/pkg/](internal/pkg) | the implementation: Pulumi components, the output contract, chart pins, values |
+| [internal/pkg/](internal/pkg) | the implementation: the cluster's own description, Pulumi components, the output contract, chart pins, values |
 | [internal/ci/](internal/ci) | the repository's own gates: the cross-file contracts nothing else compares |
 | [tools/](tools) | the small commands: chart pins, topology, orphaned resources, stack state, snapshot and secrets |
 | [test/e2e/](test/e2e) | verification against a running cluster |

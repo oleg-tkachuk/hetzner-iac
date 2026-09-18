@@ -95,7 +95,7 @@ so the log exists on every control-plane node from the first boot, at
 days or 10 files.
 
 What it records is this repository's: the cluster patch replaces Talos's
-default policy with [`internal/pkg/hetzner/auditpolicy.yaml`](../internal/pkg/hetzner/auditpolicy.yaml).
+default policy with [`internal/pkg/clusterspec/auditpolicy.yaml`](../internal/pkg/clusterspec/auditpolicy.yaml).
 
 ```bash
 task cluster:audit stack=dev            # last 200 events per node

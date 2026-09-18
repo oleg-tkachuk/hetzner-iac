@@ -21,6 +21,8 @@ import (
 	"io/fs"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hcloudtoken"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilog"
 
@@ -28,7 +30,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
-// The token's config key is internal/pkg/hetzner's, not this file's.
+// The token's config key is internal/pkg/hcloudtoken's, not this file's.
 //
 // It was a second `const TokenConfigKey = "hcloud:token"` here. Three things
 // read that key — `task cluster:token` writes it, this tier reads it to
@@ -57,7 +59,7 @@ func program(ctx *pulumi.Context) error {
 	// of the operator's position rather than of the cluster.
 	path := topologyPath(ctx.Stack())
 
-	topology, err := hetzner.LoadTopology(path)
+	topology, err := clusterspec.LoadTopology(path)
 	if err != nil {
 		// errors.Is, not os.IsNotExist: LoadTopology wraps the filesystem
 		// error with %w, and os.IsNotExist does not walk a wrapped chain — it
@@ -104,7 +106,7 @@ func program(ctx *pulumi.Context) error {
 //
 // Derived from the same predicates NewCluster uses, so the report cannot
 // describe a cluster other than the one being built.
-func report(log *pulumilog.Logger, topology *hetzner.Topology) {
+func report(log *pulumilog.Logger, topology *clusterspec.Topology) {
 	workers := topology.TotalWorkers()
 
 	log.Step("control-plane", fmt.Sprintf("%d node(s) of %s in %s",
@@ -133,7 +135,7 @@ func report(log *pulumilog.Logger, topology *hetzner.Topology) {
 	// was found on the first preview.
 	selector := topology.Talos.ImageSelector
 	if selector == "" {
-		selector = hetzner.TalosImageSelector(topology.Talos.Version)
+		selector = clusterspec.TalosImageSelector(topology.Talos.Version)
 	}
 
 	log.Step("talos", topology.Talos.Version+" "+topology.Talos.Architecture+
@@ -159,7 +161,7 @@ func report(log *pulumilog.Logger, topology *hetzner.Topology) {
 // Output names come from internal/pkg/clusterref, the same constants every layer reads
 // them back with. A rename is then a compile error in both halves rather than
 // a missing key at apply time.
-func exports(topology *hetzner.Topology, cluster *hetzner.Cluster, token pulumi.StringInput) map[string]pulumi.Input {
+func exports(topology *clusterspec.Topology, cluster *hetzner.Cluster, token pulumi.StringInput) map[string]pulumi.Input {
 	return map[string]pulumi.Input{
 		// Every other output is gated on the version: a layer reading any of
 		// them against a stack that predates this gets one error naming the
@@ -233,7 +235,7 @@ func exports(topology *hetzner.Topology, cluster *hetzner.Cluster, token pulumi.
 func clusterToken(ctx *pulumi.Context) pulumi.StringOutput {
 	log := pulumilog.New(ctx)
 
-	if config.Get(ctx, hetzner.TokenConfigKey) == "" {
+	if config.Get(ctx, hcloudtoken.TokenConfigKey) == "" {
 		log.Warn("hcloud-token",
 			"not in stack config, so it is exported empty: layers needing it must set their own")
 
@@ -242,5 +244,5 @@ func clusterToken(ctx *pulumi.Context) pulumi.StringOutput {
 
 	log.Done("hcloud-token", "exported for the layers that call the Hetzner API")
 
-	return config.GetSecret(ctx, hetzner.TokenConfigKey)
+	return config.GetSecret(ctx, hcloudtoken.TokenConfigKey)
 }

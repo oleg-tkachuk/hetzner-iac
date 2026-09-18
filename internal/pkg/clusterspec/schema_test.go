@@ -1,4 +1,4 @@
-package hetzner_test
+package clusterspec_test
 
 import (
 	"encoding/json"
@@ -8,9 +8,10 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 // schemaPath is the JSON Schema editors validate the topology against.
@@ -44,7 +45,7 @@ func TestSchema_DescribesExactlyTheTopologyStruct(t *testing.T) {
 	var schema node
 	require.NoError(t, json.Unmarshal(raw, &schema))
 
-	compare(t, "", reflect.TypeFor[hetzner.Topology](), schema)
+	compare(t, "", reflect.TypeFor[clusterspec.Topology](), schema)
 }
 
 // compare walks a struct and a schema object together, reporting a field
@@ -142,7 +143,7 @@ func TestSchema_MatchesTheCommittedTopology(t *testing.T) {
 	require.NotEmpty(t, paths, "no committed topology to check the schema against")
 
 	for _, path := range paths {
-		topology, loadErr := hetzner.LoadTopology(path)
+		topology, loadErr := clusterspec.LoadTopology(path)
 		require.NoError(t, loadErr, path)
 		require.NoError(t, topology.Validate(), path)
 	}
@@ -198,8 +199,8 @@ func TestSchema_BoundsMatchTheConstantsTheyMirror(t *testing.T) {
 	name := schema.Properties["metadata"].Properties["name"]
 	require.NotNil(t, name.MaxLength, "metadata.name has no maxLength")
 
-	assert.Equal(t, hetzner.MaxClusterNameLength, *name.MaxLength,
-		"the schema and internal/pkg/hetzner disagree on how long a cluster name may be")
+	assert.Equal(t, clusterspec.MaxClusterNameLength, *name.MaxLength,
+		"the schema and internal/pkg/clusterspec disagree on how long a cluster name may be")
 }
 
 func TestSchema_EnumsMatchTheValidator(t *testing.T) {
@@ -218,8 +219,8 @@ func TestSchema_EnumsMatchTheValidator(t *testing.T) {
 	architecture := schema.Properties["talos"].Properties["architecture"]
 	require.NotEmpty(t, architecture.Enum, "talos.architecture has no enum")
 
-	assert.ElementsMatch(t, hetzner.Architectures, architecture.Enum,
-		"the schema and internal/pkg/hetzner disagree on which architectures exist")
+	assert.ElementsMatch(t, clusterspec.Architectures, architecture.Enum,
+		"the schema and internal/pkg/clusterspec disagree on which architectures exist")
 
 	// The same check the location enum never had. It listed six values and the
 	// validator's map listed six, independently — two spellings of one set,
@@ -227,6 +228,6 @@ func TestSchema_EnumsMatchTheValidator(t *testing.T) {
 	location := schema.Properties["placement"].Properties["location"]
 	require.NotEmpty(t, location.Enum, "placement.location has no enum")
 
-	assert.ElementsMatch(t, hetzner.Locations, location.Enum,
-		"the schema and internal/pkg/hetzner disagree on which locations exist")
+	assert.ElementsMatch(t, clusterspec.Locations, location.Enum,
+		"the schema and internal/pkg/clusterspec disagree on which locations exist")
 }

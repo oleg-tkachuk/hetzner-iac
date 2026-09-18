@@ -1,4 +1,4 @@
-package hetzner
+package clusterspec
 
 import (
 	"fmt"

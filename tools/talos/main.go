@@ -1,6 +1,6 @@
 // Command talos checks the machine-config patches against Talos itself.
 //
-// The unit tests in internal/pkg/hetzner prove the patches contain what was intended.
+// The unit tests in internal/pkg/clusterspec prove the patches contain what was intended.
 // They cannot prove Talos accepts them — and Talos is strict in ways that are
 // not guessable. This generates a baseline configuration for the pinned
 // version, applies the patches this repository produces, and runs
@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 const clusterEndpoint = "https://10.0.1.2:6443"
@@ -93,7 +93,7 @@ func run(dir string) error {
 	}
 
 	for _, path := range paths {
-		topology, err := hetzner.LoadTopology(path)
+		topology, err := clusterspec.LoadTopology(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
@@ -190,8 +190,8 @@ func checkVersion(ctx context.Context, talosctl, pinned string) error {
 
 // validateTopology renders the patches for one topology and validates the
 // control-plane and worker configurations they produce.
-func validateTopology(ctx context.Context, talosctl, path string, topology *hetzner.Topology) error {
-	clusterPatch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+func validateTopology(ctx context.Context, talosctl, path string, topology *clusterspec.Topology) error {
+	clusterPatch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:                        topology.Network.PodCIDR,
 		ServiceCIDR:                    topology.Network.ServiceCIDR,
 		NodeSubnet:                     topology.Network.NodeSubnet,
@@ -202,8 +202,8 @@ func validateTopology(ctx context.Context, talosctl, path string, topology *hetz
 		return err
 	}
 
-	nodePatch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
-		Hostname: hetzner.NodeName(topology.Metadata.Name, hetzner.RoleControlPlane, 0),
+	nodePatch, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
+		Hostname: clusterspec.NodeName(topology.Metadata.Name, clusterspec.RoleControlPlane, 0),
 		CertSANs: []string{"203.0.113.10", "10.0.1.2"},
 	})
 	if err != nil {
@@ -241,7 +241,7 @@ func validateTopology(ctx context.Context, talosctl, path string, topology *hetz
 	return nil
 }
 
-func generate(ctx context.Context, talosctl, workDir string, topology *hetzner.Topology) error {
+func generate(ctx context.Context, talosctl, workDir string, topology *clusterspec.Topology) error {
 	args := []string{
 		"gen", "config", topology.Metadata.Name, clusterEndpoint,
 		"--output-dir", workDir,
@@ -251,7 +251,7 @@ func generate(ctx context.Context, talosctl, workDir string, topology *hetzner.T
 	}
 
 	// #nosec G204,G702 -- the only non-literal arguments are the cluster name
-	// and the Talos version, both of which internal/pkg/hetzner validated before this
+	// and the Talos version, both of which internal/pkg/clusterspec validated before this
 	// ran: the name against DNS-1123, the version against vX.Y.Z. Nothing
 	// reaches a shell.
 	if output, err := exec.CommandContext(ctx, talosctl, args...).CombinedOutput(); err != nil {

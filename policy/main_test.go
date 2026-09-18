@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/property"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/policyx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 // rule builds the property shape hcloud gives a firewall rule, so the cases
@@ -71,7 +71,7 @@ func TestWorldOpenAdminPorts_SaysNothingAboutRulesThatAreFine(t *testing.T) {
 	t.Parallel()
 
 	for name, subject := range map[string]property.Map{
-		// The baseline rules internal/pkg/hetzner builds, which must never be flagged:
+		// The baseline rules internal/pkg/clusterspec builds, which must never be flagged:
 		// a false positive here blocks every apply.
 		"kube-apiserver from an operator CIDR": rule("6443", "203.0.113.4/32"),
 		"talos api from an operator CIDR":      rule("50000", "203.0.113.4/32"),
@@ -93,7 +93,7 @@ func TestWorldOpenAdminPorts_SaysNothingAboutRulesThatAreFine(t *testing.T) {
 func TestAdminPorts_AreThePortsTheFirewallActuallyOpens(t *testing.T) {
 	t.Parallel()
 
-	// Read from internal/pkg/hetzner rather than restated. The first version of this
+	// Read from internal/pkg/clusterspec rather than restated. The first version of this
 	// test compared adminPorts against the literals "6443" and "50000", which
 	// asserted nothing at all: both sides were hand-written here, so the
 	// cluster package could move a port and this would still pass.
@@ -102,8 +102,8 @@ func TestAdminPorts_AreThePortsTheFirewallActuallyOpens(t *testing.T) {
 	// adminPorts: _test.go files are not in the plugin binary, so the policy
 	// plugin still carries no provider SDK.
 	want := map[string]bool{
-		strconv.Itoa(hetzner.PortKubeAPI):   true,
-		strconv.Itoa(hetzner.PortTalosdAPI): true,
+		strconv.Itoa(clusterspec.PortKubeAPI):   true,
+		strconv.Itoa(clusterspec.PortTalosdAPI): true,
 	}
 
 	got := map[string]bool{}
@@ -112,7 +112,7 @@ func TestAdminPorts_AreThePortsTheFirewallActuallyOpens(t *testing.T) {
 	}
 
 	assert.Equal(t, want, got,
-		"the policy's admin ports and the ports internal/pkg/hetzner opens have diverged")
+		"the policy's admin ports and the ports internal/pkg/clusterspec opens have diverged")
 }
 
 // recorder is a PolicyManager that keeps what a policy reported, so the real
@@ -177,11 +177,11 @@ func TestFirewallPolicy_ReportsAWorldOpenAdminPort(t *testing.T) {
 func TestFirewallPolicy_PassesTheBaselineRuleSet(t *testing.T) {
 	t.Parallel()
 
-	// The rules internal/pkg/hetzner actually builds, from the real builder. A false
+	// The rules internal/pkg/clusterspec actually builds, from the real builder. A false
 	// positive here would block every apply, so this is the more important
 	// half of the policy.
-	baseline, err := hetzner.BuildFirewallRules([]string{"203.0.113.4/32"},
-		hetzner.FirewallRuleOptions{AllowICMP: true})
+	baseline, err := clusterspec.BuildFirewallRules([]string{"203.0.113.4/32"},
+		clusterspec.FirewallRuleOptions{AllowICMP: true})
 	require.NoError(t, err)
 
 	as := make([]property.Map, 0, len(baseline))
@@ -229,7 +229,7 @@ func TestServerPolicy_ReportsAServerOffThePrivateNetwork(t *testing.T) {
 	require.Len(t, got.violations, 1)
 	assert.Contains(t, got.violations[0], "network.nodeSubnet")
 
-	// Attached, which is what internal/pkg/hetzner builds.
+	// Attached, which is what internal/pkg/clusterspec builds.
 	attached := property.New(property.NewMap(map[string]property.Value{
 		"networkId": property.New(1.0),
 		"ip":        property.New("10.0.1.2"),

@@ -1,4 +1,4 @@
-package hetzner_test
+package clusterspec_test
 
 import (
 	"os"
@@ -6,40 +6,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec/clusterspectest"
 )
 
-// validYAML is the smallest file that passes: everything else in these tests
+// clusterspectest.Valid is the smallest file that passes: everything else in these tests
 // is this document with one thing changed, so a failure names the change.
-const validYAML = `
-apiVersion: hetzner-iac/v1
-kind: Cluster
-metadata:
-  name: platform-hel
-placement:
-  location: hel1
-  networkZone: eu-central
-network:
-  adminCIDRs:
-    - 203.0.113.4/32
-talos:
-  version: v1.14.0
-controlPlane:
-  count: 3
-  serverType: cx23
-  apiLoadBalancerType: lb11
-workerPools:
-  - name: worker
-    count: 2
-    serverType: cx33
-`
 
 func TestParseTopology_Valid(t *testing.T) {
 	t.Parallel()
 
-	topology, err := hetzner.ParseTopology([]byte(validYAML))
+	topology, err := clusterspec.ParseTopology([]byte(clusterspectest.Valid))
 	require.NoError(t, err)
 
 	assert.Equal(t, "platform-hel", topology.Metadata.Name)
@@ -62,19 +42,19 @@ network:
 talos: { version: v1.14.0 }
 `
 
-	topology, err := hetzner.ParseTopology([]byte(minimal))
+	topology, err := clusterspec.ParseTopology([]byte(minimal))
 	require.NoError(t, err)
 
 	// The network zone is derived rather than restated, so it cannot be
 	// written inconsistently with the location.
 	assert.Equal(t, "eu-central", topology.Placement.NetworkZone)
-	assert.Equal(t, hetzner.DefaultIPRange, topology.Network.IPRange)
-	assert.Equal(t, hetzner.DefaultNodeSubnet, topology.Network.NodeSubnet)
-	assert.Equal(t, hetzner.DefaultPodCIDR, topology.Network.PodCIDR)
-	assert.Equal(t, hetzner.DefaultServiceCIDR, topology.Network.ServiceCIDR)
-	assert.Equal(t, hetzner.DefaultArchitecture, topology.Talos.Architecture)
+	assert.Equal(t, clusterspec.DefaultIPRange, topology.Network.IPRange)
+	assert.Equal(t, clusterspec.DefaultNodeSubnet, topology.Network.NodeSubnet)
+	assert.Equal(t, clusterspec.DefaultPodCIDR, topology.Network.PodCIDR)
+	assert.Equal(t, clusterspec.DefaultServiceCIDR, topology.Network.ServiceCIDR)
+	assert.Equal(t, clusterspec.DefaultArchitecture, topology.Talos.Architecture)
 	assert.Equal(t,
-		hetzner.DefaultControlPlaneServerType(hetzner.DefaultArchitecture),
+		clusterspec.DefaultControlPlaneServerType(clusterspec.DefaultArchitecture),
 		topology.ControlPlane.ServerType)
 	assert.Equal(t, 1, topology.ControlPlane.Count)
 
@@ -90,16 +70,16 @@ func TestApplyDefaults_DerivesTheServerTypesFromTheArchitecture(t *testing.T) {
 	// get cx23 and cx33 and be rejected at plan time for a mismatch the
 	// operator never wrote — the cax line is the only Arm line Hetzner sells,
 	// so an x86 default is not a smaller machine, it is an unbootable one.
-	for _, arch := range hetzner.Architectures {
-		topology := hetzner.Topology{
-			Talos:       hetzner.TalosSpec{Architecture: arch},
-			WorkerPools: []hetzner.WorkerPoolSpec{{Name: "general", Count: 1}},
+	for _, arch := range clusterspec.Architectures {
+		topology := clusterspec.Topology{
+			Talos:       clusterspec.TalosSpec{Architecture: arch},
+			WorkerPools: []clusterspec.WorkerPoolSpec{{Name: "general", Count: 1}},
 		}
 		topology.ApplyDefaults()
 
-		assert.Equal(t, hetzner.DefaultControlPlaneServerType(arch),
+		assert.Equal(t, clusterspec.DefaultControlPlaneServerType(arch),
 			topology.ControlPlane.ServerType, arch)
-		assert.Equal(t, hetzner.DefaultWorkerServerType(arch),
+		assert.Equal(t, clusterspec.DefaultWorkerServerType(arch),
 			topology.WorkerPools[0].ServerType, arch)
 	}
 }
@@ -110,17 +90,17 @@ func TestApplyDefaults_FillsTheArchitectureBeforeTheTypesItDecides(t *testing.T)
 	// The order inside ApplyDefaults is load-bearing and invisible: a topology
 	// with neither field set must come out consistent, not x86 types beside a
 	// blank architecture that something later defaults the other way.
-	topology := hetzner.Topology{
-		WorkerPools: []hetzner.WorkerPoolSpec{{Name: "general", Count: 1}},
+	topology := clusterspec.Topology{
+		WorkerPools: []clusterspec.WorkerPoolSpec{{Name: "general", Count: 1}},
 	}
 	topology.ApplyDefaults()
 
-	assert.Equal(t, hetzner.DefaultArchitecture, topology.Talos.Architecture)
+	assert.Equal(t, clusterspec.DefaultArchitecture, topology.Talos.Architecture)
 	assert.Equal(t,
-		hetzner.DefaultControlPlaneServerType(hetzner.DefaultArchitecture),
+		clusterspec.DefaultControlPlaneServerType(clusterspec.DefaultArchitecture),
 		topology.ControlPlane.ServerType)
 	assert.Equal(t,
-		hetzner.DefaultWorkerServerType(hetzner.DefaultArchitecture),
+		clusterspec.DefaultWorkerServerType(clusterspec.DefaultArchitecture),
 		topology.WorkerPools[0].ServerType)
 }
 
@@ -130,10 +110,10 @@ func TestDefaultServerTypes_AreTheSameShapeOnBothArchitectures(t *testing.T) {
 	// Switching architecture should change the bill and nothing else. Both
 	// defaults are 2/4 for a control plane and 4/8 for a worker, so this pins
 	// that the pairs stay matched rather than drifting a size apart.
-	assert.Equal(t, "cx23", hetzner.DefaultControlPlaneServerType(hetzner.ArchitectureX86))
-	assert.Equal(t, "cax11", hetzner.DefaultControlPlaneServerType(hetzner.ArchitectureARM))
-	assert.Equal(t, "cx33", hetzner.DefaultWorkerServerType(hetzner.ArchitectureX86))
-	assert.Equal(t, "cax21", hetzner.DefaultWorkerServerType(hetzner.ArchitectureARM))
+	assert.Equal(t, "cx23", clusterspec.DefaultControlPlaneServerType(clusterspec.ArchitectureX86))
+	assert.Equal(t, "cax11", clusterspec.DefaultControlPlaneServerType(clusterspec.ArchitectureARM))
+	assert.Equal(t, "cx33", clusterspec.DefaultWorkerServerType(clusterspec.ArchitectureX86))
+	assert.Equal(t, "cax21", clusterspec.DefaultWorkerServerType(clusterspec.ArchitectureARM))
 }
 
 func TestDefaultServerTypes_AreEmptyForAnUnknownArchitecture(t *testing.T) {
@@ -143,19 +123,19 @@ func TestDefaultServerTypes_AreEmptyForAnUnknownArchitecture(t *testing.T) {
 	// architecture, and a filled-in server type would reach it looking like a
 	// choice somebody made.
 	for _, arch := range []string{"", "arm64", "amd64", "ARM"} {
-		assert.Empty(t, hetzner.DefaultControlPlaneServerType(arch), arch)
-		assert.Empty(t, hetzner.DefaultWorkerServerType(arch), arch)
+		assert.Empty(t, clusterspec.DefaultControlPlaneServerType(arch), arch)
+		assert.Empty(t, clusterspec.DefaultWorkerServerType(arch), arch)
 	}
 }
 
 func TestApplyDefaults_LoadBalancerOnlyForHA(t *testing.T) {
 	t.Parallel()
 
-	ha := hetzner.Topology{ControlPlane: hetzner.ControlPlaneSpec{Count: 3}}
+	ha := clusterspec.Topology{ControlPlane: clusterspec.ControlPlaneSpec{Count: 3}}
 	ha.ApplyDefaults()
-	assert.Equal(t, hetzner.DefaultAPILBType, ha.ControlPlane.APILoadBalancerType)
+	assert.Equal(t, clusterspec.DefaultAPILBType, ha.ControlPlane.APILoadBalancerType)
 
-	single := hetzner.Topology{ControlPlane: hetzner.ControlPlaneSpec{Count: 1}}
+	single := clusterspec.Topology{ControlPlane: clusterspec.ControlPlaneSpec{Count: 1}}
 	single.ApplyDefaults()
 	assert.Empty(t, single.ControlPlane.APILoadBalancerType)
 }
@@ -166,9 +146,9 @@ func TestParseTopology_RejectsUnknownField(t *testing.T) {
 	// A key nobody reads should stop the run rather than be ignored: in a file
 	// that describes a cluster, an ignored key is a setting the author believes
 	// is in effect and is not.
-	withStrayKey := validYAML + "\nworkerPoolz:\n  - name: typo\n"
+	withStrayKey := clusterspectest.Valid + "\nworkerPoolz:\n  - name: typo\n"
 
-	_, err := hetzner.ParseTopology([]byte(withStrayKey))
+	_, err := clusterspec.ParseTopology([]byte(withStrayKey))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `unknown field "workerPoolz"`)
 }
@@ -181,9 +161,9 @@ func TestParseTopology_FieldMatchingIsCaseInsensitive(t *testing.T) {
 	// still populates the struct. Worth a test because the natural assumption
 	// — that strict decoding catches every spelling mistake — is wrong, and
 	// acting on it would mean trusting the parser to catch typos it cannot.
-	lowercased := strings.Replace(validYAML, "workerPools:", "workerpools:", 1)
+	lowercased := strings.Replace(clusterspectest.Valid, "workerPools:", "workerpools:", 1)
 
-	topology, err := hetzner.ParseTopology([]byte(lowercased))
+	topology, err := clusterspec.ParseTopology([]byte(lowercased))
 	require.NoError(t, err)
 	require.Len(t, topology.WorkerPools, 1)
 	assert.Equal(t, "worker", topology.WorkerPools[0].Name)
@@ -194,36 +174,36 @@ func TestValidate_Rejects(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		mutate  func(*hetzner.Topology)
+		mutate  func(*clusterspec.Topology)
 		wantMsg string
 	}{
 		{
 			name:    "empty admin CIDRs",
-			mutate:  func(top *hetzner.Topology) { top.Network.AdminCIDRs = nil },
+			mutate:  func(top *clusterspec.Topology) { top.Network.AdminCIDRs = nil },
 			wantMsg: "refusing to build a cluster whose Kubernetes and Talos APIs are open",
 		},
 		{
 			name:    "admin CIDR is the whole internet",
-			mutate:  func(top *hetzner.Topology) { top.Network.AdminCIDRs = []string{"0.0.0.0/0"} },
+			mutate:  func(top *clusterspec.Topology) { top.Network.AdminCIDRs = []string{"0.0.0.0/0"} },
 			wantMsg: "which is the whole internet",
 		},
 		{
 			name:    "admin CIDR is not a CIDR",
-			mutate:  func(top *hetzner.Topology) { top.Network.AdminCIDRs = []string{"203.0.113.4"} },
+			mutate:  func(top *clusterspec.Topology) { top.Network.AdminCIDRs = []string{"203.0.113.4"} },
 			wantMsg: "is not a CIDR",
 		},
 		{
 			// A single label is a hostname. Let's Encrypt refuses an order for
 			// one, and it refuses it after the Ingress is already in place.
 			name:    "domain is a single label",
-			mutate:  func(top *hetzner.Topology) { top.Metadata.Domain = "platform" },
+			mutate:  func(top *clusterspec.Topology) { top.Metadata.Domain = "platform" },
 			wantMsg: "is not a DNS name",
 		},
 		{
 			// The records would be written into a zone that does not serve the
 			// name. Hetzner accepts them and nothing resolves.
 			name: "domain is outside its dns zone",
-			mutate: func(top *hetzner.Topology) {
+			mutate: func(top *clusterspec.Topology) {
 				top.Metadata.Domain = "platform.example.com"
 				top.Metadata.DNSZone = "example.net"
 			},
@@ -232,22 +212,22 @@ func TestValidate_Rejects(t *testing.T) {
 		{
 			// A field that does nothing, reading as though DNS is managed.
 			name:    "a dns zone with no domain",
-			mutate:  func(top *hetzner.Topology) { top.Metadata.DNSZone = "example.com" },
+			mutate:  func(top *clusterspec.Topology) { top.Metadata.DNSZone = "example.com" },
 			wantMsg: "there is no record to create",
 		},
 		{
 			name:    "even control plane count",
-			mutate:  func(top *hetzner.Topology) { top.ControlPlane.Count = 2 },
+			mutate:  func(top *clusterspec.Topology) { top.ControlPlane.Count = 2 },
 			wantMsg: "an even count costs more without tolerating more failures",
 		},
 		{
 			name:    "zero control plane count",
-			mutate:  func(top *hetzner.Topology) { top.ControlPlane.Count = -1 },
+			mutate:  func(top *clusterspec.Topology) { top.ControlPlane.Count = -1 },
 			wantMsg: "must be at least 1",
 		},
 		{
 			name: "HA without a load balancer",
-			mutate: func(top *hetzner.Topology) {
+			mutate: func(top *clusterspec.Topology) {
 				top.ControlPlane.Count = 3
 				top.ControlPlane.APILoadBalancerType = ""
 			},
@@ -255,53 +235,53 @@ func TestValidate_Rejects(t *testing.T) {
 		},
 		{
 			name:    "unknown location",
-			mutate:  func(top *hetzner.Topology) { top.Placement.Location = "lon1" },
+			mutate:  func(top *clusterspec.Topology) { top.Placement.Location = "lon1" },
 			wantMsg: "is not an hcloud location",
 		},
 		{
 			name:    "zone does not contain location",
-			mutate:  func(top *hetzner.Topology) { top.Placement.NetworkZone = "us-east" },
+			mutate:  func(top *clusterspec.Topology) { top.Placement.NetworkZone = "us-east" },
 			wantMsg: "does not contain location",
 		},
 		{
 			name:    "pod CIDR overlaps the private network",
-			mutate:  func(top *hetzner.Topology) { top.Network.PodCIDR = "10.0.128.0/17" },
+			mutate:  func(top *clusterspec.Topology) { top.Network.PodCIDR = "10.0.128.0/17" },
 			wantMsg: "overlaps network.ipRange",
 		},
 		{
 			name:    "node subnet outside the private network",
-			mutate:  func(top *hetzner.Topology) { top.Network.NodeSubnet = "192.168.5.0/24" },
+			mutate:  func(top *clusterspec.Topology) { top.Network.NodeSubnet = "192.168.5.0/24" },
 			wantMsg: "is not inside network.ipRange",
 		},
 		{
 			name:    "CIDR with host bits set",
-			mutate:  func(top *hetzner.Topology) { top.Network.NodeSubnet = "10.0.1.5/24" },
+			mutate:  func(top *clusterspec.Topology) { top.Network.NodeSubnet = "10.0.1.5/24" },
 			wantMsg: "has host bits set, did you mean 10.0.1.0/24?",
 		},
 		{
 			name:    "malformed Talos version",
-			mutate:  func(top *hetzner.Topology) { top.Talos.Version = "1.14.0" },
+			mutate:  func(top *clusterspec.Topology) { top.Talos.Version = "1.14.0" },
 			wantMsg: "must look like v1.14.0",
 		},
 		{
 			name:    "unknown architecture",
-			mutate:  func(top *hetzner.Topology) { top.Talos.Architecture = "riscv" },
+			mutate:  func(top *clusterspec.Topology) { top.Talos.Architecture = "riscv" },
 			wantMsg: "must be x86 or arm",
 		},
 		{
 			name:    "cluster name is not DNS-1123",
-			mutate:  func(top *hetzner.Topology) { top.Metadata.Name = "Platform_HEL" },
+			mutate:  func(top *clusterspec.Topology) { top.Metadata.Name = "Platform_HEL" },
 			wantMsg: "must be lowercase alphanumeric",
 		},
 		{
 			name:    "cluster name leaves no room for node suffixes",
-			mutate:  func(top *hetzner.Topology) { top.Metadata.Name = strings.Repeat("a", 48) },
+			mutate:  func(top *clusterspec.Topology) { top.Metadata.Name = strings.Repeat("a", 48) },
 			wantMsg: "longer than 47 characters",
 		},
 		{
 			name: "duplicate worker pool names",
-			mutate: func(top *hetzner.Topology) {
-				top.WorkerPools = append(top.WorkerPools, hetzner.WorkerPoolSpec{
+			mutate: func(top *clusterspec.Topology) {
+				top.WorkerPools = append(top.WorkerPools, clusterspec.WorkerPoolSpec{
 					Name: "worker", Count: 1, ServerType: "cx33",
 				})
 			},
@@ -309,14 +289,14 @@ func TestValidate_Rejects(t *testing.T) {
 		},
 		{
 			name: "worker pool larger than its address slice",
-			mutate: func(top *hetzner.Topology) {
-				top.WorkerPools[0].Count = hetzner.PoolAddressStride + 1
+			mutate: func(top *clusterspec.Topology) {
+				top.WorkerPools[0].Count = clusterspec.PoolAddressStride + 1
 			},
 			wantMsg: "more than the 40 addresses a pool owns",
 		},
 		{
 			name:    "malformed taint",
-			mutate:  func(top *hetzner.Topology) { top.WorkerPools[0].Taints = []string{"gpu=true:Nope"} },
+			mutate:  func(top *clusterspec.Topology) { top.WorkerPools[0].Taints = []string{"gpu=true:Nope"} },
 			wantMsg: "must be key=value:Effect",
 		},
 		{
@@ -325,7 +305,7 @@ func TestValidate_Rejects(t *testing.T) {
 			// one address mean two things, and the symptom is a Service that
 			// works until a pod happens to land on the colliding address.
 			name:    "serviceCIDR overlaps podCIDR",
-			mutate:  func(top *hetzner.Topology) { top.Network.ServiceCIDR = top.Network.PodCIDR },
+			mutate:  func(top *clusterspec.Topology) { top.Network.ServiceCIDR = top.Network.PodCIDR },
 			wantMsg: "overlaps network.podCIDR",
 		},
 		{
@@ -333,12 +313,12 @@ func TestValidate_Rejects(t *testing.T) {
 			// CCM programmes routes inside it, and an address in both is
 			// ambiguous.
 			name:    "serviceCIDR overlaps ipRange",
-			mutate:  func(top *hetzner.Topology) { top.Network.ServiceCIDR = top.Network.IPRange },
+			mutate:  func(top *clusterspec.Topology) { top.Network.ServiceCIDR = top.Network.IPRange },
 			wantMsg: "overlaps network.ipRange",
 		},
 		{
 			name:    "wrong apiVersion",
-			mutate:  func(top *hetzner.Topology) { top.APIVersion = "caryon/v1" },
+			mutate:  func(top *clusterspec.Topology) { top.APIVersion = "caryon/v1" },
 			wantMsg: `apiVersion must be "hetzner-iac/v1"`,
 		},
 	}
@@ -347,7 +327,7 @@ func TestValidate_Rejects(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			topology := mustParse(t, validYAML)
+			topology := clusterspectest.MustParse(t, clusterspectest.Valid)
 			tc.mutate(topology)
 
 			err := topology.Validate()
@@ -366,16 +346,16 @@ func TestValidate_Rejects(t *testing.T) {
 func TestValidate_AcceptsTheDomainStatesThatAreNormal(t *testing.T) {
 	t.Parallel()
 
-	tests := map[string]func(*hetzner.Topology){
-		"no domain at all": func(*hetzner.Topology) {},
-		"a domain with its dns hosted elsewhere": func(top *hetzner.Topology) {
+	tests := map[string]func(*clusterspec.Topology){
+		"no domain at all": func(*clusterspec.Topology) {},
+		"a domain with its dns hosted elsewhere": func(top *clusterspec.Topology) {
 			top.Metadata.Domain = "platform.example.com"
 		},
-		"a domain inside a zone here": func(top *hetzner.Topology) {
+		"a domain inside a zone here": func(top *clusterspec.Topology) {
 			top.Metadata.Domain = "platform.example.com"
 			top.Metadata.DNSZone = "example.com"
 		},
-		"a domain that is the zone": func(top *hetzner.Topology) {
+		"a domain that is the zone": func(top *clusterspec.Topology) {
 			top.Metadata.Domain = "example.com"
 			top.Metadata.DNSZone = "example.com"
 		},
@@ -385,7 +365,7 @@ func TestValidate_AcceptsTheDomainStatesThatAreNormal(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			topology := mustParse(t, validYAML)
+			topology := clusterspectest.MustParse(t, clusterspectest.Valid)
 			mutate(topology)
 
 			assert.NoError(t, topology.Validate())
@@ -398,7 +378,7 @@ func TestValidate_ReportsEveryProblemAtOnce(t *testing.T) {
 
 	// A topology change is reviewed once and applied once; one error per run
 	// would turn this file into three round trips.
-	topology := mustParse(t, validYAML)
+	topology := clusterspectest.MustParse(t, clusterspectest.Valid)
 	topology.Network.AdminCIDRs = nil
 	topology.ControlPlane.Count = 2
 	topology.Talos.Architecture = "riscv"
@@ -414,7 +394,7 @@ func TestValidate_ReportsEveryProblemAtOnce(t *testing.T) {
 func TestValidate_PoolCapacityAgainstSubnet(t *testing.T) {
 	t.Parallel()
 
-	topology := mustParse(t, validYAML)
+	topology := clusterspectest.MustParse(t, clusterspectest.Valid)
 
 	// /26 holds 64 addresses: one 40-address slice for the control plane
 	// leaves room for no pool at all.
@@ -431,19 +411,10 @@ func TestValidate_AcceptsZeroWorkerPools(t *testing.T) {
 
 	// A control-plane-only cluster is a legitimate shape — workers can be
 	// added later without recreating anything.
-	topology := mustParse(t, validYAML)
+	topology := clusterspectest.MustParse(t, clusterspectest.Valid)
 	topology.WorkerPools = nil
 
 	require.NoError(t, topology.Validate())
-}
-
-func mustParse(t *testing.T, raw string) *hetzner.Topology {
-	t.Helper()
-
-	topology, err := hetzner.ParseTopology([]byte(raw))
-	require.NoError(t, err)
-
-	return topology
 }
 
 func TestApplyDefaults_PinsTheKubernetesVersion(t *testing.T) {
@@ -454,10 +425,10 @@ func TestApplyDefaults_PinsTheKubernetesVersion(t *testing.T) {
 	// and no decision. That is how this cluster first came up on v1.36.0 —
 	// new enough that kube-apiserver had removed a flag the machine config was
 	// passing, so the control plane would not start at all.
-	topology := &hetzner.Topology{}
+	topology := &clusterspec.Topology{}
 	topology.ApplyDefaults()
 
-	assert.Equal(t, hetzner.DefaultKubernetesVersion, topology.Kubernetes.Version)
+	assert.Equal(t, clusterspec.DefaultKubernetesVersion, topology.Kubernetes.Version)
 	assert.NotEmpty(t, topology.Kubernetes.Version,
 		"there must be no way to ask for whatever Talos ships")
 }
@@ -465,7 +436,7 @@ func TestApplyDefaults_PinsTheKubernetesVersion(t *testing.T) {
 func TestApplyDefaults_DoesNotOverrideAnExplicitKubernetesVersion(t *testing.T) {
 	t.Parallel()
 
-	topology := &hetzner.Topology{}
+	topology := &clusterspec.Topology{}
 	topology.Kubernetes.Version = "v1.35.7"
 	topology.ApplyDefaults()
 
@@ -488,7 +459,7 @@ func TestEveryTopologyPresentPinsKubernetes(t *testing.T) {
 		raw, readErr := os.ReadFile(path)
 		require.NoError(t, readErr, path)
 
-		assert.Contains(t, string(raw), "version: "+hetzner.DefaultKubernetesVersion,
+		assert.Contains(t, string(raw), "version: "+clusterspec.DefaultKubernetesVersion,
 			"%s should pin Kubernetes explicitly", path)
 	}
 }

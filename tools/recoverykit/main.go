@@ -37,9 +37,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-
 	"golang.org/x/term"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/talossecrets"
 )
 
 // stackName is what may be joined onto a path. Pulumi's own stack names allow
@@ -107,7 +107,7 @@ func run(ctx context.Context, args []string, terminal bool) error {
 
 	// The bundle is the one part with no substitute, so its absence is an
 	// error rather than a note: a kit without it opens nothing.
-	bundle, err := hetzner.Bundle(ctx, stack)
+	bundle, err := talossecrets.Bundle(ctx, stack)
 	if err != nil {
 		return fmt.Errorf("talos secrets bundle: %w", err)
 	}

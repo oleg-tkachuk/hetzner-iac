@@ -1,11 +1,9 @@
-package hetzner
+package clusterspec
 
 import (
 	"errors"
 	"fmt"
 	"net/netip"
-
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 
 	"sigs.k8s.io/yaml"
 )
@@ -102,6 +100,30 @@ func NetworkGateway(ipRange string) (string, error) {
 	// network, and its gateway is 10.0.0.1 rather than 10.0.0.6.
 	return prefix.Masked().Addr().Next().String(), nil
 }
+
+// KubePrismPort is the node-local API load balancer Talos enables, and the
+// port Cilium is pointed at.
+//
+// One value, three halves that never call each other: this package writes it
+// into the machine config's features.kubePrism, layers/10-node-platform hands
+// it to Cilium as k8sServicePort, and layers/20-network-policy permits egress
+// to it. A mismatch does not fail an apply — Cilium comes up pointing at a port
+// Talos does not listen on, so there is no service dataplane at all and every
+// ClusterIP blackholes with nothing saying why.
+//
+// It was 7445 twice: the constant in internal/pkg/chartsettings and a bare
+// literal below, with a comment in the layer claiming they were the same thing.
+// Nothing compared them.
+//
+// It then lived in internal/pkg/clusterref, on the argument that unlike
+// internal/pkg/hetzner that package "pulls no provider SDK, so
+// internal/pkg/chartsettings can read it without dragging the Hetzner and Talos
+// SDKs into a Helm template's build graph". The argument was right and the
+// address was wrong: the provider SDKs are three packages each, and what they
+// sit on is Pulumi's own SDK — 768 packages, which clusterref pulls as surely
+// as hetzner does. Here it costs nothing, because nothing in this package
+// needs Pulumi at all.
+const KubePrismPort = 7445
 
 // BuildClusterPatch renders the shared machine-config patch.
 //
@@ -214,7 +236,7 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 					// The port Cilium is pointed at, from the one place both
 					// halves read it. It was a literal here and a constant in
 					// internal/pkg/chartsettings, with nothing comparing them.
-					"port": clusterref.KubePrismPort,
+					"port": KubePrismPort,
 				},
 			},
 		},
@@ -250,7 +272,7 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 	// The audit policy, which replaces the `level: Metadata` one Talos ships.
 	//
 	// Merged in rather than written above: it is a document of its own, it is
-	// static, and internal/pkg/hetzner/auditpolicy.yaml is where it can be
+	// static, and internal/pkg/clusterspec/auditpolicy.yaml is where it can be
 	// read against Kubernetes' own examples and diffed when it changes.
 	//
 	// The error is not decoration. Talos passes this through unstructured and

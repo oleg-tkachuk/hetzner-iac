@@ -82,7 +82,7 @@ func TestCommitTypeRule_AnswersForEachKindOfChange(t *testing.T) {
 		},
 		"code beside prose": {
 			commitType: "fix",
-			paths:      []string{"README.md", "internal/pkg/hetzner/config.go"},
+			paths:      []string{"README.md", "internal/pkg/clusterspec/config.go"},
 			want:       "",
 		},
 		"a layer's manifest": {

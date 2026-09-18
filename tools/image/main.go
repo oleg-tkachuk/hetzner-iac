@@ -29,7 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hcloudtoken"
 )
 
 // factoryURL is the Talos Image Factory. Images come from there rather than
@@ -45,15 +46,15 @@ const factoryTimeout = 2 * time.Minute
 // architectures maps the topology's spelling to the factory's. Talos says x86
 // and arm; the factory says amd64 and arm64.
 //
-// The keys are internal/pkg/hetzner's constants, not literals. They were
+// The keys are internal/pkg/clusterspec's constants, not literals. They were
 // literals, and the failure that allows is quiet in the wrong direction: the
 // topology validator accepts whatever is in hetzner.Architectures, so an
 // architecture added there would pass validation and then be refused here by
 // a message naming the two this map happens to know.
 // TestArchitectures_CoverEveryOneTheTopologyAccepts holds the two sets equal.
 var architectures = map[string]string{
-	hetzner.ArchitectureX86: "amd64",
-	hetzner.ArchitectureARM: "arm64",
+	clusterspec.ArchitectureX86: "amd64",
+	clusterspec.ArchitectureARM: "arm64",
 }
 
 func main() {
@@ -77,7 +78,7 @@ func run(ctx context.Context) error {
 
 	topologyPath, stack := osArgs[1], osArgs[2]
 
-	topology, err := hetzner.LoadTopology(topologyPath)
+	topology, err := clusterspec.LoadTopology(topologyPath)
 	if err != nil {
 		return err
 	}
@@ -94,12 +95,12 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	token, err := hetzner.Token(ctx, stack)
+	token, err := hcloudtoken.Token(ctx, stack)
 	if err != nil {
 		return err
 	}
 
-	selector := hetzner.TalosImageSelector(version)
+	selector := clusterspec.TalosImageSelector(version)
 
 	present, err := snapshotExists(ctx, token, selector, arch)
 	if err != nil {

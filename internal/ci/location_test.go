@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,9 +45,9 @@ const exampleTopology = "infra/cluster/cluster.example.yaml"
 func TestProbeLocation_IsTheOneTheClusterConfigNames(t *testing.T) {
 	t.Parallel()
 
-	require.NotEmpty(t, hetzner.Locations, "the validator knows no locations")
+	require.NotEmpty(t, clusterspec.Locations, "the validator knows no locations")
 
-	assert.True(t, slices.Contains(hetzner.Locations, clusterref.ProbeLocation),
+	assert.True(t, slices.Contains(clusterspec.Locations, clusterref.ProbeLocation),
 		"clusterref.ProbeLocation is %q, which hetzner.Locations does not accept — every "+
 			"fixture using it builds a topology the validator refuses",
 		clusterref.ProbeLocation)
@@ -102,7 +102,7 @@ func TestYAMLFixtures_NameALocationThatExists(t *testing.T) {
 
 				checked++
 
-				assert.True(t, slices.Contains(hetzner.Locations, location),
+				assert.True(t, slices.Contains(clusterspec.Locations, location),
 					"%s has a fixture in location %q, which is not one this platform builds in",
 					relativeToRoot(path), location)
 			}

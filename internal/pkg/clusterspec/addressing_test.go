@@ -1,11 +1,12 @@
-package hetzner_test
+package clusterspec_test
 
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 func TestNewAddressing_Rejects(t *testing.T) {
@@ -26,7 +27,7 @@ func TestNewAddressing_Rejects(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := hetzner.NewAddressing(tc.subnet, tc.stride)
+			_, err := clusterspec.NewAddressing(tc.subnet, tc.stride)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantMsg)
 		})
@@ -36,7 +37,7 @@ func TestNewAddressing_Rejects(t *testing.T) {
 func TestAddressing_ControlPlane(t *testing.T) {
 	t.Parallel()
 
-	addressing, err := hetzner.NewAddressing("10.0.1.0/24", 40)
+	addressing, err := clusterspec.NewAddressing("10.0.1.0/24", 40)
 	require.NoError(t, err)
 
 	// Offsets 0 and 1 are the network address and the Hetzner gateway, so the
@@ -55,7 +56,7 @@ func TestAddressing_ControlPlane(t *testing.T) {
 func TestAddressing_WorkerPoolsDoNotOverlapControlPlane(t *testing.T) {
 	t.Parallel()
 
-	addressing, err := hetzner.NewAddressing("10.0.1.0/24", 40)
+	addressing, err := clusterspec.NewAddressing("10.0.1.0/24", 40)
 	require.NoError(t, err)
 
 	first, err := addressing.WorkerIP(0, 0)
@@ -106,7 +107,7 @@ func TestAddressing_StableUnderGrowth(t *testing.T) {
 
 	// The reason slices are fixed rather than packed: growing pool 0 must not
 	// move any node in pool 1. A moved address replaces the node.
-	addressing, err := hetzner.NewAddressing("10.0.1.0/24", 40)
+	addressing, err := clusterspec.NewAddressing("10.0.1.0/24", 40)
 	require.NoError(t, err)
 
 	before, err := addressing.WorkerIP(1, 0)
@@ -126,7 +127,7 @@ func TestAddressing_StableUnderGrowth(t *testing.T) {
 func TestAddressing_RefusesOutOfRange(t *testing.T) {
 	t.Parallel()
 
-	addressing, err := hetzner.NewAddressing("10.0.1.0/24", 40)
+	addressing, err := clusterspec.NewAddressing("10.0.1.0/24", 40)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -177,7 +178,7 @@ func TestAddressing_DoesNotWrapAroundIntoTheSubnet(t *testing.T) {
 
 	// A huge pool index must be refused, not silently wrapped by uint32
 	// arithmetic into an address that collides with a real node.
-	addressing, err := hetzner.NewAddressing("10.0.1.0/24", 40)
+	addressing, err := clusterspec.NewAddressing("10.0.1.0/24", 40)
 	require.NoError(t, err)
 
 	_, err = addressing.WorkerIP(1<<26, 0)
@@ -190,7 +191,7 @@ func TestAddressing_NormalisesHostBits(t *testing.T) {
 
 	// A subnet written with host bits set still allocates from the network
 	// address, so .5 does not shift every node by five.
-	addressing, err := hetzner.NewAddressing("10.0.1.5/24", 40)
+	addressing, err := clusterspec.NewAddressing("10.0.1.5/24", 40)
 	require.NoError(t, err)
 
 	addr, err := addressing.ControlPlaneIP(0)

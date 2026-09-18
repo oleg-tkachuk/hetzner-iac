@@ -3,6 +3,8 @@ package hetzner
 import (
 	"fmt"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -26,7 +28,7 @@ type FirewallArgs struct {
 	ClusterName string
 	AdminCIDRs  []string
 	AllowICMP   bool
-	ExtraRules  []FirewallRule
+	ExtraRules  []clusterspec.FirewallRule
 }
 
 // NewFirewall provisions the cluster perimeter.
@@ -35,7 +37,7 @@ func NewFirewall(ctx *pulumi.Context, name string, args *FirewallArgs, opts ...p
 		return nil, fmt.Errorf("NewFirewall(%s): args must not be nil", name)
 	}
 
-	rules, err := BuildFirewallRules(args.AdminCIDRs, FirewallRuleOptions{
+	rules, err := clusterspec.BuildFirewallRules(args.AdminCIDRs, clusterspec.FirewallRuleOptions{
 		AllowICMP: args.AllowICMP,
 		Extra:     args.ExtraRules,
 	})
@@ -53,7 +55,7 @@ func NewFirewall(ctx *pulumi.Context, name string, args *FirewallArgs, opts ...p
 	for _, rule := range rules {
 		ruleArgs := &hcloud.FirewallRuleArgs{
 			Description: pulumi.String(rule.Description),
-			Direction:   pulumi.String(directionIn),
+			Direction:   pulumi.String(clusterspec.DirectionIn),
 			Protocol:    pulumi.String(rule.Protocol),
 			SourceIps:   toStringArray(rule.SourceIPs),
 		}
@@ -69,11 +71,11 @@ func NewFirewall(ctx *pulumi.Context, name string, args *FirewallArgs, opts ...p
 
 	firewall, err := hcloud.NewFirewall(ctx, name, &hcloud.FirewallArgs{
 		Name:   pulumi.String(args.ClusterName),
-		Labels: toStringMap(ResourceLabels(args.ClusterName, nil)),
+		Labels: toStringMap(clusterspec.ResourceLabels(args.ClusterName, nil)),
 		Rules:  ruleArray,
 		ApplyTos: hcloud.FirewallApplyToArray{
 			&hcloud.FirewallApplyToArgs{
-				LabelSelector: pulumi.String(ClusterSelector(args.ClusterName)),
+				LabelSelector: pulumi.String(clusterspec.ClusterSelector(args.ClusterName)),
 			},
 		},
 	}, pulumi.Parent(component))

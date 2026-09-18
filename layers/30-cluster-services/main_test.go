@@ -195,7 +195,7 @@ func TestComponents_MetricsServerFollowsTheCertApprover(t *testing.T) {
 
 	// metrics-server scrapes the kubelet over TLS and verifies the
 	// certificate. Talos self-signs that certificate without IP SANs, so
-	// internal/pkg/hetzner turns on rotate-server-certificates and the kubelet asks the
+	// internal/pkg/clusterspec turns on rotate-server-certificates and the kubelet asks the
 	// cluster CA instead — but nothing approves those requests on its own.
 	//
 	// Without this ordering metrics-server fails every scrape, never becomes

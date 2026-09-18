@@ -8,8 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 
 	"github.com/stretchr/testify/assert"
@@ -278,8 +277,8 @@ func TestAPIServerPolicy_NamesThePortsTheClusterListensOn(t *testing.T) {
 	}
 
 	listening := []string{
-		strconv.Itoa(hetzner.PortKubeAPI),
-		strconv.Itoa(clusterref.KubePrismPort),
+		strconv.Itoa(clusterspec.PortKubeAPI),
+		strconv.Itoa(clusterspec.KubePrismPort),
 	}
 
 	slices.Sort(permitted)

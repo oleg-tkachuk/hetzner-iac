@@ -1,4 +1,4 @@
-package hetzner
+package talossecrets
 
 import (
 	"encoding/json"

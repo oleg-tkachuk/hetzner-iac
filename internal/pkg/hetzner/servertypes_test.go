@@ -3,6 +3,7 @@ package hetzner_test
 import (
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -12,7 +13,7 @@ import (
 
 // runWithTypes builds a cluster against a mock that reports `available` as the
 // server types the project can create, and returns the error, if any.
-func runWithTypes(t *testing.T, topology *hetzner.Topology, available map[string]string) error {
+func runWithTypes(t *testing.T, topology *clusterspec.Topology, available map[string]string) error {
 	t.Helper()
 
 	rec := newRecorder()
@@ -56,7 +57,7 @@ func TestValidateServerTypes_ChecksWorkerPoolsToo(t *testing.T) {
 	// it fails later — after the control plane is already up.
 	topology := haTopology(t)
 	topology.ControlPlane.ServerType = "cx23"
-	topology.WorkerPools = []hetzner.WorkerPoolSpec{
+	topology.WorkerPools = []clusterspec.WorkerPoolSpec{
 		{Name: "worker", Count: 1, ServerType: "nonsense99"},
 	}
 
