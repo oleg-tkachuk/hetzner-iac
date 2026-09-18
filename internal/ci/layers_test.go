@@ -24,7 +24,7 @@ import (
 // them.
 // handBuilt are the layers that create their resources without a
 // layer.Components table, each for a reason its own package comment gives.
-var handBuilt = []string{"60-backup"}
+var handBuilt = []string{}
 
 func TestEveryLayer_ChecksItsComponents(t *testing.T) {
 	t.Parallel()
@@ -174,7 +174,7 @@ func TestEveryLayerReference_PointsAtADirectoryThatExists(t *testing.T) {
 }
 
 // TestBackupLayer_ExportsThePasswordAsASecret is the one property of
-// layers/60-backup worth pinning in source, because getting it wrong is
+// infra/backup worth pinning in source, because getting it wrong is
 // silent and the consequence is a credential in plaintext.
 //
 // A stack output is what somebody copies. `pulumi stack output backupPassword`
@@ -187,7 +187,7 @@ func TestBackupLayer_ExportsThePasswordAsASecret(t *testing.T) {
 	// Every Go file in that layer, for the reason the outputs gate reads them
 	// all: a file added beside main.go could carry the export away and leave
 	// this reading the wrong one.
-	sources, err := filepath.Glob(filepath.Join("..", "..", "layers", "60-backup", "*.go"))
+	sources, err := filepath.Glob(filepath.Join("..", "..", "infra", "backup", "*.go"))
 	require.NoError(t, err)
 	require.NotEmpty(t, sources)
 
@@ -207,10 +207,10 @@ func TestBackupLayer_ExportsThePasswordAsASecret(t *testing.T) {
 	body := joined.String()
 
 	require.Contains(t, body, "OutputPassword",
-		"the backup layer no longer exports a password; this test is checking nothing")
+		"the backup tier no longer exports a password; this test is checking nothing")
 
 	assert.Regexp(t, `Export\(OutputPassword, pulumi\.ToSecret\(`, body,
-		"the backup layer exports the password without pulumi.ToSecret, so "+
+		"the backup tier exports the password without pulumi.ToSecret, so "+
 			"`pulumi stack output` prints the credential")
 }
 

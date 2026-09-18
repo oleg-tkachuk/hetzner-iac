@@ -264,7 +264,17 @@ func projectPaths(t *testing.T) []string {
 	paths, err := filepath.Glob(filepath.Join(root, "layers", "*", "Pulumi.yaml"))
 	require.NoError(t, err)
 
-	paths = append(paths, filepath.Join(root, "infra", "cluster", "Pulumi.yaml"))
+	// Globbed rather than named. infra/ holds the tiers — the cluster, and
+	// anything that creates cloud resources without writing to Kubernetes —
+	// and this helper used to name infra/cluster alone. When the backup
+	// project moved out of layers/ and into infra/, that spelling stopped
+	// finding it: the two checks below went on passing while covering one
+	// project fewer, which is the failure a hard-coded path always has.
+	tiers, err := filepath.Glob(filepath.Join(root, "infra", "*", "Pulumi.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, tiers, "no tier under infra/, so this found no cluster either")
+
+	paths = append(paths, tiers...)
 
 	// Counted against the layer list rather than a number written here: a new
 	// layer used to fail this test for existing, which says nothing about the
@@ -275,8 +285,8 @@ func projectPaths(t *testing.T) []string {
 	declared := layerList.FindStringSubmatch(string(layers))
 	require.NotNil(t, declared, "no LAYERS list in the root taskfile")
 
-	require.Len(t, paths, len(strings.Fields(declared[1]))+1,
-		"one Pulumi project per layer, plus the cluster tier")
+	require.Len(t, paths, len(strings.Fields(declared[1]))+len(tiers),
+		"one Pulumi project per layer, plus one per tier under infra/")
 
 	return paths
 }

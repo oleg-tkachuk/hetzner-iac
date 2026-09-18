@@ -348,7 +348,7 @@ func TestRun_AcceptsTheNamesThisRepositoryActuallyUses(t *testing.T) {
 	t.Parallel()
 
 	for _, layer := range []string{
-		"10-node-platform", "20-network-policy", "30-cluster-services", "50-gitops", "60-backup",
+		"10-node-platform", "20-network-policy", "30-cluster-services", "40-ingress", "50-gitops",
 	} {
 		assert.True(t, LayerName.MatchString(layer), layer)
 	}

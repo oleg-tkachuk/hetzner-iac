@@ -82,7 +82,16 @@ vars:
     30-cluster-services
     40-ingress
     50-gitops
-    60-backup
+
+  # The tiers, which are the projects under infra/. Unordered on purpose:
+  # unlike the layers there is no walk to order, each is applied on its own —
+  # see docs/design.md, "What decides a layer boundary". The list exists so
+  # that checks which must cover every project, `policy:check` above all, are
+  # not a second hand-maintained copy of what infra/ holds.
+  # Held equal to the directories by TestTiers_MatchTheDirectories.
+  TIERS: >-
+    cluster
+    backup
 
 includes:
   # `excludes:` genuinely removes a task rather than hiding it, so what is left
@@ -128,6 +137,10 @@ includes:
   # after the project and installs from ./deploy/chart. This repository ships a
   # platform, deployed by Pulumi, and neither of those exists.
 
+  # backup is a tier rather than a layer — see docs/design.md, "What decides a
+  # layer boundary" — so it has its own module instead of a place in
+  # platform's ordered walk.
+  backup: { taskfile: tasks/backup.task.yaml, dir: . }
   cluster: { taskfile: tasks/cluster.task.yaml, dir: . }
   platform: { taskfile: tasks/platform.task.yaml, dir: . }
   policy: { taskfile: tasks/policy.task.yaml, dir: . }
@@ -200,8 +213,10 @@ tasks:
       exists, goes with its layer — the cloud controller manager owns it, not
       Pulumi. KEPT: the Talos secrets bundle (the cluster CA is state, not a
       billed resource; `task cluster:secrets:destroy stack={{.stack}}` removes
-      it and cannot be undone), the Talos snapshot in the Hetzner project, and
-      this stack's Pulumi history. Irreversible
+      it and cannot be undone), the Talos snapshot in the Hetzner project, the
+      backup tier with the etcd snapshots on it — it is billed, and
+      `task backup:destroy stack={{.stack}}` is the only thing that takes it —
+      and this stack's Pulumi history. Irreversible
     cmds:
       # Layers first. A cluster whose CNI has been removed under a running
       # workload is the same ordering hazard `platform:destroy layer=all`

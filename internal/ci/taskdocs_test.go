@@ -27,6 +27,12 @@ var documentedTask = regexp.MustCompile("`(?:task )?([a-z][a-z0-9-]*(?::[a-z0-9-
 // declaredTask matches a task declaration inside a taskfile.
 var declaredTask = regexp.MustCompile(`(?m)^  ([a-z][a-z0-9:_-]*):\s*$`)
 
+// isWordByte reports whether a byte would continue an identifier, which is how
+// a task reference is told from the front of a longer word.
+func isWordByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+}
+
 // TestDocs_NameOnlyTasksThatExist guards the one documentation error that
 // wastes an operator's time rather than merely misleading them: a command
 // they copy, paste and watch fail.
@@ -72,8 +78,23 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
-		for _, found := range documentedTask.FindAllStringSubmatch(string(raw), -1) {
-			name := found[1]
+		document := string(raw)
+
+		for _, at := range documentedTask.FindAllStringSubmatchIndex(document, -1) {
+			// Rejected when a letter or digit follows, because then the match
+			// is the PREFIX of something longer. `backup:storageBoxType` is a
+			// Pulumi config key and the pattern read `backup:storage` out of
+			// it — which only surfaced when a taskfile module was given the
+			// same name as a Pulumi project, and would have been a false
+			// failure about a task nobody wrote.
+			//
+			// A negative lookahead would say this in the pattern; RE2 has
+			// none, so it is said here.
+			if end := at[1]; end < len(document) && isWordByte(document[end]) {
+				continue
+			}
+
+			name := document[at[2]:at[3]]
 
 			// A namespace this repository does not own belongs to the shared
 			// library, whose tasks are not in any file here.

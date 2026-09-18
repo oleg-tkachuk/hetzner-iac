@@ -1,0 +1,112 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+silent: true
+
+vars:
+  _BK_DIR: '{{.ROOT}}/infra/backup'
+  _BK_CLUSTER_DIR: '{{.ROOT}}/infra/cluster'
+  _BK_STACK: '{{.stack}}'
+
+  _BK_USAGE: |
+    {{._ERR}} backup · this needs a stack, and there is no default
+
+        task {{.TASK}} stack=dev
+
+    The stack names the Pulumi stack of the backup tier, and the cluster tier's
+    stack it reads the Hetzner token from.
+
+tasks:
+  # A tier of its own rather than a platform layer, and the reasons are in
+  # docs/design.md under "What decides a layer boundary". The short form: it
+  # creates nothing in Kubernetes, it depends on nothing above the cluster
+  # tier, and a backup destination should be creatable before the cluster and
+  # survive it.
+  #
+  # Its own taskfile for the same reason the cluster tier has one: `platform:*`
+  # walks a list of layers in dependency order, and this belongs to neither the
+  # list nor the order.
+  init:
+    desc: "Create the backup tier's stack and point it at the cluster (override with ref=<org>/hetzner-cluster/<stack>)"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._BK_USAGE}}"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+
+          # Derived from the cluster tier rather than typed, the same as
+          # platform:init: a hand-typed reference naming another environment is
+          # accepted in silence by everything, and surfaces at apply time.
+          ref="{{.ref}}"
+          if [ -z "$ref" ]; then
+            ref="$(go run "{{.ROOT}}/tools/stack" ref "{{._BK_CLUSTER_DIR}}" "{{._BK_STACK}}")"
+          fi
+
+          state="$(go run "{{.ROOT}}/tools/stack" ensure "{{._BK_DIR}}" "{{._BK_STACK}}")"
+
+          pulumi --non-interactive --cwd "{{._BK_DIR}}" --stack "{{._BK_STACK}}" \
+            config set backup:clusterStackRef "$ref"
+
+          printf '%s\n' "{{._OK}} backup · init · stack {{._BK_STACK}} ${state} → cluster $ref"
+
+  plan:
+    desc: "Preview the backup tier; changes nothing"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._BK_USAGE}}"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          printf '%s\n' "{{._RUN}} backup · preview"
+          pulumi --non-interactive --cwd "{{._BK_DIR}}" --stack "{{._BK_STACK}}" preview --diff
+          printf '%s\n' "{{._OK}} backup · previewed"
+
+  apply:
+    desc: "Create the Storage Box and its credentials (idempotent). Asks first"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._BK_USAGE}}"
+    # The Storage Box is billable and its credentials are generated into state
+    # on the first apply. A second apply does not rotate them — RandomPassword
+    # keeps its value — so this is safe to repeat, which is what the prompt is
+    # NOT about. It is about creating a paid resource.
+    prompt: "Apply the backup tier on {{._BK_STACK}}? This creates a billable Storage Box."
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          printf '%s\n' "{{._RUN}} backup · apply"
+          pulumi --non-interactive --cwd "{{._BK_DIR}}" --stack "{{._BK_STACK}}" up --yes
+          printf '%s\n' "{{._OK}} backup · applied"
+
+  destroy:
+    desc: "Destroy the backup tier. Asks first — this is where etcd snapshots live"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._BK_USAGE}}"
+    # Louder than the other destroys, and for a reason no other tier has: this
+    # is the uploaded etcd snapshots. The Storage Box also carries Hetzner's
+    # own DeleteProtection, so the API refuses the delete and this fails rather
+    # than succeeding — which is the right outcome and an unhelpful message.
+    # Turning the protection off is a deliberate act in the Hetzner console.
+    prompt: "Destroy the backup tier on {{._BK_STACK}}? The uploaded etcd snapshots are ON this Storage Box."
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          printf '%s\n' "{{._WARN}} backup · destroy · the Storage Box carries DeleteProtection; Hetzner will refuse until it is cleared"
+          pulumi --non-interactive --cwd "{{._BK_DIR}}" --stack "{{._BK_STACK}}" destroy --yes
+          printf '%s\n' "{{._OK}} backup · destroyed"
+
+  outputs:
+    desc: "The backup tier's stack outputs — the sftp destination, without the secrets"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._BK_USAGE}}"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          # No --show-secrets. The passwords are read by cluster:etcd:upload,
+          # which asks for them one at a time; printing them here would put
+          # three credentials in a terminal for a command whose purpose is to
+          # show a hostname.
+          pulumi --non-interactive --cwd "{{._BK_DIR}}" --stack "{{._BK_STACK}}" stack output
