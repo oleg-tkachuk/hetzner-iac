@@ -357,3 +357,101 @@ func TestRun_AcceptsTheNamesThisRepositoryActuallyUses(t *testing.T) {
 		assert.True(t, StackName.MatchString(stack), stack)
 	}
 }
+
+// TestMatchAll_ResolvesEverySelectorInOrder is the list form: one apply with
+// several --target flags rather than one apply per component.
+func TestMatchAll_ResolvesEverySelectorInOrder(t *testing.T) {
+	t.Parallel()
+
+	urns, err := MatchAll(stack, "cert-manager,traefik")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"urn:pulumi:dev::cluster-services::kubernetes:helm.sh/v3:Release::cert-manager",
+		"urn:pulumi:dev::cluster-services::hetzner-iac:platform:Ingress$kubernetes:helm.sh/v3:" +
+			"Release::traefik",
+	}, urns, "the URNs come in selector order, each one once")
+}
+
+// TestMatchAll_ToleratesSurroundingSpace keeps `target=a, b` working, because
+// a shell and a taskfile both make that easy to type.
+func TestMatchAll_ToleratesSurroundingSpace(t *testing.T) {
+	t.Parallel()
+
+	spaced, err := MatchAll(stack, " cert-manager , traefik ")
+	require.NoError(t, err)
+
+	tight, err := MatchAll(stack, "cert-manager,traefik")
+	require.NoError(t, err)
+
+	assert.Equal(t, tight, spaced)
+}
+
+// TestMatchAll_DeduplicatesOverlappingSelectors: a group and one of its
+// members is a legitimate pair, and Pulumi should not be handed the same
+// --target twice.
+func TestMatchAll_DeduplicatesOverlappingSelectors(t *testing.T) {
+	t.Parallel()
+
+	group, err := Match(stack, "group:Ingress")
+	require.NoError(t, err)
+
+	both, err := MatchAll(stack, "group:Ingress,traefik")
+	require.NoError(t, err)
+
+	assert.Equal(t, group, both,
+		"traefik is already under group:Ingress, so the list adds no URN")
+}
+
+// TestMatchAll_RefusesTheWholeListWhenOneSelectorIsWrong is the important one.
+//
+// Resolving the good half would be an apply that reports success having done
+// less than was asked — the same failure a --target matching nothing is, which
+// is what this program exists to prevent.
+func TestMatchAll_RefusesTheWholeListWhenOneSelectorIsWrong(t *testing.T) {
+	t.Parallel()
+
+	urns, err := MatchAll(stack, "cert-manager,cert-manger")
+	require.Error(t, err)
+	assert.Nil(t, urns)
+	assert.Contains(t, err.Error(), "cert-manger", "the message names the selector that failed")
+}
+
+// TestMatchAll_RefusesAnEmptyElement catches `target=a,` and `target=a,,b`,
+// which a shell produces from an unset variable and which would otherwise
+// resolve to the rest of the list.
+func TestMatchAll_RefusesAnEmptyElement(t *testing.T) {
+	t.Parallel()
+
+	for _, selectors := range []string{"cert-manager,", ",cert-manager", "cert-manager,,traefik"} {
+		_, err := MatchAll(stack, selectors)
+		require.Error(t, err, selectors)
+		require.ErrorIs(t, err, ErrNoSelector, selectors)
+	}
+}
+
+// TestMatchAll_RefusesARepeatedSelector: harmless to resolve, and a typo worth
+// naming — nobody means to write one component twice.
+func TestMatchAll_RefusesARepeatedSelector(t *testing.T) {
+	t.Parallel()
+
+	_, err := MatchAll(stack, "cert-manager,cert-manager")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "twice")
+}
+
+// TestMatchAll_OneSelectorAgreesWithMatch keeps the single-selector path, which
+// is what every existing task passes, byte-identical to Match.
+func TestMatchAll_OneSelectorAgreesWithMatch(t *testing.T) {
+	t.Parallel()
+
+	for _, selector := range []string{"cert-manager", "Release:traefik", "group:Ingress"} {
+		one, err := Match(stack, selector)
+		require.NoError(t, err, selector)
+
+		all, allErr := MatchAll(stack, selector)
+		require.NoError(t, allErr, selector)
+
+		assert.Equal(t, one, all, selector)
+	}
+}
