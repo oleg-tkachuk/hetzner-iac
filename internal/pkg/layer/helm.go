@@ -68,6 +68,17 @@ type ReleaseArgs struct {
 // leaving half a release behind, so re-running converges rather than
 // compounding.
 func (r *Runner) Release(args ReleaseArgs, opts ...pulumi.ResourceOption) (*helm.Release, error) {
+	// Refused rather than attempted. A runner from NewWithoutKubernetes has no
+	// provider, and a release created without one lands on whatever cluster the
+	// operator's shell happens to point at — the failure Runner.Provider's own
+	// comment exists to prevent.
+	if r.Provider == nil {
+		return nil, fmt.Errorf(
+			"release %q: this runner has no Kubernetes provider, so it was built by "+
+				"NewWithoutKubernetes for a tier that creates Hetzner resources only",
+			args.Chart)
+	}
+
 	chart, err := charts.Get(args.Chart)
 	if err != nil {
 		return nil, err
