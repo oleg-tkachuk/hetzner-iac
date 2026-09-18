@@ -232,6 +232,14 @@ var Effects = []Effect{
 			"the kubelet evicts it beside the workloads it serves",
 	},
 	{
+		Chart: "keda", Release: "keda", Namespace: "keda",
+		Set:    []string{PriorityClassName + "=" + PriorityClusterCritical},
+		Expect: PriorityLineQuoted(PriorityClusterCritical),
+		Why: "the metrics API server is an aggregated API: evicted beside the workloads it " +
+			"scales, it takes external.metrics.k8s.io down with it and every autoscaler " +
+			"reading one fails on discovery rather than on a metric",
+	},
+	{
 		Chart: "cert-manager", Release: "cert-manager", Namespace: "cert-manager",
 		Set:    []string{CertManagerGlobal + "." + PriorityClassName + "=" + PriorityClusterCritical},
 		Expect: PriorityLineQuoted(PriorityClusterCritical),

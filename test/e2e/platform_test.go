@@ -37,6 +37,8 @@ func TestWorkloads(t *testing.T) {
 
 			feature = feature.Assess(string(workload.Kind)+" "+workload.Name,
 				func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+					skipAbsentOptional(ctx, t, cfg, workload)
+
 					switch workload.Kind {
 					case workloads.Deployment:
 						deploymentAvailable(ctx, t, cfg, workload.Namespace, workload.Name)

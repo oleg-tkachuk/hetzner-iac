@@ -215,12 +215,48 @@ spec:
         - name: grafana
 `
 
+	// A CRD whose schema embeds a pod template, reduced the same way. Every
+	// marker the gate looks for is in here, and none of them creates a pod.
+	const scaledJobCRD = `
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: scaledjobs.keda.sh
+spec:
+  versions:
+    - schema:
+        openAPIV3Schema:
+          properties:
+            jobTargetRef:
+              properties:
+                template:
+                  properties:
+                    spec:
+                      properties:
+                        hostNetwork:
+                          type: boolean
+                        hostPID:
+                          type: boolean
+                        volumes:
+                          items:
+                            properties:
+                              hostPath:
+                                type: object
+`
+
 	tests := []struct {
 		name      string
 		manifests string
 		namespace string
 		wantErr   bool
 	}{
+		{
+			// The case KEDA brought. Refusing this refuses the whole chart,
+			// for a document that creates nothing at all.
+			name:      "a schema that names host access is not a pod asking for it",
+			manifests: scaledJobCRD,
+			namespace: "keda",
+		},
 		{
 			name:      "host access in an exempt namespace is fine",
 			manifests: daemonSet("kube-system"),

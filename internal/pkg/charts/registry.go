@@ -92,6 +92,17 @@ var registry = map[string]Chart{
 		Namespace:  "kube-system",
 	},
 
+	// Installed only when `kedaEnabled` is set, which is why its workloads are
+	// Optional in internal/pkg/workloads. The pin is here either way: a chart
+	// nobody pins is a chart whose version is whatever the day decides.
+	"keda": {
+		Name:       "keda",
+		Repo:       "https://kedacore.github.io/charts",
+		Version:    "2.20.2", // app 2.20.2
+		AppVersion: "2.20.2",
+		Namespace:  "keda",
+	},
+
 	// Layer 40 — ingress.
 	"traefik": {
 		Name:       "traefik",

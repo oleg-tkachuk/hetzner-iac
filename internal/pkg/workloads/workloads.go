@@ -39,8 +39,18 @@ type Workload struct {
 	// Helm timeout. The offline check skips these; the e2e suite does not.
 	OperatorCreated bool
 
-	// Optional marks a workload that exists only under some values. It must
-	// not fail the render check when absent.
+	// Optional marks a workload the cluster may legitimately not have.
+	//
+	// Two ways that happens: a chart renders it only under some values, or a
+	// layer declines to install the chart at all — KEDA is installed only when
+	// `kedaEnabled` is set. The render check tolerates an absent one; the e2e
+	// suite skips it rather than waiting out its readiness timeout on
+	// something that was never created.
+	//
+	// It does not weaken either check where the workload IS there. KEDA's
+	// three are rendered unconditionally by their chart, so `render-check`
+	// still proves the names, and e2e still asserts availability on a cluster
+	// that has them.
 	Optional bool
 }
 
@@ -63,6 +73,12 @@ var Expected = []Workload{
 	{Chart: "cert-manager", Release: "cert-manager", Namespace: "cert-manager", Kind: Deployment, Name: "cert-manager-cainjector"},
 	{Chart: "external-secrets", Release: "external-secrets", Namespace: "external-secrets", Kind: Deployment, Name: "external-secrets"},
 	{Chart: "metrics-server", Release: "metrics-server", Namespace: "kube-system", Kind: Deployment, Name: "metrics-server"},
+
+	// Layer 30 — event-driven autoscaling, installed only when `kedaEnabled`
+	// is set.
+	{Chart: "keda", Release: "keda", Namespace: "keda", Kind: Deployment, Name: "keda-operator", Optional: true},
+	{Chart: "keda", Release: "keda", Namespace: "keda", Kind: Deployment, Name: "keda-operator-metrics-apiserver", Optional: true},
+	{Chart: "keda", Release: "keda", Namespace: "keda", Kind: Deployment, Name: "keda-admission-webhooks", Optional: true},
 
 	// Layer 40 — ingress.
 	{Chart: "traefik", Release: "traefik", Namespace: "traefik", Kind: Deployment, Name: "traefik"},
