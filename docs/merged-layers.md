@@ -83,22 +83,74 @@ every URN in one of them, and no alias can fix that — an alias describes a
 resource's history inside its own stack.
 
 That is why the preview above still shows the ingress resources as creates: the
-code is merged, the state is not. Moving it is `pulumi state move`, which exists
-in the pinned CLI and moves resources between stacks rather than destroying and
-recreating them:
+code is merged, the state is not. Moving it is `pulumi state move`.
+
+### Rehearsed, on copies, on a local backend
+
+Not reasoned about — run. Both live stacks were exported, imported into two
+stacks on a `file://` backend under the same project and stack names so the URNs
+stayed consistent, and the move was performed there. The live stacks were never
+touched: `ingress/dev` still holds its 11 resources and `cluster-services/dev`
+its 17.
+
+Six URNs are enough. The providers are **not** listed:
 
 ```bash
-# Rehearse it. Both stacks, exported first, because this edits state.
-pulumi --cwd layers/30-cluster-services --stack dev stack export > cs-before.json
-pulumi --cwd <the ingress checkout>   --stack dev stack export > ingress-before.json
-
-# Then, per resource, from the ingress stack into this one.
-pulumi state move --source <ingress stack> --dest <cluster-services stack> <urn> …
+pulumi state move --source <ingress stack> --dest <cluster-services stack> \
+  'urn:pulumi:dev::ingress::hcloud:index/loadBalancer:LoadBalancer::ingress' \
+  'urn:pulumi:dev::ingress::hcloud:index/loadBalancerNetwork:LoadBalancerNetwork::ingress-network' \
+  'urn:pulumi:dev::ingress::hcloud:index/loadBalancerService:LoadBalancerService::ingress-https' \
+  'urn:pulumi:dev::ingress::hcloud:index/loadBalancerService:LoadBalancerService::ingress-http' \
+  'urn:pulumi:dev::ingress::hcloud:index/loadBalancerTarget:LoadBalancerTarget::ingress-targets' \
+  'urn:pulumi:dev::ingress::kubernetes:helm.sh/v3:Release::traefik'
 ```
 
-Order of operations that matters: **move first, then apply.** An apply before
-the move creates a second Traefik release and a second load balancer, and the
-second load balancer is billable.
+### Three things the rehearsal answered that reading could not
+
+**The providers come along by themselves.** `state move` reported both of them
+in its dependency list without being asked, and moved what was needed.
+
+**The provider collision is not a problem on this CLI.** Both stacks hold a
+`pulumi:providers:kubernetes::k8s` with the SAME name and DIFFERENT ids —
+`ce7b0165…` in ingress, `11f498a9…` in cluster-services — which is exactly
+[pulumi#16983](https://github.com/pulumi/pulumi/issues/16983), "provider already
+exists in destination stack". It is fixed. The destination ended with ONE k8s
+provider, its own, and traefik's reference rewritten onto it:
+
+```
+urn:…::cluster-services::kubernetes:helm.sh/v3:Release::traefik
+  provider=urn:…::cluster-services::pulumi:providers:kubernetes::k8s::11f498a9-…
+```
+
+The hcloud provider, which the destination did not have, was moved in with its
+own id — and its URN is already the one the merged program declares, so the
+program adopts it instead of creating the `pulumi:providers:hcloud` the preview
+showed.
+
+**Everything lands root-parented**, under the destination's stack node. That is
+precisely what `Aliases{NoParent: true}` describes, which is why the moved
+resources are adopted under the group rather than replaced — the same mechanism
+already measured as 15 unchanged on the live stack.
+
+### Afterwards
+
+The source keeps five resources — its stack node, the default provider, its
+StackReference and the two providers — so it is finished with:
+
+```bash
+pulumi stack rm <ingress stack>
+```
+
+`state move` also warns that every moved resource depends on the SOURCE stack's
+StackReference, and that the destination program must provide the equivalent
+inputs. It does: the merged project has its own StackReference to the same
+cluster stack. Worth reading the warning rather than skipping it, because for a
+different pair of layers it would be a real gap.
+
+### Order of operations
+
+**Move first, then apply.** An apply before the move creates a second Traefik
+release and a second load balancer, and the second load balancer is billable.
 
 The config key moves with it. `ingress:loadBalancerType` becomes
 `cluster-services:loadBalancerType`, because a Pulumi config key is namespaced
