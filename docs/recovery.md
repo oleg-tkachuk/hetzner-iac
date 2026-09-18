@@ -58,8 +58,8 @@ Re-export it only if the bundle is ever regenerated, which nothing but
 
 The third part is the one that is easy to miss, because it makes the other two
 unreadable rather than incomplete. restic encrypts the repository on the
-Storage Box with a password that `layers/60-backup` **generates into its own
-Pulumi state** — nothing types it, and re-applying that layer produces a
+Storage Box with a password that `infra/backup` **generates into its own
+Pulumi state** — nothing types it, and re-applying that tier produces a
 different one that does not open the existing repository. So the state holds
 both the key to the snapshots and the secrets that make a restored snapshot
 mean anything, and losing it turns every snapshot on the box into ciphertext
@@ -69,7 +69,7 @@ One command takes all three out together:
 
     task cluster:recovery-kit stack=dev | pass insert -m hetzner/dev/recovery-kit
 
-The bundle, every generated output of the backup layer, and the topology file —
+The bundle, every generated output of the backup tier, and the topology file —
 which is gitignored, because it names the networks the cluster is administered
 from, so a fresh clone does not carry it. It refuses a terminal for the same
 reason `secrets:export` does, and a part it could not read is named in the
@@ -81,7 +81,7 @@ bad one.
 `task cluster:etcd:snapshot` leaves the snapshot and its `.info` in `.backups/`
 on the machine that ran it, which is one disk failure from having no backup at
 all. `task cluster:etcd:upload` sends both to the Storage Box that
-`layers/60-backup` creates:
+`infra/backup` creates:
 
 ```bash
 task cluster:etcd:upload stack=dev trust_host_key=yes   # first time only
@@ -96,7 +96,7 @@ speaks key authentication, and the box's credential is a generated password.
 Both are in the `Brewfile`.
 
 Nothing is configured by hand. The host, the login, both passwords and the path
-are stack outputs of `layers/60-backup`, read through
+are stack outputs of `infra/backup`, read through
 `pulumi stack output --show-secrets`, and the rclone remote is assembled in the
 command's own environment, so no credential is written to a config file.
 
@@ -109,7 +109,7 @@ after that verifies against that file and refuses a key that has changed.
 repository, so the uploads are unreadable without it:
 
 ```bash
-pulumi -C layers/60-backup -s dev stack output backupRepositoryPassword --show-secrets
+pulumi -C infra/backup -s dev stack output backupRepositoryPassword --show-secrets
 ```
 
 The Storage Box carries delete protection, so `task destroy` cannot take it —

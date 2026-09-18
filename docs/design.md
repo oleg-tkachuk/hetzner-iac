@@ -5,9 +5,9 @@ cost is named.
 
 ## What lives inside what
 
-The seam this repository is built on: one project writes to Hetzner, and every
-layer writes only to Kubernetes. Destroying the cluster tier takes everything
-above it; destroying a layer takes only its own namespaces.
+The seam this repository is built on: the projects under `infra/` write to
+Hetzner, and a layer writes to Kubernetes. Destroying the cluster tier takes
+everything above it; destroying a layer takes only its own namespaces.
 
 ```mermaid
 flowchart TB
@@ -24,7 +24,7 @@ flowchart TB
     classDef derived fill:#f6f8fa,stroke:#8c959f,stroke-width:1px,stroke-dasharray:4 3,color:#1f2328
     classDef state fill:#f6ecf7,stroke:#8a3391,stroke-width:2px,color:#1f2328
 
-    subgraph hetzner["☁️ Hetzner Cloud project — infra/cluster, plus two layers that own one resource each"]
+    subgraph hetzner["☁️ Hetzner Cloud project — infra/cluster and infra/backup, plus one layer that owns one resource"]
         direction TB
         net["private network<br/>+ subnet"]
         fw["firewall"]
@@ -39,7 +39,7 @@ flowchart TB
 
         apilb(["load balancer for the API<br/>the endpoint every certificate names"])
         inglb(["load balancer for ingress<br/>layers/40-ingress"])
-        box[("Storage Box + subaccount<br/>layers/60-backup")]
+        box[("Storage Box + subaccount<br/>infra/backup")]
     end
 
     subgraph talos["Talos on those servers"]
@@ -78,20 +78,22 @@ flowchart TB
     style k8s fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
 ```
 
-Two layers cross that seam, and both do it on purpose.
+Two projects other than the cluster tier cross that seam, and both do it on
+purpose.
 
 [layers/40-ingress](../layers/40-ingress) creates the ingress load balancer and
-[layers/60-backup](../layers/60-backup) creates the Storage Box and its
-subaccount, each through a Hetzner provider it builds from the token the cluster
-tier publishes. A third, [layers/10-node-platform](../layers/10-node-platform),
-writes that token into a Kubernetes Secret, because the hcloud charts read it
-from there.
+[infra/backup](../infra/backup) creates the Storage Box and its subaccount, each
+through a Hetzner provider it builds from the token the cluster tier publishes.
+A third, [layers/10-node-platform](../layers/10-node-platform), writes that
+token into a Kubernetes Secret, because the hcloud charts read it from there.
 
-So the seam is narrower than "layers never touch Hetzner". What it actually
-holds is that **the token lives in one stack's config** — `infra/cluster`'s —
-and reaches a layer only as a secret output of that stack. No layer is
-configured with a credential of its own, and destroying the cluster tier takes
-the only copy that was configured anywhere.
+So the seam is narrower than "only the cluster tier touches Hetzner". What it
+actually holds is that **the token lives in one stack's config** —
+`infra/cluster`'s — and reaches another project only as a secret output of that
+stack. Nothing else is configured with a credential of its own, and destroying
+the cluster tier takes the only copy that was configured anywhere. That is the
+half `internal/ci/tiers_test.go` asserts, rather than this document being the
+only place it is written down.
 
 This paragraph used to say that the load balancer came from the cloud
 controller manager and that "no layer holds a Hetzner credential to do it
@@ -123,11 +125,57 @@ networks before the CNI. `task platform:apply layer=all` walks them in order; th
 order lives once, in the root Taskfile, and CI derives its matrix from the
 same list through `task -t Taskfile.dev.yaml layers`.
 
+## What decides a layer boundary
+
+A layer is a member of `layers/`, which is one ordered list: `layer=all`
+applies every member in dependency order and destroys them in reverse. That
+list is the only thing membership buys, and it is also the only thing it costs
+— so a project belongs in it when the walk is right for it, and belongs in
+`infra/` as a tier of its own when it is not. Three questions, in order:
+
+1. **Does it need a destroy scope of its own?** A member of the walk is
+   destroyed with everything else, at the position its number gives it. A
+   project whose resources should outlive `task destroy` cannot be in the walk
+   at any position.
+2. **Does it write to Hetzner rather than only to Kubernetes?** Writing to
+   Hetzner means holding a provider built from the token, which is a different
+   failure surface from a Helm release: a rate limit, a quota, a delete
+   protection. The ordered walk is ordered by what Kubernetes needs to come up.
+3. **Does it change on a different clock?** A layer changes when a chart is
+   bumped. A destination changes when somebody decides to keep backups
+   somewhere else, which is years apart from the rest.
+
+`infra/backup` answers yes three times, and had been a layer — `60-backup` —
+answering yes three times all along. It creates nothing in Kubernetes and never
+used the Kubernetes provider the layer runner built for it; it depended on no
+layer, so its number said "last" about an ordering it was not part of; and
+`layer=all` destroyed it **first**, ahead of the layers it did not depend on,
+where its Storage Box carries Hetzner's `DeleteProtection` and would have
+failed the whole teardown at step one. It is a tier now, with
+[tasks/backup.task.yaml](../tasks/backup.task.yaml) of its own, and `task
+destroy` leaves it standing — which is what a backup destination is for.
+
+The middle question is also the one with a test behind it.
+`internal/ci/tiers_test.go` holds the token seam in two halves:
+`TestOnlyTheClusterTierIsConfiguredWithTheToken` requires exactly one project
+to declare `hcloud:token` in its own config, and
+`TestOnlyNamedProjectsWriteToHetzner` reads every project's source for a call
+to `hetzner.NewProvider` and fails on one this document does not account for.
+Adding a Hetzner writer is allowed; adding one silently is not.
+
+What the questions deliberately do not ask is whether two projects depend on
+each other. Argo CD's ingress in `50-gitops` is annotated with the
+ClusterIssuer that `30-cluster-services` creates — `platform.IssuerName`, one
+constant both import — and the two layers stay separate, because the ordered
+walk is what makes cert-manager arrive first and a shared constant is what
+makes the name agree. Dependency is an argument about order, and order is what
+the walk already provides; membership is a question about destroy scope.
+
 ## Every stack output is a named constant
 
 A stack output is an interface, and half its consumers are not Go. The tier's
 `kubeconfig` and `talosconfig` are read by `cluster:kubeconfig` and
-`cluster:talosconfig`; the backup layer's five are read by `cluster:etcd:upload`
+`cluster:talosconfig`; the backup tier's five are read by `cluster:etcd:upload`
 through jq. Those callers cannot import a constant, so they spell the name
 again — and when the two spellings drift nothing errors: `pulumi stack output`
 prints nothing, jq answers `null`, and the task reports the layer as unapplied,

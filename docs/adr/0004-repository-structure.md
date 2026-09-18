@@ -17,14 +17,15 @@ remembering are the ones that fail at 03:00.
 directory.**
 
 ```
-infra/cluster/          the cluster tier — the only project that talks to
-                        the Hetzner API. Project `hetzner-cluster`
+infra/cluster/          the cluster tier — the network, the servers and the
+                        cluster's own secrets. Project `hetzner-cluster`
+infra/backup/           the backup tier — the Storage Box etcd snapshots are
+                        uploaded to. Project `backup`
 layers/10-node-platform/    Cilium, hcloud CCM and CSI
 layers/20-network-policy/   Cilium network policy
 layers/30-cluster-services/ cert-manager, external-secrets, metrics-server
 layers/40-ingress/          Traefik, the ingress load balancer, DNS records
 layers/50-gitops/           Argo CD
-layers/60-backup/           Storage Box for etcd snapshots
 policy/                 the CrossGuard pack every project is previewed against
 internal/pkg/           the implementation every project imports
 internal/ci/            the repository's own gates
@@ -36,6 +37,14 @@ test/e2e/               what is checked against a running cluster
 Each project holds its own state per stack, so a layer's apply cannot touch
 another layer's resources, and one environment's state is not a slice of
 another's.
+
+**`infra/` holds tiers, `layers/` holds layers**, and the difference is not
+size. A layer is a member of one ordered walk — `task platform:apply layer=all`
+applies all of them in dependency order and destroys them in reverse — and it
+writes to Kubernetes. A tier is applied on its own clock and writes to Hetzner:
+it has a taskfile of its own instead of a place in that walk. What decides
+which a new project is, is in [design.md](../design.md#what-decides-a-layer-boundary),
+and `internal/ci/tiers_test.go` holds the half of it a test can hold.
 
 **Everything that shapes a cluster is in one file per environment**,
 `infra/cluster/cluster.<stack>.yaml`, validated by a schema as it is typed and
