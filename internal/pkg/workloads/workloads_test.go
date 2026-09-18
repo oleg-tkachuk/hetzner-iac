@@ -28,6 +28,7 @@ func TestExpected_EveryEntryIsComplete(t *testing.T) {
 	for _, w := range workloads.Expected {
 		label := w.Chart + "/" + w.Name
 
+		assert.NotEmpty(t, w.Layer, label)
 		assert.NotEmpty(t, w.Release, label)
 		assert.NotEmpty(t, w.Namespace, label)
 		assert.NotEmpty(t, w.Name, label)
@@ -176,4 +177,35 @@ func TestExpected_EveryChartsWorkloadsAgreeOnTheRelease(t *testing.T) {
 
 		release[w.Chart] = w.Release
 	}
+}
+
+func TestLayerOf(t *testing.T) {
+	t.Parallel()
+
+	attributed, named := workloads.LayerOf("cilium")
+	assert.True(t, named)
+	assert.Equal(t, workloads.LayerNodePlatform, attributed,
+		"the CNI is installed by the node platform layer, not by the network policy layer "+
+			"whose number the table's comment used to carry")
+
+	attributed, named = workloads.LayerOf("nonexistent")
+	assert.False(t, named)
+	assert.Empty(t, attributed)
+}
+
+func TestLayers_AreFirstSeenAndWithoutDuplicates(t *testing.T) {
+	t.Parallel()
+
+	named := workloads.Layers()
+
+	assert.Equal(t, []string{
+		workloads.LayerNodePlatform,
+		workloads.LayerClusterServices,
+		workloads.LayerIngress,
+		workloads.LayerGitOps,
+	}, named)
+
+	// 20-network-policy writes policies and installs no chart, so it is
+	// absent by design — see TestWorkloadLayers_AreRealLayers.
+	assert.NotContains(t, named, "20-network-policy")
 }

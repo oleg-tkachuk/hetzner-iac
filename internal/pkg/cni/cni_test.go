@@ -56,6 +56,18 @@ func TestSelect_EveryImplementationHasWorkloads(t *testing.T) {
 		assert.NotEmpty(t, workloads.ForChart(chosen.Chart),
 			"cni %s installs chart %s, which has no workloads in internal/pkg/workloads",
 			name, chosen.Chart)
+
+		// And attributed to the layer that owns the CNI component, for the
+		// same reason the pairing above lives here: layertest cannot see a
+		// Chart-less component, so nothing else would notice the CNI's
+		// workloads being filed under another layer. That is not
+		// hypothetical — cilium's were, for months.
+		attributed, named := workloads.LayerOf(chosen.Chart)
+		require.True(t, named, chosen.Chart)
+		assert.Equal(t, workloads.LayerNodePlatform, attributed,
+			"cni %s installs chart %s, which internal/pkg/workloads attributes to %s: "+
+				"the CNI component is %s's",
+			name, chosen.Chart, attributed, workloads.LayerNodePlatform)
 	}
 }
 

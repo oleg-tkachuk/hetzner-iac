@@ -11,6 +11,8 @@
 package layertest
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
@@ -29,6 +31,7 @@ func Check(t *testing.T, components layer.Components) {
 
 	ordersDependenciesFirst(t, components)
 	declaresWorkloads(t, components)
+	workloadsNameThisLayer(t, components)
 }
 
 // ordersDependenciesFirst proves the set can be ordered at all, and that
@@ -79,5 +82,39 @@ func declaresWorkloads(t *testing.T, components layer.Components) {
 		assert.NotEmpty(t, workloads.ForChart(component.Chart),
 			"chart %s (%s) has no workloads in internal/pkg/workloads: nothing verifies it was deployed",
 			component.Chart, chart.Name)
+	}
+}
+
+// workloadsNameThisLayer is the second half of the pairing above: the charts a
+// layer installs must be attributed to THAT layer in internal/pkg/workloads.
+//
+// Without it the attribution is a comment. `cilium` was labelled "Layer 20 —
+// CNI" while 10-node-platform installed it and 20-network-policy installed no
+// chart at all, which cost nothing at the time and would have cost an
+// afternoon to whoever believed it while chasing a CNI that would not come up.
+func workloadsNameThisLayer(t *testing.T, components layer.Components) {
+	t.Helper()
+
+	directory, err := os.Getwd()
+	require.NoError(t, err)
+
+	// `go test` runs a package's tests with that package's directory as the
+	// working directory, so this is the layer's own name — the same string
+	// the directory carries and LAYERS walks.
+	self := filepath.Base(directory)
+
+	for _, component := range components {
+		if component.Chart == "" {
+			continue
+		}
+
+		attributed, named := workloads.LayerOf(component.Chart)
+		require.True(t, named,
+			"chart %s has no entry in internal/pkg/workloads", component.Chart)
+
+		assert.Equal(t, self, attributed,
+			"chart %s is installed by %s and attributed to %s in internal/pkg/workloads: "+
+				"one of the two is wrong, and nothing else would have said so",
+			component.Chart, self, attributed)
 	}
 }
