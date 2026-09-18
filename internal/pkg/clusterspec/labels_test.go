@@ -1,19 +1,20 @@
-package hetzner_test
+package clusterspec_test
 
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 func TestResourceLabels(t *testing.T) {
 	t.Parallel()
 
-	labels := hetzner.ResourceLabels("platform-hel", map[string]string{
-		hetzner.LabelRole: hetzner.RoleWorker,
-		hetzner.LabelPool: "gpu",
+	labels := clusterspec.ResourceLabels("platform-hel", map[string]string{
+		clusterspec.LabelRole: clusterspec.RoleWorker,
+		clusterspec.LabelPool: "gpu",
 	})
 
 	assert.Equal(t, map[string]string{
@@ -30,17 +31,17 @@ func TestResourceLabels_ClusterCannotBeOverridden(t *testing.T) {
 	// The cluster label is what the firewall selector matches. Letting a
 	// caller overwrite it would detach the server from the perimeter while
 	// still looking like a normal label override.
-	labels := hetzner.ResourceLabels("platform-hel", map[string]string{
-		hetzner.LabelCluster: "somewhere-else",
+	labels := clusterspec.ResourceLabels("platform-hel", map[string]string{
+		clusterspec.LabelCluster: "somewhere-else",
 	})
 
-	assert.Equal(t, "platform-hel", labels[hetzner.LabelCluster])
+	assert.Equal(t, "platform-hel", labels[clusterspec.LabelCluster])
 }
 
 func TestClusterSelector(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "cluster=platform-hel", hetzner.ClusterSelector("platform-hel"))
+	assert.Equal(t, "cluster=platform-hel", clusterspec.ClusterSelector("platform-hel"))
 }
 
 func TestTalosImageSelector(t *testing.T) {
@@ -50,7 +51,7 @@ func TestTalosImageSelector(t *testing.T) {
 	// on the snapshot already sitting in the project. Deriving it differently
 	// here would not fail here — it would find no image at plan time, with the
 	// remedy being to re-bake a snapshot that already exists.
-	assert.Equal(t, "os=talos,talos-version=v1.13.10", hetzner.TalosImageSelector("v1.13.10"))
+	assert.Equal(t, "os=talos,talos-version=v1.13.10", clusterspec.TalosImageSelector("v1.13.10"))
 }
 
 func TestTalosImageSelector_CarriesNoArchitectureTerm(t *testing.T) {
@@ -59,8 +60,8 @@ func TestTalosImageSelector_CarriesNoArchitectureTerm(t *testing.T) {
 	// The architecture is a first-class Hetzner field, filtered by both sides
 	// separately. Were it a label term here too, the snapshot would hold the
 	// fact twice and the two copies would be free to disagree.
-	for _, arch := range hetzner.Architectures {
-		assert.NotContains(t, hetzner.TalosImageSelector("v1.13.10"), arch)
+	for _, arch := range clusterspec.Architectures {
+		assert.NotContains(t, clusterspec.TalosImageSelector("v1.13.10"), arch)
 	}
 }
 
@@ -69,7 +70,7 @@ func TestBuildFirewallRules_Baseline(t *testing.T) {
 
 	admin := []string{"203.0.113.4/32"}
 
-	rules, err := hetzner.BuildFirewallRules(admin, hetzner.FirewallRuleOptions{})
+	rules, err := clusterspec.BuildFirewallRules(admin, clusterspec.FirewallRuleOptions{})
 	require.NoError(t, err)
 	require.Len(t, rules, 2)
 
@@ -86,10 +87,10 @@ func TestBuildFirewallRules_ICMPOptional(t *testing.T) {
 
 	admin := []string{"203.0.113.4/32"}
 
-	without, err := hetzner.BuildFirewallRules(admin, hetzner.FirewallRuleOptions{})
+	without, err := clusterspec.BuildFirewallRules(admin, clusterspec.FirewallRuleOptions{})
 	require.NoError(t, err)
 
-	with, err := hetzner.BuildFirewallRules(admin, hetzner.FirewallRuleOptions{AllowICMP: true})
+	with, err := clusterspec.BuildFirewallRules(admin, clusterspec.FirewallRuleOptions{AllowICMP: true})
 	require.NoError(t, err)
 
 	assert.Len(t, with, len(without)+1)
@@ -100,8 +101,8 @@ func TestBuildFirewallRules_ICMPOptional(t *testing.T) {
 func TestBuildFirewallRules_RefusesEmptyAdminCIDRs(t *testing.T) {
 	t.Parallel()
 
-	_, err := hetzner.BuildFirewallRules(nil, hetzner.FirewallRuleOptions{})
-	require.ErrorIs(t, err, hetzner.ErrEmptyAdminCIDRs)
+	_, err := clusterspec.BuildFirewallRules(nil, clusterspec.FirewallRuleOptions{})
+	require.ErrorIs(t, err, clusterspec.ErrEmptyAdminCIDRs)
 }
 
 func TestBuildFirewallRules_RejectsMalformedExtraRules(t *testing.T) {
@@ -111,27 +112,27 @@ func TestBuildFirewallRules_RejectsMalformedExtraRules(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		extra   hetzner.FirewallRule
+		extra   clusterspec.FirewallRule
 		wantMsg string
 	}{
 		{
 			name:    "tcp without a port",
-			extra:   hetzner.FirewallRule{Description: "nodeport", Protocol: "tcp", SourceIPs: admin},
+			extra:   clusterspec.FirewallRule{Description: "nodeport", Protocol: "tcp", SourceIPs: admin},
 			wantMsg: "needs a port",
 		},
 		{
 			name:    "icmp with a port",
-			extra:   hetzner.FirewallRule{Description: "ping", Protocol: "icmp", Port: "0", SourceIPs: admin},
+			extra:   clusterspec.FirewallRule{Description: "ping", Protocol: "icmp", Port: "0", SourceIPs: admin},
 			wantMsg: "must not carry port",
 		},
 		{
 			name:    "no sources",
-			extra:   hetzner.FirewallRule{Description: "orphan", Protocol: "tcp", Port: "80"},
+			extra:   clusterspec.FirewallRule{Description: "orphan", Protocol: "tcp", Port: "80"},
 			wantMsg: "has no source CIDRs",
 		},
 		{
 			name:    "unknown protocol",
-			extra:   hetzner.FirewallRule{Description: "mystery", Protocol: "sctp", Port: "80", SourceIPs: admin},
+			extra:   clusterspec.FirewallRule{Description: "mystery", Protocol: "sctp", Port: "80", SourceIPs: admin},
 			wantMsg: "unsupported protocol",
 		},
 	}
@@ -140,8 +141,8 @@ func TestBuildFirewallRules_RejectsMalformedExtraRules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := hetzner.BuildFirewallRules(admin, hetzner.FirewallRuleOptions{
-				Extra: []hetzner.FirewallRule{tc.extra},
+			_, err := clusterspec.BuildFirewallRules(admin, clusterspec.FirewallRuleOptions{
+				Extra: []clusterspec.FirewallRule{tc.extra},
 			})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantMsg)
@@ -152,8 +153,8 @@ func TestBuildFirewallRules_RejectsMalformedExtraRules(t *testing.T) {
 func TestNodeName(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "platform-hel-control-plane-0", hetzner.NodeName("platform-hel", "control-plane", 0))
-	assert.Equal(t, "platform-hel-worker-11", hetzner.NodeName("platform-hel", "worker", 11))
+	assert.Equal(t, "platform-hel-control-plane-0", clusterspec.NodeName("platform-hel", "control-plane", 0))
+	assert.Equal(t, "platform-hel-worker-11", clusterspec.NodeName("platform-hel", "worker", 11))
 }
 
 func TestSortedLabelPairs_IsDeterministic(t *testing.T) {
@@ -164,7 +165,7 @@ func TestSortedLabelPairs_IsDeterministic(t *testing.T) {
 	// Map iteration order is randomised per run; unsorted output would show
 	// up as a resource diff on runs where nothing changed.
 	for range 20 {
-		assert.Equal(t, []string{"a=2", "m=3", "z=1"}, hetzner.SortedLabelPairs(labels))
+		assert.Equal(t, []string{"a=2", "m=3", "z=1"}, clusterspec.SortedLabelPairs(labels))
 	}
 }
 
@@ -187,7 +188,7 @@ func TestParseTaint(t *testing.T) {
 		t.Run(tc.in, func(t *testing.T) {
 			t.Parallel()
 
-			key, value, effect, err := hetzner.ParseTaint(tc.in)
+			key, value, effect, err := clusterspec.ParseTaint(tc.in)
 			if tc.wantErr {
 				require.Error(t, err)
 

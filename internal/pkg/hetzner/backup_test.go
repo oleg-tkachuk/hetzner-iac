@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
@@ -55,7 +56,7 @@ func TestStorageBox_IsPlacedAndLabelledWithTheCluster(t *testing.T) {
 
 	labels := got["labels"].ObjectValue()
 	assert.Equal(t, testCluster,
-		labels[resource.PropertyKey(hetzner.LabelCluster)].StringValue())
+		labels[resource.PropertyKey(clusterspec.LabelCluster)].StringValue())
 }
 
 // TestStorageBox_ExposesOnlySSH is the security shape, and every one of these

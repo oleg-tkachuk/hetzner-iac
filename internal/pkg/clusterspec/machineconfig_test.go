@@ -1,14 +1,14 @@
-package hetzner_test
+package clusterspec_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 // decode parses the FIRST document of a rendered patch, so assertions are made
@@ -50,7 +50,7 @@ func hostnameDoc(t *testing.T, patch string) map[string]any {
 func TestBuildClusterPatch(t *testing.T) {
 	t.Parallel()
 
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
@@ -73,7 +73,7 @@ func TestBuildClusterPatch_LeavesTheCNIToItsOwnLayer(t *testing.T) {
 	// layers/10-node-platform would then have to remove is worse than shipping
 	// one: nodes stay NotReady until that layer runs, which is visible and
 	// intended, rather than two CNIs briefly fighting.
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
 		IPRange: "10.0.0.0/16",
 	})
@@ -92,7 +92,7 @@ func TestBuildClusterPatch_DisablesKubeProxyForCilium(t *testing.T) {
 
 	// Cilium replaces kube-proxy in eBPF. Leaving kube-proxy enabled means
 	// two components programming the same service dataplane.
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
 		IPRange: "10.0.0.0/16",
 	})
@@ -111,7 +111,7 @@ func TestBuildClusterPatch_HandsNodeLifecycleToTheCCM(t *testing.T) {
 	// cloud-provider=external is what leaves nodes carrying the
 	// `uninitialized` taint until the hcloud CCM starts — the mechanism that
 	// stops workloads landing on a node before its routes exist.
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
 		IPRange: "10.0.0.0/16",
 	})
@@ -140,7 +140,7 @@ func TestBuildClusterPatch_PinsKubeletToThePrivateNetwork(t *testing.T) {
 	// Without validSubnets a node with a public address advertises it, and
 	// every intra-cluster connection then leaves the private network —
 	// metered, and exposed.
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
 		IPRange: "10.0.0.0/16",
 	})
@@ -158,7 +158,7 @@ func TestBuildClusterPatch_SchedulingOnControlPlanes(t *testing.T) {
 	t.Parallel()
 
 	for _, allow := range []bool{true, false} {
-		patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+		patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 			PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24",
 			IPRange:                        "10.0.0.0/16",
 			AllowSchedulingOnControlPlanes: allow,
@@ -176,22 +176,22 @@ func TestBuildClusterPatch_Rejects(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		args    hetzner.ClusterPatchArgs
+		args    clusterspec.ClusterPatchArgs
 		wantMsg string
 	}{
 		{
 			name:    "no pod CIDR",
-			args:    hetzner.ClusterPatchArgs{ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24", IPRange: "10.0.0.0/16"},
+			args:    clusterspec.ClusterPatchArgs{ServiceCIDR: "10.96.0.0/12", NodeSubnet: "10.0.1.0/24", IPRange: "10.0.0.0/16"},
 			wantMsg: "podCIDR and serviceCIDR are required",
 		},
 		{
 			name:    "no service CIDR",
-			args:    hetzner.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", NodeSubnet: "10.0.1.0/24", IPRange: "10.0.0.0/16"},
+			args:    clusterspec.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", NodeSubnet: "10.0.1.0/24", IPRange: "10.0.0.0/16"},
 			wantMsg: "podCIDR and serviceCIDR are required",
 		},
 		{
 			name:    "no node subnet",
-			args:    hetzner.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", IPRange: "10.0.0.0/16"},
+			args:    clusterspec.ClusterPatchArgs{PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12", IPRange: "10.0.0.0/16"},
 			wantMsg: "nodeSubnet is required",
 		},
 	}
@@ -200,7 +200,7 @@ func TestBuildClusterPatch_Rejects(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := hetzner.BuildClusterPatch(tc.args)
+			_, err := clusterspec.BuildClusterPatch(tc.args)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantMsg)
 		})
@@ -210,7 +210,7 @@ func TestBuildClusterPatch_Rejects(t *testing.T) {
 func TestBuildNodePatch(t *testing.T) {
 	t.Parallel()
 
-	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+	patch, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
 		Hostname: "platform-hel-control-plane-0",
 		CertSANs: []string{"203.0.113.10", "10.0.1.2", "203.0.113.99"},
 	})
@@ -239,7 +239,7 @@ func TestBuildNodePatch_SignsSANsIntoTheAPIServerToo(t *testing.T) {
 	// Talos API answer everywhere while kube-apiserver answers on one name —
 	// which looks fine on a single-node cluster and fails the moment kubectl
 	// aims at a node behind a load balancer.
-	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+	patch, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
 		Hostname: "cp-0",
 		CertSANs: []string{"203.0.113.10", "10.0.1.2"},
 	})
@@ -259,7 +259,7 @@ func TestBuildNodePatch_DedupesSANs(t *testing.T) {
 	// On a single control plane the node address and the cluster endpoint are
 	// the same string; a duplicate is accepted but makes the certificate
 	// harder to read.
-	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+	patch, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
 		Hostname: "cp-0",
 		CertSANs: []string{"10.0.1.2", "10.0.1.2", "", "203.0.113.10"},
 	})
@@ -274,7 +274,7 @@ func TestBuildNodePatch_DedupesSANs(t *testing.T) {
 func TestBuildNodePatch_LabelsAndTaints(t *testing.T) {
 	t.Parallel()
 
-	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+	patch, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
 		Hostname:   "gpu-0",
 		CertSANs:   []string{"10.0.1.80"},
 		NodeLabels: map[string]string{"pool": "gpu"},
@@ -298,7 +298,7 @@ func TestBuildNodePatch_OmitsKubeletSectionWhenNothingToSay(t *testing.T) {
 
 	// An empty kubelet block would be a no-op patch key that still shows in
 	// diffs; leaving it out keeps the rendered config to what was asked for.
-	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+	patch, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
 		Hostname: "cp-0",
 		CertSANs: []string{"10.0.1.2"},
 	})
@@ -315,22 +315,22 @@ func TestBuildNodePatch_Rejects(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		args    hetzner.NodePatchArgs
+		args    clusterspec.NodePatchArgs
 		wantMsg string
 	}{
 		{
 			name:    "no hostname",
-			args:    hetzner.NodePatchArgs{CertSANs: []string{"10.0.1.2"}},
+			args:    clusterspec.NodePatchArgs{CertSANs: []string{"10.0.1.2"}},
 			wantMsg: "hostname is required",
 		},
 		{
 			name:    "no certificate SANs",
-			args:    hetzner.NodePatchArgs{Hostname: "cp-0"},
+			args:    clusterspec.NodePatchArgs{Hostname: "cp-0"},
 			wantMsg: "at least one certificate SAN is required",
 		},
 		{
 			name: "malformed taint",
-			args: hetzner.NodePatchArgs{
+			args: clusterspec.NodePatchArgs{
 				Hostname: "cp-0", CertSANs: []string{"10.0.1.2"},
 				NodeTaints: []string{"nonsense"},
 			},
@@ -342,7 +342,7 @@ func TestBuildNodePatch_Rejects(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := hetzner.BuildNodePatch(tc.args)
+			_, err := clusterspec.BuildNodePatch(tc.args)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantMsg)
 		})
@@ -355,7 +355,7 @@ func TestBuildNodePatch_HostileValuesCannotBreakTheDocument(t *testing.T) {
 	// The reason these patches are marshalled from structs rather than
 	// rendered from a template: a value containing YAML syntax must end up as
 	// a string, not as structure.
-	patch, err := hetzner.BuildNodePatch(hetzner.NodePatchArgs{
+	patch, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
 		Hostname: "evil\nmachine:\n  install:\n    disk: /dev/sda",
 		CertSANs: []string{"10.0.1.2"},
 	})
@@ -378,7 +378,7 @@ func TestBuildClusterPatch_DoesNotPassCloudProviderToTheAPIServer(t *testing.T) 
 	//
 	// Nothing offline catches this. talosctl validates the shape of the
 	// config, not whether a flag exists in the Kubernetes version it pins.
-	raw, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	raw, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
@@ -447,7 +447,7 @@ func TestBuildClusterPatch_EncryptsBothSystemVolumes(t *testing.T) {
 	// /var, which is etcd's data directory. Encrypting one and not the other
 	// is a cluster whose secrets are still readable from a snapshot, so both
 	// are named here rather than trusted to a loop somebody may shorten.
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
@@ -457,7 +457,7 @@ func TestBuildClusterPatch_EncryptsBothSystemVolumes(t *testing.T) {
 
 	found := volumeConfigs(t, patch)
 
-	for _, volume := range []string{hetzner.VolumeSTATE, hetzner.VolumeEPHEMERAL} {
+	for _, volume := range []string{clusterspec.VolumeSTATE, clusterspec.VolumeEPHEMERAL} {
 		document, ok := found[volume]
 		require.True(t, ok, "no VolumeConfig for %s", volume)
 
@@ -465,7 +465,7 @@ func TestBuildClusterPatch_EncryptsBothSystemVolumes(t *testing.T) {
 
 		encryption, ok := document["encryption"].(map[string]any)
 		require.True(t, ok, "%s has no encryption stanza", volume)
-		assert.Equal(t, hetzner.EncryptionProvider, encryption["provider"], volume)
+		assert.Equal(t, clusterspec.EncryptionProvider, encryption["provider"], volume)
 
 		keys, ok := encryption["keys"].([]any)
 		require.True(t, ok, "%s has no keys", volume)
@@ -479,7 +479,7 @@ func TestBuildClusterPatch_EncryptsBothSystemVolumes(t *testing.T) {
 		// passphrase in the machine config beside the data it protects.
 		assert.Contains(t, key, "nodeID", volume)
 		assert.NotContains(t, key, "static", volume)
-		assert.Equal(t, float64(hetzner.EncryptionKeySlot), key["slot"], volume)
+		assert.Equal(t, float64(clusterspec.EncryptionKeySlot), key["slot"], volume)
 	}
 
 	assert.Len(t, found, 2, "only the two system volumes are configured here")
@@ -492,7 +492,7 @@ func TestBuildClusterPatch_DoesNotMixTheLegacyEncryptionForm(t *testing.T) {
 	// setting. Talos v1.13 documents VolumeConfig instead, and carrying both
 	// for one volume is a conflict rather than a harmless duplicate — so the
 	// machine config document must stay silent about encryption.
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
@@ -511,7 +511,7 @@ func TestBuildEtcdPatch_PinsPeersToThePrivateNetwork(t *testing.T) {
 
 	const nodeSubnet = "10.0.1.0/24"
 
-	patch, err := hetzner.BuildEtcdPatch(nodeSubnet)
+	patch, err := clusterspec.BuildEtcdPatch(nodeSubnet)
 	require.NoError(t, err)
 
 	cluster, ok := decode(t, patch)["cluster"].(map[string]any)
@@ -533,7 +533,7 @@ func TestBuildEtcdPatch_RequiresASubnet(t *testing.T) {
 	t.Parallel()
 
 	// Empty would produce a document Talos accepts and that pins nothing.
-	_, err := hetzner.BuildEtcdPatch("")
+	_, err := clusterspec.BuildEtcdPatch("")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nodeSubnet is required")
@@ -545,7 +545,7 @@ func TestBuildClusterPatch_CarriesNoEtcdSection(t *testing.T) {
 	// The shared patch goes to workers too, and Talos refuses the section
 	// there: `etcd config is only allowed on control plane machines`. Found by
 	// cluster:machine-config:check, which is why etcd has a patch of its own.
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
@@ -575,7 +575,7 @@ func TestNetworkGateway_IsTheFirstAddressOfTheRange(t *testing.T) {
 		// network's gateway, not the next address after that host.
 		"10.0.5.7/16": "10.0.0.1",
 	} {
-		got, err := hetzner.NetworkGateway(ipRange)
+		got, err := clusterspec.NetworkGateway(ipRange)
 		require.NoError(t, err, ipRange)
 		assert.Equal(t, want, got, ipRange)
 	}
@@ -585,7 +585,7 @@ func TestNetworkGateway_RefusesWhatItCannotDerive(t *testing.T) {
 	t.Parallel()
 
 	for _, bad := range []string{"", "10.0.0.0", "not-a-cidr", "10.0.0.0/33"} {
-		_, err := hetzner.NetworkGateway(bad)
+		_, err := clusterspec.NetworkGateway(bad)
 		require.Error(t, err, bad)
 	}
 }
@@ -597,7 +597,7 @@ func TestBuildClusterPatch_RoutesThePodNetworkThroughThePrivateGateway(t *testin
 	// has no route for another node's pod CIDR — eth1 is a /32 whose only
 	// on-link peer is the gateway — so without this a pod packet for another
 	// node matches the DEFAULT route and leaves through the public interface.
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
@@ -615,7 +615,7 @@ func TestBuildClusterPatch_RoutesThePodNetworkThroughThePrivateGateway(t *testin
 	iface, ok := list[0].(map[string]any)
 	require.True(t, ok)
 
-	assert.Equal(t, hetzner.PrivateInterface, iface["interface"])
+	assert.Equal(t, clusterspec.PrivateInterface, iface["interface"])
 
 	// DHCP stays on. Hetzner serves the private address over it, and declaring
 	// the interface without this turns it off — taking the private address,
@@ -638,7 +638,7 @@ func TestBuildClusterPatch_DerivesTheGatewayFromTheTopologysRange(t *testing.T) 
 	// A non-default range has to move the gateway with it. Pinned separately
 	// from the case above so a hardcoded 10.0.0.1 fails here rather than
 	// passing everywhere the default happens to be used.
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "172.16.1.0/24",
@@ -665,7 +665,7 @@ func TestBuildClusterPatch_RefusesATopologyWithNoRange(t *testing.T) {
 	// Refused rather than defaulted. A patch with no route is a cluster whose
 	// pods cannot reach each other across nodes, and that failure is three
 	// layers away from anything that names a network.
-	_, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	_, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
@@ -687,7 +687,7 @@ func TestBuildClusterPatch_RefusesATopologyWithNoRange(t *testing.T) {
 func TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt(t *testing.T) {
 	t.Parallel()
 
-	patch, err := hetzner.BuildClusterPatch(hetzner.ClusterPatchArgs{
+	patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:     "10.244.0.0/16",
 		ServiceCIDR: "10.96.0.0/12",
 		NodeSubnet:  "10.0.1.0/24",
@@ -709,7 +709,7 @@ func TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt(t *testing.T) {
 	assert.Equal(t, true, prism["enabled"])
 
 	// float64, because YAML numbers decode as float64 through map[string]any.
-	assert.Equal(t, float64(clusterref.KubePrismPort), prism["port"],
+	assert.Equal(t, float64(clusterspec.KubePrismPort), prism["port"],
 		"Talos would listen on %v while Cilium is pointed at %d",
-		prism["port"], clusterref.KubePrismPort)
+		prism["port"], clusterspec.KubePrismPort)
 }

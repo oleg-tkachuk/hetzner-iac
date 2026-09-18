@@ -3,7 +3,7 @@
 // It exists so that a malformed cluster description fails in CI, in a second,
 // instead of at `pulumi up`, after an operator has already set up credentials
 // and waited for a preview. The validation is the same code the Pulumi program
-// runs — internal/pkg/hetzner.LoadTopology — so the check cannot drift from the thing
+// runs — internal/pkg/clusterspec.LoadTopology — so the check cannot drift from the thing
 // it is checking.
 package main
 
@@ -16,7 +16,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 func main() {
@@ -94,7 +94,7 @@ func Validate(dirs []string) ([]string, error) {
 		for _, path := range paths {
 			checked++
 
-			if _, err := hetzner.LoadTopology(path); err != nil {
+			if _, err := clusterspec.LoadTopology(path); err != nil {
 				failures = append(failures, fmt.Sprintf("%s:\n%s", path, indent(err.Error())))
 
 				continue
@@ -168,12 +168,12 @@ func indent(text string) string {
 // talosVersion reports the Talos version a topology pins.
 // fields are the values `get` can print. A table rather than a switch so the
 // error message can list them, and so a test can assert every one resolves.
-var fields = map[string]func(*hetzner.Topology) string{
-	"talos-version":      func(t *hetzner.Topology) string { return t.Talos.Version },
-	"talos-architecture": func(t *hetzner.Topology) string { return t.Talos.Architecture },
-	"kubernetes-version": func(t *hetzner.Topology) string { return t.Kubernetes.Version },
-	"cluster-name":       func(t *hetzner.Topology) string { return t.Metadata.Name },
-	"location":           func(t *hetzner.Topology) string { return t.Placement.Location },
+var fields = map[string]func(*clusterspec.Topology) string{
+	"talos-version":      func(t *clusterspec.Topology) string { return t.Talos.Version },
+	"talos-architecture": func(t *clusterspec.Topology) string { return t.Talos.Architecture },
+	"kubernetes-version": func(t *clusterspec.Topology) string { return t.Kubernetes.Version },
+	"cluster-name":       func(t *clusterspec.Topology) string { return t.Metadata.Name },
+	"location":           func(t *clusterspec.Topology) string { return t.Placement.Location },
 }
 
 // get reads one field, and refuses to print an empty one.
@@ -189,7 +189,7 @@ func get(field, path string) (string, error) {
 			field, strings.Join(fieldNames(), ", "))
 	}
 
-	topology, err := hetzner.LoadTopology(path)
+	topology, err := clusterspec.LoadTopology(path)
 	if err != nil {
 		return "", err
 	}

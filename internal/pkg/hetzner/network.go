@@ -3,6 +3,8 @@ package hetzner
 import (
 	"fmt"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -57,7 +59,7 @@ func NewNetwork(ctx *pulumi.Context, name string, args *NetworkArgs, opts ...pul
 	// collapsible tree per cluster concern rather than a flat list.
 	parent := pulumi.Parent(component)
 
-	labels := ResourceLabels(args.ClusterName, nil)
+	labels := clusterspec.ResourceLabels(args.ClusterName, nil)
 
 	network, err := hcloud.NewNetwork(ctx, name, &hcloud.NetworkArgs{
 		Name:    pulumi.String(args.ClusterName),
@@ -81,7 +83,7 @@ func NewNetwork(ctx *pulumi.Context, name string, args *NetworkArgs, opts ...pul
 		return nil, fmt.Errorf("hcloud network subnet: %w", err)
 	}
 
-	addressing, err := NewAddressing(args.NodeSubnet, PoolAddressStride)
+	addressing, err := clusterspec.NewAddressing(args.NodeSubnet, clusterspec.PoolAddressStride)
 	if err != nil {
 		return nil, err
 	}

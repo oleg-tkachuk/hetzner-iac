@@ -3,6 +3,8 @@ package hetzner
 import (
 	"fmt"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -105,8 +107,8 @@ func NewStorageBox(
 	opts ...pulumi.ResourceOption,
 ) (*StorageBox, error) {
 	labels := pulumi.StringMap{
-		LabelCluster:   args.ClusterName,
-		LabelManagedBy: pulumi.String(ManagedBy),
+		clusterspec.LabelCluster:   args.ClusterName,
+		clusterspec.LabelManagedBy: pulumi.String(clusterspec.ManagedBy),
 	}
 
 	box, err := hcloud.NewStorageBox(ctx, name, &hcloud.StorageBoxArgs{

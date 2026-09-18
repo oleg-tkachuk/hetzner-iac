@@ -3,8 +3,9 @@ package platform_test
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
 func TestStorageClass_IsWhatTheCSIDriverRegisters(t *testing.T) {

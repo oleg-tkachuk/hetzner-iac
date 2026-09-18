@@ -5,9 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 func TestStackNamed_FindsAndMisses(t *testing.T) {
@@ -196,7 +197,7 @@ workerPools:
 func loaded(t *testing.T, raw string) topologyFile {
 	t.Helper()
 
-	topology, err := hetzner.ParseTopology([]byte(raw))
+	topology, err := clusterspec.ParseTopology([]byte(raw))
 	require.NoError(t, err)
 
 	return topologyFile{Topology: topology}

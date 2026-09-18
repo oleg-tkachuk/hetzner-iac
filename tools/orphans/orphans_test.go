@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 // claims is a cluster that accounts for everything named in it.
@@ -106,15 +106,15 @@ func TestOrphans_PulumiLoadBalancersAreClaimed(t *testing.T) {
 			{
 				Name: "platform-dev-api",
 				Labels: map[string]string{
-					hetzner.LabelCluster:   "platform-dev",
-					hetzner.LabelManagedBy: hetzner.ManagedBy,
+					clusterspec.LabelCluster:   "platform-dev",
+					clusterspec.LabelManagedBy: clusterspec.ManagedBy,
 				},
 			},
 			{
 				Name: "platform-dev-ingress",
 				Labels: map[string]string{
-					hetzner.LabelCluster:   "platform-dev",
-					hetzner.LabelManagedBy: hetzner.ManagedBy,
+					clusterspec.LabelCluster:   "platform-dev",
+					clusterspec.LabelManagedBy: clusterspec.ManagedBy,
 				},
 			},
 		},
@@ -242,8 +242,8 @@ func TestClusterServers_OnlyThisClustersOwn(t *testing.T) {
 	t.Parallel()
 
 	inventory := Inventory{Servers: []Server{
-		{Name: "platform-dev-control-plane-0", Labels: map[string]string{hetzner.LabelCluster: "platform-dev"}},
-		{Name: "platform-prod-control-plane-0", Labels: map[string]string{hetzner.LabelCluster: "platform-prod"}},
+		{Name: "platform-dev-control-plane-0", Labels: map[string]string{clusterspec.LabelCluster: "platform-dev"}},
+		{Name: "platform-prod-control-plane-0", Labels: map[string]string{clusterspec.LabelCluster: "platform-prod"}},
 		// Somebody else's server, or one from before this repository existed.
 		{Name: "unlabelled"},
 	}}

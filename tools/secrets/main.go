@@ -25,9 +25,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-
 	"golang.org/x/term"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/talossecrets"
 )
 
 // timeout covers one `pulumi stack export`, which decrypts through the
@@ -68,7 +68,7 @@ func run(ctx context.Context, args []string, terminal bool) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	bundle, err := hetzner.Bundle(ctx, args[0])
+	bundle, err := talossecrets.Bundle(ctx, args[0])
 	if err != nil {
 		return err
 	}

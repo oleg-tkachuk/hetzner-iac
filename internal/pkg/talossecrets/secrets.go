@@ -1,4 +1,16 @@
-package hetzner
+// Package talossecrets reads a cluster's Talos secrets bundle out of the
+// Pulumi state that holds it.
+//
+// The bundle is the cluster's root of trust: the CA keys every node and client
+// certificate descends from. Nothing regenerates it, so a cluster whose state
+// is lost cannot be joined, upgraded or restored — which is why two commands
+// exist to get it out, `tools/secrets` and `tools/recoverykit`.
+//
+// Separate from internal/pkg/hcloudtoken, which also reads a stack, because
+// this one reads it by running the `pulumi` binary and that one needs the
+// automation API. Together they would put 800 packages behind a function that
+// shells out.
+package talossecrets
 
 import (
 	"bytes"
@@ -7,6 +19,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 // SecretsResourceType is the Talos secrets bundle in Pulumi's state — the
@@ -66,7 +80,7 @@ func Bundle(ctx context.Context, stack string) ([]byte, error) {
 	// #nosec G204 -- the arguments are literals from this file plus a stack
 	// name, passed as a vector: there is no shell to interpret any of it.
 	cmd := exec.CommandContext(ctx, "pulumi", "--non-interactive",
-		"--cwd", ClusterDir, "--stack", stack, "stack", "export", "--show-secrets")
+		"--cwd", clusterspec.ClusterDir, "--stack", stack, "stack", "export", "--show-secrets")
 
 	var stderr bytes.Buffer
 

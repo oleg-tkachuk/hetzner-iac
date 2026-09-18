@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -105,12 +105,12 @@ func TestUploadArgs_LabelsWithTheSelectorTheLookupUses(t *testing.T) {
 	// labelled differently is invisible to the cluster that needs it, and the
 	// failure is "no available Talos snapshot" against an image that exists.
 	args := uploadArgs("https://example.test/i.raw.xz", "arm", clusterref.ProbeLocation,
-		hetzner.TalosImageSelector("v1.13.10"))
+		clusterspec.TalosImageSelector("v1.13.10"))
 
 	position := slices.Index(args, "--labels")
 	require.NotEqual(t, -1, position)
 	require.Less(t, position+1, len(args))
-	assert.Equal(t, hetzner.TalosImageSelector("v1.13.10"), args[position+1])
+	assert.Equal(t, clusterspec.TalosImageSelector("v1.13.10"), args[position+1])
 }
 
 func TestCreatedSchematic_AcceptsTheStatusTheFactoryActuallySends(t *testing.T) {
@@ -237,9 +237,9 @@ func TestDecodeSchematic_Errors(t *testing.T) {
 func TestArchitectures_CoverEveryOneTheTopologyAccepts(t *testing.T) {
 	t.Parallel()
 
-	require.NotEmpty(t, hetzner.Architectures)
+	require.NotEmpty(t, clusterspec.Architectures)
 
-	for _, arch := range hetzner.Architectures {
+	for _, arch := range clusterspec.Architectures {
 		factory, err := factoryArchitecture(arch)
 
 		require.NoError(t, err,
@@ -250,7 +250,7 @@ func TestArchitectures_CoverEveryOneTheTopologyAccepts(t *testing.T) {
 	// And the other way: a mapping for something the topology would reject is
 	// a bake nobody can ask for.
 	for arch := range architectures {
-		assert.Contains(t, hetzner.Architectures, arch,
+		assert.Contains(t, clusterspec.Architectures, arch,
 			"%q maps to a factory architecture and the topology validator rejects it", arch)
 	}
 }

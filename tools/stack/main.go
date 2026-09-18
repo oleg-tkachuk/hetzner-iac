@@ -31,7 +31,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 func main() {
@@ -303,7 +303,7 @@ type Environment struct {
 	Name string
 	// Topology is nil when there is no file for this stack, or when the file
 	// is there and unreadable — Problem then says which.
-	Topology *hetzner.Topology
+	Topology *clusterspec.Topology
 	Problem  error
 	Present  bool
 	// InBackend is false for an environment described by a file that no
@@ -316,7 +316,7 @@ type Environment struct {
 // topologyFile is a loaded topology, or the reason it could not be loaded.
 // Failing to read one file does not hide the other environments.
 type topologyFile struct {
-	Topology *hetzner.Topology
+	Topology *clusterspec.Topology
 	Err      error
 }
 
@@ -371,7 +371,7 @@ func topologies(dir string) (map[string]topologyFile, error) {
 			continue
 		}
 
-		topology, loadErr := hetzner.LoadTopology(path)
+		topology, loadErr := clusterspec.LoadTopology(path)
 		files[name] = topologyFile{Topology: topology, Err: loadErr}
 	}
 
@@ -479,7 +479,7 @@ func state(environment Environment) string {
 // verbatim would show a blank for the commonest case — and LoadTopology has
 // already defaulted them, which is the whole reason this reads the loaded
 // topology rather than the file.
-func summary(topology *hetzner.Topology) string {
+func summary(topology *clusterspec.Topology) string {
 	parts := []string{fmt.Sprintf("%d x %s",
 		topology.ControlPlane.Count, topology.ControlPlane.ServerType)}
 

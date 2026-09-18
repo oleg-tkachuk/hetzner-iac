@@ -5,10 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 )
 
 func TestEffects_AreComplete(t *testing.T) {

@@ -3,6 +3,8 @@ package hetzner
 import (
 	"fmt"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
@@ -38,7 +40,7 @@ type ControlPlaneArgs struct {
 	ServerType  string
 	Location    string
 
-	Addressing *Addressing
+	Addressing *clusterspec.Addressing
 
 	ImageID          pulumi.StringInput
 	NetworkID        pulumi.IntInput
@@ -112,7 +114,7 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 		apiAddress = nodes[0].address
 	}
 
-	endpoint := pulumi.Sprintf("https://%s:%d", apiAddress, PortKubeAPI)
+	endpoint := pulumi.Sprintf("https://%s:%d", apiAddress, clusterspec.PortKubeAPI)
 
 	machineConfig := talosmachine.GetConfigurationOutput(ctx, talosmachine.GetConfigurationOutputArgs{
 		ClusterName:       pulumi.String(args.ClusterName),
@@ -216,7 +218,7 @@ func createControlPlaneNodes(ctx *pulumi.Context, args *ControlPlaneArgs, opts .
 			return nil, fmt.Errorf("control-plane %d: %w", i, err)
 		}
 
-		hostname := NodeName(args.ClusterName, RoleControlPlane, i)
+		hostname := clusterspec.NodeName(args.ClusterName, clusterspec.RoleControlPlane, i)
 
 		server, err := newServer(ctx, serverSpec{
 			name:             hostname,
@@ -226,9 +228,9 @@ func createControlPlaneNodes(ctx *pulumi.Context, args *ControlPlaneArgs, opts .
 			networkID:        args.NetworkID,
 			privateIP:        privateIP,
 			placementGroupID: args.PlacementGroupID,
-			labels: ResourceLabels(args.ClusterName, map[string]string{
-				LabelRole: RoleControlPlane,
-				LabelPool: RoleControlPlane,
+			labels: clusterspec.ResourceLabels(args.ClusterName, map[string]string{
+				clusterspec.LabelRole: clusterspec.RoleControlPlane,
+				clusterspec.LabelPool: clusterspec.RoleControlPlane,
 			}),
 			publicIPv4: args.PublicIPv4,
 		}, opts...)
@@ -257,7 +259,7 @@ func controlPlaneNodePatch(node controlPlaneNode, apiAddress pulumi.StringInput)
 	return pulumix.Cast[pulumi.StringOutput](pulumix.Apply2Err(
 		node.address, apiAddress.ToStringOutput(),
 		func(address, endpointAddress string) (string, error) {
-			return BuildNodePatch(NodePatchArgs{
+			return clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
 				Hostname: node.hostname,
 				CertSANs: []string{address, node.privateIP, endpointAddress},
 			})

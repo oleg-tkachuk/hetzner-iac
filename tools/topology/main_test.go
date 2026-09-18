@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 
 	"sigs.k8s.io/yaml"
 )
@@ -445,14 +445,14 @@ func TestExampleTopology_EveryCommentedAlternativeIsValid(t *testing.T) {
 	require.Len(t, blocks, 2, "the example has two alternatives; a new one needs no test change, a removed one does")
 
 	// The same loader the program runs, so this cannot drift from it.
-	activeTopology, err := hetzner.LoadTopology(path)
+	activeTopology, err := clusterspec.LoadTopology(path)
 	require.NoError(t, err, "the example's own active configuration does not load")
 
 	for i, block := range blocks {
 		written := filepath.Join(t.TempDir(), fmt.Sprintf("cluster.alternative.%d.yaml", i))
 		require.NoError(t, os.WriteFile(written, []byte(head+block+"\n"), 0o600))
 
-		alternative, err := hetzner.LoadTopology(written)
+		alternative, err := clusterspec.LoadTopology(written)
 		require.NoError(t, err,
 			"alternative %d: the example's own instructions produce a topology that does not load", i)
 

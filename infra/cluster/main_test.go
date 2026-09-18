@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hcloudtoken"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilog"
 
@@ -35,10 +37,10 @@ const (
 	testToken             = "token-sentinel"
 )
 
-func exampleTopology(t *testing.T) *hetzner.Topology {
+func exampleTopology(t *testing.T) *clusterspec.Topology {
 	t.Helper()
 
-	topology, err := hetzner.LoadTopology(exampleTopologyPath)
+	topology, err := clusterspec.LoadTopology(exampleTopologyPath)
 	require.NoError(t, err, "the committed example must load and validate")
 
 	return topology
@@ -115,7 +117,7 @@ func TestExports_CarryTheValueEachNamePromises(t *testing.T) {
 		clusterref.OutputHcloudToken:       testToken,
 
 		// From the topology rather than from the component.
-		clusterref.OutputNodeSubnet:        hetzner.DefaultNodeSubnet,
+		clusterref.OutputNodeSubnet:        clusterspec.DefaultNodeSubnet,
 		clusterref.OutputClusterName:       topology.Metadata.Name,
 		clusterref.OutputLocation:          topology.Placement.Location,
 		clusterref.OutputControlPlaneCount: topology.ControlPlane.Count,
@@ -183,7 +185,7 @@ func TestClusterToken_IsExportedEmptyWhenStackConfigHasNone(t *testing.T) {
 }
 
 func TestClusterToken_IsASecretWhenStackConfigHasOne(t *testing.T) {
-	withConfig(t, map[string]string{hetzner.TokenConfigKey: testToken}, func(ctx *pulumi.Context) error {
+	withConfig(t, map[string]string{hcloudtoken.TokenConfigKey: testToken}, func(ctx *pulumi.Context) error {
 		token := clusterToken(ctx)
 
 		assert.Equal(t, testToken, resolve(t, token))
@@ -287,7 +289,7 @@ func TestReport_LinesEndInAWordAndNotASeparator(t *testing.T) {
 	noSelector := exampleTopology(t)
 	noSelector.Talos.ImageSelector = ""
 
-	for name, topology := range map[string]*hetzner.Topology{
+	for name, topology := range map[string]*clusterspec.Topology{
 		"committed example": exampleTopology(t),
 		"single node":       single,
 		"no imageSelector":  noSelector,

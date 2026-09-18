@@ -76,7 +76,7 @@ var Components = layer.Components{
 		Chart: "external-secrets",
 	},
 	{
-		// Approves the CSRs the kubelets raise once internal/pkg/hetzner turns on
+		// Approves the CSRs the kubelets raise once internal/pkg/clusterspec turns on
 		// rotate-server-certificates. Nothing in Kubernetes approves them by
 		// itself, and until they are approved the kubelet keeps the
 		// self-signed certificate that has no IP SANs.

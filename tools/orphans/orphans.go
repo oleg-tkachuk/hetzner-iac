@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 // The Hetzner resources this platform creates indirectly, and can therefore
@@ -33,10 +33,10 @@ const (
 const ServiceUIDLabel = "hcloud-ccm/service-uid"
 
 // TalosVersionLabel is the label cluster:image:bake stamps on the snapshot it
-// bakes, and lookupTalosImage selects on. Aliased from internal/pkg/hetzner rather than
+// bakes, and lookupTalosImage selects on. Aliased from internal/pkg/clusterspec rather than
 // spelled again: this report groups snapshots by it, so a copy that drifted
 // would file every snapshot under an empty version.
-const TalosVersionLabel = hetzner.LabelTalosVersion
+const TalosVersionLabel = clusterspec.LabelTalosVersion
 
 // Inventory is what the Hetzner project holds.
 type Inventory struct {
@@ -129,7 +129,7 @@ func ClusterServers(inventory Inventory, cluster string) []Server {
 	var mine []Server
 
 	for _, server := range inventory.Servers {
-		if server.Labels[hetzner.LabelCluster] == cluster {
+		if server.Labels[clusterspec.LabelCluster] == cluster {
 			mine = append(mine, server)
 		}
 	}
@@ -175,7 +175,7 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 		uid, fromCCM := balancer.Labels[ServiceUIDLabel]
 
 		switch {
-		case balancer.Labels[hetzner.LabelManagedBy] == hetzner.ManagedBy:
+		case balancer.Labels[clusterspec.LabelManagedBy] == clusterspec.ManagedBy:
 			// Pulumi's own, and therefore claimed: the stack that created it
 			// destroys it. Checked before the CCM label because these carry
 			// no CCM label at all.
@@ -186,7 +186,7 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 			// being paid for, and "something else made it" is an answer.
 			found = append(found, Finding{
 				Kind: KindLoadBalancer, Name: balancer.Name,
-				Why: "no " + ServiceUIDLabel + " and no " + hetzner.LabelManagedBy +
+				Why: "no " + ServiceUIDLabel + " and no " + clusterspec.LabelManagedBy +
 					" label: created neither by this cluster's CCM nor by this repository",
 			})
 		case !claims.ServiceUIDs[uid]:

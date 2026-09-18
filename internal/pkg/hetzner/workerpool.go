@@ -3,6 +3,8 @@ package hetzner
 import (
 	"fmt"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
@@ -35,7 +37,7 @@ type WorkerPoolArgs struct {
 	ServerType string
 	Location   string
 
-	Addressing *Addressing
+	Addressing *clusterspec.Addressing
 
 	ImageID   pulumi.StringInput
 	NetworkID pulumi.IntInput
@@ -91,7 +93,7 @@ func NewWorkerPool(ctx *pulumi.Context, name string, args *WorkerPoolArgs, opts 
 
 	clientConfig := args.ClientConfiguration.ToClientConfigurationPtrOutput()
 
-	nodeLabels := map[string]string{LabelPool: args.PoolName}
+	nodeLabels := map[string]string{clusterspec.LabelPool: args.PoolName}
 	for key, value := range args.Labels {
 		nodeLabels[key] = value
 	}
@@ -105,7 +107,7 @@ func NewWorkerPool(ctx *pulumi.Context, name string, args *WorkerPoolArgs, opts 
 			return nil, fmt.Errorf("worker pool %q node %d: %w", args.PoolName, i, err)
 		}
 
-		hostname := NodeName(args.ClusterName, args.PoolName, i)
+		hostname := clusterspec.NodeName(args.ClusterName, args.PoolName, i)
 
 		server, err := newServer(ctx, serverSpec{
 			name:       hostname,
@@ -114,9 +116,9 @@ func NewWorkerPool(ctx *pulumi.Context, name string, args *WorkerPoolArgs, opts 
 			imageID:    args.ImageID,
 			networkID:  args.NetworkID,
 			privateIP:  privateIP,
-			labels: ResourceLabels(args.ClusterName, map[string]string{
-				LabelRole: RoleWorker,
-				LabelPool: args.PoolName,
+			labels: clusterspec.ResourceLabels(args.ClusterName, map[string]string{
+				clusterspec.LabelRole: clusterspec.RoleWorker,
+				clusterspec.LabelPool: args.PoolName,
 			}),
 			publicIPv4: args.PublicIPv4,
 		}, parent)
@@ -128,7 +130,7 @@ func NewWorkerPool(ctx *pulumi.Context, name string, args *WorkerPoolArgs, opts 
 
 		patch := pulumix.Cast[pulumi.StringOutput](pulumix.ApplyErr(address,
 			func(addr string) (string, error) {
-				return BuildNodePatch(NodePatchArgs{
+				return clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
 					Hostname:   hostname,
 					CertSANs:   []string{addr, privateIP},
 					NodeLabels: nodeLabels,

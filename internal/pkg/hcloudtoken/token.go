@@ -1,10 +1,18 @@
-package hetzner
+// Package hcloudtoken resolves the Hetzner API token for a stack: an exported
+// one first, then the encrypted stack config.
+//
+// Its own package because it is the one thing here that needs Pulumi's
+// automation API, which is 800 packages. Every command that reads a token pays
+// for that and cannot avoid it; nothing else should have to.
+package hcloudtoken
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 )
@@ -15,10 +23,6 @@ const (
 
 	// TokenConfigKey is where the encrypted token lives in the stack.
 	TokenConfigKey = "hcloud:token"
-
-	// ClusterDir is the Pulumi project that holds it — the one project that
-	// talks to the Hetzner API, and so the one stack with a token.
-	ClusterDir = "infra/cluster"
 )
 
 // Token resolves the Hetzner API token: an exported one first, then the
@@ -57,9 +61,9 @@ func Token(ctx context.Context, stack string) (string, error) {
 	// run `pulumi stack select` as a side effect and repoint the operator's
 	// own workspace. GetConfig takes the stack name as an argument and
 	// changes nothing.
-	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(ClusterDir))
+	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(clusterspec.ClusterDir))
 	if err != nil {
-		return "", fmt.Errorf("open %s as a pulumi workspace: %w", ClusterDir, err)
+		return "", fmt.Errorf("open %s as a pulumi workspace: %w", clusterspec.ClusterDir, err)
 	}
 
 	value, err := workspace.GetConfig(ctx, stack, TokenConfigKey)
@@ -69,7 +73,7 @@ func Token(ctx context.Context, stack string) (string, error) {
 				"  pulumi -C %s -s %s config set --secret %s <token>\n\n"+
 				"It is then stored as ciphertext in Pulumi.%s.yaml and every task reads it\n"+
 				"from there. Exporting %s also works and takes priority",
-			err, stack, ClusterDir, stack, TokenConfigKey, stack, TokenEnv)
+			err, stack, clusterspec.ClusterDir, stack, TokenConfigKey, stack, TokenEnv)
 	}
 
 	token := strings.TrimSpace(value.Value)

@@ -3,18 +3,19 @@ package cni_test
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/cni"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/cni"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 )
 
 func TestSelect_DefaultsToTheOneThisClusterCanRun(t *testing.T) {
 	t.Parallel()
 
-	chosen, err := cni.Select("", hetzner.KubeProxyDisabled)
+	chosen, err := cni.Select("", clusterspec.KubeProxyDisabled)
 
 	require.NoError(t, err)
 	assert.Equal(t, "cilium", chosen.Chart)
@@ -26,7 +27,7 @@ func TestSelect_EveryImplementationIsPinned(t *testing.T) {
 	// A CNI naming a chart the registry does not know is a CNI with no version
 	// pin, and the failure would be at apply.
 	for _, name := range cni.Names() {
-		chosen, err := cni.Select(name, hetzner.KubeProxyDisabled)
+		chosen, err := cni.Select(name, clusterspec.KubeProxyDisabled)
 		require.NoError(t, err, name)
 
 		_, chartErr := charts.Get(chosen.Chart)
@@ -49,7 +50,7 @@ func TestSelect_EveryImplementationHasWorkloads(t *testing.T) {
 	// to assert and charts:render-check has nothing to prove, and both pass
 	// having checked nothing.
 	for _, name := range cni.Names() {
-		chosen, err := cni.Select(name, hetzner.KubeProxyDisabled)
+		chosen, err := cni.Select(name, clusterspec.KubeProxyDisabled)
 		require.NoError(t, err, name)
 
 		assert.NotEmpty(t, workloads.ForChart(chosen.Chart),
@@ -63,7 +64,7 @@ func TestSelect_ListsTheAlternativesForAnUnknownName(t *testing.T) {
 
 	// A typo in a config key is otherwise indistinguishable from a CNI this
 	// platform has not learned yet.
-	_, err := cni.Select("calico", hetzner.KubeProxyDisabled)
+	_, err := cni.Select("calico", clusterspec.KubeProxyDisabled)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown cni")
@@ -84,7 +85,7 @@ func TestSelect_RefusesACNIThatWouldLeaveNoServiceDataplane(t *testing.T) {
 	_, err := cni.Select("no-such-cni", true)
 	require.Error(t, err, "an unknown name must fail before the kube-proxy check")
 
-	assert.True(t, hetzner.KubeProxyDisabled,
+	assert.True(t, clusterspec.KubeProxyDisabled,
 		"this test is about the disabled case; if the cluster tier ever enables "+
 			"kube-proxy, Select's second argument is what carries that and this "+
 			"assertion is the reminder to revisit the CNIs")

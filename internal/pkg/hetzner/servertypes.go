@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilog"
 
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
@@ -28,7 +29,7 @@ import (
 // list would be wrong in the other direction: Hetzner adds and retires types,
 // and a stale table rejects a type that works, which is worse than accepting
 // one that does not.
-func ValidateServerTypes(ctx *pulumi.Context, topology *Topology) error {
+func ValidateServerTypes(ctx *pulumi.Context, topology *clusterspec.Topology) error {
 	wanted := wantedServerTypes(topology)
 	if len(wanted) == 0 {
 		return nil
@@ -123,7 +124,7 @@ func archLabel(want string) string {
 }
 
 // wantedServerTypes is every distinct type the topology asks for.
-func wantedServerTypes(topology *Topology) []string {
+func wantedServerTypes(topology *clusterspec.Topology) []string {
 	seen := map[string]bool{}
 
 	for _, name := range append(
@@ -138,7 +139,7 @@ func wantedServerTypes(topology *Topology) []string {
 	return sortedNames(seen)
 }
 
-func workerServerTypes(topology *Topology) []string {
+func workerServerTypes(topology *clusterspec.Topology) []string {
 	out := make([]string, 0, len(topology.WorkerPools))
 	for _, pool := range topology.WorkerPools {
 		out = append(out, pool.ServerType)

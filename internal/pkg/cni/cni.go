@@ -2,7 +2,7 @@
 // install, and what each one requires of the cluster underneath it.
 //
 // A CNI is not interchangeable the way two chart versions are, and the reason
-// is in the cluster tier rather than in this layer: internal/pkg/hetzner writes
+// is in the cluster tier rather than in this layer: internal/pkg/clusterspec writes
 // `proxy: {disabled: true}` into the Talos machine configuration, because
 // Cilium replaces kube-proxy in eBPF and running both means two components
 // programming the same service dataplane.
