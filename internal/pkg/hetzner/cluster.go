@@ -74,7 +74,30 @@ type ClusterArgs struct {
 	AllowICMP bool
 }
 
+// foundation is what has to exist before any node can: the address plan, the
+// private network the nodes take addresses in, and the perimeter around them.
+type foundation struct {
+	addressing *clusterspec.Addressing
+	network    *Network
+	firewall   *Firewall
+}
+
+// machineConfig is what a node is configured WITH, as against what it runs on:
+// the image it boots, the root of trust it joins against, and the two patches
+// applied to every machine.
+type machineConfig struct {
+	image        pulumi.StringOutput
+	secrets      *talosmachine.Secrets
+	clusterPatch string
+	etcdPatch    string
+}
+
 // NewCluster builds the whole cluster.
+//
+// A sequence of steps rather than one body, and the sequence is the point: each
+// takes only what the ones before it produced, so the order they have to happen
+// in is the order they are written in and nothing is threaded past the step
+// that needs it.
 func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pulumi.ResourceOption) (*Cluster, error) {
 	if args == nil || args.Topology == nil {
 		return nil, fmt.Errorf("NewCluster(%s): topology is required", name)
@@ -96,161 +119,45 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 
 	parent := pulumi.Parent(component)
 
-	addressing, err := clusterspec.NewAddressing(topology.Network.NodeSubnet, clusterspec.PoolAddressStride)
+	base, err := newFoundation(ctx, name, args, parent)
 	if err != nil {
 		return nil, err
 	}
 
-	network, err := NewNetwork(ctx, name+"-network", &NetworkArgs{
-		ClusterName: topology.Metadata.Name,
-		IPRange:     topology.Network.IPRange,
-		NodeSubnet:  topology.Network.NodeSubnet,
-		NetworkZone: topology.Placement.NetworkZone,
-	}, parent)
+	config, err := newMachineConfig(ctx, name, args, parent)
 	if err != nil {
 		return nil, err
 	}
 
-	firewall, err := NewFirewall(ctx, name+"-firewall", &FirewallArgs{
-		ClusterName: topology.Metadata.Name,
-		AdminCIDRs:  topology.Network.AdminCIDRs,
-		AllowICMP:   args.AllowICMP,
-	}, parent)
+	apiAddress, loadBalancerIP, err := apiEndpointAddress(ctx, name, topology, base.network, parent)
 	if err != nil {
 		return nil, err
 	}
 
-	image := lookupTalosImage(ctx, args)
-
-	// Talos secrets are the cluster's root of trust: the CA keys every node
-	// and client certificate descends from. Protect stops a `pulumi destroy`
-	// from taking them out from under a cluster that still exists.
-	secrets, err := talosmachine.NewSecrets(ctx, name+"-secrets", &talosmachine.SecretsArgs{
-		TalosVersion: pulumi.String(topology.Talos.Version),
-	}, parent, pulumi.Protect(true))
-	if err != nil {
-		return nil, fmt.Errorf("talos secrets: %w", err)
-	}
-
-	etcdPatch, err := clusterspec.BuildEtcdPatch(topology.Network.NodeSubnet)
+	controlPlane, err := newControlPlane(ctx, name, args, base, config, apiAddress, parent)
 	if err != nil {
 		return nil, err
 	}
 
-	clusterPatch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
-		PodCIDR:     topology.Network.PodCIDR,
-		ServiceCIDR: topology.Network.ServiceCIDR,
-		NodeSubnet:  topology.Network.NodeSubnet,
-		IPRange:     topology.Network.IPRange,
-		// With no worker pool the control plane is the only place a pod can
-		// run, so scheduling has to be allowed there or nothing starts.
-		AllowSchedulingOnControlPlanes: topology.TotalWorkers() == 0,
-	})
+	pools, err := newWorkerPools(ctx, name, args, base, config, controlPlane, parent)
 	if err != nil {
 		return nil, err
 	}
 
-	// Anti-affinity for the control plane only. It is what turns three etcd
-	// members into three failure domains rather than three VMs that can share
-	// one physical host. Worker pools skip it because a spread group holds at
-	// most ten servers, which would cap pool size at an arbitrary number.
-	placementGroup, err := hcloud.NewPlacementGroup(ctx, name+"-control-plane", &hcloud.PlacementGroupArgs{
-		Name:   pulumi.Sprintf("%s-control-plane", topology.Metadata.Name),
-		Type:   pulumi.String("spread"),
-		Labels: toStringMap(clusterspec.ResourceLabels(topology.Metadata.Name, nil)),
-	}, parent)
-	if err != nil {
-		return nil, fmt.Errorf("hcloud placement group: %w", err)
-	}
-
-	apiAddress, loadBalancerIP, err := apiEndpointAddress(ctx, name, topology, network, parent)
+	talosconfig, err := asSecret("talosconfig", talosconfigFor(ctx, topology, config.secrets, controlPlane))
 	if err != nil {
 		return nil, err
 	}
 
-	controlPlane, err := NewControlPlane(ctx, name+"-control-plane", &ControlPlaneArgs{
-		ClusterName:         topology.Metadata.Name,
-		Count:               topology.ControlPlane.Count,
-		ServerType:          topology.ControlPlane.ServerType,
-		Location:            topology.Placement.Location,
-		Addressing:          addressing,
-		ImageID:             image,
-		NetworkID:           network.NetworkID,
-		PlacementGroupID:    idToIntPtr(placementGroup.ID()),
-		APIAddress:          apiAddress,
-		KubernetesVersion:   topology.Kubernetes.Version,
-		TalosVersion:        topology.Talos.Version,
-		ClusterPatch:        pulumi.String(clusterPatch),
-		EtcdPatch:           pulumi.String(etcdPatch),
-		MachineSecrets:      secrets.MachineSecrets,
-		ClientConfiguration: secrets.ClientConfiguration,
-		PublicIPv4:          args.PublicIPv4,
-	}, parent,
-		// The subnet must exist before a server can take an address in it, and
-		// the firewall before a node is reachable — otherwise there is a window
-		// where a control-plane node is up with no perimeter.
-		pulumi.DependsOn([]pulumi.Resource{network.Subnet, firewall.Firewall}))
-	if err != nil {
-		return nil, err
-	}
-
-	pools := make([]*WorkerPool, 0, len(topology.WorkerPools))
-
-	for i, spec := range topology.WorkerPools {
-		pool, poolErr := NewWorkerPool(ctx, fmt.Sprintf("%s-%s", name, spec.Name), &WorkerPoolArgs{
-			ClusterName:         topology.Metadata.Name,
-			PoolName:            spec.Name,
-			PoolIndex:           i,
-			Count:               spec.Count,
-			ServerType:          spec.ServerType,
-			Location:            topology.Placement.Location,
-			Addressing:          addressing,
-			ImageID:             image,
-			NetworkID:           network.NetworkID,
-			Labels:              spec.Labels,
-			Taints:              spec.Taints,
-			TalosVersion:        topology.Talos.Version,
-			KubernetesVersion:   topology.Kubernetes.Version,
-			ClusterPatch:        pulumi.String(clusterPatch),
-			Endpoint:            controlPlane.Endpoint,
-			MachineSecrets:      secrets.MachineSecrets,
-			ClientConfiguration: secrets.ClientConfiguration,
-			PublicIPv4:          args.PublicIPv4,
-			Bootstrap:           controlPlane.Bootstrap,
-		}, parent, pulumi.DependsOn([]pulumi.Resource{network.Subnet, firewall.Firewall}))
-		if poolErr != nil {
-			return nil, poolErr
-		}
-
-		pools = append(pools, pool)
-	}
-
-	talosconfig := talosclient.GetConfigurationOutput(ctx, talosclient.GetConfigurationOutputArgs{
-		ClusterName: pulumi.String(topology.Metadata.Name),
-		ClientConfiguration: talosclient.GetConfigurationClientConfigurationArgs{
-			CaCertificate:     secrets.ClientConfiguration.CaCertificate(),
-			ClientCertificate: secrets.ClientConfiguration.ClientCertificate(),
-			ClientKey:         secrets.ClientConfiguration.ClientKey(),
-		},
-		Endpoints: pulumi.StringArray{controlPlane.FirstNodeAddress},
-		Nodes:     pulumi.StringArray{controlPlane.FirstNodeAddress},
-	})
-
-	component.Network = network
-	component.Firewall = firewall
+	component.Network = base.network
+	component.Firewall = base.firewall
 	component.ControlPlane = controlPlane
 	component.WorkerPools = pools
 	component.Kubeconfig = controlPlane.Kubeconfig
-
-	talosSecret, err := asSecret("talosconfig", talosconfig.TalosConfig())
-	if err != nil {
-		return nil, err
-	}
-
-	component.Talosconfig = talosSecret
+	component.Talosconfig = talosconfig
 	component.Endpoint = controlPlane.Endpoint
 	component.APILoadBalancerIP = loadBalancerIP
-	component.NetworkID = network.NetworkID
+	component.NetworkID = base.network.NetworkID
 	component.PodCIDR = pulumi.String(topology.Network.PodCIDR).ToStringOutput()
 	component.ServiceCIDR = pulumi.String(topology.Network.ServiceCIDR).ToStringOutput()
 
@@ -274,6 +181,198 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 	}
 
 	return component, nil
+}
+
+// newFoundation lays out the addresses and creates the network and firewall.
+func newFoundation(ctx *pulumi.Context, name string, args *ClusterArgs, parent pulumi.ResourceOption) (foundation, error) {
+	topology := args.Topology
+
+	addressing, err := clusterspec.NewAddressing(topology.Network.NodeSubnet, clusterspec.PoolAddressStride)
+	if err != nil {
+		return foundation{}, err
+	}
+
+	network, err := NewNetwork(ctx, name+"-network", &NetworkArgs{
+		ClusterName: topology.Metadata.Name,
+		IPRange:     topology.Network.IPRange,
+		NodeSubnet:  topology.Network.NodeSubnet,
+		NetworkZone: topology.Placement.NetworkZone,
+	}, parent)
+	if err != nil {
+		return foundation{}, err
+	}
+
+	firewall, err := NewFirewall(ctx, name+"-firewall", &FirewallArgs{
+		ClusterName: topology.Metadata.Name,
+		AdminCIDRs:  topology.Network.AdminCIDRs,
+		AllowICMP:   args.AllowICMP,
+	}, parent)
+	if err != nil {
+		return foundation{}, err
+	}
+
+	return foundation{addressing: addressing, network: network, firewall: firewall}, nil
+}
+
+// newMachineConfig resolves the image and builds the root of trust and the
+// patches every node is applied.
+func newMachineConfig(ctx *pulumi.Context, name string, args *ClusterArgs, parent pulumi.ResourceOption) (machineConfig, error) {
+	topology := args.Topology
+
+	// Talos secrets are the cluster's root of trust: the CA keys every node
+	// and client certificate descends from. Protect stops a `pulumi destroy`
+	// from taking them out from under a cluster that still exists.
+	secrets, err := talosmachine.NewSecrets(ctx, name+"-secrets", &talosmachine.SecretsArgs{
+		TalosVersion: pulumi.String(topology.Talos.Version),
+	}, parent, pulumi.Protect(true))
+	if err != nil {
+		return machineConfig{}, fmt.Errorf("talos secrets: %w", err)
+	}
+
+	etcdPatch, err := clusterspec.BuildEtcdPatch(topology.Network.NodeSubnet)
+	if err != nil {
+		return machineConfig{}, err
+	}
+
+	clusterPatch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
+		PodCIDR:     topology.Network.PodCIDR,
+		ServiceCIDR: topology.Network.ServiceCIDR,
+		NodeSubnet:  topology.Network.NodeSubnet,
+		IPRange:     topology.Network.IPRange,
+		// With no worker pool the control plane is the only place a pod can
+		// run, so scheduling has to be allowed there or nothing starts.
+		AllowSchedulingOnControlPlanes: topology.TotalWorkers() == 0,
+	})
+	if err != nil {
+		return machineConfig{}, err
+	}
+
+	return machineConfig{
+		image:        lookupTalosImage(ctx, args),
+		secrets:      secrets,
+		clusterPatch: clusterPatch,
+		etcdPatch:    etcdPatch,
+	}, nil
+}
+
+// newControlPlane creates the control-plane nodes and the spread group that
+// keeps them apart.
+func newControlPlane(
+	ctx *pulumi.Context,
+	name string,
+	args *ClusterArgs,
+	base foundation,
+	config machineConfig,
+	apiAddress pulumi.StringInput,
+	parent pulumi.ResourceOption,
+) (*ControlPlane, error) {
+	topology := args.Topology
+
+	// Anti-affinity for the control plane only. It is what turns three etcd
+	// members into three failure domains rather than three VMs that can share
+	// one physical host. Worker pools skip it because a spread group holds at
+	// most ten servers, which would cap pool size at an arbitrary number.
+	placementGroup, err := hcloud.NewPlacementGroup(ctx, name+"-control-plane", &hcloud.PlacementGroupArgs{
+		Name:   pulumi.Sprintf("%s-control-plane", topology.Metadata.Name),
+		Type:   pulumi.String("spread"),
+		Labels: toStringMap(clusterspec.ResourceLabels(topology.Metadata.Name, nil)),
+	}, parent)
+	if err != nil {
+		return nil, fmt.Errorf("hcloud placement group: %w", err)
+	}
+
+	return NewControlPlane(ctx, name+"-control-plane", &ControlPlaneArgs{
+		ClusterName:         topology.Metadata.Name,
+		Count:               topology.ControlPlane.Count,
+		ServerType:          topology.ControlPlane.ServerType,
+		Location:            topology.Placement.Location,
+		Addressing:          base.addressing,
+		ImageID:             config.image,
+		NetworkID:           base.network.NetworkID,
+		PlacementGroupID:    idToIntPtr(placementGroup.ID()),
+		APIAddress:          apiAddress,
+		KubernetesVersion:   topology.Kubernetes.Version,
+		TalosVersion:        topology.Talos.Version,
+		ClusterPatch:        pulumi.String(config.clusterPatch),
+		EtcdPatch:           pulumi.String(config.etcdPatch),
+		MachineSecrets:      config.secrets.MachineSecrets,
+		ClientConfiguration: config.secrets.ClientConfiguration,
+		PublicIPv4:          args.PublicIPv4,
+	}, parent,
+		// The subnet must exist before a server can take an address in it, and
+		// the firewall before a node is reachable — otherwise there is a window
+		// where a control-plane node is up with no perimeter.
+		pulumi.DependsOn([]pulumi.Resource{base.network.Subnet, base.firewall.Firewall}))
+}
+
+// newWorkerPools creates one pool per entry in the topology, in order: the
+// index decides the pool's slice of the node subnet, so reordering the file
+// readdresses every node in it.
+func newWorkerPools(
+	ctx *pulumi.Context,
+	name string,
+	args *ClusterArgs,
+	base foundation,
+	config machineConfig,
+	controlPlane *ControlPlane,
+	parent pulumi.ResourceOption,
+) ([]*WorkerPool, error) {
+	topology := args.Topology
+
+	pools := make([]*WorkerPool, 0, len(topology.WorkerPools))
+
+	for i, spec := range topology.WorkerPools {
+		pool, err := NewWorkerPool(ctx, fmt.Sprintf("%s-%s", name, spec.Name), &WorkerPoolArgs{
+			ClusterName:         topology.Metadata.Name,
+			PoolName:            spec.Name,
+			PoolIndex:           i,
+			Count:               spec.Count,
+			ServerType:          spec.ServerType,
+			Location:            topology.Placement.Location,
+			Addressing:          base.addressing,
+			ImageID:             config.image,
+			NetworkID:           base.network.NetworkID,
+			Labels:              spec.Labels,
+			Taints:              spec.Taints,
+			TalosVersion:        topology.Talos.Version,
+			KubernetesVersion:   topology.Kubernetes.Version,
+			ClusterPatch:        pulumi.String(config.clusterPatch),
+			Endpoint:            controlPlane.Endpoint,
+			MachineSecrets:      config.secrets.MachineSecrets,
+			ClientConfiguration: config.secrets.ClientConfiguration,
+			PublicIPv4:          args.PublicIPv4,
+			Bootstrap:           controlPlane.Bootstrap,
+		}, parent, pulumi.DependsOn([]pulumi.Resource{base.network.Subnet, base.firewall.Firewall}))
+		if err != nil {
+			return nil, err
+		}
+
+		pools = append(pools, pool)
+	}
+
+	return pools, nil
+}
+
+// talosconfigFor is the client configuration an operator uses, pointed at the
+// first control-plane node.
+func talosconfigFor(
+	ctx *pulumi.Context,
+	topology *clusterspec.Topology,
+	secrets *talosmachine.Secrets,
+	controlPlane *ControlPlane,
+) pulumi.StringOutput {
+	config := talosclient.GetConfigurationOutput(ctx, talosclient.GetConfigurationOutputArgs{
+		ClusterName: pulumi.String(topology.Metadata.Name),
+		ClientConfiguration: talosclient.GetConfigurationClientConfigurationArgs{
+			CaCertificate:     secrets.ClientConfiguration.CaCertificate(),
+			ClientCertificate: secrets.ClientConfiguration.ClientCertificate(),
+			ClientKey:         secrets.ClientConfiguration.ClientKey(),
+		},
+		Endpoints: pulumi.StringArray{controlPlane.FirstNodeAddress},
+		Nodes:     pulumi.StringArray{controlPlane.FirstNodeAddress},
+	})
+
+	return config.TalosConfig()
 }
 
 // apiEndpointAddress returns the address the cluster endpoint points at, and

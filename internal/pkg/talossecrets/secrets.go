@@ -183,73 +183,97 @@ func bundleFrom(raw []byte, stack string) ([]byte, error) {
 func unwrapSecrets(value any) (any, error) {
 	switch typed := value.(type) {
 	case map[string]json.RawMessage:
-		out := make(map[string]any, len(typed))
-
-		for key, raw := range typed {
-			var decoded any
-			if err := json.Unmarshal(raw, &decoded); err != nil {
-				return nil, fmt.Errorf("read %s from the exported stack: %w", key, err)
-			}
-
-			unwrapped, err := unwrapSecrets(decoded)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", key, err)
-			}
-
-			out[key] = unwrapped
-		}
-
-		return out, nil
-
+		return unwrapRaw(typed)
 	case map[string]any:
-		if signature, marked := typed[secretSignatureKey]; marked && signature == secretSignature {
-			encoded, present := typed[plaintextKey]
-			if !present {
-				return nil, fmt.Errorf("a secret in the exported stack carries no %s: "+
-					"export it again, and with --show-secrets", plaintextKey)
-			}
-
-			text, isString := encoded.(string)
-			if !isString {
-				return nil, fmt.Errorf("a secret's %s is %T rather than a string", plaintextKey, encoded)
-			}
-
-			var plain any
-			if err := json.Unmarshal([]byte(text), &plain); err != nil {
-				return nil, fmt.Errorf("a secret's %s is not json: %w", plaintextKey, err)
-			}
-
-			return plain, nil
-		}
-
-		out := make(map[string]any, len(typed))
-
-		for key, nested := range typed {
-			unwrapped, err := unwrapSecrets(nested)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", key, err)
-			}
-
-			out[key] = unwrapped
-		}
-
-		return out, nil
-
+		return unwrapMap(typed)
 	case []any:
-		out := make([]any, len(typed))
-
-		for i, nested := range typed {
-			unwrapped, err := unwrapSecrets(nested)
-			if err != nil {
-				return nil, err
-			}
-
-			out[i] = unwrapped
-		}
-
-		return out, nil
-
+		return unwrapSlice(typed)
 	default:
 		return value, nil
 	}
+}
+
+// unwrapRaw handles the one level the exporter leaves undecoded, so that a
+// failure names the key it was reading rather than the document.
+func unwrapRaw(raw map[string]json.RawMessage) (any, error) {
+	out := make(map[string]any, len(raw))
+
+	for key, message := range raw {
+		var decoded any
+		if err := json.Unmarshal(message, &decoded); err != nil {
+			return nil, fmt.Errorf("read %s from the exported stack: %w", key, err)
+		}
+
+		unwrapped, err := unwrapSecrets(decoded)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", key, err)
+		}
+
+		out[key] = unwrapped
+	}
+
+	return out, nil
+}
+
+// unwrapMap is either a secret, which becomes its plaintext, or an ordinary
+// object, whose values are unwrapped in place.
+func unwrapMap(object map[string]any) (any, error) {
+	if signature, marked := object[secretSignatureKey]; marked && signature == secretSignature {
+		return plaintextOf(object)
+	}
+
+	out := make(map[string]any, len(object))
+
+	for key, nested := range object {
+		unwrapped, err := unwrapSecrets(nested)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", key, err)
+		}
+
+		out[key] = unwrapped
+	}
+
+	return out, nil
+}
+
+// plaintextOf reads what a marked secret is hiding.
+//
+// Every failure here says the same thing in the end — the export was taken
+// without --show-secrets, so the ciphertext is all there is — but each says
+// which shape was found instead, because an export that is merely malformed
+// should not read as a missing flag.
+func plaintextOf(secret map[string]any) (any, error) {
+	encoded, present := secret[plaintextKey]
+	if !present {
+		return nil, fmt.Errorf("a secret in the exported stack carries no %s: "+
+			"export it again, and with --show-secrets", plaintextKey)
+	}
+
+	text, isString := encoded.(string)
+	if !isString {
+		return nil, fmt.Errorf("a secret's %s is %T rather than a string", plaintextKey, encoded)
+	}
+
+	var plain any
+	if err := json.Unmarshal([]byte(text), &plain); err != nil {
+		return nil, fmt.Errorf("a secret's %s is not json: %w", plaintextKey, err)
+	}
+
+	return plain, nil
+}
+
+// unwrapSlice keeps the order, which is the only thing an array carries.
+func unwrapSlice(items []any) (any, error) {
+	out := make([]any, len(items))
+
+	for i, nested := range items {
+		unwrapped, err := unwrapSecrets(nested)
+		if err != nil {
+			return nil, err
+		}
+
+		out[i] = unwrapped
+	}
+
+	return out, nil
 }

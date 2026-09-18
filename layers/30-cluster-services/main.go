@@ -167,7 +167,7 @@ func MetricsServerData() values.MetricsServer {
 // The class comes from internal/pkg/platform rather than a literal here, and that is
 // the whole lesson of this function: it WAS the literal "nginx", left behind
 // when Traefik replaced ingress-nginx. cert-manager would have created an
-// Ingress for the challenge, no controller would have owned it, Let'"'"'s Encrypt
+// Ingress for the challenge, no controller would have owned it, Let's Encrypt
 // would never have reached /.well-known/acme-challenge/, and the order would
 // have sat pending for ever with nothing reporting an error. The same literal
 // had already been fixed once, in the gitops layer — internal/pkg/platform exists
