@@ -197,7 +197,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 	pools := make([]*WorkerPool, 0, len(topology.WorkerPools))
 
 	for i, spec := range topology.WorkerPools {
-		pool, err := NewWorkerPool(ctx, fmt.Sprintf("%s-%s", name, spec.Name), &WorkerPoolArgs{
+		pool, poolErr := NewWorkerPool(ctx, fmt.Sprintf("%s-%s", name, spec.Name), &WorkerPoolArgs{
 			ClusterName:         topology.Metadata.Name,
 			PoolName:            spec.Name,
 			PoolIndex:           i,
@@ -218,8 +218,8 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 			PublicIPv4:          args.PublicIPv4,
 			Bootstrap:           controlPlane.Bootstrap,
 		}, parent, pulumi.DependsOn([]pulumi.Resource{network.Subnet, firewall.Firewall}))
-		if err != nil {
-			return nil, err
+		if poolErr != nil {
+			return nil, poolErr
 		}
 
 		pools = append(pools, pool)
@@ -241,7 +241,13 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 	component.ControlPlane = controlPlane
 	component.WorkerPools = pools
 	component.Kubeconfig = controlPlane.Kubeconfig
-	component.Talosconfig = pulumi.ToSecret(talosconfig.TalosConfig()).(pulumi.StringOutput)
+
+	talosSecret, err := asSecret("talosconfig", talosconfig.TalosConfig())
+	if err != nil {
+		return nil, err
+	}
+
+	component.Talosconfig = talosSecret
 	component.Endpoint = controlPlane.Endpoint
 	component.APILoadBalancerIP = loadBalancerIP
 	component.NetworkID = network.NetworkID

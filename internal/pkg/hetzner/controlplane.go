@@ -196,7 +196,13 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 	component.Bootstrap = bootstrap
 	component.Endpoint = endpoint
 	component.FirstNodeAddress = nodes[0].address
-	component.Kubeconfig = pulumi.ToSecret(kubeconfig.KubeconfigRaw).(pulumi.StringOutput)
+
+	kubeconfigSecret, err := asSecret("kubeconfig", kubeconfig.KubeconfigRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	component.Kubeconfig = kubeconfigSecret
 
 	if err := ctx.RegisterResourceOutputs(component, pulumi.Map{
 		"endpoint":         component.Endpoint,

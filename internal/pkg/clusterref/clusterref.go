@@ -253,6 +253,13 @@ func Resolve(ctx *pulumi.Context, ref string) (*Cluster, error) {
 // means version zero. Every other output can then be read with the typed
 // accessor that fails an absent one, because this has already ruled it out.
 func publishedVersion(stack *pulumi.StackReference, ref string) pulumi.IntOutput {
+	// The legacy ApplyT, and pulumix.ApplyErr is wrong here — the one place in
+	// this repository where it is. pulumix resolves its argument before
+	// calling: `await expected interface {}, got <nil>` is a panic inside the
+	// engine, not an error this function could report. The absent output is
+	// exactly what this reads, so the callback has to be the one that sees the
+	// nil. The assertion below is unchecked for the same reason it is correct:
+	// ApplyT's result type follows from the callback's signature, two lines up.
 	return stack.GetOutput(pulumi.String(OutputContractVersion)).
 		ApplyT(func(value any) (int, error) {
 			published := 0

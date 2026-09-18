@@ -133,6 +133,11 @@ func Static(chart string, data any) (pulumi.AssetOrArchiveArrayInput, error) {
 // outputs it would have waited for as map inputs.
 func Asset(chart string, data pulumi.Output) pulumi.AssetOrArchiveArrayInput {
 	return pulumi.AssetOrArchiveArray{
+		// Unchecked, and the last one in this package. ApplyT's result type
+		// follows from the callback's signature three lines below, so the
+		// assertion cannot be wrong while that signature is in view. The typed
+		// pulumix form does not fit: it takes pulumix.Input[T], and `data` is
+		// the pulumi.Output interface that layer.Component.ValuesFrom returns.
 		data.ApplyT(func(resolved any) (pulumi.AssetOrArchive, error) {
 			rendered, err := Render(chart, resolved)
 			if err != nil {

@@ -20,13 +20,11 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"time"
 
-	"golang.org/x/term"
-
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/secretout"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/talossecrets"
 )
 
@@ -35,24 +33,11 @@ import (
 const timeout = 60 * time.Second
 
 func main() {
-	if err := run(context.Background(), os.Args[1:], stdoutIsTerminal()); err != nil {
+	if err := run(context.Background(), os.Args[1:], secretout.IsTerminal()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
-
-// stdoutIsTerminal answers whether what this prints lands in scrollback.
-//
-// x/term rather than a ModeCharDevice test on Stat: /dev/null is a character
-// device too, so that test refuses a redirect to it — the right outcome for
-// the wrong reason, and the wrong outcome for anyone debugging with one. This
-// asks the file descriptor whether it is a terminal.
-func stdoutIsTerminal() bool {
-	return term.IsTerminal(int(os.Stdout.Fd()))
-}
-
-// ErrTerminal is returned rather than printing to a terminal.
-var ErrTerminal = errors.New("refusing to print the cluster's certificate authority to a terminal")
 
 func run(ctx context.Context, args []string, terminal bool) error {
 	if len(args) != 1 {
@@ -60,9 +45,9 @@ func run(ctx context.Context, args []string, terminal bool) error {
 	}
 
 	if terminal {
-		return fmt.Errorf("%w: pipe it into something that keeps it, for example\n\n"+
-			"  task cluster:secrets:export stack=%s | pass insert -m hetzner/%s/talos-secrets",
-			ErrTerminal, args[0], args[0])
+		return secretout.Refuse("the cluster's certificate authority",
+			"task cluster:secrets:export stack="+args[0],
+			"hetzner/"+args[0]+"/talos-secrets")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
