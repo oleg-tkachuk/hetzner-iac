@@ -93,6 +93,21 @@ stayed consistent, and the move was performed there. The live stacks were never
 touched: `ingress/dev` still holds its 11 resources and `cluster-services/dev`
 its 17.
 
+**Export to somewhere outside this working tree.** A state export carries every
+resource's inputs, including the ciphertext of `hcloud:token` and of the
+kubeconfig — both carry Pulumi's secret signature, so they are encrypted rather
+than plain, but a public repository is not where either belongs. Putting the
+exports in `.backups/` also trips
+`TestEveryLayerReference_PointsAtADirectoryThatExists`, because an ingress
+checkpoint names the layer by its old path in its own metadata and that gate
+walks the tree rather than the index — the right failure for the wrong reason,
+and a useful reminder that the file should not be there at all.
+
+That gate then caught this paragraph too, for writing the path out. Its
+convention is the escape hatch: a layer that no longer exists is named without
+the `layers/` prefix, so prose about it cannot be mistaken for a reference to
+it.
+
 Six URNs are enough. The providers are **not** listed:
 
 ```bash
