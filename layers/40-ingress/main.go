@@ -21,6 +21,7 @@ import (
 
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
 )
 
 // DefaultLoadBalancerType is the smallest Hetzner load balancer. It carries an
@@ -110,11 +111,13 @@ func createBalancer(provider pulumi.ProviderResource) layer.CreateFunc {
 // Separated from renderValues so a test can assert what the template will be
 // given without a Pulumi run.
 func IngressData(nodeSubnet pulumi.StringInput) pulumi.Output {
-	return pulumi.All(nodeSubnet).
-		ApplyT(func(resolved []any) any {
+	// One input, so no pulumi.All: it took the typed output, put it in a []any
+	// and handed it back to be recovered by index and asserted.
+	return pulumix.Apply(nodeSubnet.ToStringOutput(),
+		func(subnet string) any {
 			return values.Traefik{
 				Replicas:   ControllerReplicas,
-				NodeSubnet: resolved[0].(string),
+				NodeSubnet: subnet,
 				// The same two constants internal/pkg/hetzner points the load
 				// balancer's services and health checks at.
 				NodePortHTTP:  platform.IngressNodePortHTTP,
@@ -189,10 +192,9 @@ func records(
 	balancer *hcloud.LoadBalancer,
 	provider pulumi.ProviderResource,
 ) pulumi.IntOutput {
-	return pulumi.All(r.Cluster.Domain, r.Cluster.DNSZone).
-		ApplyT(func(resolved []any) (int, error) {
-			domain, zone := resolved[0].(string), resolved[1].(string)
-
+	return pulumix.Cast[pulumi.IntOutput](pulumix.Apply2Err(
+		r.Cluster.Domain, r.Cluster.DNSZone,
+		func(domain, zone string) (int, error) {
 			switch {
 			case domain == "":
 				r.Log.Skipped("dns", "metadata.domain unset, no records and no Ingress anywhere")
@@ -218,7 +220,7 @@ func records(
 
 			// One A and one AAAA.
 			return RecordsPerDomain, nil
-		}).(pulumi.IntOutput)
+		}))
 }
 
 func main() {

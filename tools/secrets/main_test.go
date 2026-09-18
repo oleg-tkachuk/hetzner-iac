@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/secretout"
 )
 
 func TestRun_RefusesATerminal(t *testing.T) {
@@ -16,7 +18,7 @@ func TestRun_RefusesATerminal(t *testing.T) {
 	// about it afterwards.
 	err := run(context.Background(), []string{"dev"}, true)
 
-	require.ErrorIs(t, err, ErrTerminal)
+	require.ErrorIs(t, err, secretout.ErrTerminal)
 	assert.Contains(t, err.Error(), "pass insert", "the refusal has to name the way through")
 	assert.Contains(t, err.Error(), "stack=dev", "the remedy names the stack that was asked for")
 }

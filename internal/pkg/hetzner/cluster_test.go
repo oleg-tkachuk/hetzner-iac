@@ -7,6 +7,7 @@ import (
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -503,4 +504,35 @@ func TestNewCluster_TheAPITargetWaitsForTheLoadBalancerToJoinTheNetwork(t *testi
 	// everything else.
 	assert.True(t, onAttachment,
 		"the api target does not wait for the load balancer's network attachment")
+}
+
+// TestNewCluster_MarksBothCredentialsSecret is the property asSecret exists to
+// guarantee, and nothing asserted it before.
+//
+// Both of these are cluster-admin. An output that loses its secret flag is
+// printed in full by `pulumi preview`, in the diff of whatever consumes it, and
+// again by `pulumi stack export` with no `--show-secrets` — and talosconfig is
+// the more powerful of the two, because it can reset a node and read etcd.
+func TestNewCluster_MarksBothCredentialsSecret(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, pulumi.RunErr(func(ctx *pulumi.Context) error {
+		cluster, err := hetzner.NewCluster(ctx, "test", &hetzner.ClusterArgs{
+			Topology:   clusterspectest.MustParseValid(t),
+			PublicIPv4: true,
+		})
+		require.NoError(t, err)
+
+		for name, output := range map[string]pulumi.StringOutput{
+			"kubeconfig":  cluster.Kubeconfig,
+			"talosconfig": cluster.Talosconfig,
+		} {
+			result, awaitErr := internals.UnsafeAwaitOutput(ctx.Context(), output)
+			require.NoError(t, awaitErr, name)
+
+			assert.True(t, result.Secret, "%s is cluster-admin and is not marked secret", name)
+		}
+
+		return nil
+	}, pulumi.WithMocks("hetzner-iac", "test", newRecorder())))
 }
