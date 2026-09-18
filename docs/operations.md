@@ -190,6 +190,14 @@ rather than merely installed:
 | a pod reaches a pod on another node | the CNI actually **routes** |
 | a claim on `hcloud-volumes` reaches `Bound` | the CSI driver, end to end through the Hetzner API |
 | every LoadBalancer Service has an address and somewhere to send it | the cloud controller manager |
+| the external metrics API answers | KEDA's aggregated API group, when `kedaEnabled` is set — skipped when it is not |
+
+The last one is the odd one out: it can be skipped, because `kedaEnabled` is
+off by default and a cluster that never asked for KEDA is not a broken cluster.
+It exists because KEDA's `APIService` is created with no CA bundle — the
+operator patches it in afterwards — and Helm waits for workloads rather than
+for `APIService`s. So the release reports success either way, and a group that
+stays unanswerable shows up much later, as an autoscaler that never acts.
 
 The second one was added after the failure it would have caught. Pod-to-pod
 traffic across nodes had no route at all for thirteen hours, and nothing said

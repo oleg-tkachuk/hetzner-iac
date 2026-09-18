@@ -30,6 +30,7 @@ package clustersmoke
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -172,6 +173,59 @@ func NodesReady(nodes []NodeState) (Result, error) {
 	result.Detail = fmt.Sprintf("%d Ready", len(nodes))
 
 	return result, nil
+}
+
+// ExternalMetricsGroup is the aggregated API group KEDA's metrics server
+// serves. Named because two things spell it: the check and the failure text.
+const ExternalMetricsGroup = "external.metrics.k8s.io"
+
+// CheckExternalMetrics names the check, in one place, for the same reason
+// CheckExternalAddresses is named.
+const CheckExternalMetrics = "the external metrics API answers"
+
+// ExternalMetricsServed is the judgement on an aggregated API group, from what
+// discovery says about it.
+//
+// The failure this exists for is specific and self-healing most of the time,
+// which is why nothing else notices it. KEDA's APIService is created with no
+// caBundle: the operator patches it in afterwards, and until it does, the
+// group is registered and unanswerable. Helm does not wait for an APIService —
+// it waits for workloads — so the release reports success either way, and a
+// group that stays broken shows up later as an autoscaler that never acts and
+// a `kubectl` that has become slow.
+//
+// Three answers, and the middle one is the point:
+//
+//   - discovery failed for this group: it is registered and not answering.
+//   - the group is served: KEDA is installed and working.
+//   - the group is absent: nothing registered it, so KEDA is not installed —
+//     skipped rather than failed, because kedaEnabled is off by default.
+func ExternalMetricsServed(groups []string, discoveryFailure string) Result {
+	result := Result{Name: CheckExternalMetrics}
+
+	if strings.Contains(discoveryFailure, ExternalMetricsGroup) {
+		result.Status = StatusFailed
+		result.Detail = fmt.Sprintf(
+			"%s is registered and does not answer: %s. "+
+				"The APIService carries the CA bundle KEDA's operator patches into it, so "+
+				"`kubectl get apiservice v1beta1.%s -o yaml` and the operator's logs are "+
+				"the two places to look",
+			ExternalMetricsGroup, strings.TrimSpace(discoveryFailure), ExternalMetricsGroup)
+
+		return result
+	}
+
+	if slices.Contains(groups, ExternalMetricsGroup) {
+		result.Status = StatusPassed
+		result.Detail = ExternalMetricsGroup + " is served"
+
+		return result
+	}
+
+	result.Status = StatusSkipped
+	result.Detail = "nothing serves " + ExternalMetricsGroup + ", so KEDA is not installed"
+
+	return result
 }
 
 // WaitForFirstConsumer is the binding mode that defers volume creation until a

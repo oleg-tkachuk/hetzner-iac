@@ -121,7 +121,39 @@ func (r *Runner) Run(ctx context.Context) Report {
 		r.checkCrossNode(ctx),
 		r.checkStorage(ctx),
 		r.checkLoadBalancers(ctx),
+		r.checkExternalMetrics(),
 	}
+}
+
+// checkExternalMetrics asks discovery whether the aggregated external metrics
+// group answers.
+//
+// Discovery rather than the APIService object, which would mean depending on
+// kube-aggregator's client for one read. This asks the question the way every
+// consumer of that API asks it: a group that discovery cannot reach is a group
+// no HorizontalPodAutoscaler can read, whatever the object says about itself.
+//
+// No context: client-go's discovery interface predates them on this call.
+func (r *Runner) checkExternalMetrics() Result {
+	served, err := r.client.Discovery().ServerGroups()
+
+	var failure string
+	if err != nil {
+		// Not returned as a failure of the check. A partial discovery failure
+		// IS the answer — it names the groups that did not answer — and
+		// ExternalMetricsServed decides whether ours is among them.
+		failure = err.Error()
+	}
+
+	var groups []string
+
+	if served != nil {
+		for _, group := range served.Groups {
+			groups = append(groups, group.Name)
+		}
+	}
+
+	return ExternalMetricsServed(groups, failure)
 }
 
 func (r *Runner) checkNodes(ctx context.Context) Result {
