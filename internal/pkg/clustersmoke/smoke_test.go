@@ -392,3 +392,62 @@ func TestJudgements_ReturnNoErrorWithoutAFailingStatus(t *testing.T) {
 	assert.Equal(t, 1, found,
 		"expected exactly one `return result, err` — failed()'s own — and found %d", found)
 }
+
+// TestExternalMetricsServed covers the three answers, and the middle one is
+// why the check exists.
+//
+// KEDA's APIService is created with no caBundle and the operator patches it in
+// afterwards. Helm waits for workloads, not for APIServices, so the release
+// reports success while the group is registered and unanswerable — and nothing
+// else in this repository looks.
+func TestExternalMetricsServed(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]struct {
+		groups     []string
+		failure    string
+		want       clustersmoke.Status
+		wantDetail string
+	}{
+		"served": {
+			groups: []string{"apps", clustersmoke.ExternalMetricsGroup},
+			want:   clustersmoke.StatusPassed,
+		},
+		"registered and not answering": {
+			groups: []string{"apps"},
+			failure: "unable to retrieve the complete list of server APIs: " +
+				clustersmoke.ExternalMetricsGroup + "/v1beta1: the server is currently unable to handle the request",
+			want:       clustersmoke.StatusFailed,
+			wantDetail: "apiservice",
+		},
+		// Off is the default, so this must not be a failure: a cluster that
+		// never asked for KEDA is not a broken cluster.
+		"absent because KEDA is not installed": {
+			groups: []string{"apps", "metrics.k8s.io"},
+			want:   clustersmoke.StatusSkipped,
+		},
+		// Discovery can fail for a group that is nothing to do with this one.
+		"another group is failing": {
+			groups:  []string{"apps", clustersmoke.ExternalMetricsGroup},
+			failure: "unable to retrieve the complete list of server APIs: custom.metrics.k8s.io/v1beta1",
+			want:    clustersmoke.StatusPassed,
+		},
+	}
+
+	for name, one := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			result := clustersmoke.ExternalMetricsServed(one.groups, one.failure)
+
+			assert.Equal(t, one.want, result.Status)
+			assert.Equal(t, clustersmoke.CheckExternalMetrics, result.Name)
+			assert.NotEmpty(t, result.Detail, "a result with no detail says nothing a reader can act on")
+
+			if one.wantDetail != "" {
+				assert.Contains(t, strings.ToLower(result.Detail), one.wantDetail,
+					"the failure must name where to look")
+			}
+		})
+	}
+}
