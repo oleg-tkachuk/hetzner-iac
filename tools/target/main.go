@@ -113,9 +113,10 @@ const StackNameExtra = "hyphens, underscores and periods, and not a leading peri
 
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) != 3 {
-		return errors.New("usage: target <layer> <stack> <selector>\n" +
+		return errors.New("usage: target <layer> <stack> <selector[,selector…]>\n" +
 			"  layer:    a directory under layers/, such as 30-cluster-services\n" +
-			"  selector: a resource name, Type:name, or " + GroupPrefix + "Type")
+			"  selector: a resource name, Type:name, or " + GroupPrefix + "Type\n" +
+			"            several, comma-separated, resolve to every one of their URNs")
 	}
 
 	layer, stack, selector := args[0], args[1], args[2]
@@ -138,7 +139,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return resourcesErr
 	}
 
-	urns, err := Match(resources, selector)
+	urns, err := MatchAll(resources, selector)
 	if err != nil {
 		return err
 	}
@@ -148,6 +149,66 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 
 	return nil
+}
+
+// SelectorSeparator joins several selectors in one argument.
+//
+// A comma because it cannot appear in a Pulumi resource name, a type token or
+// a URN, so splitting on it can never cut a selector in half.
+const SelectorSeparator = ","
+
+// MatchAll resolves every selector in a comma-separated list.
+//
+// One pulumi invocation takes many `--target` flags, so `target=hcloud-ccm,
+// hcloud-csi` is one apply rather than two — which matters beyond typing: two
+// applies are two chances for the second to run against a cluster the first
+// one changed, and each one leaves the layer's other resources on their
+// last-applied inputs.
+//
+// Every selector has to resolve. A list where one name is a typo refuses as a
+// whole rather than applying the rest, because the operator asked for both and
+// a partial apply that reports success is the failure this program exists to
+// prevent.
+func MatchAll(resources []Resource, selectors string) ([]string, error) {
+	seen := map[string]struct{}{}
+
+	var (
+		urns  []string
+		taken = map[string]struct{}{}
+	)
+
+	for _, selector := range strings.Split(selectors, SelectorSeparator) {
+		selector = strings.TrimSpace(selector)
+
+		if selector == "" {
+			return nil, fmt.Errorf("%q has an empty selector: %w", selectors, ErrNoSelector)
+		}
+
+		if _, duplicate := seen[selector]; duplicate {
+			return nil, fmt.Errorf("%q names %q twice", selectors, selector)
+		}
+
+		seen[selector] = struct{}{}
+
+		matched, err := Match(resources, selector)
+		if err != nil {
+			return nil, err
+		}
+
+		// Overlapping selectors are legitimate — `group:Ingress,traefik` names
+		// the group and one of its members — and a repeated --target is not
+		// something to hand to Pulumi twice.
+		for _, urn := range matched {
+			if _, already := taken[urn]; already {
+				continue
+			}
+
+			taken[urn] = struct{}{}
+			urns = append(urns, urn)
+		}
+	}
+
+	return urns, nil
 }
 
 // Match turns a selector into URNs, or explains why it cannot.

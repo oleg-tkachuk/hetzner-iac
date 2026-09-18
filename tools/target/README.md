@@ -37,6 +37,17 @@ The `+ 1 to create` there is a provider. Providers are created regardless of
 | `cert-manager` | the resource with that name, whatever its type |
 | `ConfigFile:kubelet-serving-cert-approver` | the same, qualified, when one name is used by two types |
 | `group:Ingress` | a group's own node and every resource under it |
+| `hcloud-ccm,hcloud-csi` | both, as one `pulumi` run with two `--target` flags |
+
+A comma-separated list resolves every selector, and **every one of them has to
+resolve**: a list where one name is a typo refuses as a whole rather than
+applying the rest, because a partial apply that reports success is the failure
+this program exists to prevent. An empty element — `a,` from an unset shell
+variable — is refused for the same reason. Selectors may overlap, so
+`group:Ingress,traefik` is allowed and yields each URN once.
+
+A comma because it cannot appear in a resource name, a type token or a URN, so
+splitting on it can never cut a selector in half.
 
 `group:` reads what the state already says. A component resource's type appears
 in the URN of everything beneath it:
