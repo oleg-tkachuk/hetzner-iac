@@ -51,12 +51,12 @@ vars:
   _CL_SNAPSHOT_INFO: '.info'
 
   # The layer that owns the backup destination, and the five outputs it
-  # publishes. The names are spelled in layers/60-backup/main.go as constants
+  # publishes. The names are spelled in infra/backup/main.go as constants
   # and here as strings — a shell script cannot import one — so
   # TestBackupOutputs_AreTheNamesTheUploadTaskReads holds the two equal. A
   # rename on one side alone is not an error: jq returns null, and the upload
   # authenticates with an empty password.
-  _CL_BACKUP_DIR: '{{.ROOT}}/layers/60-backup'
+  _CL_BACKUP_DIR: '{{.ROOT}}/infra/backup'
   _CL_BACKUP_OUT_HOST: backupHost
   _CL_BACKUP_OUT_USER: backupUsername
   # The two `_PASS` vars hold the NAME of an output and not a password: the
@@ -820,7 +820,7 @@ tasks:
       #
       # Why this exists beside secrets:export rather than instead of it: the
       # bundle alone does not open the snapshots. restic's repository password
-      # is generated into layers/60-backup's state, and re-applying that layer
+      # is generated into infra/backup's state, and re-applying that layer
       # produces a different one — so the state holds both halves of its own
       # backup, and this is the command that takes them out together.
       - cmd: go run "{{.ROOT}}/tools/recoverykit" "{{._CL_STACK}}"
@@ -846,7 +846,7 @@ tasks:
           # `pulumi stack import` can read it back.
           #
           # Every tier, because the irreplaceable part is not only in the
-          # cluster's: layers/60-backup generates the restic password into its
+          # cluster's: infra/backup generates the restic password into its
           # own state, and which layer holds something generated is exactly
           # the judgement that goes stale.
           printf '%s\n' "{{._RUN}} cluster · state:export · {{._CL_STACK}} into .backups/state/"
@@ -1161,9 +1161,9 @@ tasks:
           # this — and the partial cases differ only in which credential is
           # empty, which is not a distinction worth five messages.
           if [ -z "$host" ] || [ -z "$user" ] || [ -z "$pass" ] || [ -z "$home" ] || [ -z "$repo_pass" ]; then
-            printf '%s\n' "{{._ERR}} cluster · etcd:upload · stack {{._CL_STACK}} of 60-backup does not publish a destination"
+            printf '%s\n' "{{._ERR}} cluster · etcd:upload · stack {{._CL_STACK}} of the backup tier does not publish a destination"
             printf '\n'
-            printf '%s\n' "    task platform:apply layer=60-backup stack={{._CL_STACK}}"
+            printf '%s\n' "    task backup:apply stack={{._CL_STACK}}"
             printf '\n'
             printf '%s\n' "creates the Storage Box and generates its credentials."
             exit 1

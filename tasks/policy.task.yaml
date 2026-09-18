@@ -18,10 +18,11 @@ vars:
   # releases. A second form of the layer list is avoided by reading the one in
   # Taskfile.yaml.
   _PO_LAYERS: '{{.LAYERS}}'
+  _PO_TIERS: '{{.TIERS}}'
 
 tasks:
   check:
-    desc: "Run the policy pack over the cluster tier and every layer; changes nothing"
+    desc: "Run the policy pack over every tier and every layer; changes nothing"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
@@ -33,10 +34,12 @@ tasks:
 
           # --policy-pack takes a path, and preview runs from the program's own
           # directory, so the path has to be absolute. ROOT is already that.
-          printf '%s\n' "{{._RUN}} policy · cluster · preview"
-          ( cd "{{.ROOT}}/infra/cluster" && \
-            pulumi --non-interactive --stack "{{._PO_STACK}}" preview \
-              --policy-pack "{{._PO_PACK}}" )
+          for tier in {{._PO_TIERS}}; do
+            printf '%s\n' "{{._RUN}} policy · ${tier} · preview"
+            ( cd "{{.ROOT}}/infra/${tier}" && \
+              pulumi --non-interactive --stack "{{._PO_STACK}}" preview \
+                --policy-pack "{{._PO_PACK}}" )
+          done
 
           for layer in {{._PO_LAYERS}}; do
             printf '%s\n' "{{._RUN}} policy · ${layer} · preview"

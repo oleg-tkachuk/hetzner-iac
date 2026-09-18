@@ -55,7 +55,7 @@ type StorageBoxArgs struct {
 	// Type is the Hetzner Storage Box type, from stack config.
 	Type string
 	// Password for the box's own account, and SubaccountPassword for the
-	// confined one. Both are generated — see layers/60-backup — so neither is
+	// confined one. Both are generated — see infra/backup — so neither is
 	// ever typed, pasted or held anywhere but Pulumi's encrypted state.
 	Password           pulumi.StringInput
 	SubaccountPassword pulumi.StringInput

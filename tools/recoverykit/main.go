@@ -6,7 +6,7 @@
 //
 //   - an etcd snapshot on the Storage Box is encrypted by restic
 //   - restic's repository password is a random.NewRandomPassword generated
-//     into layers/60-backup's state, and re-applying that layer generates a
+//     into infra/backup's state, and re-applying that project generates a
 //     NEW one, which does not open the existing repository
 //   - a restored snapshot is useless without the Talos secrets bundle, which
 //     is in the cluster tier's state
@@ -55,7 +55,7 @@ const timeout = 120 * time.Second
 // BackupDir is the layer whose outputs hold the backup credentials. Every
 // output of it is taken rather than a named few: they are all generated, none
 // is ever typed, and a list of names here would be a third copy of them.
-const BackupDir = "layers/60-backup"
+const BackupDir = "infra/backup"
 
 // TopologyDir is where the committed-shaped-but-gitignored topology lives.
 const TopologyDir = "infra/cluster"
@@ -171,7 +171,7 @@ type Kit struct {
 	// Bundle is the Talos secrets bundle. Required.
 	Bundle []byte
 
-	// Backup is every output of the backup layer, as JSON. BackupMissing
+	// Backup is every output of the backup tier, as JSON. BackupMissing
 	// carries the reason when there is none.
 	Backup        []byte
 	BackupMissing string
@@ -218,7 +218,7 @@ func (k Kit) Document() []byte {
 		out.Write(ensureNewline(k.Backup))
 	} else {
 		fmt.Fprintf(&out, "MISSING — the snapshots on the Storage Box cannot be decrypted "+
-			"without this.\nApply layers/60-backup, then take this kit again.\n%s\n",
+			"without this.\nApply infra/backup, then take this kit again.\n%s\n",
 			indent(k.BackupMissing))
 	}
 

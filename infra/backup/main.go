@@ -99,9 +99,10 @@ const (
 
 // deploy creates the destination and publishes how to reach it.
 func deploy(r *layer.Runner) error {
-	// This layer's own provider: it creates Hetzner resources, not Kubernetes
-	// ones, so it must not inherit r.Options — which carries the Kubernetes
-	// provider.
+	// Its own provider, and the only one this project has: the runner comes
+	// from layer.NewWithoutKubernetes, so there is no Kubernetes provider to
+	// inherit or to avoid inheriting. That used to be a comment warning about
+	// r.Options; it is now a fact about the runner.
 	provider, err := hetzner.NewProvider(r.Ctx, r.Cluster.HcloudToken)
 	if err != nil {
 		return err
@@ -169,5 +170,5 @@ func deploy(r *layer.Runner) error {
 }
 
 func main() {
-	layer.Run(deploy)
+	layer.RunWithoutKubernetes(deploy)
 }

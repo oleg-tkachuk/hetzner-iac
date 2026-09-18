@@ -107,20 +107,21 @@ func dependenciesOf(body string) []string {
 	return out
 }
 
+// moduleStack matches a taskfile module's own spelling of the stack: _CL_
+// cluster, _PL_ platform, _PO_ policy, _BK_ backup.
+//
+// A pattern rather than the list this used to be. The list had already drifted
+// once — _PO_STACK was missing, so every task in policy.task.yaml was
+// invisible to both gates below — and a fourth module was added the day this
+// comment was written. A var this matches and does not exist renders empty,
+// which reaches Pulumi as `--stack ""` and fails loudly, so nothing hides
+// behind the looser test.
+var moduleStack = regexp.MustCompile(`\._[A-Z]{2}_STACK\b`)
+
 // needsStack reports whether a task body reads the stack in any of its
 // spellings.
 func needsStack(body string) bool {
-	// One per taskfile that has its own: _CL_ cluster, _PL_ platform, _PO_
-	// policy. _PO_STACK was missing, so every task in policy.task.yaml was
-	// invisible to both gates below — they happen to be guarded, and nothing
-	// was checking that.
-	for _, spelling := range []string{"._CL_STACK", "._PL_STACK", "._PO_STACK", "{{.stack}}"} {
-		if strings.Contains(body, spelling) {
-			return true
-		}
-	}
-
-	return false
+	return moduleStack.MatchString(body) || strings.Contains(body, "{{.stack}}")
 }
 
 // layerEnum matches the anchor that feeds every per-layer task's enum.

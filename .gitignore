@@ -34,6 +34,8 @@ bin/
 /token
 /topology
 /[0-9][0-9]-*
+# infra/backup is a tier rather than a layer, so its binary is not numbered.
+/backup
 
 # Pulumi. The backup files are the CLI's own; .pulumi/ is its local state when
 # a DIY backend is used instead of Pulumi Cloud.

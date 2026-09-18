@@ -46,9 +46,10 @@ var checkTools = []string{
 }
 
 // rootIncludes is every include the root entry point may declare: the two
-// library modules that act on live servers and the three local taskfiles that
-// describe a cluster. Taskfile.dev.yaml reaches all five through `iac:`.
-var rootIncludes = []string{"hcloud", "helm", "cluster", "platform", "policy"}
+// library modules that act on live servers and the local taskfiles that
+// describe a cluster and the tiers beside it. Taskfile.dev.yaml reaches them
+// all through `iac:`.
+var rootIncludes = []string{"hcloud", "helm", "backup", "cluster", "platform", "policy"}
 
 // TestRootTaskfile_HoldsNoCheck keeps the rule that put these two files apart
 // from eroding back into one.

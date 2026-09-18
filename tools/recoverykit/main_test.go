@@ -140,7 +140,7 @@ func TestDocument_SaysWhatIsMissingRatherThanOmittingIt(t *testing.T) {
 	doc := string(kit.Document())
 
 	assert.Contains(t, doc, "MISSING — the snapshots on the Storage Box cannot be decrypted")
-	assert.Contains(t, doc, "Apply layers/60-backup")
+	assert.Contains(t, doc, "Apply infra/backup")
 	assert.Contains(t, doc, "no stack named dev")
 
 	assert.Contains(t, doc, "MISSING — no task in this repository runs without it")

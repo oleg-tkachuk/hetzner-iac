@@ -51,6 +51,7 @@ func main() {
 var Paths = []string{
 	"Taskfile.yaml",
 	"Taskfile.dev.yaml",
+	"tasks/backup.task.yaml",
 	"tasks/charts.task.yaml",
 	"tasks/cluster.task.yaml",
 	"tasks/platform.task.yaml",

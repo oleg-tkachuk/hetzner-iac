@@ -41,6 +41,9 @@ func producers(t *testing.T) []string {
 	for _, pattern := range []string{
 		filepath.Join(root, "layers", "*", "*.go"),
 		filepath.Join(root, "infra", "cluster", "*.go"),
+		// backup is a tier rather than a layer: it creates Hetzner resources
+		// only, so it is beside the cluster rather than under layers/.
+		filepath.Join(root, "infra", "backup", "*.go"),
 	} {
 		matched, err := filepath.Glob(pattern)
 		require.NoError(t, err)
@@ -100,7 +103,7 @@ func TestLayers_ExportOnlyNamedOutputs(t *testing.T) {
 // prints nothing, jq answers `null`, and the task reports the layer as
 // unapplied — pointing the operator at an apply that will not fix it.
 //
-// This replaces a test that checked the backup layer only. The tier's
+// This replaces a test that checked the backup tier only. The cluster tier's
 // kubeconfig and talosconfig cross the same boundary and were guarded a
 // different way — by pinning the constant's value inside internal/pkg/clusterref, which
 // freezes the Go side without ever reading the shell side. Both are kept: the
