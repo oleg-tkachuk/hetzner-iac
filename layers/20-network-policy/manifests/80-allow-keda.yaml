@@ -1,0 +1,103 @@
+# KEDA reaching the sources it scales on, and its own two halves reaching each
+# other.
+#
+# NOT MEASURED. Every other policy here carries Hubble event counts read off a
+# running cluster; nothing has run KEDA on this one yet. What is written below
+# comes from the rendered chart — the ports are its own Services — and from
+# what KEDA's architecture requires, so it is a policy to verify with
+# `task cluster:hubble` on the first cluster that sets `kedaEnabled`, not one
+# to trust because it is committed.
+#
+# Inside the cluster only, which is the decision worth naming. KEDA can scale
+# on external sources too — an SQS queue, a hosted Kafka — and a cluster that
+# does would need `toEntities: world` here with the argument
+# 70-allow-argocd-git.yaml makes. This one does not, so egress stops at the
+# cluster: a scaler pointed at the internet fails with a connection error
+# rather than working by accident, and widening it stays a decision somebody
+# has to write down.
+#
+# These select nothing until KEDA is installed, and that is fine — the same as
+# the Prometheus and Loki policies next door. A policy describes traffic, not
+# who installs it, so it applies the moment the chart is reconciled.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-keda-scalers
+spec:
+  description: the KEDA operator reaches the sources it polls, inside the cluster
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: keda
+      k8s:app.kubernetes.io/name: keda-operator
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    # Every endpoint, and for the reason 30-allow-scraping.yaml gives about
+    # Prometheus: a ScaledObject may name any Service in the cluster, on
+    # whatever port that thing listens on, and it arrives from Argo CD rather
+    # than from this repository. Narrowing this to a port list would mean
+    # editing policy for each new trigger — which is how policy comes to be
+    # disabled instead of maintained.
+    #
+    # Bounded twice over: `toEndpoints` is the cluster, not the world, and the
+    # operator is the only endpoint this rule selects.
+    - toEndpoints:
+        - {}
+---
+# The two halves of KEDA's metrics path.
+#
+# The operator polls the scalers and holds the values; the metrics API server
+# answers kube-apiserver and reads those values from the operator over gRPC on
+# tcp/9666 — the `metricsservice` port of the keda-operator Service. Deny it
+# and the aggregated API answers every query with an error while both pods
+# report healthy.
+#
+# The other direction needs nothing here: kube-apiserver calls the metrics API
+# server and the admission webhook from the host, which 00-allow-host.yaml
+# already permits to every endpoint in the cluster.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-keda-metrics
+spec:
+  description: KEDA's metrics API server reads scaler values from the operator over gRPC
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: keda
+      k8s:app.kubernetes.io/name: keda-operator
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: keda
+            k8s:app.kubernetes.io/name: keda-operator-metrics-apiserver
+      toPorts:
+        - ports:
+            - port: "9666"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-keda-metrics-egress
+spec:
+  description: the same flow from the metrics API server's side, which the deny also covers
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: keda
+      k8s:app.kubernetes.io/name: keda-operator-metrics-apiserver
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: keda
+            k8s:app.kubernetes.io/name: keda-operator
+      toPorts:
+        - ports:
+            - port: "9666"
+              protocol: TCP

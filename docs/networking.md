@@ -68,6 +68,21 @@ rather than named hosts, and deliberately: Argo CD reaches the forge that key
 names and every chart registry any child Application references, which is not
 a set anybody can list in advance.
 
+`80-allow-keda` is the third, and it is unmeasured for a third reason:
+`kedaEnabled` is off, so the operator that would produce the flows is not
+installed. Its ports come from the rendered chart rather than from Hubble — the
+`metricsservice` port of the keda-operator Service is tcp/9666 — and its shape
+from what KEDA's architecture requires: the operator polls the sources and the
+metrics API server reads the values from it over gRPC. Verify it with
+`task cluster:hubble` on the first cluster that sets the key.
+
+It is also the one policy written narrower than it could be. KEDA can scale on
+an external source, and a cluster that did would need `toEntities: world` here
+for the same reason Argo CD has it. This one stops at `toEndpoints` inside the
+cluster, so a ScaledObject pointed at the internet fails with a connection
+error rather than working by accident — and widening it costs a commit that
+says why.
+
 The flow this was once also waiting for — Alertmanager reaching a receiver —
 is not a gap today: no observability is installed, so there is nothing to
 drop. It becomes one again the moment that arrives, which is why it is written

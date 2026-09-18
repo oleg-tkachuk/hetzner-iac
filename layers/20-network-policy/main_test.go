@@ -28,19 +28,28 @@ type policy struct {
 			Ingress *bool `json:"ingress"`
 			Egress  *bool `json:"egress"`
 		} `json:"enableDefaultDeny"`
-		Egress []struct {
-			ToEntities []string `json:"toEntities"`
-			ToFQDNs    []struct {
-				MatchName string `json:"matchName"`
-			} `json:"toFQDNs"`
-			ToPorts []struct {
-				Ports []struct {
-					Port     string `json:"port"`
-					Protocol string `json:"protocol"`
-				} `json:"ports"`
-			} `json:"toPorts"`
-		} `json:"egress"`
+		Egress []rule `json:"egress"`
+		// Ingress is read for the same reason Egress is: under the default
+		// deny each direction is a separate decision, so a flow allowed one
+		// way and not the other is a flow that does not work.
+		Ingress []rule `json:"ingress"`
 	} `json:"spec"`
+}
+
+// rule is one ingress or egress rule, in the fields these tests read. One type
+// for both: the keys they share are the ones being asserted on, and two copies
+// of it drifted the first time an ingress rule had to be read.
+type rule struct {
+	ToEntities []string `json:"toEntities"`
+	ToFQDNs    []struct {
+		MatchName string `json:"matchName"`
+	} `json:"toFQDNs"`
+	ToPorts []struct {
+		Ports []struct {
+			Port     string `json:"port"`
+			Protocol string `json:"protocol"`
+		} `json:"ports"`
+	} `json:"toPorts"`
 }
 
 // manifests reads every policy document in the directory, by file.
@@ -342,4 +351,76 @@ func TestArgoCDGitPolicy_StaysBroadOnPurpose(t *testing.T) {
 	assert.ElementsMatch(t, []string{"443", "22"}, ports,
 		"%s must name both: 443 for an https:// repository and every chart pull, 22 for "+
 			"git@host:path. Which is used follows from gitops:repoURL", argoCDGitPolicy)
+}
+
+// kedaPolicy holds KEDA's flows, and holds them inside the cluster.
+const kedaPolicy = "80-allow-keda.yaml"
+
+// TestKedaPolicy_StopsAtTheClusterEdge is the decision this file records, and
+// the one a future change is most likely to undo without meaning to.
+//
+// KEDA can scale on an external source, and a cluster that does would need
+// `toEntities: world` here — the argument 70-allow-argocd-git.yaml makes. This
+// cluster scales on sources inside itself, so a scaler pointed at the internet
+// should fail with a connection error rather than work by accident, and
+// widening this should cost somebody a commit that says why.
+func TestKedaPolicy_StopsAtTheClusterEdge(t *testing.T) {
+	t.Parallel()
+
+	policies, found := manifests(t)[kedaPolicy]
+	require.True(t, found, "%s is gone, and KEDA reaches no scaler under the deny", kedaPolicy)
+	require.Len(t, policies, 3, "%s holds the operator's egress and both sides of the gRPC flow", kedaPolicy)
+
+	for _, policy := range policies {
+		for _, rule := range policy.Spec.Egress {
+			assert.Empty(t, rule.ToEntities,
+				"%s permits egress to %v. KEDA's sources are inside this cluster; reaching "+
+					"outside it is a separate decision and belongs in its own policy",
+				kedaPolicy, rule.ToEntities)
+
+			assert.Empty(t, rule.ToFQDNs,
+				"%s names hosts outside the cluster, which is the same widening by another route",
+				kedaPolicy)
+		}
+	}
+}
+
+// TestKedaPolicy_NamesTheGRPCPortTheChartRenders keeps the metrics path from
+// drifting from the chart.
+//
+// The metrics API server answers kube-apiserver and reads the scaler values
+// from the operator over gRPC. Wrong port, and the aggregated API returns an
+// error for every query while both pods report healthy — the failure shows up
+// as an autoscaler that never acts.
+func TestKedaPolicy_NamesTheGRPCPortTheChartRenders(t *testing.T) {
+	t.Parallel()
+
+	policies := manifests(t)[kedaPolicy]
+	require.NotEmpty(t, policies)
+
+	var ports []string
+
+	for _, policy := range policies {
+		for _, rule := range policy.Spec.Ingress {
+			for _, block := range rule.ToPorts {
+				for _, port := range block.Ports {
+					ports = append(ports, port.Port)
+				}
+			}
+		}
+
+		for _, rule := range policy.Spec.Egress {
+			for _, block := range rule.ToPorts {
+				for _, port := range block.Ports {
+					ports = append(ports, port.Port)
+				}
+			}
+		}
+	}
+
+	// 9666 is the keda-operator Service's `metricsservice` port, read off the
+	// rendered chart rather than remembered.
+	assert.ElementsMatch(t, []string{"9666", "9666"}, ports,
+		"%s must name 9666 from both sides: the deny covers each direction separately",
+		kedaPolicy)
 }
