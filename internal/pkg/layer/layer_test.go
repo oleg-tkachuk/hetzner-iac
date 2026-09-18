@@ -101,6 +101,20 @@ func run(t *testing.T, m *mocks, fn func(*layer.Runner) error) error {
 	}, pulumi.WithMocks(testProject, testStack, m))
 }
 
+// runWithoutKubernetes is run for the tier variant, which builds no provider.
+func runWithoutKubernetes(t *testing.T, m *mocks, fn func(*layer.Runner) error) error {
+	t.Helper()
+
+	return pulumi.RunErr(func(ctx *pulumi.Context) error {
+		runner, err := layer.NewWithoutKubernetes(ctx)
+		if err != nil {
+			return err
+		}
+
+		return fn(runner)
+	}, pulumi.WithMocks(testProject, testStack, m))
+}
+
 func TestNew_RequiresAClusterStackRef(t *testing.T) {
 	t.Setenv("PULUMI_CONFIG", "{}")
 
@@ -142,6 +156,46 @@ func TestNew_BuildsAProviderFromTheClusterKubeconfig(t *testing.T) {
 
 	// An unreachable cluster must fail the operation, not empty the state.
 	assert.False(t, providers[0]["deleteUnreachable"].BoolValue())
+}
+
+func TestNewWithoutKubernetes_BuildsNoProvider(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	m := newMocks()
+
+	require.NoError(t, runWithoutKubernetes(t, m, func(runner *layer.Runner) error {
+		assert.Nil(t, runner.Provider,
+			"a tier that creates Hetzner resources only must carry no Kubernetes provider")
+		assert.Empty(t, runner.Options,
+			"the shared options exist to carry the provider; without one they must be empty")
+
+		// The cluster reference is the point of the variant: the tier reads
+		// the Hetzner token from it, which is all it needs.
+		assert.NotNil(t, runner.Cluster)
+
+		return nil
+	}))
+
+	assert.Empty(t, m.of("pulumi:providers:kubernetes"),
+		"a provider was created for a tier that reaches no cluster — the dead resource this "+
+			"variant exists to remove")
+}
+
+func TestRelease_RefusesWithoutAKubernetesProvider(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	// Refused rather than attempted: with no provider the release would land
+	// on whichever cluster the operator's shell is pointing at.
+	err := runWithoutKubernetes(t, newMocks(), func(runner *layer.Runner) error {
+		_, err := runner.Release(layer.ReleaseArgs{Chart: "cilium"})
+
+		return err
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no Kubernetes provider")
+	assert.Contains(t, err.Error(), "NewWithoutKubernetes",
+		"the message must name the constructor that produced the runner")
 }
 
 func TestWith_DoesNotMutateTheSharedOptions(t *testing.T) {

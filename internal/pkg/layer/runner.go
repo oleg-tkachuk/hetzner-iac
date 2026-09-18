@@ -56,25 +56,13 @@ type Runner struct {
 
 // New builds the runner from stack configuration.
 func New(ctx *pulumi.Context) (*Runner, error) {
-	cfg := config.New(ctx, "")
-
-	ref := cfg.Get("clusterStackRef")
-	if ref == "" {
-		// Naming the task rather than the pulumi command: the task derives
-		// the reference from the cluster tier, where a hand-typed one can
-		// name another environment's cluster and nothing rejects it.
-		return nil, fmt.Errorf(
-			"config `clusterStackRef` is not set: point this layer at the cluster tier with\n" +
-				"  task platform:init stack=<stack>")
-	}
-
-	cluster, err := clusterref.Resolve(ctx, ref)
+	runner, err := NewWithoutKubernetes(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	provider, err := kubernetes.NewProvider(ctx, "k8s", &kubernetes.ProviderArgs{
-		Kubeconfig: cluster.Kubeconfig,
+		Kubeconfig: runner.Cluster.Kubeconfig,
 		// What makes this provider's identity explicit instead of guessed.
 		//
 		// Without it the provider decides for itself whether a configuration
@@ -92,7 +80,7 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 		// setting exists to prevent. The name is this repository's own notion
 		// of cluster identity — it prefixes every node and scopes the
 		// firewall's label selector.
-		ClusterIdentifier: cluster.ClusterName,
+		ClusterIdentifier: runner.Cluster.ClusterName,
 		// Server-side apply. It is what makes a re-run converge on a resource
 		// another controller also writes to — the field-manager conflict is
 		// reported rather than silently overwritten, which is the behaviour
@@ -114,6 +102,47 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 		return nil, fmt.Errorf("kubernetes provider: %w", err)
 	}
 
+	runner.Provider = provider
+	runner.Options = []pulumi.ResourceOption{pulumi.Provider(provider)}
+
+	return runner, nil
+}
+
+// NewWithoutKubernetes builds a runner for a tier that creates Hetzner
+// resources only.
+//
+// The Kubernetes provider is the difference, and it is a RESOURCE rather than
+// a convenience: `infra/backup`'s plan carried
+// `pulumi:providers:kubernetes::k8s` in its own stack, created on every apply
+// and used by nothing, while that project's own comment said out loud that it
+// "must not inherit r.Options — which carries the Kubernetes provider".
+//
+// Everything else is shared, because everything else is genuinely wanted: the
+// cluster tier's outputs, the logger, the stack config, and the exported
+// contract check that makes a stale producer fail loudly.
+//
+// Release and Deploy refuse to run on a runner built this way. A release
+// created with no provider lands on whatever cluster the operator's shell
+// happens to point at, which is the failure Runner.Provider's own comment
+// exists to prevent.
+func NewWithoutKubernetes(ctx *pulumi.Context) (*Runner, error) {
+	cfg := config.New(ctx, "")
+
+	ref := cfg.Get("clusterStackRef")
+	if ref == "" {
+		// Naming the task rather than the pulumi command: the task derives
+		// the reference from the cluster tier, where a hand-typed one can
+		// name another environment's cluster and nothing rejects it.
+		return nil, fmt.Errorf(
+			"config `clusterStackRef` is not set: point this project at the cluster tier with\n" +
+				"  task platform:init stack=<stack>, or task backup:init stack=<stack>")
+	}
+
+	cluster, err := clusterref.Resolve(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+
 	// Exported so the engine awaits it. The contract check is an output, and
 	// an output nothing consumes is never resolved — the error inside it
 	// would never surface. A stack output is the cheapest thing that is
@@ -121,12 +150,10 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 	ctx.Export(clusterref.OutputContractVersion, cluster.ContractCheck)
 
 	return &Runner{
-		Ctx:      ctx,
-		Cluster:  cluster,
-		Log:      pulumilog.New(ctx),
-		Cfg:      cfg,
-		Provider: provider,
-		Options:  []pulumi.ResourceOption{pulumi.Provider(provider)},
+		Ctx:     ctx,
+		Cluster: cluster,
+		Log:     pulumilog.New(ctx),
+		Cfg:     cfg,
 	}, nil
 }
 
@@ -134,6 +161,23 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 func Run(fn func(*Runner) error) {
 	pulumi.Run(func(ctx *pulumi.Context) error {
 		runner, err := New(ctx)
+		if err != nil {
+			return err
+		}
+
+		runner.banner()
+
+		return fn(runner)
+	})
+}
+
+// RunWithoutKubernetes is Run for a tier that creates Hetzner resources only.
+//
+// The same banner and the same error handling; the difference is the runner it
+// hands over, which carries no Kubernetes provider. See NewWithoutKubernetes.
+func RunWithoutKubernetes(fn func(*Runner) error) {
+	pulumi.Run(func(ctx *pulumi.Context) error {
+		runner, err := NewWithoutKubernetes(ctx)
 		if err != nil {
 			return err
 		}
