@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 )
 
 // TestEveryLayer_ChecksItsComponents closes the gap that made the other checks
@@ -241,4 +243,47 @@ func TestNoLayerIsNamedAll(t *testing.T) {
 	require.NotEmpty(t, names, "no layers found; this test is checking nothing")
 	assert.NotContains(t, names, "all",
 		"a layer directory named `all` collides with the whole-platform selector")
+}
+
+// TestWorkloadLayers_AreRealLayers is the outer half of the attribution
+// internal/pkg/workloads now carries.
+//
+// layertest.Check proves each layer's charts are attributed to THAT layer, and
+// internal/pkg/cni does the same for the CNI's chart, which layertest cannot
+// see. Neither can tell a layer name that exists from one that does not: a
+// typo, or a layer that was renamed, attributes a chart to nothing and every
+// per-layer check keeps passing, because none of them runs in a directory that
+// matches.
+func TestWorkloadLayers_AreRealLayers(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	raw, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	list := layerList.FindStringSubmatch(string(raw))
+	require.NotNil(t, list, "no LAYERS list in the root taskfile")
+
+	walked := strings.Fields(list[1])
+	require.NotEmpty(t, walked)
+
+	named := workloads.Layers()
+	require.NotEmpty(t, named, "no layer is named in internal/pkg/workloads")
+
+	for _, layer := range named {
+		assert.Contains(t, walked, layer,
+			"internal/pkg/workloads attributes charts to %q, which LAYERS does not walk", layer)
+
+		info, statErr := os.Stat(filepath.Join(root, "layers", layer))
+		require.NoError(t, statErr, layer)
+		assert.True(t, info.IsDir(), layer)
+	}
+
+	// The reverse is deliberately NOT asserted: 20-network-policy installs no
+	// chart, so its absence here is correct. What makes that safe is
+	// TestEveryLayer_ChecksItsComponents above — a layer with charts and no
+	// layertest.Check would be the gap, and it fails there.
+	assert.Less(t, len(named), len(walked),
+		"every layer installs a chart now, so the exemption this test documents is stale")
 }
