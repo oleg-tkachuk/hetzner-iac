@@ -233,6 +233,12 @@ var hostAccessMarkers = []string{
 // Ready. The only evidence was one event on the DaemonSet.
 func checkHostAccess(key, releaseNamespace string, manifests []byte) error {
 	for _, doc := range strings.Split(string(manifests), "\n---") {
+		// A schema is not a pod. Skipped before the markers are looked for,
+		// because they are certainly there: see SchemaKind.
+		if isSchemaDocument(doc) {
+			continue
+		}
+
 		needs := hostAccessIn(doc)
 		if len(needs) == 0 {
 			continue
@@ -266,6 +272,34 @@ func hostAccessIn(doc string) []string {
 	}
 
 	return found
+}
+
+// SchemaKind is the one kind whose text names host access with no pod asking
+// for it.
+//
+// A CustomResourceDefinition carries an OpenAPI schema, and a CRD with a pod
+// template in it carries the whole PodSpec schema — so `hostPath` and
+// `hostPort` appear as PROPERTY NAMES in a document that creates nothing.
+// KEDA's ScaledJob is the first chart pinned here to do that, and the check
+// reported the entire chart as asking for host access in a namespace Talos
+// does not exempt. This is the case render.go's own comment predicted when it
+// said the check is per document "because the next one will".
+const SchemaKind = "CustomResourceDefinition"
+
+// isSchemaDocument answers whether a document is a SchemaKind.
+//
+// Its own reader rather than documentKind next door, which deliberately
+// answers "" for anything that is not a workload and so cannot tell a CRD from
+// a Service. At the start of a line with no indentation, for the reason that
+// one gives: a `kind:` deeper in a document belongs to something else.
+func isSchemaDocument(doc string) bool {
+	for _, line := range strings.Split(doc, "\n") {
+		if name, found := strings.CutPrefix(line, "kind: "); found {
+			return strings.TrimSpace(name) == SchemaKind
+		}
+	}
+
+	return false
 }
 
 // documentNamespace reads metadata.namespace, falling back to the release's.

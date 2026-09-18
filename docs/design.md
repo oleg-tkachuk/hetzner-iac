@@ -53,6 +53,7 @@ flowchart TB
         ks["kube-system<br/>layers/10-node-platform"]
         pol["cluster-wide policy<br/>layers/20-network-policy"]
         cmns["cert-manager, external-secrets<br/>layers/30-cluster-services"]
+        kedans["keda<br/>layers/30-cluster-services, when kedaEnabled"]
         tns["traefik<br/>layers/40-ingress"]
         argons["argocd<br/>layers/50-gitops"]
     end
@@ -68,7 +69,7 @@ flowchart TB
     class net,fw,pg,snap,cp,wk,box hetzner
     class apilb,inglb hetzner
     class etcd,api talos
-    class ks,pol,cmns,tns,argons kube
+    class ks,pol,cmns,kedans,tns,argons kube
     class trust state
 
     style hetzner fill:#fffafb,stroke:#d50c2d,stroke-width:2px,color:#1f2328

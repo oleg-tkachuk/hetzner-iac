@@ -1,0 +1,101 @@
+# KEDA.
+
+# One key for the operator, the metrics API server and the admission webhook —
+# the chart's own spelling, and the only one of the three that is a single key.
+#
+# The metrics API server is the reason for the class. It serves
+# external.metrics.k8s.io through the aggregation layer, so kube-apiserver
+# calls it on behalf of anything asking for an external metric; evicted beside
+# the workloads it scales, it takes the API group down with it and every
+# HorizontalPodAutoscaler reading one stops with a discovery error.
+#
+# task charts:render-check asserts this reaches the rendered pod specs, where
+# the chart writes it quoted.
+priorityClassName: system-cluster-critical
+
+# The chart can write network policies of its own, in Cilium's dialect.
+#
+# Off, and deliberately. layers/20-network-policy owns every policy in this
+# cluster, as cluster-wide objects with the measured flows written beside them.
+# Turned on here, the same traffic would be described in two places and Cilium
+# would merge them with nothing saying so — and the copy in this file would be
+# the one nobody reads when a scaler cannot reach its source.
+networkPolicy:
+  enabled: false
+
+operator:
+  # One. The operator elects a leader, so a second replica is a passive copy
+  # that costs a node's memory and changes no failure mode: a scaler is
+  # re-evaluated on the next poll after a restart, and KEDA's polling interval
+  # is thirty seconds by default.
+  replicaCount: 1
+
+metricsServer:
+  # Two, and this is the one worth paying for. It is an aggregated API server:
+  # while it is down, `kubectl get --raw /apis` reports
+  # external.metrics.k8s.io unavailable and every HPA reading an external
+  # metric fails, which is a cluster-wide symptom for one pod's restart.
+  replicaCount: 2
+
+webhooks:
+  # One. Its ValidatingWebhookConfiguration is failurePolicy: Ignore and
+  # matches only keda.sh ScaledObjects, so losing it lets a malformed
+  # ScaledObject through rather than blocking anything. Verified on the
+  # rendered output rather than assumed — a webhook that failed closed would
+  # deserve two.
+  replicaCount: 1
+
+podDisruptionBudget:
+  # metricServer, not metricsServer. The chart configures the component under
+  # `metricsServer` and its budget and resources under `metricServer`, and the
+  # wrong spelling is accepted in silence: Helm keeps its default and the
+  # budget is simply never created.
+  metricServer:
+    minAvailable: 1
+
+# Resources. Limits are memory-only.
+#
+# NOT MEASURED. Every other template here carries numbers read off a running
+# cluster with `kubectl top pods --containers`; nothing has run KEDA on this
+# one yet, so these are the chart's own defaults with the CPU limits removed
+# and the memory limits brought down from 1000Mi to something a two-core node
+# can hold three of. Measure them on the first cluster that runs it and
+# replace this paragraph with the numbers.
+#
+# The requests are what the chart asks for and are left alone: 100m CPU and
+# 100Mi each, 300m and 300Mi for the three together, which is a real cost on a
+# small cluster and part of deciding whether to set `kedaEnabled` at all.
+#
+# NO CPU LIMITS, here or anywhere in this repository. A node has two cores and
+# runs etcd beside these: throttling would cost control-plane latency to bound
+# something requests already bound by scheduling.
+#
+# `cpu: null` is how that is said here, and it is not decoration. This is the
+# first chart pinned in this repository that ships a CPU limit of its own —
+# `limits: {cpu: 1, memory: 1000Mi}` for each of the three — and Helm MERGES a
+# values file into the chart's defaults rather than replacing them. Writing
+# only `memory:` under `limits:` leaves `cpu: 1` in the rendered pod spec,
+# which renders, installs and throttles, with nothing anywhere saying so.
+# Caught by rendering the chart against this file, not by reading it.
+resources:
+  operator:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+    limits:
+      cpu: null
+      memory: 384Mi
+  metricServer:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+    limits:
+      cpu: null
+      memory: 384Mi
+  webhooks:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+    limits:
+      cpu: null
+      memory: 256Mi

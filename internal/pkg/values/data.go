@@ -111,6 +111,10 @@ var probes = map[string]any{
 	"metrics-server":   MetricsServer{AddressTypes: "--kubelet-preferred-address-types=InternalIP", Replicas: 2},
 	"cert-manager":     nil,
 	"external-secrets": nil,
+	// nil for the same reason as the two above: the template is a fixed
+	// document of replica counts, resource limits and two switches, with
+	// nothing the cluster tier has to resolve first.
+	"keda": nil,
 	// A real location, because the value's whole purpose is to be there: empty
 	// leaves the controller discovering its own location at startup, which the
 	// template explains at length.

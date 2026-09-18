@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
@@ -20,6 +22,44 @@ import (
 // images onto cold nodes, and a flaky suite is one nobody trusts enough to
 // act on.
 const readyTimeout = 5 * time.Minute
+
+// skipAbsentOptional skips a workload the cluster is allowed not to have.
+//
+// Optional means the layer may decline to install the chart at all: KEDA goes
+// on only when `kedaEnabled` is set. Without this the suite waits out
+// readyTimeout and then reports that a Deployment "never became available",
+// which is five minutes spent to describe a configuration as a failure.
+//
+// Only for the optional ones. A required workload that is absent is exactly
+// what this suite exists to catch, and it should keep costing a timeout —
+// there is no configuration under which it is allowed to be missing.
+func skipAbsentOptional(ctx context.Context, t *testing.T, cfg *envconf.Config, workload workloads.Workload) {
+	t.Helper()
+
+	if !workload.Optional {
+		return
+	}
+
+	var object k8s.Object
+
+	switch workload.Kind {
+	case workloads.Deployment:
+		object = &appsv1.Deployment{}
+	case workloads.StatefulSet:
+		object = &appsv1.StatefulSet{}
+	case workloads.DaemonSet:
+		object = &appsv1.DaemonSet{}
+	default:
+		t.Fatalf("unknown workload kind %q", workload.Kind)
+	}
+
+	if err := cfg.Client().Resources(workload.Namespace).Get(
+		ctx, workload.Name, workload.Namespace, object,
+	); err != nil {
+		t.Skipf("%s %s/%s is optional and not installed: %v",
+			workload.Kind, workload.Namespace, workload.Name, err)
+	}
+}
 
 // deploymentAvailable waits for a Deployment to report available replicas.
 func deploymentAvailable(ctx context.Context, t *testing.T, cfg *envconf.Config, namespace, name string) {
