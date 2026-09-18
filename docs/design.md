@@ -78,10 +78,30 @@ flowchart TB
     style k8s fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
 ```
 
-The ingress load balancer is the one resource that crosses the seam, and it
-crosses from the wrong side on purpose: a layer asks Kubernetes for a Service,
-and the cloud controller manager turns that into a Hetzner resource. No layer
-holds a Hetzner credential to do it with.
+Two layers cross that seam, and both do it on purpose.
+
+[layers/40-ingress](../layers/40-ingress) creates the ingress load balancer and
+[layers/60-backup](../layers/60-backup) creates the Storage Box and its
+subaccount, each through a Hetzner provider it builds from the token the cluster
+tier publishes. A third, [layers/10-node-platform](../layers/10-node-platform),
+writes that token into a Kubernetes Secret, because the hcloud charts read it
+from there.
+
+So the seam is narrower than "layers never touch Hetzner". What it actually
+holds is that **the token lives in one stack's config** — `infra/cluster`'s —
+and reaches a layer only as a secret output of that stack. No layer is
+configured with a credential of its own, and destroying the cluster tier takes
+the only copy that was configured anywhere.
+
+This paragraph used to say that the load balancer came from the cloud
+controller manager and that "no layer holds a Hetzner credential to do it
+with". That was true and stopped being true: a CCM-managed load balancer is
+invisible to `plan` and `destroy` and refuses to target a control-plane node at
+all, so it was replaced by one this repository creates. Both arrangements were
+tried against a live cluster; `internal/pkg/hetzner.NewIngressLoadBalancer`
+records what the CCM route cost. The document kept the old claim for four
+months, which is the ordinary way a design note goes wrong — nothing fails when
+prose stops matching code.
 
 The box outside all three is the one worth staring at. Every certificate in
 the cluster descends from a secrets bundle that exists only in Pulumi's state:
@@ -383,6 +403,49 @@ stack reference that carries the kubeconfig, so it is typed once.
 The objection to exporting a credential — that it lands in the state of every
 referencing stack — is already true of the kubeconfig and the talosconfig on
 that channel, both strictly more powerful than an API token.
+
+## What Pulumi does that its documentation does not say
+
+Three things were measured on the way to a refactor that was then abandoned.
+The refactor is gone; the measurements are not, because each one would have to
+be paid for again by whoever tries something similar next.
+
+**Re-parenting a resource is free only with an alias.** Putting existing
+resources under a new component resource changes their URNs, and Pulumi reads
+that as the old ones gone and new ones arrived. Measured against a live stack,
+the same code with and without `pulumi.Aliases([]pulumi.Alias{{NoParent:
+pulumi.Bool(true)}})`:
+
+| | to create | to delete | unchanged |
+|---|---|---|---|
+| with the alias | 10 | 0 | **15** |
+| without it | 23 | **13** | 2 |
+
+Thirteen deletes for a change meant to move nothing. For Helm releases that is
+an uninstall and a reinstall of everything the cluster runs.
+
+**`dependsOn` a component resource does not reach its children.** The
+documentation says the option "applies to both custom resources and component
+resources" and says nothing further. Asked through a mock that records the
+dependency URNs the SDK actually sends, a resource made to depend on a component
+had no dependency on that component's children at all — the edge stopped at an
+empty node. Anything that needs a group of resources to wait for another group
+has to say so on each member.
+
+**`pulumi state move` handles providers by itself, and the provider-id
+collision is fixed.** Moving resources between two stacks that each hold a
+`pulumi:providers:kubernetes::k8s` with the same name and a different id is
+exactly [pulumi#16983](https://github.com/pulumi/pulumi/issues/16983),
+"provider already exists in destination stack". On the pinned CLI the
+destination keeps its own provider and the moved resources' references are
+rewritten onto it; providers the destination lacks are moved in. Everything
+lands parented at the destination's stack node, which is what the `NoParent`
+alias above describes — so a move and a re-parenting compose.
+
+Rehearsed on copies imported into a `file://` backend under the same project and
+stack names, never on the live stacks. A state export belongs outside the
+working tree either way: it carries every resource's inputs, the ciphertext of
+the Hetzner token and of the kubeconfig among them.
 
 ## Asking the real tool
 
