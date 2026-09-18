@@ -287,3 +287,33 @@ func TestWorkloadLayers_AreRealLayers(t *testing.T) {
 	assert.Less(t, len(named), len(walked),
 		"every layer installs a chart now, so the exemption this test documents is stale")
 }
+
+// TestLayerList_StartsWithTheNodePlatform holds the one position in LAYERS
+// that is not a preference.
+//
+// The list's own comment says it: a node without a CNI stays NotReady, and a
+// NotReady node cannot schedule the cloud controller manager that would clear
+// Talos's uninitialized taint — so 10-node-platform is first or nothing above
+// it comes up at all. Everything from 30-cluster-services onwards IS a
+// preference, and this deliberately says nothing about it.
+//
+// Until now the order was held by the numbering alone, which is a convention
+// rather than a check: renumbering a layer, or inserting one ahead of it,
+// reorders `layer=all` with nothing failing until an apply against an empty
+// cluster hangs on pods that cannot be scheduled.
+func TestLayerList_StartsWithTheNodePlatform(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	list := layerList.FindStringSubmatch(string(raw))
+	require.NotNil(t, list, "no LAYERS list in the root taskfile")
+
+	walked := strings.Fields(list[1])
+	require.NotEmpty(t, walked)
+
+	assert.Equal(t, workloads.LayerNodePlatform, walked[0],
+		"%s must be the first layer LAYERS walks: it installs the CNI, and nothing above it "+
+			"can be scheduled on a node that has none", workloads.LayerNodePlatform)
+}
