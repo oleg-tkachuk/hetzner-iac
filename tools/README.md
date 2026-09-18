@@ -16,6 +16,7 @@ implementation.
 | [secrets/](secrets) | print a stack's Talos secrets bundle |
 | [smoke/](smoke) | can this cluster actually run a workload |
 | [stack/](stack) | does a Pulumi stack exist — and make sure it does |
+| [target/](target) | resolve a component name into the URNs `pulumi --target` takes |
 | [talos/](talos) | does Talos itself accept the machine-config patches |
 | [taskshell/](taskshell) | shellcheck over the shell inside the taskfiles |
 | [token/](token) | the Hetzner token for a stack, on stdout |
