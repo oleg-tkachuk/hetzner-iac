@@ -29,6 +29,7 @@ bin/
 /smoke
 /stack
 /talos
+/target
 /taskshell
 /token
 /topology

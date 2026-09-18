@@ -155,13 +155,62 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 |------|------|
 | `task helm:list` | every Helm release on the cluster |
 | `task platform:apply layer=10-node-platform` | apply one layer, or `layer=all` in dependency order; asks first |
+| `task platform:apply layer=30-cluster-services target=cert-manager` | apply one component of one layer — see [narrowing to one component](#narrowing-to-one-component) |
 | `task platform:destroy layer=50-gitops` | destroy one layer, or `layer=all` in reverse; asks first |
+| `task platform:destroy layer=30-cluster-services target=cert-manager` | destroy one component; shows what it takes first, and refuses to take dependents without `dependents=yes` |
 | `task platform:init` | create every layer's stack and point it at the cluster |
 | `task platform:layers` | the layer order, in dependency order |
 | `task platform:outputs layer=50-gitops` | one layer's stack outputs, or `layer=all` |
 | `task platform:plan layer=10-node-platform` | preview one layer, or `layer=all` for every one in order |
+| `task platform:plan layer=30-cluster-services target=group:Ingress` | preview one component or group |
 | `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
 | `task platform:status` | which layers are deployed, and how large |
+
+### Narrowing to one component
+
+`plan`, `apply` and `destroy` take an optional `target=`, which becomes
+`pulumi --target`:
+
+| Selector | Selects |
+|----------|---------|
+| `target=cert-manager` | the resource with that name |
+| `target=ConfigFile:kubelet-serving-cert-approver` | the same, qualified, when one name is used by two types |
+| `target=group:Ingress` | a group's own node and everything under it |
+
+`layer=all` is refused with a target, because a URN names one stack.
+
+**The name is checked before Pulumi runs**, and that is the reason
+[`tools/target`](../tools/target) exists rather than the taskfile passing
+`--target` straight through. A `--target` that matches nothing SUCCEEDS —
+measured on this repository's dev stack, `preview --target
+'**::Release::does-not-exist'` reported `24 unchanged` and exited zero. So a
+mistyped component would be an apply that claims to have worked. A refusal
+lists what the stack holds instead.
+
+**A targeted apply leaves the rest of the layer on its last full apply's
+inputs.** Pulumi's own documentation says so — "the targeted resource may end
+up with stale input values" — and neither the state nor the output looks
+different afterwards. So the task says it, with `▲`, which is the one glyph that
+survives a Pulumi run:
+
+```
+▲ platform · 30-cluster-services · targeted: everything else kept its last-applied inputs
+```
+
+Two consequences worth holding on to: a plan taken from a targeted preview
+cannot be applied by a full `up`, and the next full apply may show a diff nobody
+wrote.
+
+**A targeted destroy is the strict one.** `pulumi destroy --target` FAILS when
+the target has dependents and `--target-dependents` is not given, and takes them
+when it is. The task therefore shows the plan first, with `--preview-only`, and
+keeps the flag behind a separate `dependents=yes` — removing more than was asked
+for should be something an operator typed.
+
+`--exclude` is deliberately absent. It fails in the safe direction: a mistyped
+exclusion applies MORE than intended, which is a full apply, while a mistyped
+target applies nothing. It needs none of the validation above, and belongs in
+its own change if the need arises.
 
 ## Working on this repository
 

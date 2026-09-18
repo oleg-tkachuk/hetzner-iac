@@ -138,6 +138,39 @@ for recovering from an incident destroys the record of it. Thirty days is what
 the API server rotates to, not what survives. Getting it off the node needs
 somewhere to put it, and that is still open.
 
+## When to change one component and when not to
+
+`plan`, `apply` and `destroy` take a `target=`, and the whole of what it does
+is documented in [commands.md](commands.md#narrowing-to-one-component). What
+belongs here is when to reach for it.
+
+**Reach for it** when a chart's values changed and nothing else did — bumping
+Traefik's replica count, putting a resource limit on cert-manager — and the rest
+of the layer is slow enough that previewing it is the reason you have not run
+the change yet.
+
+**Do not reach for it** to make an apply less frightening. A targeted apply is
+not a smaller version of the same operation: everything it did not touch keeps
+the inputs of the last FULL apply, so the layer is no longer a thing the program
+describes. Two applies later, the next full one shows a diff nobody wrote, and
+the person reading it has no way to know which targeted run left it.
+
+That is the trade, and the task says so with `▲` every time:
+
+```
+▲ platform · 30-cluster-services · targeted: everything else kept its last-applied inputs
+```
+
+**After a run of targeted applies, do a full one.** It costs a preview and it
+puts the layer back to being described by its program. Nothing enforces this,
+which is precisely why it is written down.
+
+**A targeted destroy needs the plan read, not skimmed.** The task shows it
+first — `pulumi destroy --preview-only` — because `--target` on a resource with
+dependents either refuses or, with `dependents=yes`, takes them too. Reading
+that list is the difference between removing a chart and removing a chart plus
+the issuer every Certificate in the cluster points at.
+
 ## Checks worth running
 
 | Task | Answers |

@@ -124,10 +124,28 @@ tasks:
           selected="{{.layer}}"
           if [ "$selected" = all ]; then selected="{{._PL_LAYERS}}"; fi
 
+          # Targeted, when asked. tools/target refuses a selector this stack
+          # does not hold, and that refusal is the point: Pulumi does not.
+          # Measured on dev — `preview --target '**::Release::does-not-exist'`
+          # reported "24 unchanged" and exited ZERO. A mistyped component would
+          # otherwise be an operation that claims to have worked.
+          targets=""
+          if [ -n "{{.target}}" ]; then
+            if [ "{{.layer}}" = all ]; then
+              printf '%s\n' "{{._ERR}} platform · target · one layer at a time: a URN names one stack" >&2
+              exit 1
+            fi
+
+            targets="$(go run "{{.ROOT}}/tools/target" \
+              "${selected}" "{{._PL_STACK}}" "{{.target}}" \
+              | awk '{printf " --target %s", $0}')"
+          fi
+
           for layer in $selected; do
-            printf '%s\n' "{{._RUN}} platform · ${layer} · preview"
+            printf '%s\n' "{{._RUN}} platform · ${layer} · preview{{if .target}} · target {{.target}}{{end}}"
+            # shellcheck disable=SC2086 # targets is a list of --target flags; a URN carries no spaces
             ( cd "{{.ROOT}}/layers/${layer}" && \
-              pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff )
+              pulumi --non-interactive --stack "{{._PL_STACK}}" preview --diff ${targets} )
             printf '%s\n' "{{._OK}} platform · ${layer} · previewed"
           done
 
@@ -187,11 +205,35 @@ tasks:
           # in the sense that they can be applied in any order on an empty
           # one: nothing schedules before the CCM clears the uninitialized
           # taint, and nothing networks before the CNI.
+          # Targeted, when asked. See platform:plan for why this is resolved
+          # rather than passed through: a --target that matches nothing is an
+          # apply that reports success and changes nothing.
+          targets=""
+          if [ -n "{{.target}}" ]; then
+            if [ "{{.layer}}" = all ]; then
+              printf '%s\n' "{{._ERR}} platform · target · one layer at a time: a URN names one stack" >&2
+              exit 1
+            fi
+
+            targets="$(go run "{{.ROOT}}/tools/target" \
+              "${selected}" "{{._PL_STACK}}" "{{.target}}" \
+              | awk '{printf " --target %s", $0}')"
+          fi
+
           for layer in $selected; do
-            printf '%s\n' "{{._RUN}} platform · ${layer} · apply"
+            printf '%s\n' "{{._RUN}} platform · ${layer} · apply{{if .target}} · target {{.target}}{{end}}"
+            # shellcheck disable=SC2086 # targets is a list of --target flags; a URN carries no spaces
             ( cd "{{.ROOT}}/layers/${layer}" && \
-              pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes )
+              pulumi --non-interactive --stack "{{._PL_STACK}}" up --yes ${targets} )
             printf '%s\n' "{{._OK}} platform · ${layer} · applied"
+
+            # Said out loud, because Pulumi does not say it and the state does
+            # not look different. A targeted update leaves every other resource
+            # on the inputs of the last FULL apply, so the next one can show a
+            # diff nobody wrote. ▲ survives the run; ◉ and ✔ do not.
+            if [ -n "{{.target}}" ]; then
+              printf '%s\n' "{{._WARN}} platform · ${layer} · targeted: everything else kept its last-applied inputs"
+            fi
           done
 
   destroy:
@@ -203,7 +245,7 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_LAYER_USAGE}}"
-    prompt: "Destroy layer {{.layer}} on {{._PL_STACK}}?"
+    prompt: "Destroy {{if .target}}{{.target}} in {{end}}layer {{.layer}} on {{._PL_STACK}}?"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -220,12 +262,46 @@ tasks:
           # CNI is removed while workloads still need to talk. One awk op
           # rather than the twelve lines that probed for `tac` and fell back
           # to `tail -r` — GNU has one, BSD the other, and awk has both.
+          # Targeting a destroy is the one that needs more than a resolved URN.
+          #
+          # `destroy --target` FAILS when the target has dependents and
+          # --target-dependents is not given, and takes them when it is. So the
+          # flag is a separate variable rather than implied: removing more than
+          # was asked for has to be something an operator typed.
+          #
+          # And the plan is shown first, with --preview-only, because the list
+          # of what goes is the only thing that makes the prompt below a
+          # decision rather than a formality.
+          targets=""
+          dependents=""
+          if [ -n "{{.target}}" ]; then
+            if [ "{{.layer}}" = all ]; then
+              printf '%s\n' "{{._ERR}} platform · target · one layer at a time: a URN names one stack" >&2
+              exit 1
+            fi
+
+            targets="$(go run "{{.ROOT}}/tools/target" \
+              "${selected}" "{{._PL_STACK}}" "{{.target}}" \
+              | awk '{printf " --target %s", $0}')"
+
+            if [ "{{.dependents}}" = yes ]; then
+              dependents="--target-dependents"
+            fi
+
+            printf '%s\n' "{{._RUN}} platform · ${selected} · destroy · what {{.target}} would take"
+            # shellcheck disable=SC2086 # targets is a list of --target flags; a URN carries no spaces
+            ( cd "{{.ROOT}}/layers/${selected}" && \
+              pulumi --non-interactive --stack "{{._PL_STACK}}" destroy \
+                --preview-only ${targets} ${dependents} )
+          fi
+
           # shellcheck disable=SC2013 # a word list is what tools/lines reverses, not lines
           for layer in $(awk -f "{{.ROOT}}/tools/lines/main.awk" -v op=reverse-words \
                          <<<"$selected"); do
-            printf '%s\n' "{{._RUN}} platform · ${layer} · destroy"
+            printf '%s\n' "{{._RUN}} platform · ${layer} · destroy{{if .target}} · target {{.target}}{{end}}"
+            # shellcheck disable=SC2086 # targets and dependents are flags; a URN carries no spaces
             ( cd "{{.ROOT}}/layers/${layer}" && \
-              pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes )
+              pulumi --non-interactive --stack "{{._PL_STACK}}" destroy --yes ${targets} ${dependents} )
             printf '%s\n' "{{._OK}} platform · ${layer} · destroyed"
           done
 
