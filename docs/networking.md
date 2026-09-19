@@ -50,6 +50,42 @@ interpreting.
 Turn it on with the flows in front of you: `task cluster:hubble` prints what
 the cluster is doing now.
 
+### What turning it on actually found
+
+It was turned on against the live dev cluster, and off again, twice. Three
+things came out of that, and none of them was visible from the repository.
+
+**The deny had never worked.** The policy was written with `ingress: []` and
+`egress: []`, the API server accepted it, `pulumi up` reported success, and
+Cilium rejected it in a status nothing read — `Valid=False: rule must have at
+least one of Ingress, IngressDeny, Egress, EgressDeny`. Every flow kept the
+verdict `policy-verdict:none`, which is no enforcement at all. The shape that
+works is an empty *list of selectors*, `ingress: [{fromEndpoints: []}]`: the
+section exists, so the endpoint enforces, and it permits nobody. `task
+cluster:smoke` now reports a policy Cilium rejected, because an apply that
+creates one says success.
+
+**The allow set was one-directional.** A Hubble capture shows the side of a
+flow that appeared in it, and a default deny enforces both. Five permissions
+were half-written, and not one of the failures looked like policy: `kubectl
+top` silently empty, every load balancer target unhealthy, Argo CD serving from
+an empty cache, `task cluster:hubble` itself unable to reach the agents, and a
+volume claim stuck on `DeadlineExceeded` because the CSI controller could not
+resolve a name. The five rules are `35-allow-kubelet-clients`,
+`45-allow-ingress-loadbalancer`, `46-allow-argocd-cache-egress`,
+`47-allow-hubble-relay` and the second document in `10-allow-dns`.
+
+**Two flows are still uncovered**, measured rather than guessed, and the deny
+stays off until they are: CoreDNS's egress to the host-local resolver Talos
+runs at `169.254.116.108:53`, and egress to kube-dns's ClusterIP `10.96.0.10`
+for the clients that are denied against the service address rather than the
+endpoint. Both are per-environment numbers — the service CIDR is in the
+topology — so they need a template or an entity selector, not a literal.
+
+The general lesson is cheaper than the way it was learned: when adding an
+allow policy, write the client's egress and the server's ingress together, and
+assume a capture showed you one of them.
+
 ### What each allow policy cost to write
 
 Most of them were measured from Hubble on a live cluster, and two were not,
