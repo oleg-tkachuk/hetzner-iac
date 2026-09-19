@@ -240,6 +240,7 @@ ships as a task here and the decision stays with whoever owns the organisation.
 | `cluster-services:acmeEmail` | [`30-cluster-services`](../layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `cluster-services:acmeStaging` | [`30-cluster-services`](../layers/30-cluster-services) | order from Let's Encrypt's staging endpoint: untrusted certificates, and where a new domain's first attempt belongs |
 | `cluster-services:kedaEnabled` | [`30-cluster-services`](../layers/30-cluster-services) | install KEDA, the event-driven autoscaler; it scales pods and not nodes, so it cannot grow past the pinned worker pools |
+| `cluster-services:pulumiAccessToken` | [`30-cluster-services`](../layers/30-cluster-services) | token the External Secrets Operator reads Pulumi ESC with; empty creates no store, and it is set with `--secret` (see [secrets from Pulumi ESC](#secrets-from-pulumi-esc)) |
 | `ingress:loadBalancerType` | [`40-ingress`](../layers/40-ingress) | Hetzner load balancer type, default `lb11` |
 | `gitops:repoURL` | [`50-gitops`](../layers/50-gitops) | the repository Argo CD reconciles; omit it and Argo CD is installed and reconciles nothing |
 | `gitops:path` | [`50-gitops`](../layers/50-gitops) | where the tree of Applications starts in that repository, default the root |
@@ -288,6 +289,41 @@ none should be created.
 
 An exported `HCLOUD_TOKEN` takes priority over the stack config, which is how
 CI passes a token it holds as a GitHub secret.
+
+## Secrets from Pulumi ESC
+
+The External Secrets Operator ships with `30-cluster-services` and reads
+nothing until a token exists. Set one and it creates a `ClusterSecretStore`
+named `pulumi-esc` pointing at `<org>/<project>/<stack>` — one environment per
+stack, so `prod` cannot read `dev`:
+
+```bash
+pulumi config set --secret cluster-services:pulumiAccessToken <token>
+task platform:apply stack=dev layer=30-cluster-services
+```
+
+Neither the organization nor the stack is configured: both are what the program
+is already running as, and the project is this repository's own name. An
+**organization** token scoped to reading those environments, not a personal
+one — it is copied into a Kubernetes Secret, so whatever it can do, anything
+able to read that Secret can do.
+
+What belongs there is a secret a **workload** reads. What Pulumi needs to build
+the cluster — the Hetzner token, the Talos bundle, the Storage Box passwords —
+stays in stack config and state, because it is needed before a cluster exists.
+
+`task cluster:smoke` reports whether the store is ready. It matters because the
+failure is quiet: a store with a bad token stops every `ExternalSecret` from
+syncing, and the Secret it would have written is **absent** rather than stale —
+so the pod that mounts it fails to start with a message about a Secret, three
+steps from the token that is wrong.
+
+The environment itself is worth exporting with the rest of what lives nowhere
+else:
+
+```bash
+pulumi env get <org>/<project>/<stack> --value json
+```
 
 ## Keeping state in your own S3 bucket
 
