@@ -11,6 +11,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
 // The throwaway objects the storage check applies.
@@ -120,9 +122,82 @@ func (r *Runner) Run(ctx context.Context) Report {
 		r.checkNodes(ctx),
 		r.checkCrossNode(ctx),
 		r.checkStorage(ctx),
+		r.checkDataVolumes(ctx),
 		r.checkLoadBalancers(ctx),
 		r.checkExternalMetrics(),
 	}
+}
+
+// checkDataVolumes reads the claims in namespaces that say they hold data, and
+// the reclaim policy of the class each one is bound to.
+//
+// Two lookups rather than one: a claim names a class, or names nothing and
+// gets the default, and only the class knows what deleting the claim would do.
+// Resolved here rather than in the judgement, which stays a pure function over
+// what was found.
+func (r *Runner) checkDataVolumes(ctx context.Context) Result {
+	namespaces, err := r.client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+		LabelSelector: platform.DataNamespaceLabel,
+	})
+	if err != nil {
+		return Result{Name: CheckDataVolumes, Status: StatusFailed,
+			Detail: "listing namespaces: " + err.Error()}
+	}
+
+	reclaim, err := r.reclaimPolicies(ctx)
+	if err != nil {
+		return Result{Name: CheckDataVolumes, Status: StatusFailed, Detail: err.Error()}
+	}
+
+	var volumes []DataVolume
+
+	for _, namespace := range namespaces.Items {
+		claims, listErr := r.client.CoreV1().PersistentVolumeClaims(namespace.Name).
+			List(ctx, metav1.ListOptions{})
+		if listErr != nil {
+			return Result{Name: CheckDataVolumes, Status: StatusFailed,
+				Detail: "listing claims in " + namespace.Name + ": " + listErr.Error()}
+		}
+
+		for _, claim := range claims.Items {
+			class := r.opts.StorageClass
+			if claim.Spec.StorageClassName != nil && *claim.Spec.StorageClassName != "" {
+				class = *claim.Spec.StorageClassName
+			}
+
+			volumes = append(volumes, DataVolume{
+				Namespace: namespace.Name,
+				Name:      claim.Name,
+				Class:     class,
+				Reclaim:   reclaim[class],
+			})
+		}
+	}
+
+	return DataVolumesAreRetained(volumes, len(namespaces.Items))
+}
+
+// reclaimPolicies maps every storage class to what deleting a claim on it
+// does, and names the default class as itself as well.
+//
+// The default matters because a claim may name nothing: Kubernetes then binds
+// it to whichever class carries the default annotation, which is the one this
+// repository deliberately made `Delete`.
+func (r *Runner) reclaimPolicies(ctx context.Context) (map[string]string, error) {
+	classes, err := r.client.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("listing storage classes: %w", err)
+	}
+
+	policies := make(map[string]string, len(classes.Items))
+
+	for _, class := range classes.Items {
+		if class.ReclaimPolicy != nil {
+			policies[class.Name] = string(*class.ReclaimPolicy)
+		}
+	}
+
+	return policies, nil
 }
 
 // checkExternalMetrics asks discovery whether the aggregated external metrics

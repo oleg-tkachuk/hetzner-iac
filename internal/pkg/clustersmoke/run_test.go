@@ -39,10 +39,16 @@ func node(name string, ready bool) *corev1.Node {
 }
 
 func storageClass(mode storagev1.VolumeBindingMode) *storagev1.StorageClass {
+	// Delete, because that is what the real default class reclaims — the
+	// render check holds the chart to it. A fixture leaving it unset would let
+	// the data-volume check read an unknown policy and pass.
+	reclaim := corev1.PersistentVolumeReclaimDelete
+
 	return &storagev1.StorageClass{
 		ObjectMeta:        metav1.ObjectMeta{Name: platform.StorageClass},
 		Provisioner:       "csi.hetzner.cloud",
 		VolumeBindingMode: &mode,
+		ReclaimPolicy:     &reclaim,
 	}
 }
 
@@ -112,7 +118,7 @@ func TestRun_ReportsEveryCheckEvenWhenOneFails(t *testing.T) {
 
 	report := r.Run(context.Background())
 
-	require.Len(t, report, 5, "a check that returns nothing is a check nobody notices")
+	require.Len(t, report, 6, "a check that returns nothing is a check nobody notices")
 	assert.True(t, report.Failed())
 
 	assert.Equal(t, clustersmoke.StatusPassed, resultFor(t, report, "node is Ready").Status)
@@ -130,11 +136,12 @@ func TestRun_PassesOnAHealthyClusterAndSkipsWhatItCannotJudge(t *testing.T) {
 	report := r.Run(context.Background())
 
 	assert.False(t, report.Failed())
-	// Two skips: the load balancer check, which has nothing to look at, and
-	// the external metrics check, because this fixture serves no aggregated
-	// group. The cross-node check must NOT be skipping here — a cluster of
-	// three nodes with DNS on two is exactly where it can run.
-	assert.Equal(t, 2, report.Skipped())
+	// Three skips: the load balancer check, which has nothing to look at, the
+	// external metrics check, because this fixture serves no aggregated group,
+	// and the data-volume check, because no namespace claims to hold data. The
+	// cross-node check must NOT be skipping here — a cluster of three nodes
+	// with DNS on two is exactly where it can run.
+	assert.Equal(t, 3, report.Skipped())
 	assert.Equal(t, clustersmoke.StatusPassed,
 		resultFor(t, report, "another node").Status)
 
@@ -443,4 +450,33 @@ func TestProberPod_SatisfiesTheRestrictedPodSecurityStandard(t *testing.T) {
 	require.NotNil(t, security)
 	assert.Equal(t, false, *security.AllowPrivilegeEscalation)
 	assert.Equal(t, []corev1.Capability{"ALL"}, security.Capabilities.Drop)
+}
+
+// TestCheckDataVolumes_ReadsTheDefaultClassForAClaimThatNamesNone is the case
+// the check exists for, and the one a fixture is easy to get wrong.
+//
+// A chart that omits storageClassName does not get "no class": Kubernetes binds
+// the claim to whichever class carries the default annotation, which here is
+// the one that deletes. If this resolved to an empty class name the check would
+// find an unknown reclaim policy and pass.
+func TestCheckDataVolumes_ReadsTheDefaultClassForAClaimThatNamesNone(t *testing.T) {
+	t.Parallel()
+
+	r := runner(t, []runtime.Object{
+		node("cp-0", true),
+		storageClass(storagev1.VolumeBindingImmediate),
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+			Name:   "postgres",
+			Labels: map[string]string{platform.DataNamespaceLabel: "true"},
+		}},
+		&corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+			Name: "data-pg-0", Namespace: "postgres",
+		}},
+	}, nil)
+
+	result := resultFor(t, r.Run(context.Background()), "holding data")
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status,
+		"a claim naming no class is on the default one, which reclaims Delete")
+	assert.Contains(t, result.Detail, "postgres/data-pg-0")
 }

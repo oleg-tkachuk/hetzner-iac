@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clustersmoke"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -450,4 +451,63 @@ func TestExternalMetricsServed(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDataVolumesAreRetained_SkipsWhenNothingClaimsToHoldData is the state
+// this check spends most of its life in, and reporting it as a pass would be a
+// green line that inspected nothing.
+func TestDataVolumesAreRetained_SkipsWhenNothingClaimsToHoldData(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.DataVolumesAreRetained(nil, 0)
+
+	assert.Equal(t, clustersmoke.StatusSkipped, result.Status)
+	assert.Contains(t, result.Detail, platform.DataNamespaceLabel,
+		"the detail must name the label, or an operator cannot act on the skip")
+}
+
+// TestDataVolumesAreRetained_FailsOnAClassThatDeletes is the failure the whole
+// taxonomy exists for: a database on the default class.
+func TestDataVolumesAreRetained_FailsOnAClassThatDeletes(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.DataVolumesAreRetained([]clustersmoke.DataVolume{
+		{Namespace: "postgres", Name: "data-pg-0", Class: platform.StorageClass, Reclaim: "Delete"},
+	}, 1)
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "postgres/data-pg-0")
+	assert.Contains(t, result.Detail, platform.StorageClassDatabase,
+		"the detail must name the class to move to, not only the one to move off")
+}
+
+// TestDataVolumesAreRetained_PassesWhenEveryClaimRetains keeps the pass honest:
+// it says how much was looked at.
+func TestDataVolumesAreRetained_PassesWhenEveryClaimRetains(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.DataVolumesAreRetained([]clustersmoke.DataVolume{
+		{Namespace: "postgres", Name: "data-pg-0", Class: platform.StorageClassDatabase, Reclaim: "Retain"},
+		{Namespace: "postgres", Name: "data-pg-1", Class: platform.StorageClassDatabase, Reclaim: "Retain"},
+	}, 1)
+
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
+	assert.Contains(t, result.Detail, "2 claim(s)")
+}
+
+// TestDataVolumesAreRetained_JudgesEveryClaimNotTheFirst: a report naming one
+// of three sends an operator back for a second run.
+func TestDataVolumesAreRetained_JudgesEveryClaimNotTheFirst(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.DataVolumesAreRetained([]clustersmoke.DataVolume{
+		{Namespace: "a", Name: "one", Class: platform.StorageClass, Reclaim: "Delete"},
+		{Namespace: "b", Name: "two", Class: platform.StorageClassDatabase, Reclaim: "Retain"},
+		{Namespace: "c", Name: "three", Class: platform.StorageClass, Reclaim: "Delete"},
+	}, 3)
+
+	require.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "a/one")
+	assert.Contains(t, result.Detail, "c/three")
+	assert.NotContains(t, result.Detail, "b/two")
 }
