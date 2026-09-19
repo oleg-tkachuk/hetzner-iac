@@ -61,8 +61,9 @@ type Object struct {
 //
 // One file per chart declares one of these, and the packages that used to hold
 // the four halves separately — the pin here, the expected workloads in
-// internal/pkg/workloads, the value keys in internal/pkg/chartsettings, the
-// values data in internal/pkg/values — read it instead.
+// internal/pkg/workloads and the value keys in a package of their own — read
+// it instead. The values data stays in internal/pkg/values, which pulls
+// Pulumi's SDK and cannot come here: TestChartsPackage_StaysALeaf refuses it.
 //
 // The reason is not tidiness. Adding KEDA touched sixteen files, and every row
 // of the workloads table repeated the chart's layer, release and namespace: a
@@ -88,6 +89,10 @@ type Definition struct {
 
 	// Workloads are the objects it is expected to produce.
 	Workloads []Object
+
+	// Settings are the values whose misspelling fails silently, each with the
+	// line the chart must render as a result. See Setting.
+	Settings []Setting
 }
 
 // definitions is built by the per-chart files, not written here: a list in this

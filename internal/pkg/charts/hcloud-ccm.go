@@ -33,5 +33,13 @@ func init() {
 		Workloads: []Object{
 			{Kind: Deployment, Name: hcloudCCMRelease},
 		},
+		Settings: []Setting{
+			{
+				Set:    []string{PriorityClassName + "=" + PriorityClusterCritical},
+				Expect: PriorityLineQuoted(PriorityClusterCritical),
+				Why: "it clears Talos's uninitialized taint, so without it a new or replaced " +
+					"node never becomes schedulable",
+			},
+		},
 	})
 }

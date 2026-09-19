@@ -489,7 +489,7 @@ here only add what a chart does not already do.
 
 Argo CD deliberately asks for nothing. It reconciles rather than serves, and a
 cluster whose Argo CD has been evicted keeps running everything it was told to
-run. `internal/pkg/chartsettings` holds the reasoning and the render check
+run. Each chart's file holds the reasoning and the render check
 proves each value reaches the rendered pod spec, quoting included — three of
 the four charts quote it and Traefik does not.
 
@@ -607,7 +607,7 @@ What they have caught, none of which would have failed a `pulumi up`:
 - `machine.network.hostname`, which Talos rejects outright.
 - A Talos version pinned ahead of what the provider's generator knows.
 
-The first is why [internal/pkg/chartsettings](../internal/pkg/chartsettings) exists: the handful
+The first is why each chart's file names its settings: the handful
 of values whose misspelling fails silently are constants there, and
 `render-check` asserts the **effect** each one has on the rendered chart rather
 than that the key was set.

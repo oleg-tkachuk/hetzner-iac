@@ -3,7 +3,7 @@
 // Not a grab-bag: the layers are separate Pulumi projects, so a value two of
 // them must spell identically cannot be a literal in each. That is the same
 // drift internal/pkg/clusterref prevents for stack outputs, and the same one
-// internal/pkg/chartsettings prevents for chart keys — a name in two places is a name
+// internal/pkg/charts prevents for chart keys — a name in two places is a name
 // that will eventually be in two versions.
 package platform
 

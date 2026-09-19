@@ -130,7 +130,7 @@ linters:
       # writes Talos's own configuration vocabulary, where a Go constant named
       # after a Talos key adds a level of indirection between the code and the
       # documentation it is written against.
-      - path: ^internal/pkg/(charts/registry|workloads/workloads|chartsettings/chartsettings|clusterspec/(config|machineconfig))\.go$
+      - path: ^internal/pkg/(charts/[^/]+|clusterspec/(config|machineconfig))\.go$
         linters:
           - goconst
 

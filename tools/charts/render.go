@@ -34,7 +34,6 @@ import (
 	"time"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
@@ -131,7 +130,7 @@ func run() (int, error) {
 func checkEffects(ctx context.Context) int {
 	failures := 0
 
-	for _, effect := range chartsettings.Effects {
+	for _, effect := range charts.Effects() {
 		chart, err := charts.Get(effect.Chart)
 		if err != nil {
 			fmt.Printf("MISS  %-14s unknown chart\n", effect.Chart)

@@ -27,12 +27,12 @@ find the file; read the sections below for what its fields mean.
 
 | File | Configures |
 |------|------------|
-| [internal/pkg/charts](../internal/pkg/charts) | every chart's version, repository and namespace: the pins |
+| [internal/pkg/charts](../internal/pkg/charts) | one file per chart: its version and repository, the layer that installs it, the objects it must produce, and the value keys whose misspelling fails silently |
 | [internal/pkg/values](../internal/pkg/values) | one Helm values template per chart, which is what actually reaches Helm |
 | [internal/pkg/clusterspec](../internal/pkg/clusterspec) | the topology's schema in Go, its defaults, and the Talos machine-config patches |
 | [internal/pkg/clusterspec/auditpolicy.yaml](../internal/pkg/clusterspec/auditpolicy.yaml) | what the API server audit log records |
 | [internal/pkg/platform](../internal/pkg/platform) | names two layers must agree on: storage classes, the ingress class, the issuer, node ports |
-| [internal/pkg/chartsettings](../internal/pkg/chartsettings) | the chart value KEYS this repository sets, and what each one prevents |
+
 | [internal/pkg/clusterref](../internal/pkg/clusterref) | the cluster tier's stack outputs, by name — the contract every layer reads |
 | [layers/20-network-policy/manifests](../layers/20-network-policy/manifests) | the cluster-wide network policy, one file per rule |
 | [layers/30-cluster-services/manifests](../layers/30-cluster-services/manifests) | the manifests that layer applies alongside its charts |

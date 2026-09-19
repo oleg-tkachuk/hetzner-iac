@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 
@@ -110,4 +111,24 @@ func TestYAMLFixtures_NameALocationThatExists(t *testing.T) {
 	}
 
 	assert.Positive(t, checked, "no YAML fixture names a location; this test is checking nothing")
+}
+
+// TestChartProbeLocation_MatchesTheClusterRef holds the one literal the charts
+// package keeps of a value that lives in clusterref.
+//
+// internal/pkg/charts must not reach Pulumi's SDK — TestChartsPackage_StaysALeaf
+// refuses it — and internal/pkg/clusterref does, so the render check's probe
+// location is written out in hcloud-csi's file instead of imported. That is the
+// same trade the policy pack makes for the admin ports: parity held by a test
+// rather than by an import.
+//
+// What the drift costs: the location is passed to the CSI controller verbatim,
+// so a value the topology validator does not accept makes the render check
+// assert against a cluster that cannot exist.
+func TestChartProbeLocation_MatchesTheClusterRef(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, clusterref.ProbeLocation, charts.HcloudCSIProbeLocation,
+		"the charts package renders with %q and internal/pkg/clusterref names %q",
+		charts.HcloudCSIProbeLocation, clusterref.ProbeLocation)
 }

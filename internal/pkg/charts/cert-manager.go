@@ -13,6 +13,10 @@ import "github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 // this package exists to remove.
 const CertManager = "cert-manager"
 
+// CertManagerGlobal is where this chart takes the priority class — one key
+// covering the controller, the webhook and the cainjector, per its own values.
+const CertManagerGlobal = "global"
+
 func init() {
 	register(Definition{
 		Key:   CertManager,
@@ -28,6 +32,14 @@ func init() {
 			{Kind: Deployment, Name: CertManager},
 			{Kind: Deployment, Name: "cert-manager-webhook"},
 			{Kind: Deployment, Name: "cert-manager-cainjector"},
+		},
+		Settings: []Setting{
+			{
+				Set:    []string{CertManagerGlobal + "." + PriorityClassName + "=" + PriorityClusterCritical},
+				Expect: PriorityLineQuoted(PriorityClusterCritical),
+				Why: "the webhook is in the admission path for every Certificate, so losing it " +
+					"stops renewal silently — the failure arrives ninety days later",
+			},
 		},
 	})
 }
