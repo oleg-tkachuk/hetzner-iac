@@ -112,9 +112,12 @@ repository, so the uploads are unreadable without it:
 pulumi -C infra/backup -s dev stack output backupRepositoryPassword --show-secrets
 ```
 
-The Storage Box carries delete protection, so `task destroy` cannot take it —
-but Pulumi's state is what holds that password, and a lost state leaves the
-uploads on the box as bytes nothing can read. Put it in the same password store
+`task destroy` cannot take the Storage Box, because the backup tier is not in
+the walk it destroys — not because of the box's delete protection, which stops
+a delete from the console and not one from `pulumi destroy`. `task
+backup:destroy` does take it, snapshots and all. And Pulumi's state is what
+holds that password, so a lost state leaves the uploads on the box as bytes
+nothing can read. Put it in the same password store
 as `task cluster:secrets:export`, which is the other half a restore needs.
 
 ### Restoring

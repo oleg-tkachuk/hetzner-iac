@@ -85,15 +85,18 @@ tasks:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._BK_USAGE}}"
     # Louder than the other destroys, and for a reason no other tier has: this
-    # is the uploaded etcd snapshots. The Storage Box also carries Hetzner's
-    # own DeleteProtection, so the API refuses the delete and this fails rather
-    # than succeeding — which is the right outcome and an unhelpful message.
-    # Turning the protection off is a deliberate act in the Hetzner console.
+    # is the uploaded etcd snapshots, and nothing stops it.
+    #
+    # The Storage Box carries Hetzner's DeleteProtection, and this comment used
+    # to say the API would refuse. It does not: the provider disables the
+    # protection before deleting, and a measured run took the box, its
+    # subaccount and an uploaded snapshot in 17 seconds. The prompt is the only
+    # thing between an operator and that.
     prompt: "Destroy the backup tier on {{._BK_STACK}}? The uploaded etcd snapshots are ON this Storage Box."
     cmds:
       - cmd: |
           set -euo pipefail
-          printf '%s\n' "{{._WARN}} backup · destroy · the Storage Box carries DeleteProtection; Hetzner will refuse until it is cleared"
+          printf '%s\n' "{{._WARN}} backup · destroy · DeleteProtection does not stop this: the provider clears it first"
           pulumi --non-interactive --cwd "{{._BK_DIR}}" --stack "{{._BK_STACK}}" destroy --yes
           printf '%s\n' "{{._OK}} backup · destroyed"
 

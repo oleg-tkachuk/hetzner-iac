@@ -158,9 +158,13 @@ the three credentials that reach it, into its own state.
 | `task backup:destroy` | destroy it; asks first, and says that the uploaded snapshots are on it |
 | `task backup:outputs` | the sftp destination, secrets redacted |
 
-`backup:destroy` is the one destroy in this repository that usually fails, and
-correctly: the Storage Box carries Hetzner's own delete protection, so the API
-refuses the delete. Clearing that is a deliberate act in the Hetzner console.
+`backup:destroy` takes the Storage Box and everything uploaded to it, and its
+prompt is the only thing that stops it. The box carries Hetzner's delete
+protection, which guards the console, the API and the hcloud CLI — and not
+this: the provider disables the protection before deleting, measured as 17
+seconds to remove a box with a snapshot on it. What keeps the destination out
+of a teardown is that it is a tier, so neither `task destroy` nor `layer=all`
+reaches it.
 
 The restic repository password is generated into this tier's state and nothing
 types it, so re-applying the tier after destroying it produces a password that

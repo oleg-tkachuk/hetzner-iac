@@ -143,10 +143,18 @@ func NewStorageBox(
 			Hour:         pulumi.Int(args.SnapshotHour),
 			Minute:       pulumi.Int(args.SnapshotMinute),
 		},
-		// A backup destination that a `pulumi destroy` can take with it is not
-		// a backup destination. This is the one resource in the repository
-		// whose whole purpose is to outlive the cluster, so it refuses to be
-		// deleted until somebody turns this off on purpose.
+		// Guards the console, the API and the hcloud CLI: a delete through any
+		// of those is refused until somebody clears this on purpose.
+		//
+		// It does NOT guard against this provider's own destroy, which is
+		// worth stating because the opposite was written here and believed:
+		// the provider disables the protection before deleting
+		// (terraform-provider-hcloud, internal/storagebox/resource.go —
+		// "Disable delete protection before deleting"), and a measured
+		// `pulumi destroy` took the box with an uploaded snapshot on it in
+		// 17 seconds. What keeps the destination out of a teardown is that
+		// `infra/backup` is a tier with its own destroy, not a layer in
+		// `layer=all`'s walk.
 		DeleteProtection: pulumi.Bool(true),
 	}, opts...)
 	if err != nil {

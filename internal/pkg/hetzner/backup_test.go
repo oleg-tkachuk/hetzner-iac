@@ -83,16 +83,22 @@ func TestStorageBox_ExposesOnlySSH(t *testing.T) {
 	assert.False(t, access["zfsEnabled"].BoolValue())
 }
 
-// TestStorageBox_RefusesToBeDeletedWithTheCluster is the one property that
-// makes this a backup destination rather than another thing to lose.
-func TestStorageBox_RefusesToBeDeletedWithTheCluster(t *testing.T) {
+// TestStorageBox_CarriesDeleteProtection pins the flag, not a promise about
+// what it stops.
+//
+// It stops a delete through the console, the API or the hcloud CLI. It does
+// not stop `pulumi destroy`: the provider clears the protection first, which
+// was measured — see the comment beside DeleteProtection. The test is still
+// worth having, because the flag being dropped would remove the one guard
+// against a delete by hand.
+func TestStorageBox_CarriesDeleteProtection(t *testing.T) {
 	t.Parallel()
 
 	registered := runStorageBox(t).of("hcloud:index/storageBox:StorageBox")
 	require.Len(t, registered, 1)
 
 	assert.True(t, registered[0]["deleteProtection"].BoolValue(),
-		"a destination a `pulumi destroy` can take with it is not a destination")
+		"a destination anybody can delete by hand from the console is not a destination")
 }
 
 // TestStorageBox_KeepsItsOwnSnapshotsUnderTheUploads covers the failure a
