@@ -78,9 +78,32 @@ func passwordArgs() *random.RandomPasswordArgs {
 }
 
 // PasswordSpecialCharacters is the set OverrideSpecial allows: punctuation
-// with no meaning to a shell. Deliberately excludes " ' ` \ $ ; | < > & and
-// whitespace.
-const PasswordSpecialCharacters = "!#%^*()-_=+[]{}:,.?" // #nosec G101 -- the alphabet a password may draw from, not a password
+// that both Hetzner accepts and a shell leaves alone.
+//
+// Two constraints, and each one has cost a failed apply. It excludes
+// " \' ` \\ $ ; | < > & and whitespace, because the restic key is pasted by
+// hand. It also excludes [ and ], because Hetzner rejects them — see
+// HetznerPasswordSpecialCharacters below, which this must remain a subset of.
+const PasswordSpecialCharacters = "!#%^*()-_=+{}:,.?" // #nosec G101 -- the alphabet a password may draw from, not a password
+
+// HetznerPasswordSpecialCharacters is what the Storage Box API accepts,
+// quoted from its own 422:
+//
+//	The password can only contain these characters: a-z A-Z Ä Ö Ü ä ö ü ß
+//	0-9 ^ ° ! § $ % / ( ) = ? + # - . , ; : ~ * @ { } _ &
+//
+// The ASCII punctuation of that list. The letters and digits are not here
+// because RandomPassword draws those anyway, and the non-ASCII ones — Ä ö ß °
+// § — are deliberately left out of anything this generates: they survive an
+// environment variable, and they are a liability in a value an operator
+// retypes.
+//
+// It is written down because the alphabet above has to be a subset of it and
+// nothing else says so. The failure when it is not is a 422 at APPLY time,
+// after the passwords have been generated and some resources created — which
+// is exactly what happened: `[` and `]` were in the set, and the Storage Box
+// and its subaccount errored while five other resources had been created.
+const HetznerPasswordSpecialCharacters = "^!$%/()=?+#-.,;:~*@{}_&" // #nosec G101 -- the alphabet the API permits, not a password
 
 // Stack outputs. Named because a consumer — `task cluster:etcd:upload` today,
 // an in-cluster job later — reads them by name, and a rename that only
