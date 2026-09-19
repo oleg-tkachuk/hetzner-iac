@@ -69,6 +69,18 @@ const IngressClass = "traefik"
 // pending with no event saying why.
 const IssuerName = "letsencrypt"
 
+// ACMESolverLabel is the label cert-manager puts on an HTTP-01 solver pod,
+// and the one layers/20-network-policy selects to let Traefik reach it.
+//
+// A challenge solver is created when a certificate is issued and deleted when
+// it is answered, so under the default deny the flow this names exists for
+// about thirty seconds and only while an order is open. A misspelling here is
+// therefore invisible for as long as Let's Encrypt keeps reusing a cached
+// authorization — measured on this cluster: a reissue completed in twenty
+// seconds with no solver pod at all — and then costs a renewal months later,
+// as a Certificate stuck pending with its challenge timing out.
+const ACMESolverLabel = "acme.cert-manager.io/http01-solver"
+
 // Node ports the ingress load balancer forwards to.
 //
 // Two programs have to name the same two numbers and they never call each
