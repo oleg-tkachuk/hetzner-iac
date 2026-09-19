@@ -19,8 +19,9 @@ import (
 )
 
 // Chart is the registry key, which is also what the values template is named
-// after and the name the component is known by in the set.
-const Chart = "argo-cd"
+// after and the name the component is known by in the set. From the chart's
+// own declaration rather than spelled again here.
+const Chart = charts.ArgoCD
 
 // AdminSecret is where Argo CD writes its initial admin password. This is the
 // NAME of a Kubernetes Secret, not a credential: the password is generated

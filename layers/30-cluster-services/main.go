@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
@@ -60,8 +61,9 @@ const (
 // MetricsServerReplicas is how many metrics-server pods to run.
 const MetricsServerReplicas = 2
 
-// KedaChart is KEDA's key in internal/pkg/charts.
-const KedaChart = "keda"
+// KedaChart is KEDA's key, from the chart's own declaration rather than
+// spelled again here.
+const KedaChart = charts.Keda
 
 // KedaEnabledKey is the stack config switch that installs it. Spelled once,
 // here: the layer reads it and Pulumi.yaml declares it.
@@ -77,21 +79,21 @@ const KedaEnabledKey = "kedaEnabled"
 // noisier than an absent one.
 var Components = layer.Components{
 	{
-		Chart: "cert-manager",
+		Chart: charts.CertManager,
 	},
 	{
 		Name:   platform.IssuerName,
-		After:  []string{"cert-manager"},
+		After:  []string{charts.CertManager},
 		Create: createClusterIssuer,
 	},
 	{
-		Chart: "external-secrets",
+		Chart: charts.ExternalSecrets,
 	},
 	{
 		// The store the External Secrets Operator reads from, after the
 		// operator that brings its CRD.
 		Name:   SecretStoreComponent,
-		After:  []string{"external-secrets"},
+		After:  []string{charts.ExternalSecrets},
 		When:   secretStoreRequested,
 		Create: createSecretStore,
 	},
@@ -127,7 +129,7 @@ var Components = layer.Components{
 		// has one the cluster CA signed. Without this ordering it fails every
 		// scrape and Helm waits out its whole timeout — measured at 611s
 		// before rolling back.
-		Chart:        "metrics-server",
+		Chart:        charts.MetricsServer,
 		After:        []string{CertApproverComponent},
 		StaticValues: MetricsServerData(),
 	},

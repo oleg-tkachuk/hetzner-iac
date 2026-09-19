@@ -22,10 +22,15 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 )
 
 // Default is what a stack gets when it names no CNI.
-const Default = "cilium"
+//
+// The chart's own key, so the one CNI this repository ships cannot be named
+// two ways: internal/pkg/charts declares it, and a rename there reaches here.
+const Default = charts.Cilium
 
 // CNI is one implementation.
 type CNI struct {
@@ -44,7 +49,7 @@ type CNI struct {
 // here has booted.
 var implementations = map[string]CNI{
 	Default: {
-		Chart:             "cilium",
+		Chart:             charts.Cilium,
 		ReplacesKubeProxy: true,
 	},
 }

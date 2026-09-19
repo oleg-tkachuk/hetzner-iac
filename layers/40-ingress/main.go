@@ -14,6 +14,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
@@ -34,8 +35,8 @@ const DefaultLoadBalancerType = "lb11"
 const ControllerReplicas = 2
 
 // Chart is the registry key, which is also what the values template is named
-// after.
-const Chart = "traefik"
+// after. From the chart's own declaration rather than spelled again here.
+const Chart = charts.Traefik
 
 // Stack outputs. The addresses are the one fact an operator needs from this
 // layer, and there is now somewhere to read them from: under the cloud
