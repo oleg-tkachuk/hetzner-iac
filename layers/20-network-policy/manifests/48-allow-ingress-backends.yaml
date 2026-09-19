@@ -1,0 +1,39 @@
+# Traefik reaching the workloads it routes to.
+#
+# The eighth half-written permission, and the one that proves the rule about
+# provoking flows rather than waiting for them. Sixteen minutes of
+# `hubble observe --verdict DROPPED` across three nodes reported nothing,
+# because nobody opened the Argo CD UI in those sixteen minutes. One request
+# produced it immediately:
+#
+#   traefik/traefik-… <> argocd/argo-cd-argocd-server-…:8080 EGRESS DENIED
+#
+# What it looked like from outside: `curl https://argocd.<domain>/` returning
+# HTTP 000 while the TLS handshake completed and `openssl s_client` printed a
+# valid certificate. Traefik terminates TLS, then cannot reach the backend — so
+# the failure is invisible at every layer an operator would check first.
+#
+# toEndpoints: {} — any endpoint in the cluster, deliberately. An ingress
+# controller's function IS to reach whatever an Ingress object names, so a rule
+# listing today's backends is a rule that silently breaks the next Ingress
+# somebody creates. The perimeter for Traefik is its INGRESS — who may reach it
+# — which 45-allow-ingress-loadbalancer states; its egress is structural.
+#
+# 30-allow-scraping takes the same shape for the same kind of reason: a
+# scraper's job is to reach everything it is told to scrape.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ingress-backends
+spec:
+  description: Traefik reaches the workloads its Ingress objects name
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: traefik
+      k8s:app.kubernetes.io/name: traefik
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEndpoints:
+        - {}

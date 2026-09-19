@@ -87,9 +87,26 @@ block as the rule they sit beside, so DNS still goes through the proxy that
 `toFQDNs` policies depend on — a plain L3 rule for port 53 would be the more
 permissive one and Cilium would take it.
 
-With those, the deny is **on** in dev: twenty policies, every smoke check
-green, `kubectl top` answering, Hubble reaching all three agents, and no
-denials in the flows.
+**And an eighth gap that sixteen minutes of watching did not show.** Traefik
+had no egress to the workloads it routes to. Nothing reported it, because
+nobody opened the Argo CD UI in those sixteen minutes — one request produced it
+at once. From outside it looked like this: `curl https://argocd.<domain>/`
+returning HTTP 000 while the TLS handshake completed and `openssl s_client`
+printed a valid certificate, because Traefik terminates TLS and only then
+cannot reach the backend. That rule is `48-allow-ingress-backends`, and it
+permits every endpoint on purpose: an ingress controller's function is to reach
+whatever an Ingress object names, so a rule listing today's backends breaks the
+next one silently.
+
+The lesson that keeps arriving: **a flow that happens on demand has to be
+provoked, not waited for.** It was first written down for the Hetzner API,
+found again here by opening a URL, and a quiet Hubble window means only that
+nothing asked.
+
+With all of them, the deny is **on** in dev: twenty-one policies, every smoke
+check green, `kubectl top` answering, Hubble reaching all three agents, the
+Argo CD UI answering HTTP 200 from the internet, and no denials in sixteen
+minutes of flows.
 
 The general lesson is cheaper than the way it was learned: when adding an
 allow policy, write the client's egress and the server's ingress together, and
