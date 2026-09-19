@@ -33,6 +33,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
 // Status is a check's verdict.
@@ -448,4 +450,80 @@ func failed(result Result, detail string, err error) (Result, error) {
 	result.Detail = detail
 
 	return result, err
+}
+
+// CheckDataVolumes is the name of the check below.
+const CheckDataVolumes = "volumes holding data are on a class that retains them"
+
+// ReclaimDelete is the policy that takes the volume with the claim.
+//
+// Spelled here rather than imported from k8s.io/api so this file stays
+// readable on its own; the value is the API's and cannot change without a
+// Kubernetes version that renames it.
+const ReclaimDelete = "Delete"
+
+// DataVolume is one claim in a namespace that says it holds data.
+type DataVolume struct {
+	// Namespace and Name identify the claim.
+	Namespace string
+	Name      string
+	// Class is the storage class it is bound to, and Reclaim that class's
+	// policy. A claim with no class named is bound to the default one, which
+	// is the case this check exists for.
+	Class   string
+	Reclaim string
+}
+
+// DataVolumesAreRetained is the judgement on the claims in namespaces labelled
+// as holding data.
+//
+// The rule it enforces is in internal/pkg/platform: two storage classes, one
+// per class of DATA, and a database's volume belongs on the one that retains.
+// Without a check the taxonomy is a sentence in a document — a chart that omits
+// storageClassName gets the DEFAULT class, which is the one that deletes, and
+// nothing says a word until somebody deletes the claim.
+//
+// Three answers, and the middle one is why this is a function:
+//
+//   - no labelled namespace: skipped. Nothing here holds data yet, and a
+//     failure would train an operator to ignore the check before it has
+//     anything to say.
+//   - a claim on a Delete class: failed, naming the claim and the class.
+//   - everything retained: passed.
+func DataVolumesAreRetained(volumes []DataVolume, labelled int) Result {
+	result := Result{Name: CheckDataVolumes}
+
+	if labelled == 0 {
+		result.Status = StatusSkipped
+		result.Detail = "no namespace carries " + platform.DataNamespaceLabel +
+			", so nothing claims to hold data that cannot be rebuilt"
+
+		return result
+	}
+
+	var wrong []string
+
+	for _, volume := range volumes {
+		if volume.Reclaim != ReclaimDelete {
+			continue
+		}
+
+		wrong = append(wrong, fmt.Sprintf("%s/%s on %s", volume.Namespace, volume.Name, volume.Class))
+	}
+
+	if len(wrong) > 0 {
+		result.Status = StatusFailed
+		result.Detail = fmt.Sprintf(
+			"%s: the class reclaims %s, so deleting the claim deletes the volume. "+
+				"Name %s in the claim instead — see internal/pkg/platform",
+			strings.Join(wrong, ", "), ReclaimDelete, platform.StorageClassDatabase)
+
+		return result
+	}
+
+	result.Status = StatusPassed
+	result.Detail = fmt.Sprintf("%d claim(s) in %d labelled namespace(s), all on a retaining class",
+		len(volumes), labelled)
+
+	return result
 }
