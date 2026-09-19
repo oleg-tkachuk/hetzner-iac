@@ -129,3 +129,22 @@ const SecretStoreProject = clusterspec.Name
 // against an API with rate limits. ESO keeps the last value when a read fails,
 // so a slow refresh degrades into a stale secret rather than an absent one.
 const SecretRefreshInterval = "1h"
+
+// The layers that install charts, spelled as their directories under layers/
+// are. Held equal to those directories by TestWorkloadLayers_AreRealLayers.
+//
+// Here rather than in internal/pkg/workloads, where they were first written,
+// because internal/pkg/charts now declares which layer installs each chart —
+// and workloads imports charts, so the constants cannot live downstream of it.
+//
+// Named rather than written out at each use because the same string has to
+// match a directory name and a layer's own idea of itself, and a comment
+// saying which layer a chart belongs to matches nothing: `cilium` carried
+// `// Layer 20 — CNI` for months while 10-node-platform installed it, and
+// 20-network-policy installs no chart at all.
+const (
+	LayerNodePlatform    = "10-node-platform"
+	LayerClusterServices = "30-cluster-services"
+	LayerIngress         = "40-ingress"
+	LayerGitOps          = "50-gitops"
+)

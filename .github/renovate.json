@@ -36,9 +36,9 @@
 
   "customManagers": [
     {
-      "description": "The chart registry. The pattern keys off the field order Name → Repo → Version, which every entry follows; a test in tools/charts reads this very regex out of this file and asserts it still matches every chart, because the failure mode otherwise is Renovate silently opening no pull requests at all.",
+      "description": "The chart declarations, one file per chart. The pattern keys off the field order Name → Repo → Version, which every entry follows; a test in tools/charts reads this very regex out of this file and asserts it still matches every chart, because the failure mode otherwise is Renovate silently opening no pull requests at all.",
       "customType": "regex",
-      "managerFilePatterns": ["/^internal/pkg/charts/registry\\.go$/"],
+      "managerFilePatterns": ["/^internal/pkg/charts/[^/]+\\.go$/"],
       "matchStrings": [
         "Name:\\s+\"(?<depName>[^\"]+)\",\\s*\\n\\s*Repo:\\s+\"(?<registryUrl>[^\"]+)\",\\s*\\n\\s*Version:\\s+\"(?<currentValue>[^\"]+)\""
       ],

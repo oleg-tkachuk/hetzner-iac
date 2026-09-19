@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
@@ -54,8 +55,25 @@ func TestRenovatePatternMatchesEveryChart(t *testing.T) {
 	pattern, err := regexp.Compile(manager.MatchStrings[0])
 	require.NoError(t, err, "the configured pattern must be a valid regular expression")
 
-	registry, err := os.ReadFile(filepath.Join(root, "internal", "pkg", "charts", "registry.go"))
+	// Every file in the package, because the pins are one per chart file now.
+	// Reading one file would make this test pass while Renovate matched
+	// nothing — which is the failure it exists to prevent, inverted.
+	declarations, err := filepath.Glob(filepath.Join(root, "internal", "pkg", "charts", "*.go"))
 	require.NoError(t, err)
+	require.NotEmpty(t, declarations)
+
+	var registry []byte
+
+	for _, path := range declarations {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+
+		content, readErr := os.ReadFile(path)
+		require.NoError(t, readErr, path)
+
+		registry = append(registry, content...)
+	}
 
 	found := map[string]struct{ repo, version string }{}
 
@@ -102,8 +120,11 @@ func TestRenovateWatchesTheRegistryFile(t *testing.T) {
 	var config renovateConfig
 	require.NoError(t, json.Unmarshal(raw, &config))
 
+	// The whole package, not one file: a chart is declared in its own file
+	// now, so a pattern naming registry.go would match the pins of no chart
+	// at all — and Renovate's answer to that is silence.
 	assert.Equal(t,
-		[]string{"/^internal/pkg/charts/registry\\.go$/"},
+		[]string{"/^internal/pkg/charts/[^/]+\\.go$/"},
 		chartManager(t, config).ManagerFilePatterns)
 }
 
