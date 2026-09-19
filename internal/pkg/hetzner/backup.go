@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumiopts"
 
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -152,11 +153,25 @@ func NewStorageBox(
 		// (terraform-provider-hcloud, internal/storagebox/resource.go —
 		// "Disable delete protection before deleting"), and a measured
 		// `pulumi destroy` took the box with an uploaded snapshot on it in
-		// 17 seconds. What keeps the destination out of a teardown is that
-		// `infra/backup` is a tier with its own destroy, not a layer in
-		// `layer=all`'s walk.
+		// 17 seconds. pulumi.Protect below is what covers that path.
 		DeleteProtection: pulumi.Bool(true),
-	}, opts...)
+		// Protect is the other half, and it is Pulumi's rather than Hetzner's:
+		// the engine refuses to delete or REPLACE this resource at all.
+		//
+		// Measured on a scratch stack: a destroy against a protected resource
+		// fails during PREVIEW, so nothing in the stack is deleted — not even
+		// the unprotected resources beside it. Removing it is a deliberate
+		// second act, `pulumi state unprotect <urn>`, which `backup:destroy`
+		// asks for by name rather than doing quietly.
+		//
+		// The cost is named because it is real: a change that forces
+		// replacement — the box type, its location — fails too, with "unable
+		// to replace resource ... as it is currently marked for protection",
+		// and that one is fixed only by removing the option and applying. A
+		// resize of the backup destination is therefore a code change plus an
+		// apply, which is the correct price for a resource whose deletion
+		// takes every etcd snapshot with it.
+	}, pulumiopts.With(opts, pulumi.Protect(true))...)
 	if err != nil {
 		return nil, fmt.Errorf("hcloud storage box: %w", err)
 	}

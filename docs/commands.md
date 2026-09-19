@@ -155,16 +155,31 @@ the three credentials that reach it, into its own state.
 | `task backup:init` | create the tier's stack and point it at the cluster; `ref=` overrides the derived reference |
 | `task backup:plan` | preview it; changes nothing |
 | `task backup:apply` | create the Storage Box and its credentials; asks first, because the box is billable |
-| `task backup:destroy` | destroy it; asks first, and says that the uploaded snapshots are on it |
+| `task backup:destroy ignore_protect=yes` | destroy it; refuses without that argument, then asks |
 | `task backup:outputs` | the sftp destination, secrets redacted |
 
-`backup:destroy` takes the Storage Box and everything uploaded to it, and its
-prompt is the only thing that stops it. The box carries Hetzner's delete
-protection, which guards the console, the API and the hcloud CLI — and not
-this: the provider disables the protection before deleting, measured as 17
-seconds to remove a box with a snapshot on it. What keeps the destination out
-of a teardown is that it is a tier, so neither `task destroy` nor `layer=all`
-reaches it.
+`backup:destroy` is the only command that can take the Storage Box, and it
+takes three things to say so: the argument, the prompt, and the fact that the
+task is not in any walk.
+
+The box is `pulumi.Protect(true)`, so Pulumi itself refuses to delete **or
+replace** it. Measured on a scratch stack: the destroy fails during PREVIEW, so
+nothing in the stack is deleted — not even the unprotected resources beside it.
+That is the state Hetzner's own delete protection cannot produce; it guards the
+console, the API and the hcloud CLI, and the provider clears it before its own
+delete, measured as 17 seconds to remove a box with a snapshot on it.
+
+`ignore_protect=yes` passes `--ignore-protect`, scoped to that one operation.
+`pulumi state unprotect` would do it too and is deliberately not used:
+it edits the state and leaves it edited, so a teardown that fails half way
+leaves the destination unprotected with nothing saying so.
+`cluster:secrets:destroy` made the same choice for the cluster CA.
+
+The price of the protection is named in the code: a change that forces
+replacement — the box type, its location — fails the same way, and that one is
+fixed only by removing the option and applying. Resizing the backup destination
+is a code change, which is the right cost for a resource whose deletion takes
+every snapshot with it.
 
 The restic repository password is generated into this tier's state and nothing
 types it, so re-applying the tier after destroying it produces a password that

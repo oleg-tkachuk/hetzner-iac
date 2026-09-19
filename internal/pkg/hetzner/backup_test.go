@@ -182,3 +182,25 @@ func TestStorageBox_ReturnsTheWholeCredentialsLocation(t *testing.T) {
 
 	assert.Equal(t, hetzner.SnapshotHomeDirectory, box.Directory)
 }
+
+// TestStorageBox_IsProtectedFromPulumisOwnDestroy is the assertion Hetzner's
+// DeleteProtection cannot carry.
+//
+// The two are different mechanisms and only one of them stops this repository
+// from deleting its own backups. DeleteProtection is an INPUT, and the provider
+// clears it before deleting — measured: a destroy took the box, its subaccount
+// and an uploaded snapshot in 17 seconds with the flag set. pulumi.Protect is a
+// resource OPTION held in state, and the engine refuses the delete during
+// preview, so nothing in the stack is touched.
+//
+// Read off the register RPC rather than the inputs, because an option is not an
+// input — the same way deleteBeforeReplace is checked in cluster_test.go.
+func TestStorageBox_IsProtectedFromPulumisOwnDestroy(t *testing.T) {
+	t.Parallel()
+
+	rec := runStorageBox(t)
+
+	assert.True(t, rec.isProtected("hcloud:index/storageBox:StorageBox"),
+		"the Storage Box is not registered with pulumi.Protect, so `pulumi destroy` deletes it "+
+			"and every etcd snapshot on it; Hetzner's DeleteProtection does not stop that")
+}
