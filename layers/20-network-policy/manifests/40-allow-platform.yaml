@@ -1,45 +1,31 @@
 # The pod-to-pod flows this platform actually has, from Hubble rather than
 # from imagination:
 #
+#   argocd/argocd-server <-> argocd/argocd-redis TCP/6379   24 events
+#
+# RETIRED, and the measurement kept: Loki.
+#
 #   observability/loki  -> observability/loki   TCP/3100   480 events
 #   observability/alloy -> observability/loki   TCP/8080     8
-#   argocd/argocd-server <-> argocd/argocd-redis TCP/6379   24
 #
-# Loki talks to itself because the chart runs a gateway in front of the
-# single binary, and both carry app.kubernetes.io/name=loki.
+# Loki talked to itself because the chart runs a gateway in front of the single
+# binary, and both carry app.kubernetes.io/name=loki; Alloy reached the gateway
+# on 8080. Those two rules, on endpoints in the `observability` namespace
+# selected by `app.kubernetes.io/name`, are the whole policy that was here.
 #
-# The workload this selects is no longer deployed from this repository —
-# observability goes on through Argo CD. The policy stays because it describes
-# traffic, not who installs it: the labels are the chart's, so it applies the
-# moment that chart is reconciled, and deleting it would mean re-measuring
-# these flows before the default deny can ever go on.
-apiVersion: cilium.io/v2
-kind: CiliumClusterwideNetworkPolicy
-metadata:
-  name: allow-loki
-spec:
-  description: the Loki gateway reaches the single binary, and Alloy reaches the gateway
-  endpointSelector:
-    matchLabels:
-      k8s:io.kubernetes.pod.namespace: observability
-      k8s:app.kubernetes.io/name: loki
-  enableDefaultDeny:
-    ingress: false
-    egress: false
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: observability
-            k8s:app.kubernetes.io/name: loki
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: observability
-            k8s:app.kubernetes.io/name: alloy
-  egress:
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: observability
-            k8s:app.kubernetes.io/name: loki
----
+# It was kept for a while on the argument that it describes traffic rather than
+# who installs it, so deleting it would mean re-measuring before the default
+# deny could go on. Both halves of that have since changed. The deny IS on, and
+# it went on without this policy mattering — the workload it selects has not
+# existed for weeks, so it permitted nothing and could permit nothing. And the
+# re-measuring it was meant to save is four lines above: a rule that selects no
+# endpoint is not a safeguard, it is a claim about a cluster that does not
+# exist, and this repository has spent a day learning what an unenforced claim
+# costs.
+#
+# When observability returns through Argo CD, the numbers above are what to
+# write it from — and it will need the client side of each flow as well, which
+# the original never had.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
