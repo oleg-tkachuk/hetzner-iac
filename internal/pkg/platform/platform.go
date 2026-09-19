@@ -7,14 +7,47 @@
 // that will eventually be in two versions.
 package platform
 
-// StorageClass is the class the CSI driver in 10-node-platform registers, and
-// the one every PersistentVolumeClaim elsewhere asks for.
+import "github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+
+// The storage classes the CSI driver in 10-node-platform registers, one per
+// class of DATA rather than one per taste in reclaim policy.
 //
-// It was a literal in both halves. Nothing would have reported a drift: a
-// claim naming a class that does not exist is not rejected, it simply stays
+// StorageClass is the default, and it reclaims `Delete`: a deleted claim takes
+// the Hetzner volume with it. That is right for everything this platform runs
+// today, because everything it runs is reconstructible from git — a cache, a
+// build directory, a queue that can be drained.
+//
+// StorageClassDatabase reclaims `Retain`, and a claim has to ask for it by
+// name. It exists for the one case where the volume holds the only copy of
+// something: a database's data directory. Retain is not a backup and does not
+// pretend to be — a database is backed up by the database, to object storage,
+// with point-in-time recovery. What Retain buys is that the volume survives a
+// deleted PersistentVolumeClaim, which is the accident that actually happens:
+// an Argo CD prune of a directory somebody moved.
+//
+// Both were one literal in two halves once. Nothing would have reported the
+// drift: a claim naming a class that does not exist is not rejected, it stays
 // Pending, and the workload above it stays Pending with it — with no event on
 // the Deployment saying why.
-const StorageClass = "hcloud-volumes"
+const (
+	StorageClass         = "hcloud-volumes"
+	StorageClassDatabase = "hcloud-volumes-db"
+)
+
+// DataNamespaceLabel marks a namespace whose volumes hold data that cannot be
+// rebuilt, and it is what makes the two classes above a rule rather than a
+// convention.
+//
+// `task cluster:smoke` refuses a claim in such a namespace that sits on the
+// `Delete` class. Without that the taxonomy is a sentence in a document: a
+// chart that omits storageClassName gets the default, which is exactly the
+// class a database must not be on, and nothing says a word until the claim is
+// deleted and the data is gone.
+//
+// A label rather than a list of namespaces, because the namespaces arrive with
+// the workloads and the list would be edited in this repository every time
+// somebody deploys one through Argo CD.
+const DataNamespaceLabel = clusterspec.Name + "/holds-data"
 
 // IngressClass is the class layers/40-ingress registers, and the one an
 // Ingress elsewhere has to ask for by name.

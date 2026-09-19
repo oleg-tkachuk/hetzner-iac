@@ -60,6 +60,12 @@ type HcloudCSI struct {
 	// rather than discovered by it. See the template for what discovery
 	// costs.
 	Location string
+	// StorageClass and StorageClassDatabase are the two classes the driver
+	// registers, one per class of data. The names come from
+	// internal/pkg/platform because a claim elsewhere has to spell them
+	// identically.
+	StorageClass         string
+	StorageClassDatabase string
 }
 
 // MetricsServer is internal/pkg/values/metrics-server.yaml.tmpl.
@@ -118,7 +124,14 @@ var probes = map[string]any{
 	// A real location, because the value's whole purpose is to be there: empty
 	// leaves the controller discovering its own location at startup, which the
 	// template explains at length.
-	"hcloud-csi": HcloudCSI{Location: clusterref.ProbeLocation},
+	"hcloud-csi": HcloudCSI{
+		Location: clusterref.ProbeLocation,
+		// The real names, for the same reason the node ports above are real:
+		// the render check asserts they reach the chart's output, which is
+		// the only place a class's reclaim policy is observable.
+		StorageClass:         platform.StorageClass,
+		StorageClassDatabase: platform.StorageClassDatabase,
+	},
 	// A domain on purpose: the Ingress block is conditional, and rendering
 	// without one would leave the branch that publishes the UI unchecked.
 	"argo-cd": ArgoCD{
