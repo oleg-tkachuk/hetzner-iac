@@ -15,6 +15,33 @@ spec:
     ingress: false
     egress: false
   egress:
+    # The ENDPOINTS and the SERVICE, and both are needed.
+    #
+    # Most clients are translated from the ClusterIP to a backend before policy
+    # is evaluated, so the endpoint selector below covers them. Some are not —
+    # measured with the deny on, Argo CD's repo server was denied against
+    # `10.96.0.10 (world)`, which is kube-dns's ClusterIP seen as an address
+    # outside the cluster because no endpoint owns it.
+    #
+    # toServices rather than that address: the service CIDR is per-environment,
+    # and a literal here would be right on one cluster and silently wrong on
+    # the next. Both entries carry the same L7 block, so every path still goes
+    # through the DNS proxy that toFQDNs policies depend on — splitting them
+    # into a plain L3 rule would let Cilium take the more permissive one and
+    # skip the proxy.
+    - toServices:
+        - k8sService:
+            serviceName: kube-dns
+            namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -76,6 +103,48 @@ spec:
   ingress:
     - fromEndpoints:
         - {}
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+---
+# CoreDNS forwarding to the resolver Talos runs on the node.
+#
+# The third half-written permission of the same kind, and the one that makes
+# the other two pointless without it: the policies above let every endpoint ASK
+# kube-dns and let kube-dns answer, and neither lets kube-dns resolve a name it
+# does not hold. Measured with the deny on — 25 drops per node in a two-minute
+# window, which is every query for a name outside the cluster:
+#
+#   kube-system/coredns-… <> 169.254.116.108:53 (host) EGRESS DENIED
+#
+# 169.254.116.108 is Talos's host-local resolver, and Cilium already reports it
+# as `host` — so this needs the entity rather than that address, which is a
+# Talos implementation detail and not a number to pin here.
+#
+# No L7 block: the DNS proxy is for what endpoints ASK, and this is CoreDNS
+# forwarding what it could not answer. Sending the proxy's own upstream through
+# the proxy is a loop.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-dns-upstream
+spec:
+  description: kube-dns forwards to the resolver on the node
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: kube-system
+      k8s:k8s-app: kube-dns
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEntities:
+        - host
+        - remote-node
       toPorts:
         - ports:
             - port: "53"

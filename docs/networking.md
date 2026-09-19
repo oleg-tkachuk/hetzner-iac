@@ -75,12 +75,21 @@ resolve a name. The five rules are `35-allow-kubelet-clients`,
 `45-allow-ingress-loadbalancer`, `46-allow-argocd-cache-egress`,
 `47-allow-hubble-relay` and the second document in `10-allow-dns`.
 
-**Two flows are still uncovered**, measured rather than guessed, and the deny
-stays off until they are: CoreDNS's egress to the host-local resolver Talos
-runs at `169.254.116.108:53`, and egress to kube-dns's ClusterIP `10.96.0.10`
-for the clients that are denied against the service address rather than the
-endpoint. Both are per-environment numbers — the service CIDR is in the
-topology — so they need a template or an entity selector, not a literal.
+**The last two flows were DNS, on both sides of it.** CoreDNS's own egress to
+the resolver Talos runs on the node — every query for a name outside the
+cluster — and egress to kube-dns's ClusterIP for the clients that are not
+translated to a backend before policy is evaluated. Neither is written as the
+address Hubble prints: the first is `toEntities: host`, because
+`169.254.116.108` is a Talos implementation detail, and the second is
+`toServices`, because the service CIDR is per-environment and a literal would
+be right on one cluster and quietly wrong on the next. Both carry the same L7
+block as the rule they sit beside, so DNS still goes through the proxy that
+`toFQDNs` policies depend on — a plain L3 rule for port 53 would be the more
+permissive one and Cilium would take it.
+
+With those, the deny is **on** in dev: twenty policies, every smoke check
+green, `kubectl top` answering, Hubble reaching all three agents, and no
+denials in the flows.
 
 The general lesson is cheaper than the way it was learned: when adding an
 allow policy, write the client's egress and the server's ingress together, and
