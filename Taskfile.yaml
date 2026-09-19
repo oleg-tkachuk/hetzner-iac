@@ -11,6 +11,12 @@ vars:
   #   TASKLIB: '../taskfiles/%s'
   TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.3.1'
 
+  # The label every message from this entry point carries. Declared once here
+  # and once in Taskfile.dev.yaml, because the two are separate roots and a
+  # var does not cross between them — and the label is cosmetic, unlike the
+  # other four things built from this name, which come from
+  # internal/pkg/clusterspec.Name. A wrong label costs a confusing line of
+  # output; a wrong type token orphans resources.
   PROJECT_NAME: hetzner-iac
   ROOT: { sh: pwd }
 
@@ -231,7 +237,7 @@ tasks:
       # server carrying the cluster's label it knows the cluster is gone and
       # judges against empty claims rather than refusing.
       - cmd: |
-          printf '%s\n' "{{._SKIP}} hetzner-iac · destroy · kept: the Talos secrets bundle, the project snapshot, and this stack's Pulumi history"
+          printf '%s\n' "{{._SKIP}} {{.PROJECT_NAME}} · destroy · kept: the Talos secrets bundle, the project snapshot, and this stack's Pulumi history"
       - task: cluster:orphans
 
   plan:
@@ -261,7 +267,7 @@ tasks:
       - go build -o "{{.ROOT}}/bin/" ./...
       - cmd: |
           programs="$(find "{{.ROOT}}/bin" -maxdepth 1 -type f | awk 'END {print NR}')"
-          printf '%s\n' "{{._OK}} hetzner-iac · build · ${programs} programs into bin/"
+          printf '%s\n' "{{._OK}} {{.PROJECT_NAME}} · build · ${programs} programs into bin/"
         silent: true
 
   e2e:
@@ -273,7 +279,7 @@ tasks:
       - cmd: |
           set -euo pipefail
           [ -f "{{.ROOT}}/kubeconfig" ] || {
-            printf '%s\n' "{{._ERR}} hetzner-iac · e2e · no ./kubeconfig — run: task cluster:kubeconfig stack=<name>" >&2
+            printf '%s\n' "{{._ERR}} {{.PROJECT_NAME}} · e2e · no ./kubeconfig — run: task cluster:kubeconfig stack=<name>" >&2
             exit 1
           }
           # The suite verifies the cluster this repository built, so it runs
