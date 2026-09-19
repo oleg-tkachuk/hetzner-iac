@@ -1,0 +1,30 @@
+# Traefik reaching the pod that answers an HTTP-01 challenge.
+#
+# 50-allow-acme.yaml is cert-manager talking to Let's Encrypt; this is the
+# other direction. Validation arrives from the internet as a request for
+# /.well-known/acme-challenge/… and has to reach a solver pod in the
+# certificate's namespace, which 48-allow-ingress-backends.yaml permits from
+# Traefik's side and the default deny drops on the solver's.
+#
+# The gap does not show up as a broken certificate for as long as Let's
+# Encrypt reuses a cached authorization — a reissue on this cluster completed
+# in twenty seconds with no solver pod created at all. It arrives at the first
+# issue that needs a fresh challenge, months later, as a Certificate stuck
+# pending.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-acme-solver
+spec:
+  description: Traefik reaches the ACME HTTP-01 solver while a certificate is issued
+  endpointSelector:
+    matchLabels:
+      k8s:acme.cert-manager.io/http01-solver: "true"
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: traefik
+            k8s:app.kubernetes.io/name: traefik

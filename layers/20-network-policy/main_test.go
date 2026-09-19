@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +25,14 @@ type policy struct {
 		Name string `json:"name"`
 	} `json:"metadata"`
 	Spec struct {
-		Description       string `json:"description"`
+		Description string `json:"description"`
+		// EndpointSelector is which endpoints a policy applies to. Read
+		// because a policy is two halves — what it permits and to whom — and
+		// a rule correct in one half and wide in the other is a rule that
+		// permits the flow for everything in the cluster.
+		EndpointSelector struct {
+			MatchLabels map[string]string `json:"matchLabels"`
+		} `json:"endpointSelector"`
 		EnableDefaultDeny *struct {
 			Ingress *bool `json:"ingress"`
 			Egress  *bool `json:"egress"`
@@ -40,8 +49,11 @@ type policy struct {
 // for both: the keys they share are the ones being asserted on, and two copies
 // of it drifted the first time an ingress rule had to be read.
 type rule struct {
-	ToEntities []string `json:"toEntities"`
-	ToFQDNs    []struct {
+	ToEntities    []string `json:"toEntities"`
+	FromEndpoints []struct {
+		MatchLabels map[string]string `json:"matchLabels"`
+	} `json:"fromEndpoints"`
+	ToFQDNs []struct {
 		MatchName string `json:"matchName"`
 	} `json:"toFQDNs"`
 	ToPorts []struct {
@@ -423,4 +435,64 @@ func TestKedaPolicy_NamesTheGRPCPortTheChartRenders(t *testing.T) {
 	assert.ElementsMatch(t, []string{"9666", "9666"}, ports,
 		"%s must name 9666 from both sides: the deny covers each direction separately",
 		kedaPolicy)
+}
+
+// acmeSolverPolicy lets Traefik reach the pod that answers an HTTP-01
+// challenge.
+const acmeSolverPolicy = "49-allow-acme-solver.yaml"
+
+// TestACMESolverPolicy_IsScopedToSolverPods pins both halves of the one rule
+// whose flow the cluster cannot be relied on to exercise.
+//
+// 50-allow-acme.yaml lets cert-manager talk to Let's Encrypt; this is the
+// other direction, and the gap between them is the whole HTTP-01 path.
+// Let's Encrypt validates by fetching http://<domain>/.well-known/acme-challenge/…
+// from the internet, which arrives at Traefik and has to reach a solver pod in
+// the certificate's namespace — a flow the default deny drops, measured
+// directly: before this policy a pod carrying the solver label was unreachable
+// from Traefik, and with it the request succeeded.
+//
+// Both halves are asserted because widening either one is the change that
+// looks like a fix. An empty selector in Cilium does not mean "solver pods",
+// it means every endpoint, so a policy that kept its ingress rule and lost its
+// selector would open Traefik's reach to the whole cluster with the file still
+// reading as a narrow exception.
+func TestACMESolverPolicy_IsScopedToSolverPods(t *testing.T) {
+	t.Parallel()
+
+	policies, found := manifests(t)[acmeSolverPolicy]
+	require.True(t, found,
+		"%s is gone: an HTTP-01 challenge under the deny has nothing to answer it",
+		acmeSolverPolicy)
+	require.Len(t, policies, 1)
+
+	solver := policies[0]
+
+	// The label is cert-manager's, and nothing compares a YAML string to it.
+	// Cilium prefixes a Kubernetes label with its source, so the selector is
+	// the constant with `k8s:` in front.
+	assert.Equal(t, map[string]string{"k8s:" + platform.ACMESolverLabel: "true"},
+		solver.Spec.EndpointSelector.MatchLabels,
+		"%s selects %v. Anything other than the solver label either misses the pod — a "+
+			"challenge that times out — or selects more than it should",
+		acmeSolverPolicy, solver.Spec.EndpointSelector.MatchLabels)
+
+	require.Len(t, solver.Spec.Ingress, 1)
+	require.Len(t, solver.Spec.Ingress[0].FromEndpoints, 1,
+		"%s permits more than one source. Only the ingress controller receives the "+
+			"validation request; a second source here is a separate decision",
+		acmeSolverPolicy)
+
+	// Namespace and label both from the chart's own key: the release installs
+	// into it and stamps app.kubernetes.io/name from it, so a rename reaches
+	// here rather than leaving a selector that matches nothing.
+	assert.Equal(t, map[string]string{
+		"k8s:io.kubernetes.pod.namespace": charts.Traefik,
+		"k8s:app.kubernetes.io/name":      charts.Traefik,
+	}, solver.Spec.Ingress[0].FromEndpoints[0].MatchLabels,
+		"%s no longer names the ingress controller as the source", acmeSolverPolicy)
+
+	assert.Empty(t, solver.Spec.Egress,
+		"%s has grown an egress rule. A solver pod is an HTTP server that is asked for a "+
+			"file; it initiates nothing", acmeSolverPolicy)
 }
