@@ -1,0 +1,41 @@
+# Argo CD's server and controller reaching their cache, from the CLIENT side.
+#
+# 40-allow-platform already permits this flow — but only its INGRESS half: it
+# selects the redis pod and allows connections from the argocd namespace. Under
+# the default deny both directions are enforced, so the clients need their own
+# egress rule, and without it:
+#
+#   argocd/argo-cd-argocd-server-…      <> argocd/…-redis:6379 EGRESS DENIED
+#   argocd/argo-cd-argocd-application-controller-0 <> …:6379   EGRESS DENIED
+#
+# Twenty-one drops in two minutes, which is the reconnect loop. What it costs:
+# the server serves the UI from an empty cache and the application controller
+# cannot hold its state — so Argo CD looks installed and reconciles nothing,
+# which is indistinguishable from the state it is in today for a different
+# reason.
+#
+# The general lesson is in the drops rather than in this file: the allow set
+# was written from captures, and a capture shows a server's ingress while the
+# client's egress needs its own rule. Three of the four gaps the deny exposed
+# were exactly this shape.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-argocd-cache-egress
+spec:
+  description: the Argo CD server and controller reach their cache
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: argocd
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: argocd
+            k8s:app.kubernetes.io/name: argocd-redis
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
