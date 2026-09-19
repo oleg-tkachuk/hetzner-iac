@@ -340,7 +340,7 @@ const (
 	// documentation.
 	MaxClusterNameLength = MaxServerName - NodeNameSuffix
 
-	apiVersion = "hetzner-iac/v1"
+	apiVersion = Name + "/v1"
 	kind       = "Cluster"
 )
 

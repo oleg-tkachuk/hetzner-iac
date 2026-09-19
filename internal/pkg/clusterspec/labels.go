@@ -23,7 +23,7 @@ const (
 	// resource. Exported because tools/orphans reads it to tell a resource
 	// Pulumi owns from one something else created — the two load balancers
 	// here have no CCM label and are not orphans.
-	ManagedBy = "hetzner-iac"
+	ManagedBy = Name
 )
 
 // ResourceLabels builds the label set for a cluster-scoped resource. extra
