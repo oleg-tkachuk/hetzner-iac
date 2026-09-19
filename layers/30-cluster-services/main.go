@@ -22,7 +22,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	apiextensions "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
@@ -232,8 +231,8 @@ func parseEnabled(key, value string) (bool, error) {
 }
 
 // MetricsServerData is the data the metrics-server template renders with.
-func MetricsServerData() values.MetricsServer {
-	return values.MetricsServer{
+func MetricsServerData() charts.MetricsServerValues {
+	return charts.MetricsServerValues{
 		AddressTypes: charts.MetricsServerAddressTypes,
 		Replicas:     MetricsServerReplicas,
 	}

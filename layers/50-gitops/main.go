@@ -11,7 +11,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
@@ -270,8 +269,8 @@ func main() {
 // An empty domain installs Argo CD without an Ingress, which is the right
 // shape before DNS exists: the UI is then reachable with `kubectl port-forward`
 // and nothing is published by accident.
-func ArgoCDData(domain string) values.ArgoCD {
-	return values.ArgoCD{
+func ArgoCDData(domain string) charts.ArgoCDValues {
+	return charts.ArgoCDValues{
 		Domain:       domain,
 		IngressClass: platform.IngressClass,
 		Issuer:       platform.IssuerName,

@@ -56,6 +56,7 @@ func init() {
 			{Kind: DaemonSet, Name: Cilium},
 			{Kind: Deployment, Name: "cilium-operator"},
 		},
+		Probe: ciliumProbe,
 		Settings: []Setting{
 			{
 				Set:    []string{CiliumKubeProxyReplacement + "=true"},
@@ -72,4 +73,33 @@ func init() {
 			},
 		},
 	})
+}
+
+// CiliumValues is what cilium.yaml.tmpl is executed against.
+type CiliumValues struct {
+	// PodCIDR is the range Cilium routes natively.
+	PodCIDR string
+	// APIHost and APIPort point Cilium at KubePrism on the node, so the CNI
+	// does not depend on one control-plane node's life.
+	APIHost string
+	APIPort int
+	// OperatorReplicas is capped at one per control-plane node: each binds a
+	// host port, so a second cannot share a node.
+	OperatorReplicas int
+	// RoutingMode is native or tunnel, from the topology by way of the cluster
+	// tier's outputs. The template renders it directly, so an unexpected value
+	// would reach Cilium — the topology's own validation is what refuses one.
+	RoutingMode string
+}
+
+// ciliumProbe renders the template offline. The port is the real one, for the
+// same reason Traefik's ports are: a probe holding its own copy would keep
+// asserting the old number.
+func ciliumProbe() any {
+	return CiliumValues{
+		PodCIDR:          "198.51.100.0/24",
+		APIHost:          "localhost",
+		APIPort:          KubePrismPort,
+		OperatorReplicas: 2,
+	}
 }

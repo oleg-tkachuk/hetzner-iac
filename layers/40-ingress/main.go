@@ -18,7 +18,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -116,7 +115,7 @@ func IngressData(nodeSubnet pulumi.StringInput) pulumi.Output {
 	// and handed it back to be recovered by index and asserted.
 	return pulumix.Apply(nodeSubnet.ToStringOutput(),
 		func(subnet string) any {
-			return values.Traefik{
+			return charts.TraefikValues{
 				Replicas:   ControllerReplicas,
 				NodeSubnet: subnet,
 				// The same two constants internal/pkg/hetzner points the load

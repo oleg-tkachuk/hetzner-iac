@@ -57,6 +57,7 @@ func init() {
 		Workloads: []Object{
 			{Kind: DaemonSet, Name: "hcloud-csi-node"},
 		},
+		Probe: csiProbe,
 		Settings: []Setting{
 			{
 				Set:    []string{HcloudCSIDefaultLocation + "=" + HcloudCSIProbeLocation},
@@ -79,4 +80,28 @@ func init() {
 			},
 		},
 	})
+}
+
+// HcloudCSIValues is what hcloud-csi.yaml.tmpl is executed against.
+type HcloudCSIValues struct {
+	// Location is the cluster's Hetzner location, told to the controller
+	// rather than discovered by it. See the template for what discovery costs.
+	Location string
+	// StorageClass and StorageClassDatabase are the two classes the driver
+	// registers, one per class of data. The names come from
+	// internal/pkg/platform because a claim elsewhere has to spell them
+	// identically.
+	StorageClass         string
+	StorageClassDatabase string
+}
+
+// csiProbe renders the template offline, with a real location because the
+// value's whole purpose is to be there: empty leaves the controller
+// discovering its own location at startup.
+func csiProbe() any {
+	return HcloudCSIValues{
+		Location:             HcloudCSIProbeLocation,
+		StorageClass:         platform.StorageClass,
+		StorageClassDatabase: platform.StorageClassDatabase,
+	}
 }

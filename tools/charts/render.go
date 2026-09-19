@@ -36,7 +36,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 )
 
@@ -588,14 +587,14 @@ func sortedKeys(m map[string]bool) []string {
 // one, and returns its path. An empty path means the chart renders correctly
 // with its defaults.
 func writeValues(key string) (string, error) {
-	probe, err := values.Probe(key)
+	probe, err := charts.Probe(key)
 	if err != nil {
 		// A chart with no probe data renders on the chart's own defaults,
 		// which is right for the charts this platform does not configure.
 		return "", nil //nolint:nilerr // no template simply means no overrides
 	}
 
-	rendered, err := values.Render(key, probe)
+	rendered, err := charts.Render(key, probe)
 	if err != nil {
 		return "", err
 	}

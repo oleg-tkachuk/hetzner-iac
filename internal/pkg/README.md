@@ -9,8 +9,8 @@ under [layers/](../../layers), [infra/cluster/](../../infra/cluster) and
 | [hetzner/](hetzner) | the cluster tier's resources and the topology that validates into them |
 | [layer/](layer) | the shim every layer shares: cluster resolution, provider, components, Helm |
 | [clusterref/](clusterref) | the versioned output contract between the cluster tier and the layers |
-| [charts/](charts) | every chart version, pinned, in one table |
-| [values/](values) | every chart's Helm values, as templates |
+| [charts/](charts) | one file per chart: the pin, the layer that installs it, the objects it must produce, the values whose misspelling fails silently, and the values template itself |
+| [values/](values) | the two functions that hand a rendered values file to a Helm release, which is the half that needs Pulumi's SDK |
 
 | [workloads/](workloads) | what each chart is expected to produce, which the render check and the e2e suite both assert |
 | [platform/](platform) | the names two layers must spell identically: storage class, ingress class, node ports |

@@ -1,4 +1,4 @@
-package values_test
+package charts_test
 
 import (
 	"testing"
@@ -7,7 +7,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +19,7 @@ func TestNames_AreAllPinnedCharts(t *testing.T) {
 	// A template named after nothing in the registry is a file nobody reads:
 	// the layer asks for values by the registry key, so a misnamed file
 	// silently leaves the chart on its defaults.
-	names, err := values.Names()
+	names, err := charts.TemplateNames()
 	require.NoError(t, err)
 	require.NotEmpty(t, names, "no values templates found — the embed pattern must be wrong")
 
@@ -33,7 +32,7 @@ func TestNames_AreAllPinnedCharts(t *testing.T) {
 func TestSource_RefusesAnUnknownChart(t *testing.T) {
 	t.Parallel()
 
-	_, err := values.Source("no-such-chart")
+	_, err := charts.Source("no-such-chart")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no values template")
 }
@@ -44,10 +43,10 @@ func TestRender_RefusesAFieldTheDataDoesNotHave(t *testing.T) {
 	// The property that makes a template safe to edit. Without it a renamed
 	// field renders as the empty string and the chart runs on a default
 	// nobody chose — the same silent class as a misspelt Helm key.
-	names, err := values.Names()
+	names, err := charts.TemplateNames()
 	require.NoError(t, err)
 
-	_, err = values.Render(names[0], struct{ Nothing string }{})
+	_, err = charts.Render(names[0], struct{ Nothing string }{})
 	require.Error(t, err, "a template rendered against the wrong data must fail")
 }
 
@@ -59,14 +58,14 @@ func TestTemplates_RenderValidYAMLFromProbeData(t *testing.T) {
 	// is a template that breaks on an empty config key — and one whose action
 	// supplies an indented block, as Alloy's collector config does, cannot be
 	// checked any other way.
-	names, err := values.Names()
+	names, err := charts.TemplateNames()
 	require.NoError(t, err)
 
 	for _, name := range names {
-		probe, err := values.Probe(name)
+		probe, err := charts.Probe(name)
 		require.NoError(t, err, "every template needs probe data, or the render check cannot render it")
 
-		text, err := values.Render(name, probe)
+		text, err := charts.Render(name, probe)
 		require.NoError(t, err)
 
 		var out map[string]any
@@ -79,10 +78,13 @@ func TestProbe_RefusesAnUnknownChart(t *testing.T) {
 	t.Parallel()
 
 	// nil would render a template whose every field resolves to nothing —
-	// a values file of empty strings, and a check that passes on it.
-	_, err := values.Probe("no-such-chart")
+	// a values file of empty strings, and a check that passes on it. The
+	// message is the registry's now: an unknown chart is unknown, rather than
+	// a chart with no probe data, and the two are different states — a
+	// registered chart whose template needs nothing legitimately has none.
+	_, err := charts.Probe("no-such-chart")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no probe data")
+	assert.Contains(t, err.Error(), "unknown chart")
 }
 
 func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
@@ -93,7 +95,7 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 	// internal/pkg/charts holds the keys whose misspelling leaves a default in
 	// place with nothing said, and this asserts each one is still spelled the
 	// way the render check will look for it.
-	traefik, err := values.Source("traefik")
+	traefik, err := charts.Source("traefik")
 	require.NoError(t, err)
 
 	for _, key := range []string{
@@ -110,7 +112,7 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 	// The render check proves the CHART honours this key; it renders with its
 	// own --set and would pass whether or not any template sets it. This is
 	// the other half: that the template actually does.
-	csi, err := values.Source("hcloud-csi")
+	csi, err := charts.Source("hcloud-csi")
 	require.NoError(t, err)
 
 	assert.Contains(t, csi, charts.HcloudCSIDefaultLocation,
@@ -140,7 +142,7 @@ func TestTemplates_SetThePriorityClassEachComponentNeeds(t *testing.T) {
 		// Two, and not the same one: the node plugin is a DaemonSet.
 		"hcloud-csi": {charts.PriorityClusterCritical, charts.PriorityNodeCritical},
 	} {
-		source, err := values.Source(chart)
+		source, err := charts.Source(chart)
 		require.NoError(t, err, chart)
 
 		assert.Contains(t, source, charts.PriorityClassName,
@@ -154,7 +156,7 @@ func TestTemplates_SetThePriorityClassEachComponentNeeds(t *testing.T) {
 		}
 	}
 
-	argo, err := values.Source("argo-cd")
+	argo, err := charts.Source("argo-cd")
 	require.NoError(t, err)
 
 	assert.NotContains(t, argo, charts.PriorityClassName,
@@ -169,7 +171,7 @@ func TestTemplates_SetThePriorityClassEachComponentNeeds(t *testing.T) {
 func TestHcloudCSI_LocationIsRenderedNotLeftEmpty(t *testing.T) {
 	t.Parallel()
 
-	rendered, err := values.Render("hcloud-csi", values.HcloudCSI{Location: "fsn1"})
+	rendered, err := charts.Render("hcloud-csi", charts.HcloudCSIValues{Location: "fsn1"})
 	require.NoError(t, err)
 
 	assert.Contains(t, rendered, charts.HcloudCSIDefaultLocation+": fsn1")
@@ -192,7 +194,7 @@ func TestArgoCD_AnUnsetDomainStaysAnEmptyString(t *testing.T) {
 	//
 	// The server then runs with a nonsense URL, never becomes available, and
 	// Helm waits out its whole timeout with the cause nowhere in the output.
-	rendered, err := values.Render("argo-cd", values.ArgoCD{
+	rendered, err := charts.Render("argo-cd", charts.ArgoCDValues{
 		Domain: "", IngressClass: "traefik", Issuer: "letsencrypt", Replicas: 2,
 	})
 	require.NoError(t, err)
@@ -220,29 +222,29 @@ func TestArgoCD_AnUnsetDomainStaysAnEmptyString(t *testing.T) {
 func TestProbeData_CarriesThePinnedValuesRatherThanACopy(t *testing.T) {
 	t.Parallel()
 
-	cilium, err := values.Probe("cilium")
+	cilium, err := charts.Probe("cilium")
 	require.NoError(t, err)
 
-	cni, ok := cilium.(values.Cilium)
+	cni, ok := cilium.(charts.CiliumValues)
 	require.True(t, ok, "the cilium probe is %T", cilium)
 
 	assert.Equal(t, clusterspec.KubePrismPort, cni.APIPort,
 		"the cilium probe renders port %d while Talos listens on %d",
 		cni.APIPort, clusterspec.KubePrismPort)
 
-	traefik, err := values.Probe("traefik")
+	traefik, err := charts.Probe("traefik")
 	require.NoError(t, err)
 
-	ingress, ok := traefik.(values.Traefik)
+	ingress, ok := traefik.(charts.TraefikValues)
 	require.True(t, ok, "the traefik probe is %T", traefik)
 
 	assert.Equal(t, platform.IngressNodePortHTTP, ingress.NodePortHTTP)
 	assert.Equal(t, platform.IngressNodePortHTTPS, ingress.NodePortHTTPS)
 
-	csi, err := values.Probe("hcloud-csi")
+	csi, err := charts.Probe("hcloud-csi")
 	require.NoError(t, err)
 
-	storage, ok := csi.(values.HcloudCSI)
+	storage, ok := csi.(charts.HcloudCSIValues)
 	require.True(t, ok, "the hcloud-csi probe is %T", csi)
 
 	assert.Equal(t, clusterref.ProbeLocation, storage.Location)
@@ -251,10 +253,10 @@ func TestProbeData_CarriesThePinnedValuesRatherThanACopy(t *testing.T) {
 	// name was the literal "letsencrypt" while IngressClass beside it was
 	// already platform's. This test covered cilium, traefik and hcloud-csi
 	// and not this chart, which is how the literal survived.
-	argocd, err := values.Probe("argo-cd")
+	argocd, err := charts.Probe("argo-cd")
 	require.NoError(t, err)
 
-	gitops, ok := argocd.(values.ArgoCD)
+	gitops, ok := argocd.(charts.ArgoCDValues)
 	require.True(t, ok, "the argo-cd probe is %T", argocd)
 
 	assert.Equal(t, platform.IngressClass, gitops.IngressClass)

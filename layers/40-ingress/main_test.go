@@ -6,7 +6,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
@@ -30,7 +29,7 @@ func rendered(t *testing.T) map[string]any {
 		IngressData(pulumi.String(testNodeSubnet)))
 	require.NoError(t, err)
 
-	text, err := values.Render(Chart, data.Value)
+	text, err := charts.Render(Chart, data.Value)
 	require.NoError(t, err)
 
 	var out map[string]any

@@ -68,6 +68,7 @@ func init() {
 		Workloads: []Object{
 			{Kind: Deployment, Name: Traefik},
 		},
+		Probe: traefikProbe,
 		Settings: []Setting{
 			{
 				Set:    []string{PriorityClassName + "=" + PriorityClusterCritical},
@@ -106,4 +107,29 @@ func init() {
 			},
 		},
 	})
+}
+
+// TraefikValues is what traefik.yaml.tmpl is executed against.
+type TraefikValues struct {
+	Replicas int
+	// NodeSubnet is the range Traefik trusts a PROXY protocol header from.
+	NodeSubnet string
+	// NodePortHTTP and NodePortHTTPS are the pinned node ports the
+	// Pulumi-managed load balancer forwards to. Both sides read one pair of
+	// constants from internal/pkg/platform — see the template for what a
+	// mismatch does.
+	NodePortHTTP  int
+	NodePortHTTPS int
+}
+
+// traefikProbe renders the template offline. The ports are the real pinned
+// ones, not placeholders: the render check asserts they reach the chart's
+// output, which is the only place the pin is observable.
+func traefikProbe() any {
+	return TraefikValues{
+		Replicas:      2,
+		NodeSubnet:    ProxyProtocolProbeCIDR,
+		NodePortHTTP:  platform.IngressNodePortHTTP,
+		NodePortHTTPS: platform.IngressNodePortHTTPS,
+	}
 }

@@ -5,9 +5,9 @@
 package main
 
 import (
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
@@ -71,7 +71,7 @@ func CiliumData(
 	return pulumix.Apply3(
 		podCIDR.ToStringOutput(), controlPlaneCount.ToIntOutput(), routingMode.ToStringOutput(),
 		func(podCIDR string, controlPlaneCount int, routingMode string) any {
-			return values.Cilium{
+			return charts.CiliumValues{
 				PodCIDR:          podCIDR,
 				APIHost:          KubePrismHost,
 				APIPort:          clusterspec.KubePrismPort,
@@ -95,7 +95,7 @@ func CiliumData(
 // TestCSIData_CarriesBothStorageClasses exists.
 func CSIData(location pulumi.StringInput) pulumi.Output {
 	return location.ToStringOutput().ApplyT(func(name string) any {
-		return values.HcloudCSI{
+		return charts.HcloudCSIValues{
 			Location:             name,
 			StorageClass:         platform.StorageClass,
 			StorageClassDatabase: platform.StorageClassDatabase,
@@ -106,6 +106,6 @@ func CSIData(location pulumi.StringInput) pulumi.Output {
 // CCMData resolves what the cloud-controller-manager template needs.
 func CCMData(podCIDR pulumi.StringInput) pulumi.Output {
 	return podCIDR.ToStringOutput().ApplyT(func(cidr string) any {
-		return values.CCM{PodCIDR: cidr, SecretName: CredentialsSecret}
+		return charts.CCMValues{PodCIDR: cidr, SecretName: CredentialsSecret}
 	})
 }

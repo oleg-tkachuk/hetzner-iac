@@ -93,6 +93,14 @@ type Definition struct {
 	// Settings are the values whose misspelling fails silently, each with the
 	// line the chart must render as a result. See Setting.
 	Settings []Setting
+
+	// Probe returns representative data for rendering this chart's values
+	// template without a cluster, and nil when the template needs none — a
+	// fixed document of replica counts and limits has nothing to resolve.
+	//
+	// A function rather than a value so a chart's file declares it beside the
+	// struct it builds, and so the declarations stay ordinary data.
+	Probe func() any
 }
 
 // definitions is built by the per-chart files, not written here: a list in this
