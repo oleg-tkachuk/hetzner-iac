@@ -1078,8 +1078,9 @@ tasks:
     # authentication only, while the box's credential is a generated password.
     # The alternative was a key, and hcloud injects those at the BOX level
     # where changing one replaces the Storage Box — a rotation that destroys
-    # the backup destination, which delete protection would then refuse
-    # halfway. So: rclone speaks SFTP with a password, restic speaks restic.
+    # the backup destination and everything uploaded to it. Delete protection
+    # does not stop that: the provider clears it before deleting, measured.
+    # So: rclone speaks SFTP with a password, restic speaks restic.
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"

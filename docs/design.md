@@ -149,9 +149,13 @@ list is the only thing membership buys, and it is also the only thing it costs
 answering yes three times all along. It creates nothing in Kubernetes and never
 used the Kubernetes provider the layer runner built for it; it depended on no
 layer, so its number said "last" about an ordering it was not part of; and
-`layer=all` destroyed it **first**, ahead of the layers it did not depend on,
-where its Storage Box carries Hetzner's `DeleteProtection` and would have
-failed the whole teardown at step one. It is a tier now, with
+`layer=all` destroyed it **first**, ahead of the layers it did not depend on.
+The Storage Box's `DeleteProtection` does not make that safe, which was
+measured after this paragraph first claimed it would: the provider disables the
+protection before deleting, so a destroy takes the box and the snapshots on it
+rather than failing. The argument for the move is stronger than it was — the
+teardown would not have stopped at step one, it would have succeeded. It is a
+tier now, with
 [tasks/backup.task.yaml](../tasks/backup.task.yaml) of its own, and `task
 destroy` leaves it standing — which is what a backup destination is for.
 

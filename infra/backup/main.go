@@ -14,11 +14,20 @@
 // the cluster tier would be destroyed by `task cluster:destroy`, which is the
 // one thing it must survive.
 //
-// # Why it is last
+// # Why it is a tier rather than a layer
 //
 // Nothing depends on it, and it depends on nothing but the cluster's name and
-// location. `task destroy` therefore removes it first, which is why the Storage
-// Box carries delete protection: the remove is refused rather than obeyed.
+// location. As a layer it was destroyed FIRST by `layer=all`, ahead of layers
+// it did not depend on.
+//
+// The Storage Box's delete protection does not save it from that, which was
+// measured rather than assumed: `task backup:destroy` took the box, its
+// subaccount and an uploaded snapshot in 17 seconds with `deleteProtection:
+// true` in state and read back as true. The provider disables the protection
+// itself before deleting — hetznercloud/terraform-provider-hcloud,
+// internal/storagebox/resource.go, literally "Disable delete protection before
+// deleting". So the only thing that keeps a destination out of a teardown is
+// not being in one, which is what being a tier means here.
 //
 // # Why it has no component set
 //
