@@ -18,6 +18,12 @@ vars:
   # internal/pkg/clusterspec.Name. A wrong label costs a confusing line of
   # output; a wrong type token orphans resources.
   PROJECT_NAME: hetzner-iac
+
+  # The retaining storage class, named in the destroy prompt because it decides
+  # what survives a teardown. A second spelling of internal/pkg/platform's
+  # constant and unavoidable — a prompt cannot import Go — held equal to it by
+  # TestDestroyPrompt_NamesTheRetainingClass.
+  DATA_STORAGE_CLASS: hcloud-volumes-db
   ROOT: { sh: pwd }
 
   # Stack selects the environment. Every cluster and layer task takes it, and
@@ -222,7 +228,10 @@ tasks:
       it and cannot be undone), the Talos snapshot in the Hetzner project, the
       backup tier with the etcd snapshots on it — it is billed, and
       `task backup:destroy stack={{.stack}}` is the only thing that takes it —
-      and this stack's Pulumi history. Irreversible
+      any volume on the {{.DATA_STORAGE_CLASS}} class, which retains, so a
+      database's data outlives the cluster and keeps being billed until
+      somebody deletes it by hand, and this stack's Pulumi history.
+      Irreversible
     cmds:
       # Layers first. A cluster whose CNI has been removed under a running
       # workload is the same ordering hazard `platform:destroy layer=all`

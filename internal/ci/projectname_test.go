@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
 // nameDefinition is the one file allowed to write the repository's name.
@@ -187,3 +189,38 @@ func TestTopologySchema_PinsTheApiVersionThatGoAccepts(t *testing.T) {
 		"the schema does not pin apiVersion to %s/v1, so an editor and the program disagree "+
 			"about what a topology is", clusterspec.Name)
 }
+
+// dataStorageClassVar matches the retaining class's name in the root taskfile.
+var dataStorageClassVar = regexp.MustCompile(`DATA_STORAGE_CLASS:\s*(\S+)`)
+
+// TestDestroyPrompt_NamesTheRetainingClass holds the prompt's copy of the
+// class name equal to the constant, and holds the prompt to naming it at all.
+//
+// The prompt is the only place a teardown says what SURVIVES, and a volume on
+// the retaining class does: it outlives the cluster and keeps being billed
+// until somebody deletes it by hand. A prompt cannot import Go, so the name is
+// written twice — and the failure of a drift is not an error but an operator
+// who tore a cluster down believing nothing was left.
+func TestDestroyPrompt_NamesTheRetainingClass(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	declared := dataStorageClassVar.FindStringSubmatch(string(raw))
+	require.NotNil(t, declared, "no DATA_STORAGE_CLASS in the root taskfile")
+
+	assert.Equal(t, platform.StorageClassDatabase, declared[1],
+		"the taskfile names %q and internal/pkg/platform names %q",
+		declared[1], platform.StorageClassDatabase)
+
+	prompt := destroyPrompt.FindString(string(raw))
+	require.NotEmpty(t, prompt, "no destroy prompt in the root taskfile")
+
+	assert.Contains(t, prompt, "{{.DATA_STORAGE_CLASS}}",
+		"the destroy prompt does not say that volumes on the retaining class survive")
+}
+
+// destroyPrompt matches the root destroy task's prompt, which is one folded
+// scalar ending at the next key.
+var destroyPrompt = regexp.MustCompile(`(?s)prompt: >-\n.*?Irreversible`)
