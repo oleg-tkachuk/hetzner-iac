@@ -14,6 +14,12 @@ import "github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 // this package exists to remove.
 const MetricsServer = "metrics-server"
 
+// MetricsServerAddressTypes pins kubelet address resolution to the node's
+// internal address. Talos kubelet certificates carry that address, and the
+// chart default tries the hostname first — metrics-server then starts and
+// every scrape fails, so the autoscaler is silently blind.
+const MetricsServerAddressTypes = "--kubelet-preferred-address-types=InternalIP"
+
 func init() {
 	register(Definition{
 		Key:   MetricsServer,
@@ -27,6 +33,14 @@ func init() {
 		},
 		Workloads: []Object{
 			{Kind: Deployment, Name: MetricsServer},
+		},
+		Settings: []Setting{
+			{
+				Set:    []string{`args[0]=` + MetricsServerAddressTypes},
+				Expect: MetricsServerAddressTypes,
+				Why: "Talos kubelet certificates carry the internal address; the chart default " +
+					"tries the hostname and every scrape fails",
+			},
 		},
 	})
 }

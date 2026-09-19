@@ -10,7 +10,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
@@ -96,7 +95,7 @@ func TestCiliumValues_ReplacesKubeProxy(t *testing.T) {
 	// Talos was configured with kube-proxy disabled. Without the replacement
 	// the cluster has no service dataplane and every ClusterIP blackholes —
 	// with no error anywhere.
-	assert.Equal(t, true, ciliumValues(t, 3)[chartsettings.CiliumKubeProxyReplacement])
+	assert.Equal(t, true, ciliumValues(t, 3)[charts.CiliumKubeProxyReplacement])
 }
 
 func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
@@ -107,12 +106,12 @@ func TestCiliumValues_TalksToTheAPIThroughKubePrism(t *testing.T) {
 	// instead would tie the CNI to one control-plane node's life.
 	rendered := ciliumValues(t, 3)
 
-	assert.Equal(t, KubePrismHost, rendered[chartsettings.CiliumK8sServiceHost])
+	assert.Equal(t, KubePrismHost, rendered[charts.CiliumK8sServiceHost])
 	// The port itself is held against the machine config by
 	// internal/pkg/clusterspec's TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt,
 	// which renders the patch Talos is given. What this asserts is the other
 	// half: that the number reaching Cilium is that same constant.
-	assert.Equal(t, float64(chartsettings.KubePrismPort), rendered[chartsettings.CiliumK8sServicePort])
+	assert.Equal(t, float64(charts.KubePrismPort), rendered[charts.CiliumK8sServicePort])
 }
 
 func TestCiliumValues_UsesNativeRoutingOverThePodCIDR(t *testing.T) {

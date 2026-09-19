@@ -14,7 +14,7 @@
 
 # Ingress is how anything reaches this cluster from outside, and this chart
 # sets no priority of its own — so under node memory pressure the kubelet ranks
-# Traefik beside the workloads it serves. internal/pkg/chartsettings says which
+# Traefik beside the workloads it serves. The chart's own file says which
 # components get a class and which deliberately do not.
 priorityClassName: system-cluster-critical
 

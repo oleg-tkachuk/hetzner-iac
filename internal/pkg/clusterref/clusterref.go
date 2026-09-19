@@ -86,7 +86,7 @@ const (
 // It was sixteen literals — three fixtures in internal/pkg/clusterspec, one each
 // in internal/pkg/layer, this package and layers/10-node-platform, three in
 // tools/image, two in tools/topology, plus the CSI render probe in
-// internal/pkg/chartsettings and the template probe in internal/pkg/values.
+// internal/pkg/charts and the template probe in internal/pkg/values.
 // Every one wrote `hel1`.
 //
 // A fixture inventing its own is not harmless. The topology validator rejects

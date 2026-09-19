@@ -119,7 +119,7 @@ var Components = layer.Components{
 		//
 		// The location comes from the cluster tier rather than being
 		// discovered by the controller at startup: see the template, and
-		// chartsettings.HcloudCSIDefaultLocation.
+		// charts.HcloudCSIDefaultLocation.
 		ValuesFrom: func(r *layer.Runner) pulumi.Output {
 			return CSIData(r.Cluster.Location)
 		},

@@ -682,7 +682,7 @@ func TestBuildClusterPatch_RefusesATopologyWithNoRange(t *testing.T) {
 // up pointing at a port nothing listens on, so there is no service dataplane
 // and every ClusterIP blackholes with nothing saying why.
 //
-// It was 7445 twice: a constant in internal/pkg/chartsettings and a bare
+// It was 7445 twice: a constant in internal/pkg/charts and a bare
 // literal here, with a comment in the layer claiming they were one value.
 func TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt(t *testing.T) {
 	t.Parallel()

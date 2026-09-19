@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
@@ -59,13 +59,13 @@ func TestValues_ProxyProtocolIsTrustedOnBothEntryPoints(t *testing.T) {
 	// internal/pkg/hetzner; here each entry point is told which addresses may send one.
 	// Either half alone fails every request, which is why both are tests.
 	for _, entryPoint := range []string{
-		chartsettings.TraefikEntryPointWeb,
-		chartsettings.TraefikEntryPointTLS,
+		charts.TraefikEntryPointWeb,
+		charts.TraefikEntryPointTLS,
 	} {
 		trusted := nested(t, rendered(t),
-			chartsettings.TraefikPorts, entryPoint, chartsettings.TraefikProxyProtocol)
+			charts.TraefikPorts, entryPoint, charts.TraefikProxyProtocol)
 
-		assert.Equal(t, []any{testNodeSubnet}, trusted[chartsettings.TraefikTrustedIPs],
+		assert.Equal(t, []any{testNodeSubnet}, trusted[charts.TraefikTrustedIPs],
 			"entry point %q trusts nobody, so it rejects the header on every connection", entryPoint)
 	}
 }
@@ -77,10 +77,10 @@ func TestValues_DoesNotTrustForwardedHeaders(t *testing.T) {
 	// X-Forwarded-For would accept a spoofed one. Traefik trusts nobody by
 	// default, so the assertion is that nothing turns it on.
 	for _, entryPoint := range []string{
-		chartsettings.TraefikEntryPointWeb,
-		chartsettings.TraefikEntryPointTLS,
+		charts.TraefikEntryPointWeb,
+		charts.TraefikEntryPointTLS,
 	} {
-		port := nested(t, rendered(t), chartsettings.TraefikPorts, entryPoint)
+		port := nested(t, rendered(t), charts.TraefikPorts, entryPoint)
 
 		assert.NotContains(t, port, "forwardedHeaders",
 			"entry point %q trusts a forwarded header, which PROXY protocol makes spoofable", entryPoint)
@@ -94,9 +94,9 @@ func TestValues_AskForANodePortRatherThanALoadBalancer(t *testing.T) {
 	// job to the cloud controller manager. Pulumi owns the load balancer now,
 	// and leaving this at the default would have both reconciling one object.
 	spec := nested(t, rendered(t),
-		chartsettings.TraefikService, chartsettings.TraefikServiceSpec)
+		charts.TraefikService, charts.TraefikServiceSpec)
 
-	assert.Equal(t, "NodePort", spec[chartsettings.TraefikServiceType])
+	assert.Equal(t, "NodePort", spec[charts.TraefikServiceType])
 
 	// Local, so the client address survives without a second hop. It is also
 	// what makes the load balancer's health check meaningful: a node with no
@@ -112,12 +112,12 @@ func TestValues_PinTheNodePortsTheLoadBalancerForwardsTo(t *testing.T) {
 	// load balancer health-checks a port nothing listens on — every target
 	// unhealthy, with nothing else in the cluster looking wrong.
 	for entryPoint, want := range map[string]int{
-		chartsettings.TraefikEntryPointWeb: platform.IngressNodePortHTTP,
-		chartsettings.TraefikEntryPointTLS: platform.IngressNodePortHTTPS,
+		charts.TraefikEntryPointWeb: platform.IngressNodePortHTTP,
+		charts.TraefikEntryPointTLS: platform.IngressNodePortHTTPS,
 	} {
-		port := nested(t, rendered(t), chartsettings.TraefikPorts, entryPoint)
+		port := nested(t, rendered(t), charts.TraefikPorts, entryPoint)
 
-		assert.Equal(t, float64(want), port[chartsettings.TraefikNodePort],
+		assert.Equal(t, float64(want), port[charts.TraefikNodePort],
 			"entry point %q does not pin its node port", entryPoint)
 	}
 }

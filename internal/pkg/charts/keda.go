@@ -33,5 +33,14 @@ func init() {
 			{Kind: Deployment, Name: "keda-operator-metrics-apiserver", Optional: true},
 			{Kind: Deployment, Name: "keda-admission-webhooks", Optional: true},
 		},
+		Settings: []Setting{
+			{
+				Set:    []string{PriorityClassName + "=" + PriorityClusterCritical},
+				Expect: PriorityLineQuoted(PriorityClusterCritical),
+				Why: "the metrics API server is an aggregated API: evicted beside the workloads " +
+					"it scales, it takes external.metrics.k8s.io down with it and every " +
+					"autoscaler reading one fails on discovery rather than on a metric",
+			},
+		},
 	})
 }

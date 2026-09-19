@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
@@ -149,7 +148,7 @@ func TestContainmentDiagram_NamesNamespacesThatChartsInstallInto(t *testing.T) {
 
 // TestRequestPathDiagram_UsesTheEntryPointNamesTraefikIsGiven keeps the
 // diagram spelling the entry points the layer actually configures. Renaming
-// one in internal/pkg/chartsettings and not here leaves a diagram describing a
+// one in a chart's own file and not here leaves a diagram describing a
 // Traefik nobody deployed.
 func TestRequestPathDiagram_UsesTheEntryPointNamesTraefikIsGiven(t *testing.T) {
 	t.Parallel()
@@ -157,8 +156,8 @@ func TestRequestPathDiagram_UsesTheEntryPointNamesTraefikIsGiven(t *testing.T) {
 	diagram := diagramContaining(t, "PROXY header")
 
 	for _, entryPoint := range []string{
-		chartsettings.TraefikEntryPointWeb,
-		chartsettings.TraefikEntryPointTLS,
+		charts.TraefikEntryPointWeb,
+		charts.TraefikEntryPointTLS,
 	} {
 		assert.Contains(t, diagram, entryPoint,
 			"the request path does not name the %q entry point, and forgetting one breaks only half the traffic",

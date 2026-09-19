@@ -20,7 +20,6 @@ import (
 	"strconv"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
@@ -235,7 +234,7 @@ func parseEnabled(key, value string) (bool, error) {
 // MetricsServerData is the data the metrics-server template renders with.
 func MetricsServerData() values.MetricsServer {
 	return values.MetricsServer{
-		AddressTypes: chartsettings.MetricsServerAddressTypes,
+		AddressTypes: charts.MetricsServerAddressTypes,
 		Replicas:     MetricsServerReplicas,
 	}
 }

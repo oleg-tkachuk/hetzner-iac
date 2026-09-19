@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
@@ -91,18 +90,18 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 
 	// The guarantee the move to templates could have lost. A Helm key in a
 	// YAML file is not a Go identifier, so nothing compiles it — but
-	// internal/pkg/chartsettings holds the keys whose misspelling leaves a default in
+	// internal/pkg/charts holds the keys whose misspelling leaves a default in
 	// place with nothing said, and this asserts each one is still spelled the
 	// way the render check will look for it.
 	traefik, err := values.Source("traefik")
 	require.NoError(t, err)
 
 	for _, key := range []string{
-		chartsettings.TraefikPorts,
-		chartsettings.TraefikEntryPointWeb,
-		chartsettings.TraefikEntryPointTLS,
-		chartsettings.TraefikProxyProtocol,
-		chartsettings.TraefikTrustedIPs,
+		charts.TraefikPorts,
+		charts.TraefikEntryPointWeb,
+		charts.TraefikEntryPointTLS,
+		charts.TraefikProxyProtocol,
+		charts.TraefikTrustedIPs,
 	} {
 		assert.Contains(t, traefik, key,
 			"the traefik template no longer spells %q the way the render check asserts it", key)
@@ -114,10 +113,10 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 	csi, err := values.Source("hcloud-csi")
 	require.NoError(t, err)
 
-	assert.Contains(t, csi, chartsettings.HcloudCSIDefaultLocation,
+	assert.Contains(t, csi, charts.HcloudCSIDefaultLocation,
 		"the hcloud-csi template no longer sets %q, so the controller is back to discovering "+
 			"its location at startup — the CrashLoopBackOff this was written for",
-		chartsettings.HcloudCSIDefaultLocation)
+		charts.HcloudCSIDefaultLocation)
 }
 
 // TestTemplates_SetThePriorityClassEachComponentNeeds is the same half again,
@@ -135,18 +134,18 @@ func TestTemplates_SetThePriorityClassEachComponentNeeds(t *testing.T) {
 	t.Parallel()
 
 	for chart, want := range map[string][]string{
-		"traefik":      {chartsettings.PriorityClusterCritical},
-		"cert-manager": {chartsettings.PriorityClusterCritical},
-		"hcloud-ccm":   {chartsettings.PriorityClusterCritical},
+		"traefik":      {charts.PriorityClusterCritical},
+		"cert-manager": {charts.PriorityClusterCritical},
+		"hcloud-ccm":   {charts.PriorityClusterCritical},
 		// Two, and not the same one: the node plugin is a DaemonSet.
-		"hcloud-csi": {chartsettings.PriorityClusterCritical, chartsettings.PriorityNodeCritical},
+		"hcloud-csi": {charts.PriorityClusterCritical, charts.PriorityNodeCritical},
 	} {
 		source, err := values.Source(chart)
 		require.NoError(t, err, chart)
 
-		assert.Contains(t, source, chartsettings.PriorityClassName,
+		assert.Contains(t, source, charts.PriorityClassName,
 			"the %s template no longer spells %q the way the render check asserts it",
-			chart, chartsettings.PriorityClassName)
+			chart, charts.PriorityClassName)
 
 		for _, class := range want {
 			assert.Contains(t, source, class,
@@ -158,10 +157,10 @@ func TestTemplates_SetThePriorityClassEachComponentNeeds(t *testing.T) {
 	argo, err := values.Source("argo-cd")
 	require.NoError(t, err)
 
-	assert.NotContains(t, argo, chartsettings.PriorityClassName,
+	assert.NotContains(t, argo, charts.PriorityClassName,
 		"argo-cd has been given a priority class. It reconciles rather than serves, so this "+
 			"lets it outrank workloads under memory pressure — if that is intended, say why "+
-			"in internal/pkg/chartsettings and change this")
+			"in internal/pkg/charts and change this")
 }
 
 // TestHcloudCSI_LocationIsRenderedNotLeftEmpty is the value's own failure mode:
@@ -173,8 +172,8 @@ func TestHcloudCSI_LocationIsRenderedNotLeftEmpty(t *testing.T) {
 	rendered, err := values.Render("hcloud-csi", values.HcloudCSI{Location: "fsn1"})
 	require.NoError(t, err)
 
-	assert.Contains(t, rendered, chartsettings.HcloudCSIDefaultLocation+": fsn1")
-	assert.NotContains(t, rendered, chartsettings.HcloudCSIDefaultLocation+": \n",
+	assert.Contains(t, rendered, charts.HcloudCSIDefaultLocation+": fsn1")
+	assert.NotContains(t, rendered, charts.HcloudCSIDefaultLocation+": \n",
 		"an empty location renders the key with no value, which the chart reads as unset")
 }
 

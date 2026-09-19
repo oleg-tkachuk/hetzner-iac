@@ -11,7 +11,7 @@
 //
 //   - A YAML key is no longer a Go identifier, so the compiler cannot catch a
 //     misspelling. TestTemplates_MentionEverySettingThatFailsSilently holds
-//     the templates to the constants in internal/pkg/chartsettings, and
+//     the templates to the constants in internal/pkg/charts, and
 //     `charts:render-check` asserts the effect those keys must have on
 //     the rendered chart — which is what actually catches a typo, since Helm
 //     accepts an unknown key in silence.

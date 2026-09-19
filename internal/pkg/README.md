@@ -11,7 +11,7 @@ under [layers/](../../layers), [infra/cluster/](../../infra/cluster) and
 | [clusterref/](clusterref) | the versioned output contract between the cluster tier and the layers |
 | [charts/](charts) | every chart version, pinned, in one table |
 | [values/](values) | every chart's Helm values, as templates |
-| [chartsettings/](chartsettings) | the values a chart must carry, named where both the template and its test can read them |
+
 | [workloads/](workloads) | what each chart is expected to produce, which the render check and the e2e suite both assert |
 | [platform/](platform) | the names two layers must spell identically: storage class, ingress class, node ports |
 | [cni/](cni) | which CNI a stack installs, and whether it agrees with what Talos did to kube-proxy |

@@ -111,13 +111,13 @@ func NetworkGateway(ipRange string) (string, error) {
 // Talos does not listen on, so there is no service dataplane at all and every
 // ClusterIP blackholes with nothing saying why.
 //
-// It was 7445 twice: the constant in internal/pkg/chartsettings and a bare
+// It was 7445 twice: the constant Cilium's chart file now holds and a bare
 // literal below, with a comment in the layer claiming they were the same thing.
 // Nothing compared them.
 //
 // It then lived in internal/pkg/clusterref, on the argument that unlike
 // internal/pkg/hetzner that package "pulls no provider SDK, so
-// internal/pkg/chartsettings can read it without dragging the Hetzner and Talos
+// internal/pkg/charts can read it without dragging the Hetzner and Talos
 // SDKs into a Helm template's build graph". The argument was right and the
 // address was wrong: the provider SDKs are three packages each, and what they
 // sit on is Pulumi's own SDK — 768 packages, which clusterref pulls as surely
@@ -235,7 +235,7 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 					"enabled": true,
 					// The port Cilium is pointed at, from the one place both
 					// halves read it. It was a literal here and a constant in
-					// internal/pkg/chartsettings, with nothing comparing them.
+					// internal/pkg/charts, with nothing comparing them.
 					"port": KubePrismPort,
 				},
 			},

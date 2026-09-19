@@ -61,7 +61,7 @@ controller:
   #
   # The location is not a secret and not a guess: the cluster tier publishes
   # it, layer 60 already reads the same output for the Storage Box, and
-  # chartsettings.HcloudCSIDefaultLocationKey names the key both this template
+  # charts.HcloudCSIDefaultLocationKey names the key both this template
   # and its test use.
   hcloudVolumeDefaultLocation: {{ .Location }}
 
