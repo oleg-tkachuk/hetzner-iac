@@ -29,6 +29,12 @@ version: "3"
 silent: true
 
 vars:
+  # The label every message from this entry point carries — see the same var in
+  # Taskfile.yaml. Two declarations because these are two roots and a var does
+  # not cross between them; it is cosmetic either way, unlike the contracts
+  # built from internal/pkg/clusterspec.Name.
+  PROJECT_NAME: hetzner-iac
+
   # Shared task library — github.com/oleg-tkachuk/taskfiles, pinned.
   #
   # The second copy of this pin, and it has to be: Task resolves `includes:`
@@ -210,7 +216,7 @@ tasks:
 
           version="$(awk -F\" '/GOLANGCI_VERSION:/ {print $2}' "{{.ROOT}}/.github/workflows/ci.yaml")"
           if [ -z "${version}" ]; then
-            printf '%s\n' "{{._ERR}} hetzner-iac · lint · no GOLANGCI_VERSION in .github/workflows/ci.yaml" >&2
+            printf '%s\n' "{{._ERR}} {{.PROJECT_NAME}} · lint · no GOLANGCI_VERSION in .github/workflows/ci.yaml" >&2
             exit 1
           fi
 
@@ -222,13 +228,13 @@ tasks:
           case "$(uname -m)" in
             x86_64|amd64) arch=amd64 ;;
             arm64|aarch64) arch=arm64 ;;
-            *) printf '%s\n' "{{._ERR}} hetzner-iac · lint · unknown architecture $(uname -m)" >&2; exit 1 ;;
+            *) printf '%s\n' "{{._ERR}} {{.PROJECT_NAME}} · lint · unknown architecture $(uname -m)" >&2; exit 1 ;;
           esac
 
           name="golangci-lint-${bare}-${os}-${arch}"
           url="https://github.com/golangci/golangci-lint/releases/download/${version}/${name}.tar.gz"
 
-          printf '%s\n' "{{._RUN}} hetzner-iac · lint · ${version} for ${os}/${arch}"
+          printf '%s\n' "{{._RUN}} {{.PROJECT_NAME}} · lint · ${version} for ${os}/${arch}"
 
           mkdir -p "{{.ROOT}}/bin"
           tmp="$(mktemp -d)"
@@ -242,11 +248,11 @@ tasks:
           # something unrelated.
           got="$("{{.ROOT}}/bin/golangci-lint" --version | awk '/has version/ {print $4}')"
           if [ "${got}" != "${bare}" ]; then
-            printf '%s\n' "{{._ERR}} hetzner-iac · lint · downloaded ${got}, wanted ${bare}" >&2
+            printf '%s\n' "{{._ERR}} {{.PROJECT_NAME}} · lint · downloaded ${got}, wanted ${bare}" >&2
             exit 1
           fi
 
-          printf '%s\n' "{{._OK}} hetzner-iac · lint · bin/golangci-lint is ${got}, which is what CI runs"
+          printf '%s\n' "{{._OK}} {{.PROJECT_NAME}} · lint · bin/golangci-lint is ${got}, which is what CI runs"
 
   verify:
     desc: "Everything checkable without a cluster — needs helm, kubeconform, talosctl and lychee"

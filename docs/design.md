@@ -177,6 +177,36 @@ walk is what makes cert-manager arrive first and a shared constant is what
 makes the name agree. Dependency is an argument about order, and order is what
 the walk already provides; membership is a question about destroy scope.
 
+## The repository's own name is written once
+
+`hetzner-iac` is not a label. Five contracts are built from that string, and
+each pair of them has to agree exactly while nothing compares them at run time:
+the Pulumi type token of every component resource, which every URN beneath it
+carries; the `group:` prefix `tools/target` recognises those tokens by; the
+`managed-by` label `cluster:orphans` selects on; the `apiVersion` a topology is
+validated against, in Go **and** in the JSON Schema an editor reads; and the
+CrossGuard pack's name, in its manifest and in its program.
+
+So it lives in one constant, `clusterspec.Name`, and everything else is built
+from it. Not because five literals are untidy — because the four failures are
+not alike, and a rename meets them one at a time otherwise:
+
+| Contract | What a rename does |
+|----------|--------------------|
+| type tokens | orphans every resource under the renamed component; needs `pulumi.Aliases` |
+| `managed-by` | makes existing resources invisible to the orphan check, which then reports a clean project while they keep billing |
+| `apiVersion` | fails every committed topology at validation — loud and cheap |
+| pack name, `group:` | cosmetic |
+
+`TestProjectName_IsWrittenInOnePlace` refuses a new literal, reading Go string
+literals rather than file text so that a comment quoting a URN is not mistaken
+for a second definition. Two more hold the halves Go cannot reach: the schema's
+`apiVersion` and the policy manifest's name.
+
+It is deliberately not derived from the module path. `go.mod` says
+`github.com/oleg-tkachuk/hetzner-iac`, and taking the last element of it would
+tie the state contract to where the repository is hosted.
+
 ## Every stack output is a named constant
 
 A stack output is an interface, and half its consumers are not Go. The tier's
