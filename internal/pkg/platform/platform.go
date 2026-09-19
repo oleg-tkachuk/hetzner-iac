@@ -88,3 +88,44 @@ const (
 	IngressNodePortHTTP  = 30080
 	IngressNodePortHTTPS = 30443
 )
+
+// The External Secrets Operator's one store, and what it needs to reach
+// Pulumi ESC.
+//
+// Two layers have to agree on these: 30-cluster-services creates the store,
+// and every ExternalSecret elsewhere names it. A store name that does not
+// exist is the failure this package exists to prevent, in its quietest form —
+// the ExternalSecret is accepted, never syncs, and the Secret it would have
+// created is simply absent, so the pod that mounts it reports
+// CreateContainerConfigError and says nothing about a secret store.
+const (
+	// SecretStore is the ClusterSecretStore's name.
+	SecretStore = "pulumi-esc" // #nosec G101 -- the name of a store object, not a credential
+	// SecretStoreNamespace is where its bootstrap credential lives, which is
+	// the namespace the operator itself runs in.
+	SecretStoreNamespace = "external-secrets"
+	// SecretStoreTokenSecret and SecretStoreTokenKey are the Kubernetes Secret
+	// the store authenticates with. Written by the layer from stack config,
+	// and the one credential in this design that a person still holds.
+	//
+	// Both are NAMES. gosec reads a constant called …Token as a credential,
+	// which is the right default and wrong here: the value it points at never
+	// appears in this repository.
+	SecretStoreTokenSecret = "pulumi-esc-token" // #nosec G101 -- the Secret's name, not its contents
+	SecretStoreTokenKey    = "accessToken"      // #nosec G101 -- the key inside that Secret
+)
+
+// SecretStoreProject is the ESC project the environments live under.
+//
+// The repository's own name, so an organization that also uses ESC for
+// something else keeps these apart, and so nothing new has to be configured:
+// the environment is `<org>/<project>/<stack>` and the stack is already known.
+const SecretStoreProject = clusterspec.Name
+
+// SecretRefreshInterval is how often the operator re-reads a value.
+//
+// An hour rather than a minute: a secret changes when a person rotates it, and
+// the cost of the shorter interval is a request per ExternalSecret per tick
+// against an API with rate limits. ESO keeps the last value when a read fails,
+// so a slow refresh degrades into a stale secret rather than an absent one.
+const SecretRefreshInterval = "1h"
