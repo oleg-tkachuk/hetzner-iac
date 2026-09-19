@@ -6,6 +6,8 @@ import (
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumiopts"
 )
 
 // serverSpec is everything needed to create one Talos node.
@@ -19,6 +21,11 @@ type serverSpec struct {
 	placementGroupID pulumi.IntPtrInput
 	labels           map[string]string
 	publicIPv4       bool
+
+	// protect refuses a delete or a replacement of this node through Pulumi.
+	// Set for control-plane nodes, where etcd's data is, and not for workers,
+	// which are replaceable by design. See createControlPlaneNodes.
+	protect bool
 }
 
 // newServer creates one node.
@@ -91,8 +98,13 @@ func newServer(ctx *pulumi.Context, spec serverSpec, opts ...pulumi.ResourceOpti
 		//
 		// The cost is honest and unavoidable: the node is gone between the
 		// delete and the create. On a single-node cluster that is an outage
-		// either way, and on an HA one the replacement is one member at a
-		// time, which etcd survives.
+		// either way.
+		//
+		// This comment used to add that on an HA cluster "the replacement is
+		// one member at a time, which etcd survives". Nothing enforced that
+		// and it is not true — the nodes have no dependency on each other and
+		// `--parallel` defaults to 56 — which is why control-plane nodes now
+		// carry spec.protect.
 		pulumi.DeleteBeforeReplace(true),
 		pulumi.Timeouts(&pulumi.CustomTimeouts{
 			Create: "10m",
@@ -100,6 +112,10 @@ func newServer(ctx *pulumi.Context, spec serverSpec, opts ...pulumi.ResourceOpti
 			Delete: "15m",
 		}),
 	}, opts...)
+
+	if spec.protect {
+		options = pulumiopts.With(options, pulumi.Protect(true))
+	}
 
 	server, err := hcloud.NewServer(ctx, spec.name, args, options...)
 	if err != nil {

@@ -200,7 +200,7 @@ func TestStorageBox_IsProtectedFromPulumisOwnDestroy(t *testing.T) {
 
 	rec := runStorageBox(t)
 
-	assert.True(t, rec.isProtected("hcloud:index/storageBox:StorageBox"),
+	assert.True(t, rec.isProtected("backup"),
 		"the Storage Box is not registered with pulumi.Protect, so `pulumi destroy` deletes it "+
 			"and every etcd snapshot on it; Hetzner's DeleteProtection does not stop that")
 }

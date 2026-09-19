@@ -393,12 +393,18 @@ func apiEndpointAddress(
 		return nil, pulumi.String("").ToStringOutput(), nil
 	}
 
+	// Protected for the same reason the control-plane nodes are, and it is not
+	// about data: this load balancer's address IS the cluster endpoint. Every
+	// certificate names it, the kubeconfig and the talosconfig point at it, and
+	// a replacement hands back a different address — so the cluster is
+	// unreachable until every machine configuration has been rewritten and
+	// re-applied. `placement.location` is enough to plan that, measured.
 	loadBalancer, err := hcloud.NewLoadBalancer(ctx, name+"-api", &hcloud.LoadBalancerArgs{
 		Name:             pulumi.Sprintf("%s-api", topology.Metadata.Name),
 		LoadBalancerType: pulumi.String(topology.ControlPlane.APILoadBalancerType),
 		Location:         pulumi.String(topology.Placement.Location),
 		Labels:           toStringMap(clusterspec.ResourceLabels(topology.Metadata.Name, nil)),
-	}, opts...)
+	}, pulumiopts.With(opts, pulumi.Protect(true))...)
 	if err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer: %w", err)
 	}
