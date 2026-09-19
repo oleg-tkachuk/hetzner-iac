@@ -81,3 +81,41 @@ func TestPasswordSpecialCharacters_SurviveAShell(t *testing.T) {
 	// And it has to contain something, or MinSpecial cannot be satisfied.
 	assert.GreaterOrEqual(t, len(strings.TrimSpace(PasswordSpecialCharacters)), 4)
 }
+
+// TestPasswordSpecialCharacters_AreAllAcceptedByHetzner is the other half of
+// the constraint, and the half that was missing.
+//
+// The set was narrowed for the shell and never checked against the API, so it
+// held `[` and `]` — which Hetzner refuses. That surfaced as a 422 at APPLY
+// time, with five resources created and the Storage Box and its subaccount
+// errored:
+//
+//	invalid input in field password (invalid_input)
+//	The password can only contain these characters: a-z A-Z Ä Ö Ü ä ö ü ß
+//	0-9 ^ ° ! § $ % / ( ) = ? + # - . , ; : ~ * @ { } _ &
+//
+// Nothing offline said a word. This does, and it costs one loop.
+func TestPasswordSpecialCharacters_AreAllAcceptedByHetzner(t *testing.T) {
+	t.Parallel()
+
+	for _, character := range PasswordSpecialCharacters {
+		assert.Contains(t, HetznerPasswordSpecialCharacters, string(character),
+			"%q is in the alphabet passwords are drawn from and Hetzner's Storage Box API "+
+				"rejects it: the apply fails after the passwords exist",
+			string(character))
+	}
+}
+
+// TestPasswordSpecialCharacters_RejectTheCharactersThatFailedTheApply pins the
+// two that did it, so the regression cannot come back by someone widening the
+// set to something that merely looks safe.
+func TestPasswordSpecialCharacters_RejectTheCharactersThatFailedTheApply(t *testing.T) {
+	t.Parallel()
+
+	for _, refused := range []string{"[", "]"} {
+		assert.NotContains(t, PasswordSpecialCharacters, refused,
+			"%q is not in Hetzner's accepted set", refused)
+		assert.NotContains(t, HetznerPasswordSpecialCharacters, refused,
+			"%q is recorded as accepted by Hetzner, and the API says otherwise", refused)
+	}
+}
