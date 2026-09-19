@@ -305,17 +305,31 @@ A teardown is different from an accident, and the commands say which they are.
 what tearing a cluster down means; it keeps the CA, and it never reaches the
 Storage Box, which belongs to a tier of its own.
 
-**Volumes are the gap, and it is a decision rather than an oversight.** The
-default storage class `hcloud-volumes` carries `reclaimPolicy: Delete`, so
-deleting a `PersistentVolumeClaim` deletes the Hetzner volume behind it —
-including by an Argo CD prune of a directory somebody moved. Nothing uses it
-today: the cluster has no claims, and Argo CD's own StatefulSet declares no
-`volumeClaimTemplates`. It starts costing on the first stateful workload, and
-there are two answers: keep `Delete` and rely on backups, which suits workloads
-that are reconstructible and keeps `cluster:orphans` meaningful; or add a second
-class with `reclaimPolicy: Retain` for data that must outlive its claim, which
-costs a decision per workload and leaves released volumes for the orphan check
-to find. `platform.StorageClass` names the class in one place either way.
+**Volumes answer to the class of data on them**, which is the one thing here
+that is decided per workload rather than once:
+
+| Class of data | Storage class | Reclaim | Backed up by |
+|---|---|---|---|
+| scratch — caches, builds, drainable queues | `hcloud-volumes`, the default | `Delete` | nothing, on purpose: it is rebuilt from git |
+| a database's data directory | `hcloud-volumes-db`, named explicitly | `Retain` | the database, to object storage, with point-in-time recovery |
+
+`Retain` is not a backup and is not sold as one. What it buys is that the
+volume survives a deleted `PersistentVolumeClaim`, which is the accident that
+actually happens — an Argo CD prune of a directory somebody moved. A database
+is still backed up by the database: a filesystem copy taken under a running one
+is crash-consistent, which is a property you find out about during a restore.
+
+`Delete` stays the default because the dangerous case is no longer "somebody
+forgot". A chart that names no class gets the default, and the rule is that a
+claim holding data names the other one — so `task cluster:smoke` refuses a
+claim on a `Delete` class in a namespace labelled `hetzner-iac/holds-data`, and
+without that check the table above is a paragraph rather than a rule.
+
+The cost of `Retain` is a volume nobody is looking at. `cluster:orphans` reports
+a `Released` PersistentVolume for that reason: the claim is gone, nothing will
+bind the volume again by itself, and it is still billed. Both class names are
+constants in `internal/pkg/platform`, because the layer that registers them and
+the claim that asks for one have to spell them identically.
 
 ## A cluster as a document, and a cluster as resources
 
