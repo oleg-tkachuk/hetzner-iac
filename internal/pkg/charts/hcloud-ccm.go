@@ -33,6 +33,7 @@ func init() {
 		Workloads: []Object{
 			{Kind: Deployment, Name: hcloudCCMRelease},
 		},
+		Probe: ccmProbe,
 		Settings: []Setting{
 			{
 				Set:    []string{PriorityClassName + "=" + PriorityClusterCritical},
@@ -42,4 +43,17 @@ func init() {
 			},
 		},
 	})
+}
+
+// CCMValues is what hcloud-ccm.yaml.tmpl is executed against.
+type CCMValues struct {
+	// PodCIDR is what the route controller programmes routes for.
+	PodCIDR string
+	// SecretName is the Secret both hcloud charts read credentials from.
+	SecretName string
+}
+
+// ccmProbe renders the template offline.
+func ccmProbe() any {
+	return CCMValues{PodCIDR: "198.51.100.0/24", SecretName: "hcloud"}
 }

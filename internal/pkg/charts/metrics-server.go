@@ -34,6 +34,7 @@ func init() {
 		Workloads: []Object{
 			{Kind: Deployment, Name: MetricsServer},
 		},
+		Probe: metricsServerProbe,
 		Settings: []Setting{
 			{
 				Set:    []string{`args[0]=` + MetricsServerAddressTypes},
@@ -43,4 +44,17 @@ func init() {
 			},
 		},
 	})
+}
+
+// MetricsServerValues is what metrics-server.yaml.tmpl is executed against.
+type MetricsServerValues struct {
+	// AddressTypes pins kubelet address resolution to the node's internal
+	// address, which is what its certificate carries.
+	AddressTypes string
+	Replicas     int
+}
+
+// metricsServerProbe renders the template offline.
+func metricsServerProbe() any {
+	return MetricsServerValues{AddressTypes: MetricsServerAddressTypes, Replicas: 2}
 }

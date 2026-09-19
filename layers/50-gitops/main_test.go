@@ -7,7 +7,6 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +20,7 @@ const testDomain = "argocd.example.test"
 func render(t *testing.T, domain string) map[string]any {
 	t.Helper()
 
-	text, err := values.Render("argo-cd", ArgoCDData(domain))
+	text, err := charts.Render("argo-cd", ArgoCDData(domain))
 	require.NoError(t, err)
 
 	var out map[string]any

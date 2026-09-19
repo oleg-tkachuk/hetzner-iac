@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ import (
 func chartValues(t *testing.T, chart string, data any) map[string]any {
 	t.Helper()
 
-	text, err := values.Render(chart, data)
+	text, err := charts.Render(chart, data)
 	require.NoError(t, err)
 
 	var out map[string]any

@@ -179,13 +179,15 @@ func TestRequestPathDiagram_ShowsThePinnedNodePorts(t *testing.T) {
 
 	diagram := diagramContaining(t, "PROXY header")
 
-	template, err := os.ReadFile(filepath.Join("..", "..", "internal", "pkg", "values", "traefik.yaml.tmpl"))
+	// Asked of the package that owns the template, rather than of a path: the
+	// templates live beside the chart that names them now.
+	template, err := charts.Source(charts.Traefik)
 	require.NoError(t, err)
 
 	// The template interpolates them rather than spelling them, which is the
 	// point — so it is checked for the placeholder, and the numbers are
 	// checked against the constants both sides read.
-	assert.Contains(t, string(template), "{{ .NodePortHTTP }}",
+	assert.Contains(t, template, "{{ .NodePortHTTP }}",
 		"the values template no longer asks for a pinned node port")
 
 	for _, port := range []int{platform.IngressNodePortHTTP, platform.IngressNodePortHTTPS} {

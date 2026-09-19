@@ -27,8 +27,8 @@ find the file; read the sections below for what its fields mean.
 
 | File | Configures |
 |------|------------|
-| [internal/pkg/charts](../internal/pkg/charts) | one file per chart: its version and repository, the layer that installs it, the objects it must produce, and the value keys whose misspelling fails silently |
-| [internal/pkg/values](../internal/pkg/values) | one Helm values template per chart, which is what actually reaches Helm |
+| [internal/pkg/charts](../internal/pkg/charts) `<chart>.go` | one file per chart: its version and repository, the layer that installs it, the objects it must produce, and the value keys whose misspelling fails silently |
+| [internal/pkg/charts](../internal/pkg/charts) `*.yaml.tmpl` | the Helm values, one template per chart beside its declaration — what actually reaches Helm |
 | [internal/pkg/clusterspec](../internal/pkg/clusterspec) | the topology's schema in Go, its defaults, and the Talos machine-config patches |
 | [internal/pkg/clusterspec/auditpolicy.yaml](../internal/pkg/clusterspec/auditpolicy.yaml) | what the API server audit log records |
 | [internal/pkg/platform](../internal/pkg/platform) | names two layers must agree on: storage classes, the ingress class, the issuer, node ports |

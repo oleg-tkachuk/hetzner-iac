@@ -22,6 +22,7 @@ var notAChart = map[string]bool{
 	"definition.go": true,
 	"registry.go":   true,
 	"settings.go":   true,
+	"template.go":   true,
 }
 
 // TestChartFiles_AreOnePerChart holds the directory equal to the registry.

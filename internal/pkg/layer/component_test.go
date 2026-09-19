@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 )
 
 func chartKeys(components layer.Components) []string {
@@ -168,7 +168,7 @@ func TestDeploy_HandsTheRenderedValuesToTheRelease(t *testing.T) {
 				Chart: "cilium",
 				ValuesFrom: func(*layer.Runner) pulumi.Output {
 					return pulumi.All().ApplyT(func([]any) any {
-						return values.Cilium{PodCIDR: "10.244.0.0/16", RoutingMode: "native"}
+						return charts.CiliumValues{PodCIDR: "10.244.0.0/16", RoutingMode: "native"}
 					})
 				},
 			},
@@ -244,7 +244,7 @@ func TestOrder_RefusesBothValuesFields(t *testing.T) {
 		_, err := runner.Deploy(layer.Components{
 			{
 				Chart:        "cilium",
-				StaticValues: values.Cilium{},
+				StaticValues: charts.CiliumValues{},
 				ValuesFrom: func(*layer.Runner) pulumi.Output {
 					return pulumi.All()
 				},
