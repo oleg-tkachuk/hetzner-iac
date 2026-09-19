@@ -29,20 +29,17 @@
 #     Pending with DeadlineExceeded, because the CSI controller resolves
 #     api.hetzner.cloud first. Fixed: the second document in 10-allow-dns.
 #
-# STILL MISSING, measured with the deny on and written down rather than
-# guessed. Both must be covered before this is enabled again:
+# The last two were found the same way and are covered now, both in
+# 10-allow-dns.yaml:
 #
-#   - CoreDNS's own egress to the upstream resolver. Talos runs a host-local
-#     resolver at 169.254.116.108:53, and CoreDNS forwards to it — 25 drops
-#     per node in a two-minute window, which is every query for a name
-#     outside the cluster.
-#   - egress to kube-dns's ClusterIP, 10.96.0.10. The rule above permits the
-#     kube-dns ENDPOINTS, and some clients — Argo CD's repo server among them
-#     — are denied against the service address instead.
-#
-# Both are per-environment numbers: the service CIDR comes from the topology
-# and the host resolver from Talos, so covering them is a template or an
-# entity selector rather than a literal in this directory.
+#   - CoreDNS's own egress to the resolver Talos runs on the node — 25 drops
+#     per node in a two-minute window, which is every query for a name outside
+#     the cluster. It is `toEntities: host`, not the 169.254.116.108 that
+#     Hubble prints: that address is a Talos implementation detail.
+#   - egress to kube-dns's ClusterIP for the clients that are not translated
+#     to a backend before policy. It is `toServices`, not the 10.96.0.10 that
+#     Hubble prints: the service CIDR is per-environment, and a literal here
+#     would be right on one cluster and quietly wrong on the next.
 #
 # The rule that stands: enable this with the flows in front of you, and expect
 # the client side of every permission the capture only showed the server of.
