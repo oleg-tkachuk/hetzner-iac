@@ -14,7 +14,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -79,7 +82,7 @@ func runner(t *testing.T, objects []runtime.Object, prepare func(*fake.Clientset
 		prepare(client)
 	}
 
-	return clustersmoke.NewWithClient(client, clustersmoke.Options{
+	return clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
 		StorageClass: platform.StorageClass,
 		BindTimeout:  testBindTimeout,
 	})
@@ -118,7 +121,7 @@ func TestRun_ReportsEveryCheckEvenWhenOneFails(t *testing.T) {
 
 	report := r.Run(context.Background())
 
-	require.Len(t, report, 6, "a check that returns nothing is a check nobody notices")
+	require.Len(t, report, 7, "a check that returns nothing is a check nobody notices")
 	assert.True(t, report.Failed())
 
 	assert.Equal(t, clustersmoke.StatusPassed, resultFor(t, report, "node is Ready").Status)
@@ -136,12 +139,13 @@ func TestRun_PassesOnAHealthyClusterAndSkipsWhatItCannotJudge(t *testing.T) {
 	report := r.Run(context.Background())
 
 	assert.False(t, report.Failed())
-	// Three skips: the load balancer check, which has nothing to look at, the
+	// Four skips: the load balancer check, which has nothing to look at, the
 	// external metrics check, because this fixture serves no aggregated group,
-	// and the data-volume check, because no namespace claims to hold data. The
+	// the data-volume check, because no namespace claims to hold data, and the
+	// secret-store check, because this runner has no dynamic client. The
 	// cross-node check must NOT be skipping here — a cluster of three nodes
 	// with DNS on two is exactly where it can run.
-	assert.Equal(t, 3, report.Skipped())
+	assert.Equal(t, 4, report.Skipped())
 	assert.Equal(t, clustersmoke.StatusPassed,
 		resultFor(t, report, "another node").Status)
 
@@ -176,7 +180,7 @@ func TestCheckStorage_SchedulesAConsumerOnlyForALateBindingClass(t *testing.T) {
 				return false, nil, nil
 			})
 
-		smoke := clustersmoke.NewWithClient(client, clustersmoke.Options{
+		smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
 			StorageClass: platform.StorageClass,
 			BindTimeout:  testBindTimeout,
 		})
@@ -206,7 +210,7 @@ func TestCheckStorage_DeletesItsProbeEvenWhenTheClaimNeverBinds(t *testing.T) {
 			return false, nil, nil
 		})
 
-	smoke := clustersmoke.NewWithClient(client, clustersmoke.Options{
+	smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
 		StorageClass: platform.StorageClass,
 		BindTimeout:  testBindTimeout,
 	})
@@ -353,7 +357,7 @@ func TestCheckCrossNode_PassesAndProbesFromTheDNSFreeNode(t *testing.T) {
 			return false, nil, nil
 		})
 
-	smoke := clustersmoke.NewWithClient(client, clustersmoke.Options{
+	smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
 		StorageClass: platform.StorageClass,
 		BindTimeout:  testBindTimeout,
 	})
@@ -402,7 +406,7 @@ func TestCheckCrossNode_DeletesItsProberEitherWay(t *testing.T) {
 			return false, nil, nil
 		})
 
-	smoke := clustersmoke.NewWithClient(client, clustersmoke.Options{
+	smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
 		StorageClass: platform.StorageClass,
 		BindTimeout:  testBindTimeout,
 	})
@@ -432,7 +436,7 @@ func TestProberPod_SatisfiesTheRestrictedPodSecurityStandard(t *testing.T) {
 			return false, nil, nil
 		})
 
-	clustersmoke.NewWithClient(client, clustersmoke.Options{
+	clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
 		StorageClass: platform.StorageClass,
 		BindTimeout:  testBindTimeout,
 	}).Run(context.Background())
@@ -479,4 +483,67 @@ func TestCheckDataVolumes_ReadsTheDefaultClassForAClaimThatNamesNone(t *testing.
 	assert.Equal(t, clustersmoke.StatusFailed, result.Status,
 		"a claim naming no class is on the default one, which reclaims Delete")
 	assert.Contains(t, result.Detail, "postgres/data-pg-0")
+}
+
+// storeObject is a ClusterSecretStore as the API server returns it: no typed
+// struct anywhere, because the check reads it through the dynamic client on
+// purpose.
+func storeObject(name, status, reason string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "external-secrets.io/v1",
+		"kind":       "ClusterSecretStore",
+		"metadata":   map[string]any{"name": name},
+		"status": map[string]any{
+			"conditions": []any{
+				map[string]any{"type": "Ready", "status": status, "reason": reason},
+			},
+		},
+	}}
+}
+
+// TestCheckSecretStores_ReadsTheReadyConditionOffAnUnstructuredObject is the
+// half a pure function cannot cover: digging one condition out of a status
+// nobody has a Go type for.
+func TestCheckSecretStores_ReadsTheReadyConditionOffAnUnstructuredObject(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	custom := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			clustersmoke.SecretStoreResource: "ClusterSecretStoreList",
+		},
+		storeObject("pulumi-esc", "False", "InvalidProviderConfig"),
+	)
+
+	smoke := clustersmoke.NewWithClient(fake.NewSimpleClientset(), custom, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+	})
+
+	result := resultFor(t, smoke.Run(context.Background()), "secret store")
+
+	require.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "InvalidProviderConfig")
+}
+
+// TestCheckSecretStores_PassesOnAReadyStore is the other side, and it also
+// proves the condition's status is read as a STRING: "True" is what the API
+// returns, not a boolean.
+func TestCheckSecretStores_PassesOnAReadyStore(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	custom := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			clustersmoke.SecretStoreResource: "ClusterSecretStoreList",
+		},
+		storeObject("pulumi-esc", "True", ""),
+	)
+
+	smoke := clustersmoke.NewWithClient(fake.NewSimpleClientset(), custom, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+	})
+
+	result := resultFor(t, smoke.Run(context.Background()), "secret store")
+
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
 }

@@ -3,12 +3,15 @@ package clustersmoke
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -67,6 +70,10 @@ const DefaultBindTimeout = 2 * time.Minute
 // Runner executes the checks against a live cluster.
 type Runner struct {
 	client kubernetes.Interface
+	// custom reads the operator's own resources. Nil when the caller has no
+	// cluster with CRDs, which the check that uses it treats as "nothing to
+	// look at".
+	custom dynamic.Interface
 	opts   Options
 }
 
@@ -96,11 +103,23 @@ func New(opts Options) (*Runner, error) {
 		return nil, fmt.Errorf("kubernetes client: %w", err)
 	}
 
-	return &Runner{client: client, opts: opts}, nil
+	// A second client, for the one check that reads a custom resource. The
+	// typed client knows nothing about CRDs, and generating a typed client for
+	// one status field would tie this program to the operator's release cycle.
+	custom, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("dynamic client: %w", err)
+	}
+
+	return &Runner{client: client, custom: custom, opts: opts}, nil
 }
 
-// NewWithClient builds a Runner around an existing client, for tests.
-func NewWithClient(client kubernetes.Interface, opts Options) *Runner {
+// NewWithClient builds a Runner around existing clients, for tests.
+//
+// A nil dynamic client is allowed and means "this cluster has no custom
+// resources to read": the secret-store check skips rather than fails, which is
+// what a test that is not about secret stores should get.
+func NewWithClient(client kubernetes.Interface, custom dynamic.Interface, opts Options) *Runner {
 	if opts.BindTimeout <= 0 {
 		opts.BindTimeout = DefaultBindTimeout
 	}
@@ -109,7 +128,7 @@ func NewWithClient(client kubernetes.Interface, opts Options) *Runner {
 		opts.Logf = func(string, ...any) {}
 	}
 
-	return &Runner{client: client, opts: opts}
+	return &Runner{client: client, custom: custom, opts: opts}
 }
 
 // Run executes every check and returns the whole report.
@@ -123,6 +142,7 @@ func (r *Runner) Run(ctx context.Context) Report {
 		r.checkCrossNode(ctx),
 		r.checkStorage(ctx),
 		r.checkDataVolumes(ctx),
+		r.checkSecretStores(ctx),
 		r.checkLoadBalancers(ctx),
 		r.checkExternalMetrics(),
 	}
@@ -716,4 +736,84 @@ func (r *Runner) deleteProber(ctx context.Context) {
 		Delete(ctx, proberPod, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		r.opts.Logf("could not delete pod %s/%s: %v", probeNamespace, proberPod, err)
 	}
+}
+
+// SecretStoreResource is the API the store check reads.
+//
+// Pinned here because a dynamic client asks for a group, version and resource
+// by name and gets an empty list for a wrong one — which reads exactly like a
+// cluster with no stores. The version is the one internal/pkg/platform's store
+// is created as.
+var SecretStoreResource = schema.GroupVersionResource{
+	Group:    "external-secrets.io",
+	Version:  "v1",
+	Resource: "clustersecretstores",
+}
+
+// ReadyCondition is the condition type ESO reports a usable store with.
+const ReadyCondition = "Ready"
+
+// checkSecretStores reads every ClusterSecretStore and its Ready condition.
+//
+// A missing CRD is not a failure: the operator may not be installed at all,
+// and the dynamic client answers that with a NotFound the same way it answers
+// a typo. Both are reported as "no stores", which the judgement skips on.
+func (r *Runner) checkSecretStores(ctx context.Context) Result {
+	if r.custom == nil {
+		return SecretStoresAreReady(nil)
+	}
+
+	list, err := r.custom.Resource(SecretStoreResource).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return SecretStoresAreReady(nil)
+		}
+
+		return Result{Name: CheckSecretStores, Status: StatusFailed,
+			Detail: "listing " + SecretStoreResource.Resource + ": " + err.Error()}
+	}
+
+	stores := make([]SecretStore, 0, len(list.Items))
+
+	for _, item := range list.Items {
+		ready, reason := readyCondition(item.Object)
+		stores = append(stores, SecretStore{Name: item.GetName(), Ready: ready, Reason: reason})
+	}
+
+	return SecretStoresAreReady(stores)
+}
+
+// readyCondition digs the Ready condition out of an unstructured status.
+//
+// Written by hand rather than through a typed struct, because the whole point
+// of the dynamic client here is not to depend on the operator's Go types for
+// one field.
+func readyCondition(object map[string]any) (bool, string) {
+	status, ok := object["status"].(map[string]any)
+	if !ok {
+		return false, ""
+	}
+
+	conditions, ok := status["conditions"].([]any)
+	if !ok {
+		return false, ""
+	}
+
+	for _, entry := range conditions {
+		condition, isMap := entry.(map[string]any)
+		if !isMap || condition["type"] != ReadyCondition {
+			continue
+		}
+
+		message, _ := condition["message"].(string)
+		reason, _ := condition["reason"].(string)
+
+		if condition["status"] == "True" {
+			return true, ""
+		}
+
+		return false, strings.TrimSpace(reason + " " + message)
+	}
+
+	return false, ""
 }

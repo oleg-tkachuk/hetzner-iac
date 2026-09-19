@@ -527,3 +527,67 @@ func DataVolumesAreRetained(volumes []DataVolume, labelled int) Result {
 
 	return result
 }
+
+// CheckSecretStores is the name of the check below.
+const CheckSecretStores = "every secret store is ready"
+
+// SecretStore is one ClusterSecretStore and whether the operator accepted it.
+type SecretStore struct {
+	Name string
+	// Ready is the Ready condition's status, and Reason what the operator said
+	// when it is not.
+	Ready  bool
+	Reason string
+}
+
+// SecretStoresAreReady is the judgement on the stores the cluster declares.
+//
+// The failure it exists for is silent in an unusual way: everything downstream
+// of a broken store reports a problem that is not about secrets. A store with
+// a bad credential is marked Invalid, every ExternalSecret pointing at it
+// stops syncing, the Secret it would have written is simply ABSENT, and the
+// pod that mounts it fails to start with CreateContainerConfigError — a
+// message naming a Secret, three steps away from the token that is wrong.
+//
+// Three answers. No stores is a skip: the operator is installed by default and
+// pointed at a backend only when one is configured, so an absent store is a
+// choice rather than a fault.
+func SecretStoresAreReady(stores []SecretStore) Result {
+	result := Result{Name: CheckSecretStores}
+
+	if len(stores) == 0 {
+		result.Status = StatusSkipped
+		result.Detail = "no ClusterSecretStore exists, so no secret is read from outside the cluster"
+
+		return result
+	}
+
+	var broken []string
+
+	for _, store := range stores {
+		if store.Ready {
+			continue
+		}
+
+		reason := store.Reason
+		if reason == "" {
+			reason = "no Ready condition yet"
+		}
+
+		broken = append(broken, store.Name+": "+reason)
+	}
+
+	if len(broken) > 0 {
+		result.Status = StatusFailed
+		result.Detail = strings.Join(broken, "; ") +
+			" — every ExternalSecret pointing at it stops syncing, and the Secret it writes " +
+			"is absent rather than stale"
+
+		return result
+	}
+
+	result.Status = StatusPassed
+	result.Detail = fmt.Sprintf("%d store(s) ready", len(stores))
+
+	return result
+}
