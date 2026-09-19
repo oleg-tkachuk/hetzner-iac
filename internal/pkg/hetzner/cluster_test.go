@@ -39,6 +39,12 @@ type recorder struct {
 	// difference between a replacement that works and one that fails.
 	deleteFirst map[string]bool
 
+	// protected is the protect option, off the same RPC. A resource option
+	// rather than an input, and the one that decides whether `pulumi destroy`
+	// can take a resource at all — Hetzner's own DeleteProtection is an input
+	// and does not, because the provider clears it before deleting.
+	protected map[string]bool
+
 	// replaceOn is the replaceOnChanges option, from the same place and for
 	// the same reason.
 	replaceOn map[string][]string
@@ -55,6 +61,7 @@ func newRecorder() *recorder {
 	return &recorder{
 		resources:   map[string][]resource.PropertyMap{},
 		deleteFirst: map[string]bool{},
+		protected:   map[string]bool{},
 		replaceOn:   map[string][]string{},
 		dependsOn:   map[string][]string{},
 	}
@@ -65,6 +72,15 @@ func (r *recorder) record(token string, inputs resource.PropertyMap) {
 	defer r.mu.Unlock()
 
 	r.resources[token] = append(r.resources[token], inputs)
+}
+
+// isProtected reports whether a resource type was registered with
+// pulumi.Protect.
+func (r *recorder) isProtected(token string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.protected[token]
 }
 
 func (r *recorder) of(token string) []resource.PropertyMap {
@@ -82,6 +98,10 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 
 		if rpc.GetDeleteBeforeReplaceDefined() {
 			r.deleteFirst[args.TypeToken] = rpc.GetDeleteBeforeReplace()
+		}
+
+		if rpc.GetProtect() {
+			r.protected[args.TypeToken] = true
 		}
 
 		if fields := rpc.GetReplaceOnChanges(); len(fields) > 0 {

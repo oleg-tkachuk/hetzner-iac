@@ -26,8 +26,9 @@
 // true` in state and read back as true. The provider disables the protection
 // itself before deleting — hetznercloud/terraform-provider-hcloud,
 // internal/storagebox/resource.go, literally "Disable delete protection before
-// deleting". So the only thing that keeps a destination out of a teardown is
-// not being in one, which is what being a tier means here.
+// deleting". What does stop a destroy is `pulumi.Protect(true)`, which the box
+// carries, and being a tier: a protected resource fails the destroy in preview,
+// and no walk reaches this project in the first place.
 //
 // # Why it has no component set
 //

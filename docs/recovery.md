@@ -112,12 +112,15 @@ repository, so the uploads are unreadable without it:
 pulumi -C infra/backup -s dev stack output backupRepositoryPassword --show-secrets
 ```
 
-`task destroy` cannot take the Storage Box, because the backup tier is not in
-the walk it destroys — not because of the box's delete protection, which stops
-a delete from the console and not one from `pulumi destroy`. `task
-backup:destroy` does take it, snapshots and all. And Pulumi's state is what
-holds that password, so a lost state leaves the uploads on the box as bytes
-nothing can read. Put it in the same password store
+`task destroy` cannot take the Storage Box, and neither can a plain
+`pulumi destroy`: the box is `pulumi.Protect(true)`, which fails the destroy in
+preview before anything is deleted. Only `task backup:destroy
+ignore_protect=yes` takes it, snapshots and all. Hetzner's own delete
+protection is a different thing and stops a delete from the console, not one
+from Pulumi — the provider clears it first.
+
+Pulumi's state is what holds that password, so a lost state leaves the uploads
+on the box as bytes nothing can read. Put it in the same password store
 as `task cluster:secrets:export`, which is the other half a restore needs.
 
 ### Restoring

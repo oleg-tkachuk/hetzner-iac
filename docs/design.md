@@ -153,7 +153,9 @@ layer, so its number said "last" about an ordering it was not part of; and
 The Storage Box's `DeleteProtection` does not make that safe, which was
 measured after this paragraph first claimed it would: the provider disables the
 protection before deleting, so a destroy takes the box and the snapshots on it
-rather than failing. The argument for the move is stronger than it was — the
+rather than failing. What does make it safe is `pulumi.Protect(true)`, which
+the box now carries — the engine refuses the delete in preview — and
+`backup:destroy` asks for `ignore_protect=yes` before overriding it. The argument for the move is stronger than it was — the
 teardown would not have stopped at step one, it would have succeeded. It is a
 tier now, with
 [tasks/backup.task.yaml](../tasks/backup.task.yaml) of its own, and `task
