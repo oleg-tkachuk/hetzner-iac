@@ -34,6 +34,30 @@ config:
       This layer reads the kubeconfig from it, which is what lets it be applied
       and destroyed without touching the cluster.
 
+  # Set with --secret, never in a committed file:
+  #
+  #   pulumi config set --secret cluster-services:pulumiAccessToken <token>
+  #
+  # Declared without `secret: true` for the reason every other credential here
+  # is: a secret with an empty default arrives set-but-empty, so a presence
+  # check passes and what reaches the cluster is the empty string.
+  cluster-services:pulumiAccessToken:
+    default: ""
+    description: |
+      Pulumi access token the External Secrets Operator authenticates to Pulumi
+      ESC with. Empty creates no ClusterSecretStore, and the layer says so on
+      every apply — an operator installed and pointed at nothing is the same
+      shape as cert-manager with no issuer.
+
+      An ORGANIZATION token scoped to reading this project's environments, not
+      an operator's personal one: it is copied into a Kubernetes Secret, so
+      whatever it can do, anything able to read that Secret can do.
+
+      Secrets are read from <org>/<project>/<stack>, one environment per stack,
+      where the project is this repository's own name and neither the
+      organization nor the stack is configured here — both are what the program
+      is already running as.
+
   cluster-services:acmeEmail:
     default: ""
     description: |

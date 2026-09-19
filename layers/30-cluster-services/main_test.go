@@ -288,18 +288,35 @@ func TestParseEnabled_RefusesAValueThatIsNotABoolean(t *testing.T) {
 // decision: every other chart in this layer is installed unconditionally, and
 // a When appearing on one of those would mean a core service had quietly
 // become optional.
+//
+// Charts and everything else are counted apart, because they answer different
+// questions. An optional chart is a service that may be missing. An optional
+// component that is not a chart is a piece of wiring that has nothing to wire
+// until it is configured — the secret store has no store to point at until a
+// token exists, and installing it anyway would leave the operator authenticated
+// against nothing.
 func TestComponents_KedaIsTheOnlyOptionalChart(t *testing.T) {
 	t.Parallel()
 
-	var optional []string
+	var charts, others []string
 
 	for _, component := range Components {
-		if component.When != nil {
-			optional = append(optional, component.Key())
+		if component.When == nil {
+			continue
 		}
+
+		if component.Chart != "" {
+			charts = append(charts, component.Key())
+
+			continue
+		}
+
+		others = append(others, component.Key())
 	}
 
-	assert.Equal(t, []string{KedaChart}, optional)
+	assert.Equal(t, []string{KedaChart}, charts)
+	assert.Equal(t, []string{SecretStoreComponent}, others,
+		"a second optional non-chart component is a decision worth naming here")
 }
 
 // TestComponents_KedaWaitsForNothing holds the reasoning in its comment to the
@@ -321,4 +338,72 @@ func TestComponents_KedaWaitsForNothing(t *testing.T) {
 	}
 
 	t.Fatalf("no %s component in the set", KedaChart)
+}
+
+// TestSecretStoreSpec_PointsAtOneEnvironmentWithACredential reads the spec the
+// CRD accepts, field by field, because an untyped CustomResource has nothing
+// else checking it: a misspelled key is not a compile error and not a Pulumi
+// error — the API server takes the object, and the store never becomes Ready.
+func TestSecretStoreSpec_PointsAtOneEnvironmentWithACredential(t *testing.T) {
+	t.Parallel()
+
+	spec := SecretStoreSpec("acme", "prod")
+
+	provider, ok := spec["provider"].(map[string]any)
+	require.True(t, ok)
+
+	esc, ok := provider["pulumi"].(map[string]any)
+	require.True(t, ok, "the provider key must be the one the CRD names")
+
+	// The three the CRD marks required. One environment per stack: `prod` must
+	// not be able to read `dev`.
+	assert.Equal(t, "acme", esc["organization"])
+	assert.Equal(t, platform.SecretStoreProject, esc["project"])
+	assert.Equal(t, "prod", esc["environment"])
+
+	auth, ok := esc["auth"].(map[string]any)
+	require.True(t, ok, "auth, not the deprecated accessToken field beside it")
+
+	token, ok := auth["accessToken"].(map[string]any)
+	require.True(t, ok)
+
+	ref, ok := token["secretRef"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, platform.SecretStoreTokenSecret, ref["name"])
+	assert.Equal(t, platform.SecretStoreTokenKey, ref["key"])
+	assert.Equal(t, platform.SecretStoreNamespace, ref["namespace"],
+		"a cluster-scoped store with no namespace on its secretRef looks in the "+
+			"ExternalSecret's namespace and finds nothing")
+
+	// The deprecated shape must not be there as well: the CRD accepts either,
+	// and carrying both is how the wrong one survives a review.
+	assert.NotContains(t, esc, "accessToken")
+}
+
+// TestHasAccessToken_DecidesOnEmptinessAlone keeps the operator from being
+// installed and pointed at nothing, and keeps this from growing an opinion
+// about what a token looks like.
+func TestHasAccessToken_DecidesOnEmptinessAlone(t *testing.T) {
+	t.Parallel()
+
+	for name, one := range map[string]struct {
+		token string
+		want  bool
+	}{
+		"unset means no store": {token: "", want: false},
+		// Not a token-shaped string on purpose: a realistic one trips the
+		// secret scanner, and this test is about emptiness.
+		"any value means one": {token: "set", want: true},
+		// Deliberately true: validating the shape here would be a second
+		// opinion about what pulumi config stored, and a wrong token already
+		// fails loudly at the store.
+		"whitespace is a value": {token: " ", want: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, one.want, HasAccessToken(one.token))
+		})
+	}
 }
