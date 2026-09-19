@@ -13,6 +13,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
@@ -535,4 +536,48 @@ func TestSystemNamespace_IsWhereBothChartsInstall(t *testing.T) {
 	// And the value itself, so a registry edit that moved both charts at once
 	// still has to be deliberate.
 	assert.Equal(t, "kube-system", SystemNamespace)
+}
+
+// TestCSIData_CarriesBothStorageClasses is the test for the bug a live preview
+// found and every offline check missed.
+//
+// The template was correct and the probe data in internal/pkg/values was
+// correct, so `charts:render-check` rendered both classes and passed. What the
+// LAYER passes is a different struct literal, and it set only the location —
+// so the real apply would have created a storage class with `name: <null>`.
+// A struct field nobody sets is the zero string, and neither Go nor Helm has
+// anything to say about that.
+func TestCSIData_CarriesBothStorageClasses(t *testing.T) {
+	t.Parallel()
+
+	// The parsed document rather than its text: what matters is the VALUE the
+	// chart reads, and an unset one is an empty string that a text search for
+	// the key would find anyway.
+	rendered := render(t, "hcloud-csi", CSIData(pulumi.String(clusterref.ProbeLocation)))
+
+	classes, ok := rendered["storageClasses"].([]any)
+	require.True(t, ok, "the values file declares no storageClasses list")
+	require.Len(t, classes, 2, "one class per class of data: scratch and database")
+
+	named := map[string]string{}
+
+	for _, entry := range classes {
+		class, isMap := entry.(map[string]any)
+		require.True(t, isMap)
+
+		name, isString := class["name"].(string)
+		require.True(t, isString, "a class name that is not a string is the unset field this "+
+			"test exists for: Pulumi's diff showed it as `name: <null>`")
+		require.NotEmpty(t, name)
+
+		policy, isString := class["reclaimPolicy"].(string)
+		require.True(t, isString)
+
+		named[name] = policy
+	}
+
+	assert.Equal(t, map[string]string{
+		platform.StorageClass:         "Delete",
+		platform.StorageClassDatabase: "Retain",
+	}, named)
 }

@@ -36,6 +36,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/chartsettings"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 )
@@ -200,6 +201,10 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 	}
 
 	if err := checkHostAccess(key, namespace, output); err != nil {
+		return nil, err
+	}
+
+	if err := checkStorageClasses(key, output); err != nil {
 		return nil, err
 	}
 
@@ -618,4 +623,91 @@ func writeValues(key string) (string, error) {
 	}
 
 	return file.Name(), nil
+}
+
+// StorageClassKind is the kind a class is declared as.
+const StorageClassKind = "StorageClass"
+
+// storageClassProvisioner is the chart whose classes this checks.
+const storageClassProvisioner = "hcloud-csi"
+
+// expectedStorageClasses is the reclaim policy each class must render with,
+// and the check exists because a reclaim policy is invisible until it acts.
+//
+// A class is declared in one place and named by a claim in another, and the
+// only observable difference between Delete and Retain is what happens when
+// somebody deletes a PersistentVolumeClaim — by which time the answer is
+// either "the volume is still there" or "the data is gone". Helm would also
+// accept a `storageClasses` list with a key it does not know and keep its own
+// default, silently, which is how the second class could exist in the values
+// file and nowhere else.
+var expectedStorageClasses = map[string]string{
+	platform.StorageClass:         "Delete",
+	platform.StorageClassDatabase: "Retain",
+}
+
+// checkStorageClasses holds the rendered classes to internal/pkg/platform.
+func checkStorageClasses(key string, manifests []byte) error {
+	if key != storageClassProvisioner {
+		return nil
+	}
+
+	rendered := map[string]string{}
+
+	for _, doc := range strings.Split(string(manifests), "\n---") {
+		if !strings.Contains(doc, "kind: "+StorageClassKind) {
+			continue
+		}
+
+		name, policy := storageClassNameAndPolicy(doc)
+		if name == "" {
+			continue
+		}
+
+		rendered[name] = policy
+	}
+
+	for name, policy := range expectedStorageClasses {
+		got, declared := rendered[name]
+		if !declared {
+			return fmt.Errorf("%s renders no StorageClass %q: a claim naming it stays Pending, "+
+				"and nothing on the workload says why", key, name)
+		}
+
+		if got != policy {
+			return fmt.Errorf("%s renders StorageClass %q with reclaimPolicy %q, wanted %q: "+
+				"the difference is only observable when a claim is deleted, and then it is "+
+				"either a volume or an outage", key, name, got, policy)
+		}
+	}
+
+	if len(rendered) != len(expectedStorageClasses) {
+		return fmt.Errorf("%s renders %d storage classes, wanted %d: the values file REPLACES "+
+			"the chart's list, so an extra one is a class nothing in this repository names",
+			key, len(rendered), len(expectedStorageClasses))
+	}
+
+	return nil
+}
+
+// storageClassNameAndPolicy reads the two fields out of one rendered document.
+//
+// Line-oriented rather than unmarshalled, the same way checkHostAccess reads
+// its markers: the question is two scalars deep in a document whose shape the
+// chart owns, and the reclaim policy is rendered quoted while the name is not.
+func storageClassNameAndPolicy(doc string) (string, string) {
+	var name, policy string
+
+	for _, line := range strings.Split(doc, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		switch {
+		case strings.HasPrefix(trimmed, "name:") && name == "":
+			name = strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "name:")), `"`)
+		case strings.HasPrefix(trimmed, "reclaimPolicy:"):
+			policy = strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "reclaimPolicy:")), `"`)
+		}
+	}
+
+	return name, policy
 }

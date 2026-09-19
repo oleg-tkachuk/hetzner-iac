@@ -6,6 +6,7 @@ package main
 
 import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/values"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -85,9 +86,20 @@ func CiliumData(
 //
 // Separated from the component so a test can render the template without a
 // Pulumi run, the same shape as CiliumData and CCMData.
+//
+// The class names are not optional, and leaving them out is not a compile
+// error: a struct field this does not set is the zero string, the template
+// renders `name:` with nothing after it, and Pulumi's own diff showed exactly
+// that — `name: <null>` on a storage class the chart would then have created
+// unnamed. Caught by a preview against a live stack, which is why
+// TestCSIData_CarriesBothStorageClasses exists.
 func CSIData(location pulumi.StringInput) pulumi.Output {
 	return location.ToStringOutput().ApplyT(func(name string) any {
-		return values.HcloudCSI{Location: name}
+		return values.HcloudCSI{
+			Location:             name,
+			StorageClass:         platform.StorageClass,
+			StorageClassDatabase: platform.StorageClassDatabase,
+		}
 	})
 }
 

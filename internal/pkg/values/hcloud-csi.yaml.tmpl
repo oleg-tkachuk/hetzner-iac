@@ -121,3 +121,31 @@ node:
         memory: 32Mi
       limits:
         memory: 128Mi
+
+# TWO CLASSES, ONE PER CLASS OF DATA.
+#
+# The chart's default list is one class — hcloud-volumes, default, Delete — and
+# this REPLACES it rather than adding to it: Helm merges maps and replaces
+# lists, so declaring storageClasses here means owning every entry. The first
+# one below is the chart's default reproduced exactly, read out of
+# `helm show values hcloud-csi --version 2.23.0`.
+#
+# What the chart decides and this cannot: `volumeBindingMode:
+# WaitForFirstConsumer` and `allowVolumeExpansion: true` are written into the
+# chart's own template for every class, not taken from values. That is the
+# right binding mode here — a Hetzner volume belongs to one location, and
+# binding before a pod is scheduled can put the two in different ones — so
+# there is nothing to set.
+#
+# The second class is the whole point. `Retain` means a deleted
+# PersistentVolumeClaim leaves the volume behind instead of taking it, which is
+# what a database's data directory needs and what nothing else here does. It is
+# not the default on purpose: a claim has to name it, and internal/pkg/platform
+# says why.
+storageClasses:
+  - name: {{ .StorageClass }}
+    defaultStorageClass: true
+    reclaimPolicy: Delete
+  - name: {{ .StorageClassDatabase }}
+    defaultStorageClass: false
+    reclaimPolicy: Retain
