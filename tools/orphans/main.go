@@ -88,6 +88,7 @@ func run() (clean bool, err error) {
 	// the reason for a rule that no longer applied.
 	claims := Claims{
 		PersistentVolumes: map[string]bool{},
+		ReleasedVolumes:   map[string]bool{},
 		ServiceUIDs:       map[string]bool{},
 		Nodes:             map[string]bool{},
 	}
@@ -199,6 +200,7 @@ func readInventory(ctx context.Context, token string) (Inventory, error) {
 func readClaims(ctx context.Context, kubeconfig string) (Claims, error) {
 	claims := Claims{
 		PersistentVolumes: map[string]bool{},
+		ReleasedVolumes:   map[string]bool{},
 		ServiceUIDs:       map[string]bool{},
 		Nodes:             map[string]bool{},
 	}
@@ -212,6 +214,18 @@ func readClaims(ctx context.Context, kubeconfig string) (Claims, error) {
 
 	for _, name := range volumes {
 		claims.PersistentVolumes[name] = true
+	}
+
+	// Released ones, by phase. A filter in the template rather than a second
+	// pass in Go, because kubectl is already the thing that can answer it.
+	released, err := kubectlNames(ctx, kubeconfig, "persistentvolumes",
+		"{range .items[?(@.status.phase==\""+PhaseReleased+"\")]}{.metadata.name}{\"\\n\"}{end}")
+	if err != nil {
+		return claims, err
+	}
+
+	for _, name := range released {
+		claims.ReleasedVolumes[name] = true
 	}
 
 	uids, err := kubectlNames(ctx, kubeconfig, "services", "{range .items[*]}{.metadata.uid}{\"\\n\"}{end}")

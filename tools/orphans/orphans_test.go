@@ -14,6 +14,7 @@ import (
 func claims() Claims {
 	return Claims{
 		PersistentVolumes: map[string]bool{"pvc-kept": true},
+		ReleasedVolumes:   map[string]bool{},
 		ServiceUIDs:       map[string]bool{"uid-kept": true},
 		Nodes:             map[string]bool{"node-kept": true},
 		TalosVersion:      "v1.13.10",
@@ -325,4 +326,50 @@ func TestReport_ExplainsAJudgementMadeWithoutACluster(t *testing.T) {
 	// And the ordinary report does not carry it.
 	assert.NotContains(t, Report(Orphans(inventory, Claims{}), inventory.Examined(), ""),
 		"the cluster is gone")
+}
+
+// TestOrphans_AReleasedVolumeIsReportedThoughItsPVExists is the gap the
+// retaining storage class opens.
+//
+// `reclaimPolicy: Retain` is what a database's volume needs: deleting the claim
+// leaves the volume. What it also leaves is a PersistentVolume in phase
+// Released that Kubernetes will never bind again by itself — so the object
+// exists, the check that asks "does a PersistentVolume of this name exist"
+// says the volume is claimed, and the bill runs until somebody looks.
+func TestOrphans_AReleasedVolumeIsReportedThoughItsPVExists(t *testing.T) {
+	t.Parallel()
+
+	held := claims()
+	held.PersistentVolumes["pvc-released"] = true
+	held.ReleasedVolumes["pvc-released"] = true
+
+	found := Orphans(Inventory{Volumes: []Volume{
+		{Name: "pvc-kept", SizeGB: 50},
+		{Name: "pvc-released", SizeGB: 100},
+	}}, held)
+
+	require.Len(t, found, 1, "the bound volume must not be reported beside the released one")
+	assert.Equal(t, KindVolume, found[0].Kind)
+	assert.Equal(t, "pvc-released", found[0].Name)
+	assert.InDelta(t, 100, found[0].Size, 0, "the size is what makes the bill legible")
+	assert.Contains(t, found[0].Why, PhaseReleased)
+	assert.NotContains(t, found[0].Why, "retained",
+		"the message must fit both ways a volume reaches this state: retained on purpose by "+
+			"the database class, or not yet deleted by the driver on the default one — both "+
+			"appeared in one live run")
+}
+
+// TestOrphans_AReleasedVolumeIsNotReportedTwice: the two volume rules are
+// exclusive, and a volume in both lists would otherwise appear as an orphan
+// AND as released, which reads as two problems.
+func TestOrphans_AReleasedVolumeIsNotReportedTwice(t *testing.T) {
+	t.Parallel()
+
+	held := claims()
+	held.ReleasedVolumes["pvc-released"] = true
+
+	found := Orphans(Inventory{Volumes: []Volume{{Name: "pvc-released", SizeGB: 10}}}, held)
+
+	require.Len(t, found, 1)
+	assert.Contains(t, found[0].Why, PhaseReleased)
 }

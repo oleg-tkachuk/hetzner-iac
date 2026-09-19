@@ -97,6 +97,12 @@ type Claims struct {
 	// PersistentVolumes are PV names, which equal the hcloud volume names the
 	// CSI driver creates.
 	PersistentVolumes map[string]bool
+	// ReleasedVolumes are the PV names whose phase is Released: the claim is
+	// gone and the volume was kept, which is what `reclaimPolicy: Retain`
+	// exists to do. A subset of PersistentVolumes, and the reason this is a
+	// second set rather than a flag is that the first answers "does anything
+	// claim this" and this one answers "is anything ever going to use it".
+	ReleasedVolumes map[string]bool
 	// ServiceUIDs are the UIDs of every Service in the cluster. The CCM
 	// records the owning Service's UID on the load balancer it creates.
 	ServiceUIDs map[string]bool
@@ -147,6 +153,12 @@ type Finding struct {
 	Why string
 }
 
+// PhaseReleased is the PersistentVolume phase that means the claim is gone and
+// the volume was kept. Spelled here rather than imported from k8s.io/api: this
+// program shells out to kubectl and links no Kubernetes client at all, which
+// is what keeps it a 4.7 MB binary.
+const PhaseReleased = "Released"
+
 // Orphans is the whole judgement, as a pure function of two lists.
 //
 // Pure on purpose: the hard part here is not talking to an API, it is deciding
@@ -156,20 +168,7 @@ type Finding struct {
 func Orphans(inventory Inventory, claims Claims) []Finding {
 	var found []Finding
 
-	for _, volume := range inventory.Volumes {
-		// The name, not the attachment. A volume detaches for a moment
-		// whenever its pod is rescheduled, so "no server" alone would report
-		// every rolling update. What makes it an orphan is that no
-		// PersistentVolume of that name exists to claim it.
-		if claims.PersistentVolumes[volume.Name] {
-			continue
-		}
-
-		found = append(found, Finding{
-			Kind: KindVolume, Name: volume.Name, Size: float64(volume.SizeGB),
-			Why: "no PersistentVolume of this name in the cluster",
-		})
-	}
+	found = append(found, volumeFindings(inventory.Volumes, claims)...)
 
 	for _, balancer := range inventory.LoadBalancers {
 		uid, fromCCM := balancer.Labels[ServiceUIDLabel]
@@ -334,4 +333,52 @@ func formatSize(size float64) string {
 	}
 
 	return fmt.Sprintf("%.0f Gi", size)
+}
+
+// volumeFindings is the volume half of Orphans, split out because the two
+// questions a volume raises are different: whether anything claims it, and
+// whether anything will ever use it again.
+func volumeFindings(volumes []Volume, claims Claims) []Finding {
+	var found []Finding
+
+	for _, volume := range volumes {
+		// A Released volume is claimed by a PersistentVolume and used by
+		// nothing: the PVC is gone and Kubernetes will not bind that PV to a
+		// new claim by itself. So the object exists, the bill continues, and
+		// the check that only asks "does a PersistentVolume of this name
+		// exist" says it is fine.
+		//
+		// The message names no reclaim policy, because two states reach here
+		// and both were seen in one live run: on the retaining class this is
+		// the intended outcome of a deleted claim, and on the deleting class it
+		// means the driver has not removed the volume yet — or cannot.
+		//
+		// Reported, not called deleteable. Retention is the point of the class
+		// a database's volume is on, and the operator reading this list is the
+		// one who knows whether the data is still wanted.
+		if claims.ReleasedVolumes[volume.Name] {
+			found = append(found, Finding{
+				Kind: KindVolume, Name: volume.Name, Size: float64(volume.SizeGB),
+				Why: "its PersistentVolume is " + PhaseReleased + ": the claim is gone, so " +
+					"nothing will bind it again until somebody says so",
+			})
+
+			continue
+		}
+
+		// The name, not the attachment. A volume detaches for a moment
+		// whenever its pod is rescheduled, so "no server" alone would report
+		// every rolling update. What makes it an orphan is that no
+		// PersistentVolume of that name exists to claim it.
+		if claims.PersistentVolumes[volume.Name] {
+			continue
+		}
+
+		found = append(found, Finding{
+			Kind: KindVolume, Name: volume.Name, Size: float64(volume.SizeGB),
+			Why: "no PersistentVolume of this name in the cluster",
+		})
+	}
+
+	return found
 }

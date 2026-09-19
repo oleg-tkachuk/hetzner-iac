@@ -17,7 +17,14 @@ billed:
   its volumes, and 160 GiB were found that way;
 - deleting a cluster deletes the API server that would have told the CSI
   driver to remove a volume, so the volume stays with nothing anywhere
-  referring to it.
+  referring to it;
+- a PersistentVolume in phase **Released** — the claim is gone and Kubernetes
+  will not bind that volume to a new claim by itself. This is the intended
+  outcome of a deleted claim on the retaining class a database's volume sits
+  on, and on the default class it means the driver has not removed the volume
+  yet, or cannot. Both appeared in one live run, which is why the report names
+  neither: what it says is that nothing will use the volume again until
+  somebody decides.
 
 It never deletes on purpose. A volume whose PersistentVolume is gone still
 holds the data that was on it, and this check cannot know whether that
