@@ -1,0 +1,36 @@
+# Hubble Relay reaching the Cilium agents it aggregates flows from.
+#
+# The observability tool this repository uses to find missing policies needs a
+# policy of its own, which is the joke the first switch-on made:
+#
+#   3 nodes are unavailable: platform-dev-control-plane-2 (and 2 more)
+#
+# That is `task cluster:hubble` failing, and it failed BEFORE anything told us
+# why — so the tool for diagnosing the deny was the first casualty of it. The
+# drops had to be read from an agent directly, one node at a time.
+#
+# Relay connects to the hubble-peer Service, which resolves to each node's
+# address on tcp/4244 — the agents run with host networking. So the rule is
+# egress to host and remote-node, the same pair metrics-server needs for the
+# kubelet.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-hubble-relay
+spec:
+  description: Hubble Relay reaches the Cilium agent on every node
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: kube-system
+      k8s:k8s-app: hubble-relay
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "4244"
+              protocol: TCP
