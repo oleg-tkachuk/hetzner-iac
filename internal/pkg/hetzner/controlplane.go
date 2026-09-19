@@ -239,6 +239,27 @@ func createControlPlaneNodes(ctx *pulumi.Context, args *ControlPlaneArgs, opts .
 				clusterspec.LabelPool: clusterspec.RoleControlPlane,
 			}),
 			publicIPv4: args.PublicIPv4,
+			// Protected, and the worker pools deliberately are not.
+			//
+			// etcd lives on this node's disk, and the engine is free to act on
+			// all three of these at once: read off a live stack, each depends
+			// on the network and the placement group and on NOTHING else, and
+			// `--parallel` defaults to 56. So an ordinary topology edit —
+			// `placement.location: hel1 → fsn1` — plans a replacement of all
+			// three, and pulumi.DeleteBeforeReplace above means all three are
+			// deleted before any is created. etcd does not survive that; the
+			// way back is a snapshot.
+			//
+			// Protect makes the engine refuse it, in preview, before anything
+			// is touched. `task cluster:apply replace_control_plane=yes`
+			// passes --ignore-protect for that one operation when the
+			// replacement is what was meant, and `cluster:destroy` does the
+			// same because a teardown IS meant.
+			//
+			// server.go used to claim this was safe already — "on an HA one
+			// the replacement is one member at a time, which etcd survives".
+			// Nothing enforced it. This does.
+			protect: true,
 		}, opts...)
 		if err != nil {
 			return nil, err

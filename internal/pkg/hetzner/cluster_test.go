@@ -39,11 +39,15 @@ type recorder struct {
 	// difference between a replacement that works and one that fails.
 	deleteFirst map[string]bool
 
-	// protected is the protect option, off the same RPC. A resource option
-	// rather than an input, and the one that decides whether `pulumi destroy`
-	// can take a resource at all — Hetzner's own DeleteProtection is an input
-	// and does not, because the provider clears it before deleting.
-	protected map[string]bool
+	// protectedNames is the protect option, off the same RPC. A resource
+	// option rather than an input, and the one that decides whether Pulumi can
+	// delete or replace a resource at all — Hetzner's own DeleteProtection is
+	// an input and does not, because the provider clears it before deleting.
+	//
+	// Keyed by NAME rather than by type: a worker and a control-plane node are
+	// both hcloud:index/server:Server, and telling those apart is exactly what
+	// the assertions need.
+	protectedNames map[string]bool
 
 	// replaceOn is the replaceOnChanges option, from the same place and for
 	// the same reason.
@@ -59,11 +63,11 @@ type recorder struct {
 
 func newRecorder() *recorder {
 	return &recorder{
-		resources:   map[string][]resource.PropertyMap{},
-		deleteFirst: map[string]bool{},
-		protected:   map[string]bool{},
-		replaceOn:   map[string][]string{},
-		dependsOn:   map[string][]string{},
+		resources:      map[string][]resource.PropertyMap{},
+		protectedNames: map[string]bool{},
+		deleteFirst:    map[string]bool{},
+		replaceOn:      map[string][]string{},
+		dependsOn:      map[string][]string{},
 	}
 }
 
@@ -74,13 +78,13 @@ func (r *recorder) record(token string, inputs resource.PropertyMap) {
 	r.resources[token] = append(r.resources[token], inputs)
 }
 
-// isProtected reports whether a resource type was registered with
+// isProtected reports whether the resource with this name was registered with
 // pulumi.Protect.
-func (r *recorder) isProtected(token string) bool {
+func (r *recorder) isProtected(name string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.protected[token]
+	return r.protectedNames[name]
 }
 
 func (r *recorder) of(token string) []resource.PropertyMap {
@@ -101,7 +105,7 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 		}
 
 		if rpc.GetProtect() {
-			r.protected[args.TypeToken] = true
+			r.protectedNames[args.Name] = true
 		}
 
 		if fields := rpc.GetReplaceOnChanges(); len(fields) > 0 {
@@ -555,4 +559,50 @@ func TestNewCluster_MarksBothCredentialsSecret(t *testing.T) {
 
 		return nil
 	}, pulumi.WithMocks("hetzner-iac", "test", newRecorder())))
+}
+
+// TestNewCluster_ProtectsTheControlPlaneAndTheEndpoint is the assertion that
+// replaces a comment.
+//
+// server.go said an HA replacement happens "one member at a time, which etcd
+// survives". Nothing enforced it, and the live stack says otherwise: the three
+// control-plane servers depend on each other not at all, so the engine may act
+// on all three at once — `--parallel` defaults to 56 — and DeleteBeforeReplace
+// means each is deleted before its replacement exists. A single edit of
+// `placement.location` plans exactly that.
+//
+// Read off the register RPC, because protect is a resource OPTION and not an
+// input. The names matter as much as the count: a worker is the same resource
+// type and is replaceable by design, so protecting it would make a refusal
+// fire on ordinary work, and a refusal that fires on ordinary work gets
+// bypassed by habit.
+func TestNewCluster_ProtectsTheControlPlaneAndTheEndpoint(t *testing.T) {
+	t.Parallel()
+
+	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: true})
+
+	for _, name := range []string{
+		"platform-hel-control-plane-0",
+		"platform-hel-control-plane-1",
+		"platform-hel-control-plane-2",
+	} {
+		assert.True(t, rec.isProtected(name),
+			"%s is not protected, so one topology edit can replace every control-plane node "+
+				"at once and etcd goes with them", name)
+	}
+
+	// "test" is the component's own Pulumi name here, where a server's name
+	// comes from the topology — which is why these two read differently.
+	assert.True(t, rec.isProtected("test-api"),
+		"the API load balancer is not protected; its address is the cluster endpoint every "+
+			"certificate names, and a replacement hands back a different one")
+
+	assert.True(t, rec.isProtected("test-secrets"),
+		"the Talos secrets bundle is the cluster CA and has been protected since it existed")
+
+	for _, name := range []string{"platform-hel-worker-0", "platform-hel-worker-1"} {
+		assert.False(t, rec.isProtected(name),
+			"%s is protected, and workers are replaceable by design: a refusal that fires on "+
+				"ordinary work is one that gets bypassed by habit", name)
+	}
 }
