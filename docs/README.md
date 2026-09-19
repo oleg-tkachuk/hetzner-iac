@@ -5,7 +5,7 @@ What each document covers, and when it is the one to open.
 | Document | Open it when |
 |----------|--------------|
 | [design.md](design.md) | you want to know why it is shaped this way: what each layer owns, what the cluster tier publishes, and which decisions are load-bearing |
-| [configuration.md](configuration.md) | you are filling in a topology or a stack's config, or moving state somewhere else |
+| [configuration.md](configuration.md) | you are filling in a topology or a stack's config, moving state somewhere else — or looking for which file configures a thing at all |
 | [domain.md](domain.md) | you want the cluster reachable from outside: the two fields, the zone, the certificate |
 | [networking.md](networking.md) | you are asking how a packet reaches a pod, or what stops one that should not |
 | [commands.md](commands.md) | you need the task that does a thing, with its arguments and what it refuses to do without them |

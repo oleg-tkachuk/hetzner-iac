@@ -1,12 +1,63 @@
 # Configuration
 
-Three places hold configuration, and the split is deliberate.
+Three places hold the configuration of a DEPLOYMENT, and the split is
+deliberate.
 
 | Where | Holds |
 |-------|-------|
 | `infra/cluster/cluster.<stack>.yaml` | everything that shapes a cluster; not committed |
 | Pulumi stack config | the Hetzner token, and what each layer deploys |
 | `internal/pkg/charts` | every chart version |
+
+## Where configuration lives
+
+Everything configurable in this repository, and what it decides. Read this to
+find the file; read the sections below for what its fields mean.
+
+**A deployment — what an operator edits**
+
+| File | Configures |
+|------|------------|
+| `infra/cluster/cluster.<stack>.yaml` | the cluster: size, locations, versions, addressing, encryption. Not committed — start from [cluster.example.yaml](../infra/cluster/cluster.example.yaml) |
+| [cluster.schema.json](../infra/cluster/cluster.schema.json) | what a topology may say, checked in the editor as it is typed |
+| `Pulumi.<stack>.yaml` in each project | that stack's own config: the Hetzner token, the reference to the cluster, per-layer switches. Not committed |
+| `Pulumi.yaml` in each project | the project itself — its name, runtime and the config keys it accepts ([cluster](../infra/cluster/Pulumi.yaml), [backup](../infra/backup/Pulumi.yaml), and one per layer) |
+
+**The platform — what the repository decides once for every cluster**
+
+| File | Configures |
+|------|------------|
+| [internal/pkg/charts](../internal/pkg/charts) | every chart's version, repository and namespace: the pins |
+| [internal/pkg/values](../internal/pkg/values) | one Helm values template per chart, which is what actually reaches Helm |
+| [internal/pkg/clusterspec](../internal/pkg/clusterspec) | the topology's schema in Go, its defaults, and the Talos machine-config patches |
+| [internal/pkg/clusterspec/auditpolicy.yaml](../internal/pkg/clusterspec/auditpolicy.yaml) | what the API server audit log records |
+| [internal/pkg/platform](../internal/pkg/platform) | names two layers must agree on: storage classes, the ingress class, the issuer, node ports |
+| [internal/pkg/chartsettings](../internal/pkg/chartsettings) | the chart value KEYS this repository sets, and what each one prevents |
+| [internal/pkg/clusterref](../internal/pkg/clusterref) | the cluster tier's stack outputs, by name — the contract every layer reads |
+| [layers/20-network-policy/manifests](../layers/20-network-policy/manifests) | the cluster-wide network policy, one file per rule |
+| [layers/30-cluster-services/manifests](../layers/30-cluster-services/manifests) | the manifests that layer applies alongside its charts |
+
+**The repository — how it runs and what it refuses**
+
+| File | Configures |
+|------|------------|
+| [Taskfile.yaml](../Taskfile.yaml) | the cluster commands, and the layer order `layer=all` walks |
+| [Taskfile.dev.yaml](../Taskfile.dev.yaml) | the checks, scanners and formatters — the second entry point |
+| [tasks/](../tasks) | one taskfile per area: cluster, platform, backup, charts, policy |
+| [policy/](../policy) | the CrossGuard pack every project is previewed against |
+| [.github/workflows/](../.github/workflows) | what CI runs: checks, security, nightly, release, Renovate |
+| [.golangci.yaml](../.golangci.yaml) | the Go linters, at the version CI pins |
+| [.checkov.yaml](../.checkov.yaml) | which hardening rules apply to the manifests and workflows |
+| [.trivyignore.yaml](../.trivyignore.yaml) | the vulnerability findings accepted, each with a reason |
+| [.github/zizmor.yml](../.github/zizmor.yml) | the workflow-security scanner's own rules |
+| [.github/renovate.json](../.github/renovate.json) | how dependency and chart updates are proposed |
+| [lefthook.yml](../lefthook.yml) | the git hooks: what cannot be committed |
+| [Brewfile](../Brewfile) | the tools a machine needs to run any of this |
+| [.gitignore](../.gitignore) | what must never be committed — credentials, topologies, state exports |
+
+**Generated, never committed**: `kubeconfig` and `talosconfig` (written by
+`task cluster:kubeconfig` and `cluster:talosconfig`), and the values files
+rendered from the templates above. Both configs are cluster-admin.
 
 ## The topology file
 
