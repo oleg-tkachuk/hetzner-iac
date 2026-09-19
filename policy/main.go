@@ -40,6 +40,13 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/property"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/policyx"
+
+	// Only for the repository's own name, which PulumiPolicy.yaml also
+	// declares. The comment on adminPorts below explains why the PORTS are
+	// spelled here as strings rather than imported, and that argument does not
+	// reach this: internal/pkg/clusterspec carries no Pulumi SDK — a gate
+	// refuses one — and this program already links it through policyx.
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 // The resource type tokens the policies match on. Spelled once: a typo here is
@@ -86,7 +93,9 @@ func main() {
 //nolint:ireturn // policyx.NewPolicyPack returns the interface; so must this.
 func newPolicyPack(_ *pulumi.Context) (policyx.PolicyPack, error) {
 	pack, err := policyx.NewPolicyPack(
-		"hetzner-iac",
+		// The same name PulumiPolicy.yaml declares, and
+		// TestPolicyPack_IsNamedOnce holds the two equal.
+		clusterspec.Name,
 		semver.MustParse("1.0.0"),
 		policyx.EnforcementLevelMandatory,
 		[]policyx.Policy{
@@ -96,7 +105,7 @@ func newPolicyPack(_ *pulumi.Context) (policyx.PolicyPack, error) {
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("build hetzner-iac policy pack: %w", err)
+		return nil, fmt.Errorf("build the policy pack: %w", err)
 	}
 
 	return pack, nil

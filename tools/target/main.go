@@ -35,6 +35,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 func main() {
@@ -281,7 +283,7 @@ func Match(resources []Resource, selector string) ([]string, error) {
 // matching on the leaf alone made `group:Ingress` take every Ingress object in
 // the cluster. Targeting more than was asked for is the one failure a tool
 // about targeting must not have.
-const GroupPackage = "hetzner-iac"
+const GroupPackage = clusterspec.Name
 
 // nested is the separator Pulumi puts between a parent's type and a child's.
 const nested = "$"
