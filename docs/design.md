@@ -246,7 +246,7 @@ and `AAAA` records, and the Storage Box with its subaccount.
 
 | Thing | Who owns it | Why not Pulumi |
 |---|---|---|
-| Volumes behind a `PersistentVolumeClaim` | the CSI driver | dynamic provisioning is the point; Pulumi owning them means abandoning claims. `cluster:orphans` covers the gap |
+| Volumes behind a `PersistentVolumeClaim` | the CSI driver | dynamic provisioning is the point; Pulumi owning them means abandoning claims. `cluster:orphans` covers the gap, and the reclaim policy below decides what a deleted claim costs |
 | A load balancer for a workload's `Service` | the CCM | the workload's Service owns it. The *ingress* one moved because the platform owns that one |
 | Objects inside a Helm release | Helm | Pulumi owns the Release. Owning both puts two reconcilers on one object |
 | The Talos snapshot | `task cluster:image:bake` | Hetzner has no image-upload API. `hcloud.Snapshot` takes a `ServerId`, so Pulumi could take the snapshot but not write the disk — the imperative half stays either way |
@@ -282,6 +282,40 @@ serves these from two bases. Storage Boxes are on the unified API —
 `api.hetzner.com/v1/storage_boxes` — and answer `api route not found` on
 `api.hetzner.cloud/v1`. Zones are the other way round. The same project token
 reaches both.
+
+## What a delete takes with it
+
+Four things cannot be deleted or replaced by an ordinary command, and each
+needs a different word said out loud:
+
+| Resource | What stops it | Override |
+|---|---|---|
+| Talos secrets bundle — the cluster CA | `pulumi.Protect` | `task cluster:secrets:destroy` |
+| Control-plane servers — etcd is on their disks | `pulumi.Protect` | `replace_control_plane=yes` |
+| API load balancer — its address is the endpoint | `pulumi.Protect` | `replace_control_plane=yes` |
+| Storage Box — the uploaded etcd snapshots | `pulumi.Protect`, plus Hetzner's own flag for the console | `ignore_protect=yes` |
+
+`pulumi.Protect` is the mechanism in every case, and it refuses a **replacement**
+as well as a delete — so resizing a Storage Box or moving a cluster's location
+is a code change, not an argument. Hetzner's `deleteProtection` guards the
+console, the API and the CLI and not Pulumi, which clears it before deleting.
+
+A teardown is different from an accident, and the commands say which they are.
+`task destroy` takes the servers and the API load balancer, because that is
+what tearing a cluster down means; it keeps the CA, and it never reaches the
+Storage Box, which belongs to a tier of its own.
+
+**Volumes are the gap, and it is a decision rather than an oversight.** The
+default storage class `hcloud-volumes` carries `reclaimPolicy: Delete`, so
+deleting a `PersistentVolumeClaim` deletes the Hetzner volume behind it —
+including by an Argo CD prune of a directory somebody moved. Nothing uses it
+today: the cluster has no claims, and Argo CD's own StatefulSet declares no
+`volumeClaimTemplates`. It starts costing on the first stateful workload, and
+there are two answers: keep `Delete` and rely on backups, which suits workloads
+that are reconstructible and keeps `cluster:orphans` meaningful; or add a second
+class with `reclaimPolicy: Retain` for data that must outlive its claim, which
+costs a decision per workload and leaves released volumes for the orphan check
+to find. `platform.StorageClass` names the class in one place either way.
 
 ## A cluster as a document, and a cluster as resources
 
