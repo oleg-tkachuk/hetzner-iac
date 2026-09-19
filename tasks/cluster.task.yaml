@@ -6,6 +6,12 @@ silent: true
 vars:
   _CL_DIR: '{{.ROOT}}/infra/cluster'
   _CL_STACK: '{{.stack}}'
+
+  # The Talos secrets bundle, by type rather than by name: `--exclude` takes
+  # URN wildcards, and the type token is the contract — a name would have to be
+  # assembled from the cluster's own name and would drift with it. Held to the
+  # type the program registers by TestDestroy_KeepsTheSecretsBundleByType.
+  _CL_SECRETS_URN: '**talos:machine/secrets:Secrets**'
   _CL_TOPOLOGY: '{{.ROOT}}/infra/cluster/cluster.{{.stack}}.yaml'
 
   # The control-plane nodes, from Hetzner rather than from the cluster.
@@ -343,18 +349,45 @@ tasks:
       - sh: test -f "{{._CL_TOPOLOGY}}"
         msg: "no topology at {{._CL_TOPOLOGY}} — cp infra/cluster/cluster.example.yaml {{._CL_TOPOLOGY}} and edit adminCIDRs"
     # Applying is not the safe half of the pair. `pulumi up` creates servers,
-    # and it REPLACES them for any input that forces one — a server type, a
-    # datacenter, a private address — which on a single-node cluster is the
-    # same outage a destroy would cause. Measured here: replacing the only
-    # control plane took the cluster down and needed a bootstrap to come back.
+    # and it REPLACES them for any input that forces one — a datacenter, a
+    # private address — which on a single-node cluster is the same outage a
+    # destroy would cause. Measured here: replacing the only control plane took
+    # the cluster down and needed a bootstrap to come back.
     #
     # Pass --yes to skip this, which is what a script should do explicitly.
     prompt: "Apply the {{._CL_STACK}} cluster? This creates servers, and replaces them when an input forces it."
     cmds:
+      # replace_control_plane=yes is --ignore-protect, and it is the only way
+      # an apply can take a control-plane node or the API load balancer.
+      #
+      # Those carry pulumi.Protect, so the engine refuses the operation in
+      # PREVIEW and nothing is touched. The prompt above cannot cover that
+      # case, because the plan does not look like the thing it is: editing
+      # `placement.location` reads like a move, and plans a replacement of all
+      # three control-plane nodes at once — which is where etcd goes.
+      #
+      # The refusal comes from Pulumi rather than from a check here, so it
+      # cannot drift from what the program declares.
       - cmd: |
           set -euo pipefail
           cd "{{._CL_DIR}}"
-          pulumi --non-interactive --stack "{{._CL_STACK}}" up --yes
+
+          if [ "{{.replace_control_plane}}" = "yes" ]; then
+            printf '%s\n' "{{._WARN}} cluster · apply · replace_control_plane=yes — the control plane and the API endpoint are not protected for this run"
+            pulumi --non-interactive --stack "{{._CL_STACK}}" up --yes --ignore-protect
+            exit 0
+          fi
+
+          if ! pulumi --non-interactive --stack "{{._CL_STACK}}" up --yes; then
+            printf '\n'
+            printf '%s\n' "{{._SKIP}} cluster · apply · a protected resource is the control plane or the API endpoint"
+            printf '\n'
+            printf '%s\n' "    task cluster:etcd:snapshot stack={{._CL_STACK}}   # first, if etcd is running"
+            printf '%s\n' "    task cluster:apply stack={{._CL_STACK}} replace_control_plane=yes"
+            printf '\n'
+            printf '%s\n' "applies it anyway. Nothing was changed."
+            exit 1
+          fi
 
   destroy:
     desc: "Destroy the cluster. Asks first, because this deletes the servers."
@@ -363,15 +396,26 @@ tasks:
         msg: "{{._STACK_USAGE}}"
     prompt: "Destroy the {{._CL_STACK}} CLUSTER and every server in it?"
     cmds:
-      # --exclude-protected, because without it this task could not finish at
-      # all. The Talos secrets bundle is `protect: true`, so a plain destroy
-      # fails in PREVIEW — nothing is deleted, and the operator is handed
+      # --ignore-protect with one exclusion, rather than --exclude-protected.
+      #
+      # Three resources carry `protect` now: the Talos secrets bundle, the
+      # control-plane nodes and the API load balancer. A teardown IS meant to
+      # take the last two, so --exclude-protected would leave a cluster
+      # standing and report success; and a plain destroy fails in PREVIEW,
+      # handing the operator
       #
       #     pulumi state unprotect 'urn:pulumi:dev::hetzner-cluster::…'
       #
-      # to type by hand, in the middle of a teardown they have already
-      # confirmed. A raw state command improvised under those conditions is a
-      # worse hazard than the one the protection exists for.
+      # to type by hand in the middle of a teardown they already confirmed. A
+      # raw state edit improvised under those conditions is a worse hazard than
+      # the one the protection exists for — and it stays edited afterwards.
+      #
+      # --ignore-protect is scoped to this one operation, the same choice
+      # secrets:destroy and backup:destroy make. The bundle is then kept by
+      # name instead: --exclude takes URN wildcards, and matching its TYPE is
+      # what keeps this from assembling a URN by hand. Measured: 22 resources
+      # to delete without it, 19 with, and the three it keeps are the bundle
+      # plus the two parent nodes, neither of which is billed.
       #
       # So the servers, the network, the firewall and the placement group go,
       # and the cluster's root of trust stays. That is not a leftover: the CA
@@ -380,7 +424,26 @@ tasks:
       - cmd: |
           set -euo pipefail
           cd "{{._CL_DIR}}"
-          pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes --exclude-protected
+
+          # The exclusion is checked against the stack before it is relied on.
+          #
+          # A --exclude that matches nothing is SILENT — measured on this
+          # stack: a bogus glob previewed "22 to delete", which is the whole
+          # cluster INCLUDING the secrets bundle, with no warning. That is the
+          # same shape as the --target that matches nothing and exits zero, and
+          # here the cost is the cluster CA rather than a wasted command.
+          kept="$(pulumi --non-interactive --stack "{{._CL_STACK}}" stack \
+            --show-urns --output json | jq -r \
+            '[.resources[].urn | select(contains("talos:machine/secrets:Secrets"))] | length')"
+
+          if [ "${kept}" != "1" ]; then
+            printf '%s\n' "{{._ERR}} cluster · destroy · the exclusion names ${kept} resources, not 1" >&2
+            printf '%s\n' "{{._ERR}} cluster · destroy · '{{._CL_SECRETS_URN}}' would not keep the cluster CA" >&2
+            exit 1
+          fi
+
+          pulumi --non-interactive --stack "{{._CL_STACK}}" destroy --yes \
+            --ignore-protect --exclude '{{._CL_SECRETS_URN}}'
           printf '\n'
           printf '%s\n' "{{._SKIP}} cluster · secrets · kept — the CA is state, not a billed resource"
           printf '%s\n' "{{._SKIP}} cluster · secrets · remove it too: task cluster:secrets:destroy stack={{._CL_STACK}}"

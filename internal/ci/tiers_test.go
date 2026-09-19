@@ -225,3 +225,43 @@ func TestTiers_MatchTheDirectories(t *testing.T) {
 			"exist fails policy:check, and one that exists without being named is a project "+
 			"the policy pack never runs over")
 }
+
+// clusterDestroy matches the destroy command in the cluster taskfile.
+var clusterDestroy = regexp.MustCompile(`(?s)  destroy:\n.*?\n\n  [a-z]`)
+
+// TestClusterDestroy_TakesTheProtectedResourcesAndKeepsTheCA holds the one
+// command whose flags decide what survives a teardown.
+//
+// Three resources carry pulumi.Protect now: the Talos secrets bundle, the
+// control-plane nodes and the API load balancer. A teardown is meant to take
+// the last two, so `--exclude-protected` — which this command used while the
+// bundle was the only protected thing — would leave a running cluster behind
+// and report success. `--ignore-protect` takes them, and one `--exclude` keeps
+// the bundle.
+//
+// The flags rather than the outcome, because the outcome needs a cluster. What
+// the command does at runtime is checked there: it counts the resources its
+// exclusion matches and refuses unless the answer is exactly one, because a
+// `--exclude` that matches nothing is silent and would take the CA.
+func TestClusterDestroy_TakesTheProtectedResourcesAndKeepsTheCA(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	// withoutComments, because the comment above the command explains that
+	// --exclude-protected is NOT used — and the first version of this test read
+	// that sentence as the flag being there. A mention is not a use.
+	block := withoutComments(clusterDestroy.FindString(string(raw)))
+	require.NotEmpty(t, block, "no destroy task in the cluster taskfile")
+
+	assert.Contains(t, block, "--ignore-protect",
+		"cluster:destroy cannot take the control plane without it, and a teardown that leaves "+
+			"the servers running reports success")
+	assert.NotContains(t, block, "--exclude-protected",
+		"--exclude-protected now keeps the control plane and the API load balancer as well as "+
+			"the CA, which is a teardown that does not tear down")
+	assert.Contains(t, block, "talos:machine/secrets:Secrets",
+		"the exclusion must name the secrets bundle's type; without it the destroy takes the "+
+			"cluster CA, and Pulumi says nothing about an --exclude that matches nothing")
+}

@@ -96,9 +96,9 @@ and `destroy` does not take it — that is the point of it being a tier, and
 
 | Task | Does |
 |------|------|
-| `task cluster:apply` | provision or converge the cluster; asks first |
+| `task cluster:apply` | provision or converge the cluster; asks first, and cannot replace the control plane — see [what an apply cannot do](#what-an-apply-cannot-do) |
 | `task cluster:audit` | who did what to the API, from every control-plane node; `last=<n>` to widen |
-| `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA, which is protected |
+| `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA |
 | `task cluster:encryption:check` | the system volumes are really encrypted, not just configured to be |
 | `task cluster:etcd:restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
 | `task cluster:etcd:snapshot` | snapshot etcd into `.backups/` |
@@ -126,6 +126,45 @@ and `destroy` does not take it — that is the point of it being a tier, and
 | `task cluster:token` | store the Hetzner token in the stack, encrypted; prompts, or reads stdin |
 | `task cluster:upgrade:k8s` | upgrade Kubernetes in place |
 | `task cluster:upgrade:talos` | upgrade Talos, one node at a time |
+
+### What an apply cannot do
+
+The control-plane servers and the API load balancer carry `pulumi.Protect`, so
+Pulumi refuses to delete **or replace** them. The refusal happens in preview, so
+nothing is touched:
+
+```
+$ task cluster:apply stack=dev          # after editing placement.location
+    +-8 to replace
+    5 errored
+○ cluster · apply · a protected resource is the control plane or the API endpoint
+
+    task cluster:etcd:snapshot stack=dev   # first, if etcd is running
+    task cluster:apply stack=dev replace_control_plane=yes
+```
+
+The prompt cannot cover this case, because the plan does not look like the thing
+it is. Editing `placement.location` reads like a move; what it plans is a
+replacement of all **three** control-plane nodes. They have no dependency on
+each other — measured on the live stack, each depends on the network and the
+placement group and nothing else — and `pulumi up --parallel` defaults to 56, so
+they go at once. `DeleteBeforeReplace` is set deliberately, because a Hetzner
+server name is unique in the project, which means each node is deleted before
+its replacement exists. etcd does not survive that; the way back is a snapshot.
+
+The API load balancer is protected for a different reason: its address **is**
+the cluster endpoint. Every certificate names it and both configs point at it,
+so a replacement hands back an address nothing is configured for.
+
+`replace_control_plane=yes` passes `--ignore-protect` for that one run. Worker
+pools are not protected — they are replaceable by design, and a refusal that
+fires on ordinary work is one that gets bypassed by habit.
+
+`task cluster:destroy` uses the same flag, because a teardown IS meant to take
+them, and keeps the cluster CA with one `--exclude`. It checks that the exclusion
+matches exactly one resource first: an `--exclude` that matches nothing is
+silent, and measured on this stack a bogus one previewed "22 to delete" — the
+whole cluster, CA included.
 
 ### Policy
 
