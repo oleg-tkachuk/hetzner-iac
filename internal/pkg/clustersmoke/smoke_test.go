@@ -511,3 +511,75 @@ func TestDataVolumesAreRetained_JudgesEveryClaimNotTheFirst(t *testing.T) {
 	assert.Contains(t, result.Detail, "c/three")
 	assert.NotContains(t, result.Detail, "b/two")
 }
+
+// TestSecretStoresAreReady_SkipsWhenNoneExist: the operator ships with this
+// platform and is pointed at a backend only when one is configured, so no
+// store is a decision rather than a fault.
+func TestSecretStoresAreReady_SkipsWhenNoneExist(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.SecretStoresAreReady(nil)
+
+	assert.Equal(t, clustersmoke.StatusSkipped, result.Status)
+	assert.Contains(t, result.Detail, "ClusterSecretStore")
+}
+
+// TestSecretStoresAreReady_FailsWithTheOperatorsOwnReason is the failure this
+// check exists for: everything downstream reports a problem that is not about
+// secrets, three steps from the credential that is wrong.
+func TestSecretStoresAreReady_FailsWithTheOperatorsOwnReason(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.SecretStoresAreReady([]clustersmoke.SecretStore{
+		{Name: "pulumi-esc", Ready: false, Reason: "InvalidProviderConfig unauthorized"},
+	})
+
+	require.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "pulumi-esc")
+	assert.Contains(t, result.Detail, "unauthorized",
+		"the operator's own reason is the only thing here that points at the cause")
+	assert.Contains(t, result.Detail, "absent rather than stale",
+		"the detail must say what the failure looks like downstream")
+}
+
+// TestSecretStoresAreReady_SaysSoWhenThereIsNoConditionYet keeps a store that
+// has never reconciled from reading as ready.
+func TestSecretStoresAreReady_SaysSoWhenThereIsNoConditionYet(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.SecretStoresAreReady([]clustersmoke.SecretStore{
+		{Name: "pulumi-esc"},
+	})
+
+	require.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "no Ready condition yet")
+}
+
+// TestSecretStoresAreReady_JudgesEveryStore: naming one of three sends an
+// operator back for a second run.
+func TestSecretStoresAreReady_JudgesEveryStore(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.SecretStoresAreReady([]clustersmoke.SecretStore{
+		{Name: "one", Ready: true},
+		{Name: "two", Reason: "Invalid"},
+		{Name: "three", Reason: "Unauthorized"},
+	})
+
+	require.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "two")
+	assert.Contains(t, result.Detail, "three")
+	assert.NotContains(t, result.Detail, "one:")
+}
+
+// TestSecretStoresAreReady_PassesAndSaysHowMany keeps the pass honest.
+func TestSecretStoresAreReady_PassesAndSaysHowMany(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.SecretStoresAreReady([]clustersmoke.SecretStore{
+		{Name: "pulumi-esc", Ready: true},
+	})
+
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
+	assert.Contains(t, result.Detail, "1 store(s) ready")
+}
