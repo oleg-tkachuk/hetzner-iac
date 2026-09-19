@@ -591,3 +591,73 @@ func SecretStoresAreReady(stores []SecretStore) Result {
 
 	return result
 }
+
+// CheckNetworkPolicies is the name of the check below.
+const CheckNetworkPolicies = "every network policy is valid"
+
+// NetworkPolicy is one CiliumClusterwideNetworkPolicy and whether Cilium
+// accepted it.
+type NetworkPolicy struct {
+	Name string
+	// Valid is the Valid condition's status, and Reason what Cilium said when
+	// it is not.
+	Valid  bool
+	Reason string
+}
+
+// NetworkPoliciesAreValid is the judgement on the policies the cluster holds.
+//
+// The failure it exists for is the quietest in this repository so far, and it
+// was live: the default-deny policy was applied with empty rule lists, the API
+// server accepted it, `pulumi up` reported success, and Cilium rejected it —
+//
+//	Valid=False  rule must have at least one of Ingress, IngressDeny, Egress,
+//	             EgressDeny
+//
+// — in a status nothing read. Every flow kept the verdict
+// `policy-verdict:none`, which means no enforcement at all, so the cluster was
+// wide open while the repository, the state and the apply log all said it was
+// not. A policy that is rejected is worse than one that is absent: absence is
+// visible in `kubectl get`.
+//
+// A cluster with no policies is a skip, because the layer that installs them is
+// optional and a cluster without it is a choice.
+func NetworkPoliciesAreValid(policies []NetworkPolicy) Result {
+	result := Result{Name: CheckNetworkPolicies}
+
+	if len(policies) == 0 {
+		result.Status = StatusSkipped
+		result.Detail = "no CiliumClusterwideNetworkPolicy exists, so nothing is enforced " +
+			"and nothing claims to be"
+
+		return result
+	}
+
+	var rejected []string
+
+	for _, policy := range policies {
+		if policy.Valid {
+			continue
+		}
+
+		reason := policy.Reason
+		if reason == "" {
+			reason = "no Valid condition yet"
+		}
+
+		rejected = append(rejected, policy.Name+": "+reason)
+	}
+
+	if len(rejected) > 0 {
+		result.Status = StatusFailed
+		result.Detail = strings.Join(rejected, "; ") +
+			" — Cilium ignores a rejected policy, and an apply that created it reported success"
+
+		return result
+	}
+
+	result.Status = StatusPassed
+	result.Detail = fmt.Sprintf("%d policy(ies) accepted by Cilium", len(policies))
+
+	return result
+}

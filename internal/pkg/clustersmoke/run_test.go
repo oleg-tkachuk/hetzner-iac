@@ -121,7 +121,7 @@ func TestRun_ReportsEveryCheckEvenWhenOneFails(t *testing.T) {
 
 	report := r.Run(context.Background())
 
-	require.Len(t, report, 7, "a check that returns nothing is a check nobody notices")
+	require.Len(t, report, 8, "a check that returns nothing is a check nobody notices")
 	assert.True(t, report.Failed())
 
 	assert.Equal(t, clustersmoke.StatusPassed, resultFor(t, report, "node is Ready").Status)
@@ -139,13 +139,13 @@ func TestRun_PassesOnAHealthyClusterAndSkipsWhatItCannotJudge(t *testing.T) {
 	report := r.Run(context.Background())
 
 	assert.False(t, report.Failed())
-	// Four skips: the load balancer check, which has nothing to look at, the
+	// Five skips: the load balancer check, which has nothing to look at, the
 	// external metrics check, because this fixture serves no aggregated group,
 	// the data-volume check, because no namespace claims to hold data, and the
-	// secret-store check, because this runner has no dynamic client. The
-	// cross-node check must NOT be skipping here — a cluster of three nodes
-	// with DNS on two is exactly where it can run.
-	assert.Equal(t, 4, report.Skipped())
+	// two dynamic checks — secret stores and network policies — because this
+	// runner has no dynamic client. The cross-node check must NOT be skipping
+	// here: a cluster of three nodes with DNS on two is exactly where it runs.
+	assert.Equal(t, 5, report.Skipped())
 	assert.Equal(t, clustersmoke.StatusPassed,
 		resultFor(t, report, "another node").Status)
 
@@ -509,8 +509,13 @@ func TestCheckSecretStores_ReadsTheReadyConditionOffAnUnstructuredObject(t *test
 
 	scheme := runtime.NewScheme()
 	custom := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		// Both resources the dynamic checks list. The fake client panics on a
+		// LIST of a resource whose list kind it was not told about, so a new
+		// check needs its kind here — which is the shape of this failure the
+		// first time.
 		map[schema.GroupVersionResource]string{
-			clustersmoke.SecretStoreResource: "ClusterSecretStoreList",
+			clustersmoke.SecretStoreResource:   "ClusterSecretStoreList",
+			clustersmoke.NetworkPolicyResource: "CiliumClusterwideNetworkPolicyList",
 		},
 		storeObject("pulumi-esc", "False", "InvalidProviderConfig"),
 	)
@@ -533,8 +538,13 @@ func TestCheckSecretStores_PassesOnAReadyStore(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	custom := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		// Both resources the dynamic checks list. The fake client panics on a
+		// LIST of a resource whose list kind it was not told about, so a new
+		// check needs its kind here — which is the shape of this failure the
+		// first time.
 		map[schema.GroupVersionResource]string{
-			clustersmoke.SecretStoreResource: "ClusterSecretStoreList",
+			clustersmoke.SecretStoreResource:   "ClusterSecretStoreList",
+			clustersmoke.NetworkPolicyResource: "CiliumClusterwideNetworkPolicyList",
 		},
 		storeObject("pulumi-esc", "True", ""),
 	)
