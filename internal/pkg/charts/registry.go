@@ -1,4 +1,9 @@
-// Package charts is the single place every Helm chart version is pinned.
+// Package charts is the single place every Helm chart is described.
+//
+// One file per chart, and that file is the whole of what this repository knows
+// about it: the pin, the release name, the layer that installs it and the
+// objects it is expected to produce. The packages that used to hold those
+// halves separately read them from here.
 //
 // One registry rather than a version literal in each layer, for two reasons.
 // A pin scattered across five programs is five places to audit when a CVE
@@ -19,6 +24,14 @@ import (
 )
 
 // Chart is one pinned Helm chart.
+//
+// Name, Repo and Version are written as STRING LITERALS in every declaration,
+// in that order, and never as constants. Renovate reads them out of these
+// files with a regular expression — see .github/renovate.json — so a constant
+// there is a chart Renovate stops matching, and its answer to that is not an
+// error but silence: no pull request, for ever. Measured the moment it
+// happened: replacing one Name with a constant failed
+// TestRenovatePatternMatchesEveryChart for argo-cd and nothing else noticed.
 type Chart struct {
 	// Name is the chart name inside the repository, not the release name.
 	Name string
@@ -37,103 +50,21 @@ type Chart struct {
 	Namespace string
 }
 
-// Registry of every chart this platform installs.
-//
-// Verified against the upstream repositories. Each entry names
-// the application version it ships so a reader does not have to resolve the
-// chart to know what is running.
-var registry = map[string]Chart{
-	// Layer 10 — CNI, and first for a reason the cloud-integration layer
-	// explains. Cilium replaces kube-proxy in eBPF, which is why the
-	// cluster tier disables kube-proxy in the Talos machine config.
-	"cilium": {
-		Name:       "cilium",
-		Repo:       "https://helm.cilium.io",
-		Version:    "1.20.2", // app 1.20.2
-		AppVersion: "1.20.2",
-		Namespace:  "kube-system",
-	},
-
-	// 10-node-platform, after the CNI. The CCM clears the `uninitialized` taint
-	// Talos leaves on every node, so nothing schedules until it runs.
-	"hcloud-ccm": {
-		Name:      "hcloud-cloud-controller-manager",
-		Repo:      "https://charts.hetzner.cloud",
-		Version:   "1.37.0",
-		Namespace: "kube-system",
-	},
-	"hcloud-csi": {
-		Name:      "hcloud-csi",
-		Repo:      "https://charts.hetzner.cloud",
-		Version:   "2.23.0",
-		Namespace: "kube-system",
-	},
-
-	// Layer 30 — core platform.
-	"cert-manager": {
-		Name:       "cert-manager",
-		Repo:       "https://charts.jetstack.io",
-		Version:    "v1.21.2", // app v1.21.2 — this chart tags with a leading v
-		AppVersion: "v1.21.2",
-		Namespace:  "cert-manager",
-	},
-	"external-secrets": {
-		Name:       "external-secrets",
-		Repo:       "https://charts.external-secrets.io",
-		Version:    "2.10.0", // app v2.10.0
-		AppVersion: "v2.10.0",
-		Namespace:  "external-secrets",
-	},
-	"metrics-server": {
-		Name:       "metrics-server",
-		Repo:       "https://kubernetes-sigs.github.io/metrics-server/",
-		Version:    "3.14.0", // app 0.9.0
-		AppVersion: "0.9.0",
-		Namespace:  "kube-system",
-	},
-
-	// Installed only when `kedaEnabled` is set, which is why its workloads are
-	// Optional in internal/pkg/workloads. The pin is here either way: a chart
-	// nobody pins is a chart whose version is whatever the day decides.
-	"keda": {
-		Name:       "keda",
-		Repo:       "https://kedacore.github.io/charts",
-		Version:    "2.20.2", // app 2.20.2
-		AppVersion: "2.20.2",
-		Namespace:  "keda",
-	},
-
-	// Layer 40 — ingress.
-	"traefik": {
-		Name:       "traefik",
-		Repo:       "https://traefik.github.io/charts",
-		Version:    "41.6.0", // app v3.7.13
-		AppVersion: "v3.7.13",
-		Namespace:  "traefik",
-	},
-
-	// Layer 50 — GitOps.
-	"argo-cd": {
-		Name:       "argo-cd",
-		Repo:       "https://argoproj.github.io/argo-helm",
-		Version:    "10.9.2", // app v3.5.3
-		AppVersion: "v3.5.3",
-		Namespace:  "argocd",
-	},
-}
-
 // versionPattern accepts the two spellings the registry uses — 1.2.3 and
 // v1.2.3 — and rejects everything a floating tag would look like.
 var versionPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
 
-// Get returns a chart by registry key.
+// Get returns a chart's pin by registry key.
+//
+// The pin rather than the whole definition, because that is what a layer
+// installing it needs — Lookup returns the rest.
 func Get(key string) (Chart, error) {
-	chart, known := registry[key]
-	if !known {
-		return Chart{}, fmt.Errorf("unknown chart %q; known charts: %v", key, Keys())
+	definition, err := Lookup(key)
+	if err != nil {
+		return Chart{}, err
 	}
 
-	return chart, nil
+	return definition.Chart, nil
 }
 
 // MustGet is Get for package-level initialisation where an unknown key is a
@@ -149,8 +80,8 @@ func MustGet(key string) Chart {
 
 // Keys lists every registry key, sorted.
 func Keys() []string {
-	keys := make([]string, 0, len(registry))
-	for key := range registry {
+	keys := make([]string, 0, len(definitions))
+	for key := range definitions {
 		keys = append(keys, key)
 	}
 
@@ -159,11 +90,11 @@ func Keys() []string {
 	return keys
 }
 
-// All returns a copy of the registry, for tooling that reports on pins.
+// All returns a copy of the pins, for tooling that reports on them.
 func All() map[string]Chart {
-	out := make(map[string]Chart, len(registry))
-	for key, chart := range registry {
-		out[key] = chart
+	out := make(map[string]Chart, len(definitions))
+	for key, definition := range definitions {
+		out[key] = definition.Chart
 	}
 
 	return out

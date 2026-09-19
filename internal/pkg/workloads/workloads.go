@@ -7,32 +7,32 @@
 // in seconds instead of at 3am against production.
 package workloads
 
-// Kind is the workload kind, spelled as Kubernetes spells it.
-type Kind string
-
-// The workload kinds this platform installs. Nothing here runs as a Job or a
-// CronJob: Helm hook Jobs exist but finish, so they are not something to
-// assert is healthy.
-const (
-	Deployment  Kind = "Deployment"
-	StatefulSet Kind = "StatefulSet"
-	DaemonSet   Kind = "DaemonSet"
+import (
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
-// The layers that install charts, spelled as their directories under layers/
-// are. Held equal to those directories by TestWorkloadLayers_AreRealLayers,
-// and to what each layer's own component set installs by layertest.Check.
-//
-// Named rather than written out at each entry because the same string has to
-// match a directory name and a layer's own idea of itself, and a comment
-// saying which layer a workload belongs to matches nothing: `cilium` carried
-// `// Layer 20 — CNI` for months while 10-node-platform installed it, and
-// 20-network-policy installs no chart at all.
+// The layers that install charts. Aliases for internal/pkg/platform's
+// constants, which is where they live now: internal/pkg/charts declares which
+// layer installs each chart, and this package imports charts — so the
+// constants cannot live downstream of it.
 const (
-	LayerNodePlatform    = "10-node-platform"
-	LayerClusterServices = "30-cluster-services"
-	LayerIngress         = "40-ingress"
-	LayerGitOps          = "50-gitops"
+	LayerNodePlatform    = platform.LayerNodePlatform
+	LayerClusterServices = platform.LayerClusterServices
+	LayerIngress         = platform.LayerIngress
+	LayerGitOps          = platform.LayerGitOps
+)
+
+// Kind and the kinds themselves are internal/pkg/charts', because a chart's
+// own file declares the objects it produces. Aliased here so every caller —
+// the e2e suite, the render check, the gates — is unaffected.
+type Kind = charts.Kind
+
+// The kinds, by the names this package's callers already use.
+const (
+	Deployment  = charts.Deployment
+	StatefulSet = charts.StatefulSet
+	DaemonSet   = charts.DaemonSet
 )
 
 // Workload is one object a chart is expected to produce.
@@ -76,38 +76,50 @@ type Workload struct {
 
 // Expected is every workload the platform layers install.
 //
+// Derived from internal/pkg/charts rather than written here, and the table it
+// replaces is the argument for the move: every row repeated the chart's layer,
+// release and namespace — four properties of the CHART, written once per
+// object — and a row that disagreed with the chart above it was a comment away
+// from being believed. `cilium` was labelled `// Layer 20 — CNI` for months
+// while 10-node-platform installed it.
+//
+// Still a package-level var and still a []Workload, because the gates, the
+// render check and the e2e suite range over it.
+//
 // Verified against the pinned chart versions by rendering them; see
 // `charts:render-check`.
-var Expected = []Workload{
-	// Cloud integration: the cloud controller manager clears Talos's
-	// uninitialized taint, and the CSI node plugin attaches volumes.
-	{Layer: LayerNodePlatform, Chart: "hcloud-ccm", Release: "hcloud-cloud-controller-manager", Namespace: "kube-system", Kind: Deployment, Name: "hcloud-cloud-controller-manager"},
-	{Layer: LayerNodePlatform, Chart: "hcloud-csi", Release: "hcloud-csi", Namespace: "kube-system", Kind: DaemonSet, Name: "hcloud-csi-node"},
+var Expected = expected()
 
-	// The CNI, installed by the same layer: a node without it stays NotReady,
-	// so nothing above can be scheduled.
-	{Layer: LayerNodePlatform, Chart: "cilium", Release: "cilium", Namespace: "kube-system", Kind: DaemonSet, Name: "cilium"},
-	{Layer: LayerNodePlatform, Chart: "cilium", Release: "cilium", Namespace: "kube-system", Kind: Deployment, Name: "cilium-operator"},
+// expected flattens the declarations into rows.
+//
+// The namespace and the release come from the chart unless an object overrides
+// the namespace, which nothing pinned here does — the field exists because a
+// chart installing into two namespaces is a thing that happens, and finding
+// out under a Helm timeout is the expensive way.
+func expected() []Workload {
+	var out []Workload
 
-	// Core cluster services.
-	{Layer: LayerClusterServices, Chart: "cert-manager", Release: "cert-manager", Namespace: "cert-manager", Kind: Deployment, Name: "cert-manager"},
-	{Layer: LayerClusterServices, Chart: "cert-manager", Release: "cert-manager", Namespace: "cert-manager", Kind: Deployment, Name: "cert-manager-webhook"},
-	{Layer: LayerClusterServices, Chart: "cert-manager", Release: "cert-manager", Namespace: "cert-manager", Kind: Deployment, Name: "cert-manager-cainjector"},
-	{Layer: LayerClusterServices, Chart: "external-secrets", Release: "external-secrets", Namespace: "external-secrets", Kind: Deployment, Name: "external-secrets"},
-	{Layer: LayerClusterServices, Chart: "metrics-server", Release: "metrics-server", Namespace: "kube-system", Kind: Deployment, Name: "metrics-server"},
+	for _, definition := range charts.Definitions() {
+		for _, object := range definition.Workloads {
+			namespace := object.Namespace
+			if namespace == "" {
+				namespace = definition.Namespace
+			}
 
-	// Event-driven autoscaling, installed only when `kedaEnabled` is set.
-	{Layer: LayerClusterServices, Chart: "keda", Release: "keda", Namespace: "keda", Kind: Deployment, Name: "keda-operator", Optional: true},
-	{Layer: LayerClusterServices, Chart: "keda", Release: "keda", Namespace: "keda", Kind: Deployment, Name: "keda-operator-metrics-apiserver", Optional: true},
-	{Layer: LayerClusterServices, Chart: "keda", Release: "keda", Namespace: "keda", Kind: Deployment, Name: "keda-admission-webhooks", Optional: true},
+			out = append(out, Workload{
+				Chart:           definition.Key,
+				Layer:           definition.Layer,
+				Release:         definition.Release,
+				Namespace:       namespace,
+				Kind:            object.Kind,
+				Name:            object.Name,
+				OperatorCreated: object.OperatorCreated,
+				Optional:        object.Optional,
+			})
+		}
+	}
 
-	// Ingress.
-	{Layer: LayerIngress, Chart: "traefik", Release: "traefik", Namespace: "traefik", Kind: Deployment, Name: "traefik"},
-
-	// GitOps.
-	{Layer: LayerGitOps, Chart: "argo-cd", Release: "argo-cd", Namespace: "argocd", Kind: Deployment, Name: "argo-cd-argocd-server"},
-	{Layer: LayerGitOps, Chart: "argo-cd", Release: "argo-cd", Namespace: "argocd", Kind: Deployment, Name: "argo-cd-argocd-repo-server"},
-	{Layer: LayerGitOps, Chart: "argo-cd", Release: "argo-cd", Namespace: "argocd", Kind: StatefulSet, Name: "argo-cd-argocd-application-controller"},
+	return out
 }
 
 // Rendered returns the workloads `helm template` should show — everything an
@@ -149,7 +161,6 @@ func Charts() []string {
 		}
 
 		seen[w.Chart] = struct{}{}
-
 		out = append(out, w.Chart)
 	}
 

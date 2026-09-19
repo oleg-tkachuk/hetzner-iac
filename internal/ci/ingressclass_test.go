@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
@@ -135,10 +136,12 @@ func isComment(line string) bool {
 func TestIngressClassIsWhatTheChartInstalls(t *testing.T) {
 	t.Parallel()
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "pkg", "charts", "registry.go"))
-	require.NoError(t, err)
+	// Asked of the registry rather than of a file's text: the pins live one
+	// per chart file now, and a text search would have to know which.
+	_, err := charts.Get(platform.IngressClass)
 
-	assert.Contains(t, string(raw), `"`+platform.IngressClass+`"`,
-		"internal/pkg/platform.IngressClass is %q and no chart by that name is in the registry",
+	require.NoError(t, err,
+		"internal/pkg/platform.IngressClass is %q and no chart by that name is registered — "+
+			"an Ingress naming a class no controller owns is accepted and then ignored",
 		platform.IngressClass)
 }
