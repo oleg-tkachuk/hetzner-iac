@@ -583,3 +583,59 @@ func TestSecretStoresAreReady_PassesAndSaysHowMany(t *testing.T) {
 	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
 	assert.Contains(t, result.Detail, "1 store(s) ready")
 }
+
+// TestNetworkPoliciesAreValid_FailsOnTheOneThatWasLive is the exact state this
+// check was written for, quoted from the cluster it was found on.
+func TestNetworkPoliciesAreValid_FailsOnTheOneThatWasLive(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.NetworkPoliciesAreValid([]clustersmoke.NetworkPolicy{
+		{Name: "allow-dns", Valid: true},
+		{Name: "default-deny", Reason: "rule must have at least one of Ingress, IngressDeny, Egress, EgressDeny"},
+	})
+
+	require.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "default-deny")
+	assert.Contains(t, result.Detail, "at least one of Ingress",
+		"Cilium's own message is the only thing that says what is wrong with the rule")
+	assert.NotContains(t, result.Detail, "allow-dns:",
+		"a policy Cilium accepted must not be reported beside one it rejected")
+	assert.Contains(t, result.Detail, "reported success",
+		"the detail must say that the apply which created it looked fine")
+}
+
+// TestNetworkPoliciesAreValid_SkipsWhenThereAreNone: the layer is optional, so
+// no policy is a choice rather than a fault.
+func TestNetworkPoliciesAreValid_SkipsWhenThereAreNone(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.NetworkPoliciesAreValid(nil)
+
+	assert.Equal(t, clustersmoke.StatusSkipped, result.Status)
+	assert.Contains(t, result.Detail, "nothing claims to be")
+}
+
+// TestNetworkPoliciesAreValid_PassesAndCounts keeps the pass honest about how
+// much it looked at.
+func TestNetworkPoliciesAreValid_PassesAndCounts(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.NetworkPoliciesAreValid([]clustersmoke.NetworkPolicy{
+		{Name: "allow-dns", Valid: true},
+		{Name: "default-deny", Valid: true},
+	})
+
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
+	assert.Contains(t, result.Detail, "2 policy(ies)")
+}
+
+// TestNetworkPoliciesAreValid_SaysSoWithNoConditionYet keeps a policy Cilium
+// has not judged from reading as accepted.
+func TestNetworkPoliciesAreValid_SaysSoWithNoConditionYet(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.NetworkPoliciesAreValid([]clustersmoke.NetworkPolicy{{Name: "fresh"}})
+
+	require.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "no Valid condition yet")
+}

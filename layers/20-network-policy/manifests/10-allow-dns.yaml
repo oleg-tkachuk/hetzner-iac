@@ -38,3 +38,47 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+
+---
+# The other half of the same flow, and the one that was missing: CoreDNS's own
+# INGRESS.
+#
+# The policy above grants every endpoint egress TO kube-dns. Under the default
+# deny that is half a permission — CoreDNS is an endpoint too, and its ingress
+# is enforced as well, so without this it drops every query it receives.
+#
+# Measured on the first real switch-on, which is also how the cost became
+# clear. The drops read as two unrelated failures:
+#
+#   kube-system/hcloud-csi-controller-… <> kube-system/coredns-…  (29 in 2m)
+#   argocd/argo-cd-argocd-repo-server-… <> kube-system/coredns-…
+#
+# and what they produced upstairs was a volume claim stuck Pending with
+# `ProvisioningFailed: DeadlineExceeded` — because the CSI controller resolves
+# api.hetzner.cloud before it can call it — and a cross-node smoke check
+# failing on DNS. Neither names DNS as the cause.
+#
+# fromEndpoints with an empty selector: every endpoint in the cluster, which is
+# what the egress rule above already assumes.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-dns-ingress
+spec:
+  description: kube-dns answers queries from every endpoint
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: kube-system
+      k8s:k8s-app: kube-dns
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingress:
+    - fromEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

@@ -1,0 +1,41 @@
+# The Hetzner load balancer reaching Traefik.
+#
+# This is the flow that makes the cluster reachable from outside at all, and
+# the one the deny broke most quietly: a load balancer whose targets go
+# unhealthy looks like a broken ingress controller.
+#
+#   10.0.1.5 (world) <> traefik/traefik-… INGRESS DENIED
+#
+# 10.0.1.5 is the ingress load balancer's PRIVATE address — confirmed against
+# the Hetzner API, where `platform-dev-ingress` holds it. Cilium reports it as
+# `world` rather than `host` or `remote-node`, because a load balancer is not a
+# cluster node: it is an address in the node subnet that belongs to nothing
+# Cilium knows. So `allow-host`, which already permits host and remote-node to
+# every endpoint, does not cover it.
+#
+# fromEntities: world, and that is the honest scope rather than a compromise.
+# Traefik's whole job is to accept connections from outside; the ports below
+# are the two it serves, and the pinned node ports the load balancer forwards
+# to reach exactly these container ports.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ingress-loadbalancer
+spec:
+  description: the ingress load balancer and the internet reach Traefik
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: traefik
+      k8s:app.kubernetes.io/name: traefik
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingress:
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+            - port: "8443"
+              protocol: TCP

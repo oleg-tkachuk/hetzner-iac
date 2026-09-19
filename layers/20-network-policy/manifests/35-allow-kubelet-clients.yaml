@@ -1,0 +1,41 @@
+# metrics-server reaching the kubelet it scrapes.
+#
+# The flow 30-allow-scraping was written for, under a component that no longer
+# exists: that policy names Prometheus in the observability namespace, and
+# observability left the cluster. metrics-server does the same thing — an
+# HTTPS GET to the kubelet on each node — and had no rule at all.
+#
+# Found by turning the default deny on and reading the drops, not by reasoning:
+#
+#   kube-system/metrics-server-… <> 10.0.1.4 (kube-apiserver) EGRESS DENIED
+#   kube-system/metrics-server-… <> 10.0.1.3 (host)           EGRESS DENIED
+#
+# Twenty-five drops per node in a two-minute window, which is every scrape.
+# What it costs while denied: metrics-server starts, reports Ready, and every
+# `kubectl top` and every CPU-based HorizontalPodAutoscaler reads nothing —
+# the same silent shape as the wrong address type its values file exists to
+# prevent.
+#
+# host AND remote-node, because a pod on one node scrapes the kubelet on all
+# three: the local one is `host` and the others are `remote-node`.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-kubelet-clients
+spec:
+  description: metrics-server reaches the kubelet on every node
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: kube-system
+      k8s:app.kubernetes.io/name: metrics-server
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "10250"
+              protocol: TCP

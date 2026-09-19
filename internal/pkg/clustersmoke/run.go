@@ -143,6 +143,7 @@ func (r *Runner) Run(ctx context.Context) Report {
 		r.checkStorage(ctx),
 		r.checkDataVolumes(ctx),
 		r.checkSecretStores(ctx),
+		r.checkNetworkPolicies(ctx),
 		r.checkLoadBalancers(ctx),
 		r.checkExternalMetrics(),
 	}
@@ -776,19 +777,20 @@ func (r *Runner) checkSecretStores(ctx context.Context) Result {
 	stores := make([]SecretStore, 0, len(list.Items))
 
 	for _, item := range list.Items {
-		ready, reason := readyCondition(item.Object)
+		ready, reason := conditionOf(item.Object, ReadyCondition)
 		stores = append(stores, SecretStore{Name: item.GetName(), Ready: ready, Reason: reason})
 	}
 
 	return SecretStoresAreReady(stores)
 }
 
-// readyCondition digs the Ready condition out of an unstructured status.
+// conditionOf digs one condition out of an unstructured status.
 //
 // Written by hand rather than through a typed struct, because the whole point
-// of the dynamic client here is not to depend on the operator's Go types for
-// one field.
-func readyCondition(object map[string]any) (bool, string) {
+// of the dynamic client here is not to depend on an operator's Go types for
+// one field. Two checks read a condition now — the secret store's Ready and
+// the network policy's Valid — and they differ only in its name.
+func conditionOf(object map[string]any, want string) (bool, string) {
 	status, ok := object["status"].(map[string]any)
 	if !ok {
 		return false, ""
@@ -801,7 +803,7 @@ func readyCondition(object map[string]any) (bool, string) {
 
 	for _, entry := range conditions {
 		condition, isMap := entry.(map[string]any)
-		if !isMap || condition["type"] != ReadyCondition {
+		if !isMap || condition["type"] != want {
 			continue
 		}
 
@@ -816,4 +818,44 @@ func readyCondition(object map[string]any) (bool, string) {
 	}
 
 	return false, ""
+}
+
+// NetworkPolicyResource is the API the policy check reads.
+var NetworkPolicyResource = schema.GroupVersionResource{
+	Group:    "cilium.io",
+	Version:  "v2",
+	Resource: "ciliumclusterwidenetworkpolicies",
+}
+
+// ValidCondition is the condition type Cilium reports an accepted policy with.
+const ValidCondition = "Valid"
+
+// checkNetworkPolicies reads every clusterwide policy and its Valid condition.
+//
+// The same shape as the secret-store check, and for the same reason: a custom
+// resource's status is the only place this answer exists, and a typed client
+// for one field would tie this to Cilium's release cycle.
+func (r *Runner) checkNetworkPolicies(ctx context.Context) Result {
+	if r.custom == nil {
+		return NetworkPoliciesAreValid(nil)
+	}
+
+	list, err := r.custom.Resource(NetworkPolicyResource).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return NetworkPoliciesAreValid(nil)
+		}
+
+		return Result{Name: CheckNetworkPolicies, Status: StatusFailed,
+			Detail: "listing " + NetworkPolicyResource.Resource + ": " + err.Error()}
+	}
+
+	policies := make([]NetworkPolicy, 0, len(list.Items))
+
+	for _, item := range list.Items {
+		valid, reason := conditionOf(item.Object, ValidCondition)
+		policies = append(policies, NetworkPolicy{Name: item.GetName(), Valid: valid, Reason: reason})
+	}
+
+	return NetworkPoliciesAreValid(policies)
 }

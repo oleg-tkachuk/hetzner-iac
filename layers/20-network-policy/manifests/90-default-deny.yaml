@@ -5,19 +5,47 @@
 # only ever permits. This one flips every endpoint into deny mode, and from
 # that moment anything the files above do not name is dropped.
 #
-# What is knowingly NOT covered yet, because it does not exist on this cluster
-# and could not be measured:
+# WHAT A REAL SWITCH-ON FOUND, because this was turned on against the live dev
+# cluster and turned back off twice.
 #
-#   - cert-manager reaching Let's Encrypt. There is no ClusterIssuer, so ACME
-#     has never run. It needs egress to the world on tcp/443, plus DNS.
-#   - Argo CD fetching from git. There is no root Application, so the repo
-#     server has never cloned anything. Same shape: world, tcp/443.
-#   - Alertmanager reaching a receiver. There is no receiver.
+# The allow set was written from Hubble captures, and a capture shows one side
+# of a flow: the side that appeared. A default deny enforces BOTH directions,
+# so five permissions were half-written, and each cost something that did not
+# look like policy —
 #
-# Each is a backlog item with its own blocker. Turn this on before they exist
-# and the first of them will fail in a way that reads as a broken component
-# rather than as policy — so the rule stands: enable this when the flows you
-# care about are in front of you, and add the egress with the feature.
+#   - metrics-server had no egress to the kubelet. `kubectl top` returns
+#     nothing and a CPU autoscaler reads nothing, while metrics-server is
+#     Ready. Fixed: 35-allow-kubelet-clients.
+#   - Traefik had no ingress from the ingress load balancer, whose PRIVATE
+#     address Cilium reports as `world` because a load balancer is not a
+#     cluster node. Every target unhealthy, which reads as broken ingress.
+#     Fixed: 45-allow-ingress-loadbalancer.
+#   - Argo CD's server and controller had no egress to their cache; the policy
+#     covered redis's ingress only. Fixed: 46-allow-argocd-cache-egress.
+#   - Hubble Relay had no egress to the agents, so `task cluster:hubble` —
+#     the tool for diagnosing this — was the first thing the deny broke.
+#     Fixed: 47-allow-hubble-relay.
+#   - CoreDNS had no ingress at all. It surfaced as a volume claim stuck
+#     Pending with DeadlineExceeded, because the CSI controller resolves
+#     api.hetzner.cloud first. Fixed: the second document in 10-allow-dns.
+#
+# STILL MISSING, measured with the deny on and written down rather than
+# guessed. Both must be covered before this is enabled again:
+#
+#   - CoreDNS's own egress to the upstream resolver. Talos runs a host-local
+#     resolver at 169.254.116.108:53, and CoreDNS forwards to it — 25 drops
+#     per node in a two-minute window, which is every query for a name
+#     outside the cluster.
+#   - egress to kube-dns's ClusterIP, 10.96.0.10. The rule above permits the
+#     kube-dns ENDPOINTS, and some clients — Argo CD's repo server among them
+#     — are denied against the service address instead.
+#
+# Both are per-environment numbers: the service CIDR comes from the topology
+# and the host resolver from Talos, so covering them is a template or an
+# entity selector rather than a literal in this directory.
+#
+# The rule that stands: enable this with the flows in front of you, and expect
+# the client side of every permission the capture only showed the server of.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
@@ -25,12 +53,30 @@ metadata:
 spec:
   description: everything not named by another policy is dropped
   endpointSelector: {}
-  # Both fields explicit. enableDefaultDeny is what flips the mode, and the
-  # empty rule lists are what a policy needs to be accepted at all — without
-  # either direction present the API refuses it outright with
-  # `spec.ingress: Required value`, which is how this was found.
+  # enableDefaultDeny is what flips the mode. The rule sections are what makes
+  # the policy exist at all, and their SHAPE is the part this got wrong twice.
+  #
+  # `ingress: []` was rejected by the API server — `spec.ingress: Required
+  # value` — which is how the fields came to be written out. Then `ingress: []`
+  # WITH the field present was accepted by the API server and rejected by
+  # Cilium, in a status nothing reads:
+  #
+  #   Valid=False  rule must have at least one of Ingress, IngressDeny,
+  #                Egress, EgressDeny
+  #
+  # So the apply reported success, the object existed, every flow kept the
+  # verdict `policy-verdict:none`, and the cluster was not under deny at all.
+  #
+  # An empty LIST OF SELECTORS is the shape that works: the section exists, so
+  # the endpoint is in enforcement mode, and it permits nobody, so only the
+  # allow policies above permit anything. Measured on this cluster with a pod
+  # in a scratch namespace — a covered flow reported
+  # `policy-verdict:L3-L4 EGRESS ALLOWED` and an uncovered one
+  # `policy-verdict:none EGRESS DENIED … Policy denied DROPPED`.
   enableDefaultDeny:
     ingress: true
     egress: true
-  ingress: []
-  egress: []
+  ingress:
+    - fromEndpoints: []
+  egress:
+    - toEndpoints: []
