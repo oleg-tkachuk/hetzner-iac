@@ -35,7 +35,7 @@ const stackGuard = `- sh: '[ -n "{{.stack}}" ]'`
 //
 // Pulumi ignores the empty value and uses the stack selected in the
 // workspace, which is invisible local state: whatever `pulumi stack select`
-// left, or `tools/stack ensure` set during platform:init, or somebody's
+// left, or `cmd/stack ensure` set during platform:init, or somebody's
 // command from last week. So a forgotten word does not produce an error, it
 // produces an operation aimed at whatever was selected last.
 //

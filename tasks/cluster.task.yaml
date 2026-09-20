@@ -290,7 +290,7 @@ tasks:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
     cmds:
-      # tools/stack, because the same decision is made here, in platform:init
+      # cmd/stack, because the same decision is made here, in platform:init
       # and in the preview workflow, and three copies of a `pulumi stack ls
       # | jq -e` pipeline is three places to get it wrong.
       #
@@ -299,7 +299,7 @@ tasks:
       # runs want in their output is the stack's name, not a path.
       - cmd: |
           set -euo pipefail
-          state="$(go run "{{.ROOT}}/tools/stack" ensure "{{._CL_DIR}}" "{{._CL_STACK}}")"
+          state="$({{.KIT_STACK}} ensure "{{._CL_DIR}}" "{{._CL_STACK}}")"
           printf '%s\n' "{{._RUN}} cluster · stack · {{._CL_STACK}} ${state}"
 
   token:

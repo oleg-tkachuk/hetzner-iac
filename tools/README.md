@@ -15,8 +15,7 @@ implementation.
 | [recoverykit/](recoverykit) | the parts of a cluster that live nowhere but Pulumi's state |
 | [secrets/](secrets) | print a stack's Talos secrets bundle |
 | [smoke/](smoke) | can this cluster actually run a workload |
-| [stack/](stack) | does a Pulumi stack exist — and make sure it does |
-| [target/](target) | resolve a component name into the URNs `pulumi --target` takes |
+| [stack/](stack) | list the cluster tier's environments |
 | [talos/](talos) | does Talos itself accept the machine-config patches |
 | [taskshell/](taskshell) | shellcheck over the shell inside the taskfiles |
 | [token/](token) | the Hetzner token for a stack, on stdout |
