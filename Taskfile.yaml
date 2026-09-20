@@ -22,7 +22,7 @@ vars:
   # resolving targets against a different release than the one that reports
   # stack state is a skew nothing would report.
   # renovate: datasource=go depName=github.com/oleg-tkachuk/pulumi-kit
-  PULUMI_KIT_VERSION: v0.1.1
+  PULUMI_KIT_VERSION: v0.1.3
   KIT_STACK: 'go run github.com/oleg-tkachuk/pulumi-kit/cmd/stack@{{.PULUMI_KIT_VERSION}}'
   KIT_TARGET: 'go run github.com/oleg-tkachuk/pulumi-kit/cmd/target@{{.PULUMI_KIT_VERSION}}'
 
