@@ -182,7 +182,8 @@ the walk already provides; membership is a question about destroy scope.
 `hetzner-iac` is not a label. Five contracts are built from that string, and
 each pair of them has to agree exactly while nothing compares them at run time:
 the Pulumi type token of every component resource, which every URN beneath it
-carries; the `group:` prefix `tools/target` recognises those tokens by; the
+carries; the `group:` prefix `cmd/target` resolves those tokens by, passed to it
+as `COMPONENT_PACKAGE`; the
 `managed-by` label `cluster:orphans` selects on; the `apiVersion` a topology is
 validated against, in Go **and** in the JSON Schema an editor reads; and the
 CrossGuard pack's name, in its manifest and in its program.
