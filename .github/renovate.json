@@ -76,8 +76,9 @@
       ]
     },
     {
-      "description": "pulumi-kit is fetched by `go run` at the moment a task needs it, so a bump changes no artefact this repository produces.",
+      "description": "pulumi-kit is fetched by `go run` at the moment a task needs it, so a bump changes no artefact this repository produces. respectLatest is off for this one dependency, and only because of how the Go module proxy answers: `@latest` is a separately cached endpoint with its own TTL, so it lags the version list by a window — measured, it reported v0.1.1 while the list already held v0.1.2, and then v0.1.2 while the list held v0.1.3. With respectLatest on, Renovate refuses to go past `@latest` and therefore proposes the version before the current one, for ever one release behind. For a registry where `latest` is a maintainer's signal that is the right default; for the Go proxy it is a cache artefact, so the highest version in the list is the honest answer.",
       "matchDepNames": ["github.com/oleg-tkachuk/pulumi-kit"],
+      "respectLatest": false,
       "semanticCommitType": "chore",
       "semanticCommitScope": "pulumi-kit",
       "labels": ["tooling"]
