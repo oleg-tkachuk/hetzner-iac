@@ -538,3 +538,45 @@ func TestFreeDisk_HasOneThresholdAndUsesItTwice(t *testing.T) {
 			"%s assigns the threshold more than once", freeDiskAction)
 	}
 }
+
+// FloatingRunner is the label that makes the OS under a job change on a date
+// nobody here chose.
+const FloatingRunner = "ubuntu-latest"
+
+// PinnedRunner is what every job asks for instead.
+const PinnedRunner = "ubuntu-24.04"
+
+// TestWorkflows_PinTheRunner keeps the runner from drifting back to a floating
+// label.
+//
+// Every job used ubuntu-latest and every job warned that it becomes Ubuntu 26
+// on 19 October 2026. Pinned, that migration is a pull request Renovate opens
+// and somebody reads — measured first: all sixteen jobs are green on
+// ubuntu-26.04, so the pin is a choice about when, not a way to avoid it.
+//
+// A floating label reads as harmless in a diff, which is why this is a test
+// rather than a comment.
+func TestWorkflows_PinTheRunner(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob(filepath.Join("..", "..", ".github", "workflows", "*.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+
+	var pinned int
+
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err, path)
+
+		text := string(raw)
+
+		assert.NotContains(t, text, "runs-on: "+FloatingRunner,
+			"%s takes %s, so the OS under it changes on a date nobody here chose",
+			filepath.Base(path), FloatingRunner)
+
+		pinned += strings.Count(text, "runs-on: "+PinnedRunner)
+	}
+
+	assert.Positive(t, pinned, "no job pins a runner — this test is checking nothing")
+}
