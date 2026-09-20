@@ -117,6 +117,18 @@ configuration and assert that every pin is matched, that every datasource is one
 of the three, and that `extractVersion` is present exactly where the `v` is
 missing. Each was checked by breaking it on purpose.
 
+A fourth is not a custom manager at all: Renovate's built-in
+`github-runners` datasource reads `runs-on`, which is why the runners are
+pinned to `ubuntu-24.04` rather than taking `ubuntu-latest`. That label warned
+on every job that it becomes Ubuntu 26 on 19 October 2026 — a date nobody here
+chose. Pinned, the migration arrives as a pull request somebody reads, typed
+`ci(runner)` so it releases nothing. Checked before pinning: all sixteen jobs
+are green on `ubuntu-26.04`, so this is a choice about when, not an avoidance.
+`.github/actionlint.yaml` declares that label, because actionlint's built-in
+list is behind GitHub and without it the bump would arrive red rather than
+reviewable. `TestWorkflows_PinTheRunner` keeps a floating label from returning,
+since one reads as harmless in a diff.
+
 A third watches the two pins in the task entry points: the shared task
 library's ref, which is part of a URL, and `PULUMI_KIT_VERSION`, which `go run`
 fetches. Same annotation style, so the pattern knows no special cases — and one

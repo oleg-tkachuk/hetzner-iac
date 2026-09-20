@@ -9,6 +9,10 @@
 # a label it does not know, and its own error message says to use it. Nothing
 # here is self-hosted.
 #
+# Kept although every runner is pinned to 24.04: Renovate proposes the move to
+# 26.04 as a pull request, and without this that request fails actionlint
+# rather than being reviewable. Measured on pulumi-kit, where it did.
+#
 # Delete this when a release knows the label.
 self-hosted-runner:
   labels:

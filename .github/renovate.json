@@ -66,6 +66,13 @@
 
   "packageRules": [
     {
+      "description": "The runner image. Pinned rather than ubuntu-latest, so the migration to a new Ubuntu is a pull request on our schedule rather than a date GitHub chose — it warned on every job that ubuntu-latest becomes Ubuntu 26 on 19 October 2026. A bump changes what CI runs on and nothing this repository deploys, so it releases nothing. Verified before pinning: all 16 jobs are green on ubuntu-26.04, and .github/actionlint.yaml declares that label so the request is reviewable rather than red.",
+      "matchDatasources": ["github-runners"],
+      "semanticCommitType": "ci",
+      "semanticCommitScope": "runner",
+      "labels": ["tooling"]
+    },
+    {
       "description": "A task library bump changes the commands this repository has, not what it deploys, so it releases nothing on its own. The note is the one step Renovate cannot take: Task names its trust files for the sha256 of the whole URL, ref included, so bumping the ref invalidates every checksum under .task/remote and TestTasklib_EveryRemoteTaskfileHasItsChecksum fails until they are replaced.",
       "matchDepNames": ["oleg-tkachuk/taskfiles"],
       "semanticCommitType": "chore",
