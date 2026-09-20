@@ -335,6 +335,8 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
+      - sh: '[ -z "{{.target}}" ]'
+        msg: "{{._NO_TARGET_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -346,6 +348,8 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
+      - sh: '[ -z "{{.target}}" ]'
+        msg: "{{._NO_TARGET_USAGE}}"
       - sh: test -f "{{._CL_TOPOLOGY}}"
         msg: "no topology at {{._CL_TOPOLOGY}} — cp infra/cluster/cluster.example.yaml {{._CL_TOPOLOGY}} and edit adminCIDRs"
     # Applying is not the safe half of the pair. `pulumi up` creates servers,
@@ -394,6 +398,8 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
+      - sh: '[ -z "{{.target}}" ]'
+        msg: "{{._NO_TARGET_USAGE}}"
     prompt: "Destroy the {{._CL_STACK}} CLUSTER and every server in it?"
     cmds:
       # --ignore-protect with one exclusion, rather than --exclude-protected.
@@ -453,6 +459,8 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
+      - sh: '[ -z "{{.target}}" ]'
+        msg: "{{._NO_TARGET_USAGE}}"
     prompt: "Destroy the {{._CL_STACK}} cluster CA? Every certificate it signed becomes unverifiable."
     cmds:
       # --ignore-protect rather than `pulumi state unprotect` then destroy:
