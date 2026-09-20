@@ -278,7 +278,7 @@ apply-that-did-less-than-asked this validation exists to prevent.
 `layer=all` is refused with a target, because a URN names one stack.
 
 **The name is checked before Pulumi runs**, and that is the reason
-[`tools/target`](../tools/target) exists rather than the taskfile passing
+[`pulumi-kit/cmd/target`](https://github.com/oleg-tkachuk/pulumi-kit) exists rather than the taskfile passing
 `--target` straight through. A `--target` that matches nothing SUCCEEDS —
 measured on this repository's dev stack, `preview --target
 '**::Release::does-not-exist'` reported `24 unchanged` and exited zero. So a

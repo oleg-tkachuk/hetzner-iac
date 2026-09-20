@@ -9,7 +9,7 @@ package clusterspec
 //   - the Pulumi type tokens of every component resource,
 //     `<Name>:cluster:ControlPlane` and its four siblings, which appear in the
 //     URN of every resource beneath them;
-//   - the `group:` selector in tools/target, which must recognise those tokens
+//   - the `group:` selector in pulumi-kit, which must recognise those tokens
 //     to tell a component of ours from a provider's resource of the same name;
 //   - the `managed-by` label on every Hetzner resource this repository
 //     creates, which is how `task cluster:orphans` tells them from anything

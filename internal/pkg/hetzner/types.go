@@ -10,7 +10,7 @@ import "github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 // resource under it — use pulumi.Aliases instead.
 //
 // The package half comes from clusterspec.Name rather than being typed here,
-// because tools/target has to recognise these same tokens to tell one of this
+// because cmd/target has to recognise these same tokens to tell one of this
 // repository's components from a provider's resource of the same name.
 const (
 	typeNetwork      = clusterspec.Name + ":cluster:Network"
