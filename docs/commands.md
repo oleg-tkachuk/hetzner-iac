@@ -266,8 +266,14 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 |----------|---------|
 | `target=cert-manager` | the resource with that name |
 | `target=ConfigFile:kubelet-serving-cert-approver` | the same, qualified, when one name is used by two types |
-| `target=group:Ingress` | a group's own node and everything under it |
+| `target=group:Ingress` | a group's own node and its whole subtree |
+| `target=group:Network:platform-dev-network` | one of two components that share a type |
 | `target=hcloud-ccm,hcloud-csi` | both, as one run with two `--target` flags |
+
+A group is resolved by following each resource's `parent`, so the subtree is
+exact: `group:Ingress` when two Ingress components exist is refused, naming both
+as `group:Ingress:<name>`, rather than taking the first and one of the other's
+children.
 
 A comma-separated list is one `pulumi` run rather than one per component, which
 is worth more than the typing: two runs are two chances for the second to act
