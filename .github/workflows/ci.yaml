@@ -70,7 +70,7 @@ jobs:
   # build cache for steps they then skipped.
   changes:
     name: Changed paths
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       relevant: ${{ steps.filter.outputs.relevant }}
@@ -143,7 +143,7 @@ jobs:
     # to those jobs depending on `security` directly.
     if: github.event_name == 'push'
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -214,7 +214,7 @@ jobs:
     # scanners, which gate the release.
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Ten, not five. The work here is two seconds of echo and awk; everything
     # else is setup, and setup is not something this job controls. At five it
     # timed out on a slow runner at 5m09 — reported as "cancelled", which took
@@ -308,7 +308,7 @@ jobs:
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -350,7 +350,7 @@ jobs:
     # It is affordable at any rate: lychee is offline here, and answers in
     # three milliseconds over fifteen files.
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -382,7 +382,7 @@ jobs:
     name: Go lint
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Above golangci's own --timeout, or the runner kills the job first and the
     # log says nothing useful.
     timeout-minutes: 20
@@ -406,7 +406,7 @@ jobs:
     # documentation-only pull request skips it.
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -445,7 +445,7 @@ jobs:
     # from a warm one.
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 25, and the number is the point. gosec's cost is not gosec: it type-checks
     # the whole transitive graph, so its runtime is whatever the build cache
     # does not already hold.
@@ -556,7 +556,7 @@ jobs:
     # the same convention as .trivyignore.yaml.
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -579,7 +579,7 @@ jobs:
     name: Chart pins
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -627,7 +627,7 @@ jobs:
     name: Cluster topology
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -699,7 +699,7 @@ jobs:
   commits:
     name: Commit messages
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -825,7 +825,7 @@ jobs:
       # does, and the release's own scopes are declared in release.yaml, which
       # is where they are used.
       contents: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Seconds of work. Bounded low so a hung API call fails rather than holds a
     # runner for the default six hours.
     timeout-minutes: 5
