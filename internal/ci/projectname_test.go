@@ -36,8 +36,10 @@ var nameLiteralsWithAReason = map[string]string{
 		"real one carries — it is the document the schema accepts, not a reference to it",
 	"internal/pkg/clusterspec/clusterspectest/clusterspectest.go": "the shared topology fixture, " +
 		"for the same reason: it is a document",
-	"Taskfile.yaml": "the log prefix every task prints, and PROJECT_NAME beside it. Cosmetic: a " +
-		"wrong label costs a confusing line of output, not a resource",
+	"Taskfile.yaml": "the log prefix every task prints, PROJECT_NAME beside it, and " +
+		"COMPONENT_PACKAGE. The first two are cosmetic — a wrong label costs a confusing " +
+		"line of output. COMPONENT_PACKAGE is not: it is what cmd/target resolves a " +
+		"group: selector against, and TestComponentPackage_MatchesTheClusterName holds it equal",
 	"Taskfile.dev.yaml": "the same log prefix, in the second entry point",
 	"infra/cluster/cluster.schema.json": "the JSON Schema an editor validates a topology against " +
 		"as it is typed. TestTopologySchema_PinsTheApiVersionThatGoAccepts holds it equal",
@@ -47,7 +49,7 @@ var nameLiteralsWithAReason = map[string]string{
 //
 // Five contracts are built from that string and each pair of them has to agree
 // exactly: the component type tokens that every URN carries, the `group:`
-// prefix tools/target matches them by, the `managed-by` label the orphan check
+// prefix cmd/target resolves them by, the `managed-by` label the orphan check
 // selects on, the apiVersion a topology is validated against, and the policy
 // pack's name. Nothing compares them at run time, and the four failures are not
 // alike — a renamed token orphans resources, a renamed label makes billed
@@ -132,7 +134,7 @@ func TestPolicyPack_IsNamedOnce(t *testing.T) {
 //
 // For Go it reads STRING LITERALS from the syntax tree rather than the file's
 // text, because comments name the repository constantly and legitimately —
-// tools/target explains `group:` by quoting a URN, and policy/main.go says
+// pulumi-kit explains `group:` by quoting a URN, and policy/main.go says
 // which pack it builds. A mention is not a use, which is the same distinction
 // internal/ci/tiers_test.go draws for a provider call.
 //
@@ -188,6 +190,34 @@ func TestTopologySchema_PinsTheApiVersionThatGoAccepts(t *testing.T) {
 	assert.Contains(t, string(raw), `"const": "`+clusterspec.Name+`/v1"`,
 		"the schema does not pin apiVersion to %s/v1, so an editor and the program disagree "+
 			"about what a topology is", clusterspec.Name)
+}
+
+// componentPackageVar matches the component package in the root taskfile.
+var componentPackageVar = regexp.MustCompile(`COMPONENT_PACKAGE:\s*(\S+)`)
+
+// TestComponentPackage_MatchesTheClusterName is the other half of a contract
+// that left Go when the target resolver did.
+//
+// It used to be an import: tools/target read clusterspec.Name, so a rename
+// reached it through the compiler. cmd/target is a separate module now and
+// takes the package as a flag, which the taskfile supplies — so the contract
+// is a string in YAML that nothing compares.
+//
+// A wrong value does not fail loudly. `group:Network` would find no component
+// whose type begins with it, and the operator would read "matches nothing" for
+// a group that is plainly in the stack.
+func TestComponentPackage_MatchesTheClusterName(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "Taskfile.yaml"))
+	require.NoError(t, err)
+
+	declared := componentPackageVar.FindStringSubmatch(string(raw))
+	require.NotNil(t, declared, "no COMPONENT_PACKAGE in the root taskfile")
+
+	assert.Equal(t, clusterspec.Name, declared[1],
+		"the taskfile resolves group: selectors against %q while components are declared as %q:*",
+		declared[1], clusterspec.Name)
 }
 
 // dataStorageClassVar matches the retaining class's name in the root taskfile.

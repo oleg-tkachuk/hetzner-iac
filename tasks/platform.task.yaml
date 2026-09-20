@@ -64,7 +64,7 @@ tasks:
           # several layer stacks.
           ref="{{.ref}}"
           if [ -z "$ref" ]; then
-            ref="$(go run "{{.ROOT}}/tools/stack" ref "{{._PL_CLUSTER_DIR}}" "{{._PL_STACK}}")"
+            ref="$({{.KIT_STACK}} ref "{{._PL_CLUSTER_DIR}}" "{{._PL_STACK}}")"
           fi
 
           printf '%s\n' "{{._RUN}} platform · init · stack {{._PL_STACK}} → cluster $ref"
@@ -75,11 +75,11 @@ tasks:
             ( cd "{{.ROOT}}/layers/${layer}"
               project="$(grep -m1 '^name:' Pulumi.yaml | awk '{print $2}')"
 
-              # tools/stack makes the whole decision, and prints one word for
+              # cmd/stack makes the whole decision, and prints one word for
               # what it did. `init || select` hides why init failed and blames
               # the wrong command for it, and the jq pipeline that replaced it
               # was the third copy of itself.
-              state="$(go run "{{.ROOT}}/tools/stack" ensure "{{.ROOT}}/layers/${layer}" "{{._PL_STACK}}")"
+              state="$({{.KIT_STACK}} ensure "{{.ROOT}}/layers/${layer}" "{{._PL_STACK}}")"
 
               # Only layers that declare the key get it. Every layer does
               # today; the guard stays because a layer with no cluster in it is
@@ -124,7 +124,7 @@ tasks:
           selected="{{.layer}}"
           if [ "$selected" = all ]; then selected="{{._PL_LAYERS}}"; fi
 
-          # Targeted, when asked. tools/target refuses a selector this stack
+          # Targeted, when asked. cmd/target refuses a selector this stack
           # does not hold, and that refusal is the point: Pulumi does not.
           # Measured on dev — `preview --target '**::Release::does-not-exist'`
           # reported "24 unchanged" and exited ZERO. A mistyped component would
@@ -136,8 +136,11 @@ tasks:
               exit 1
             fi
 
-            targets="$(go run "{{.ROOT}}/tools/target" \
-              "${selected}" "{{._PL_STACK}}" "{{.target}}" \
+            targets="$({{.KIT_TARGET}} \
+              -dir "{{.ROOT}}/layers/${selected}" \
+              -stack "{{._PL_STACK}}" \
+              -group-package "{{.COMPONENT_PACKAGE}}" \
+              "{{.target}}" \
               | awk '{printf " --target %s", $0}')"
           fi
 
@@ -215,8 +218,11 @@ tasks:
               exit 1
             fi
 
-            targets="$(go run "{{.ROOT}}/tools/target" \
-              "${selected}" "{{._PL_STACK}}" "{{.target}}" \
+            targets="$({{.KIT_TARGET}} \
+              -dir "{{.ROOT}}/layers/${selected}" \
+              -stack "{{._PL_STACK}}" \
+              -group-package "{{.COMPONENT_PACKAGE}}" \
+              "{{.target}}" \
               | awk '{printf " --target %s", $0}')"
           fi
 
@@ -280,8 +286,11 @@ tasks:
               exit 1
             fi
 
-            targets="$(go run "{{.ROOT}}/tools/target" \
-              "${selected}" "{{._PL_STACK}}" "{{.target}}" \
+            targets="$({{.KIT_TARGET}} \
+              -dir "{{.ROOT}}/layers/${selected}" \
+              -stack "{{._PL_STACK}}" \
+              -group-package "{{.COMPONENT_PACKAGE}}" \
+              "{{.target}}" \
               | awk '{printf " --target %s", $0}')"
 
             if [ "{{.dependents}}" = yes ]; then

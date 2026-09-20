@@ -11,6 +11,19 @@ vars:
   #   TASKLIB: '../taskfiles/%s'
   TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.3.1'
 
+  # Shared Pulumi tools — github.com/oleg-tkachuk/pulumi-kit, pinned.
+  #
+  # Fetched by `go run` at the moment a task needs one, so neither is a
+  # dependency of this repository's own build: nothing enters go.mod and CI
+  # never reaches for them. An operator who passes `target=` does.
+  #
+  # The version is written once and both commands read it, because a tool
+  # resolving targets against a different release than the one that reports
+  # stack state is a skew nothing would report.
+  PULUMI_KIT_VERSION: v0.1.1
+  KIT_STACK: 'go run github.com/oleg-tkachuk/pulumi-kit/cmd/stack@{{.PULUMI_KIT_VERSION}}'
+  KIT_TARGET: 'go run github.com/oleg-tkachuk/pulumi-kit/cmd/target@{{.PULUMI_KIT_VERSION}}'
+
   # The label every message from this entry point carries. Declared once here
   # and once in Taskfile.dev.yaml, because the two are separate roots and a
   # var does not cross between them — and the label is cosmetic, unlike the
@@ -18,6 +31,16 @@ vars:
   # internal/pkg/clusterspec.Name. A wrong label costs a confusing line of
   # output; a wrong type token orphans resources.
   PROJECT_NAME: hetzner-iac
+
+  # The Pulumi package every component's type token begins with, which
+  # `group:` selectors are resolved against — `hetzner-iac:cluster:Network`.
+  #
+  # Unlike PROJECT_NAME above this one is load-bearing: cmd/target requires it
+  # and refuses a group selector without it, because a component named Network
+  # and hcloud's own Network share a type leaf. A second spelling of
+  # internal/pkg/clusterspec.Name and unavoidable — a taskfile cannot import Go
+  # — held equal to it by TestComponentPackage_MatchesTheClusterName.
+  COMPONENT_PACKAGE: hetzner-iac
 
   # The retaining storage class, named in the destroy prompt because it decides
   # what survives a teardown. A second spelling of internal/pkg/platform's
