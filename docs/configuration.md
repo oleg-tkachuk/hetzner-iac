@@ -41,7 +41,7 @@ find the file; read the sections below for what its fields mean.
 
 | File | Configures |
 |------|------------|
-| [Taskfile.yaml](../Taskfile.yaml) | the cluster commands, and the layer order `layer=all` walks |
+| [Taskfile.yaml](../Taskfile.yaml) | the cluster commands, the layer order `layer=all` walks, and the pinned versions of the shared task library and [pulumi-kit](https://github.com/oleg-tkachuk/pulumi-kit) |
 | [Taskfile.dev.yaml](../Taskfile.dev.yaml) | the checks, scanners and formatters — the second entry point |
 | [tasks/](../tasks) | one taskfile per area: cluster, platform, backup, charts, policy |
 | [policy/](../policy) | the CrossGuard pack every project is previewed against |

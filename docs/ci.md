@@ -117,6 +117,24 @@ configuration and assert that every pin is matched, that every datasource is one
 of the three, and that `extractVersion` is present exactly where the `v` is
 missing. Each was checked by breaking it on purpose.
 
+A third watches the two pins in the task entry points: the shared task
+library's ref, which is part of a URL, and `PULUMI_KIT_VERSION`, which `go run`
+fetches. Same annotation style, so the pattern knows no special cases — and one
+test in `internal/ci` reads its regexes out of the configuration and asserts
+that every annotated pin is matched and every pin is annotated.
+
+`respectLatest` is off for `pulumi-kit` alone. The Go module proxy caches
+`@latest` separately from its version list, so it lags by a window — measured,
+it reported `v0.1.1` while the list already held `v0.1.2`. With `respectLatest`
+on, Renovate will not go past `@latest` and proposes the version before the
+current one, for ever one release behind. Where `latest` is a maintainer's
+signal that default is right; on the proxy it is a cache artefact.
+
+A library bump needs one manual step Renovate cannot take: Task names its trust
+files for the sha256 of the whole URL, so bumping the ref invalidates every
+checksum under `.task/remote`. The package rule carries that instruction as a
+note on the pull request.
+
 ### How many cores, and what that decides
 
 The work is 1 916 CPU-seconds, measured locally. What turns that into minutes
