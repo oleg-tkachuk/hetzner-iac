@@ -439,3 +439,124 @@ func TestRenovateCronIsDaily(t *testing.T) {
 	assert.Equal(t, "*", fields[2],
 		"cron %q is not daily; vulnerabilityAlerts would then wait for it", cron[1])
 }
+
+// taskfileEntryPoints are the two files the taskfile pin manager watches.
+var taskfileEntryPoints = []string{"Taskfile.yaml", "Taskfile.dev.yaml"}
+
+// taskfilePinManager returns the manager that watches those two, found by what
+// it watches rather than by position.
+func taskfilePinManager(t *testing.T) []*regexp.Regexp {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "renovate.json"))
+	require.NoError(t, err)
+
+	var config renovateConfig
+	require.NoError(t, json.Unmarshal(raw, &config))
+
+	for _, manager := range config.CustomManagers {
+		watches := false
+
+		for _, pattern := range manager.ManagerFilePatterns {
+			if strings.Contains(pattern, "Taskfile") {
+				watches = true
+			}
+		}
+
+		if !watches {
+			continue
+		}
+
+		require.Len(t, manager.MatchStrings, 2,
+			"one pattern for the pin inside a URL and one for the bare version")
+
+		patterns := make([]*regexp.Regexp, 0, len(manager.MatchStrings))
+
+		for _, matchString := range manager.MatchStrings {
+			// Go accepts JavaScript's (?<name>…) syntax, so Renovate's own
+			// pattern compiles here unchanged. One that stops being portable
+			// fails this test rather than passing silently.
+			pattern, compileErr := regexp.Compile(matchString)
+			require.NoError(t, compileErr, "the configured pattern must be a valid regular expression")
+
+			patterns = append(patterns, pattern)
+		}
+
+		return patterns
+	}
+
+	t.Fatal("no custom manager watches the task entry points — their pins are upgraded by nobody")
+
+	return nil
+}
+
+// TestRenovateMatchesEveryTaskfilePin is the taskfile half of the guarantee
+// TestRenovateMatchesEveryPinnedTool gives the workflows.
+//
+// Both directions, because each failure is silent in its own way. A pin the
+// pattern does not match is a dependency nobody upgrades, and the repository
+// looks maintained because every other bot pull request keeps arriving. An
+// annotation with no pin under it is a pattern that has drifted from the file
+// it was written for.
+func TestRenovateMatchesEveryTaskfilePin(t *testing.T) {
+	t.Parallel()
+
+	patterns := taskfilePinManager(t)
+
+	// The two pins, and which file each is expected in: TASKLIB is written
+	// twice because Task resolves `includes:` before it loads `dotenv:`, so
+	// there is no third file both entry points could read it from.
+	wanted := map[string]int{
+		"oleg-tkachuk/taskfiles":             2,
+		"github.com/oleg-tkachuk/pulumi-kit": 1,
+	}
+
+	found := map[string]int{}
+
+	annotation := regexp.MustCompile(`# renovate: datasource=(\S+) depName=(\S+)`)
+
+	// The datasources these two pins resolve from: GitHub tags for the task
+	// library, and the Go module proxy for pulumi-kit.
+	allowed := map[string]bool{"github-tags": true, "go": true}
+
+	for _, name := range taskfileEntryPoints {
+		raw, err := os.ReadFile(filepath.Join("..", "..", name))
+		require.NoError(t, err, name)
+
+		text := string(raw)
+
+		annotations := annotation.FindAllStringSubmatch(text, -1)
+		require.NotEmpty(t, annotations, "%s carries no renovate annotation", name)
+
+		var matched int
+
+		for _, pattern := range patterns {
+			for _, match := range pattern.FindAllStringSubmatch(text, -1) {
+				matched++
+
+				index := pattern.SubexpIndex("depName")
+				require.GreaterOrEqual(t, index, 0, "the pattern has no depName group")
+
+				found[match[index]]++
+			}
+		}
+
+		assert.Equal(t, len(annotations), matched,
+			"%s carries %d annotation(s) and the configured patterns match %d pin(s): "+
+				"an annotated pin the pattern misses is a dependency nobody upgrades",
+			name, len(annotations), matched)
+
+		for _, match := range annotations {
+			assert.True(t, allowed[match[1]],
+				"%s: datasource %q is not one these pins resolve from", name, match[1])
+
+			if match[1] == "github-tags" {
+				assert.Contains(t, match[2], "/",
+					"%s: github-tags depName %q is not owner/repo", name, match[2])
+			}
+		}
+	}
+
+	assert.Equal(t, wanted, found,
+		"the pins Renovate can see are %v, and the ones that must be watched are %v", found, wanted)
+}

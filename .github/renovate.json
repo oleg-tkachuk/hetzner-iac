@@ -46,6 +46,15 @@
       "versioningTemplate": "helm"
     },
     {
+      "description": "The two pins in the task entry points: the shared task library, whose ref is part of a URL, and pulumi-kit, which `go run` fetches. Same annotation style as the workflow manager below and for the same reason — the `renovate:` comment carries the datasource and depName, so this pattern knows no special cases. Two matchStrings because the two pins are shaped differently: one is `ref=` inside a quoted URL, the other a bare `*_VERSION`. A test in internal/ci reads these regexes out of this file and asserts they still match every annotated pin AND that every pin is annotated, because the failure mode is silent: Renovate opens no pull request, for ever, and nothing says so.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^Taskfile\\.yaml$/", "/^Taskfile\\.dev\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s+[A-Z0-9_]+:\\s*'[^']*ref=(?<currentValue>[^'\\s]+)'",
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s+[A-Z0-9_]+_VERSION:\\s*(?<currentValue>\\S+)"
+      ]
+    },
+    {
       "description": "Pinned tool versions in the workflows. Nine of them, across ci.yaml and security.yaml, with mixed datasources — GitHub releases, PyPI and Go modules — so the `renovate:` comment above each pin carries the datasource and depName rather than this pattern knowing nine special cases. extractVersion appears on the pins that omit the `v` their upstream tag carries. A test in internal/ci reads this regex out of this file and asserts it still matches every annotated pin AND that every pin is annotated, because the failure mode is the same one the chart manager has: Renovate opens no pull request, for ever, and nothing says so.",
       "customType": "regex",
       "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.yaml$/"],
@@ -56,6 +65,23 @@
   ],
 
   "packageRules": [
+    {
+      "description": "A task library bump changes the commands this repository has, not what it deploys, so it releases nothing on its own. The note is the one step Renovate cannot take: Task names its trust files for the sha256 of the whole URL, ref included, so bumping the ref invalidates every checksum under .task/remote and TestTasklib_EveryRemoteTaskfileHasItsChecksum fails until they are replaced.",
+      "matchDepNames": ["oleg-tkachuk/taskfiles"],
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "tasklib",
+      "labels": ["tooling"],
+      "prBodyNotes": [
+        "⚠️ This branch needs one manual step before it can go green: run any task with `--yes` once to re-trust the library at the new ref, then commit the replaced `.task/remote/*.checksum` files onto this branch. The checksums are named for the sha256 of the URL, so a bump invalidates all of them."
+      ]
+    },
+    {
+      "description": "pulumi-kit is fetched by `go run` at the moment a task needs it, so a bump changes no artefact this repository produces.",
+      "matchDepNames": ["github.com/oleg-tkachuk/pulumi-kit"],
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "pulumi-kit",
+      "labels": ["tooling"]
+    },
     {
       "description": "A chart upgrade changes what this repository deploys, so it belongs in a release: semantic-release cuts a patch from fix.",
       "matchDatasources": ["helm"],

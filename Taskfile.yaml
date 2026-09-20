@@ -9,6 +9,7 @@ vars:
   # The git form is the default because someone who clones this repository has
   # no sibling checkout. Working on the library itself:
   #   TASKLIB: '../taskfiles/%s'
+  # renovate: datasource=github-tags depName=oleg-tkachuk/taskfiles
   TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.3.1'
 
   # Shared Pulumi tools — github.com/oleg-tkachuk/pulumi-kit, pinned.
@@ -20,6 +21,7 @@ vars:
   # The version is written once and both commands read it, because a tool
   # resolving targets against a different release than the one that reports
   # stack state is a skew nothing would report.
+  # renovate: datasource=go depName=github.com/oleg-tkachuk/pulumi-kit
   PULUMI_KIT_VERSION: v0.1.1
   KIT_STACK: 'go run github.com/oleg-tkachuk/pulumi-kit/cmd/stack@{{.PULUMI_KIT_VERSION}}'
   KIT_TARGET: 'go run github.com/oleg-tkachuk/pulumi-kit/cmd/target@{{.PULUMI_KIT_VERSION}}'
