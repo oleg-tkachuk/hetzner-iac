@@ -47,10 +47,10 @@ tasks:
           # accepted in silence by everything, and surfaces at apply time.
           ref="{{.ref}}"
           if [ -z "$ref" ]; then
-            ref="$(go run "{{.ROOT}}/tools/stack" ref "{{._BK_CLUSTER_DIR}}" "{{._BK_STACK}}")"
+            ref="$({{.KIT_STACK}} ref "{{._BK_CLUSTER_DIR}}" "{{._BK_STACK}}")"
           fi
 
-          state="$(go run "{{.ROOT}}/tools/stack" ensure "{{._BK_DIR}}" "{{._BK_STACK}}")"
+          state="$({{.KIT_STACK}} ensure "{{._BK_DIR}}" "{{._BK_STACK}}")"
 
           pulumi --non-interactive --cwd "{{._BK_DIR}}" --stack "{{._BK_STACK}}" \
             config set backup:clusterStackRef "$ref"
