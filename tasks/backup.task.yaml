@@ -62,6 +62,8 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._BK_USAGE}}"
+      - sh: '[ -z "{{.target}}" ]'
+        msg: "{{._NO_TARGET_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -74,6 +76,8 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._BK_USAGE}}"
+      - sh: '[ -z "{{.target}}" ]'
+        msg: "{{._NO_TARGET_USAGE}}"
     # The Storage Box is billable and its credentials are generated into state
     # on the first apply. A second apply does not rotate them — RandomPassword
     # keeps its value — so this is safe to repeat, which is what the prompt is
@@ -91,6 +95,8 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._BK_USAGE}}"
+      - sh: '[ -z "{{.target}}" ]'
+        msg: "{{._NO_TARGET_USAGE}}"
       # A precondition rather than a check inside the command, so the refusal
       # comes BEFORE the prompt. Asking "destroy the snapshots?" and then
       # refusing the answer teaches an operator that the question means

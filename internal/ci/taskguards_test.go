@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -585,4 +586,51 @@ func TestUsage_NamesALayerThatExists(t *testing.T) {
 	}
 
 	assert.Positive(t, checked, "no layer example was examined, so this test proved nothing")
+}
+
+// tierTaskfiles are the two that drive a whole project rather than a layer.
+var tierTaskfiles = []string{"cluster.task.yaml", "backup.task.yaml"}
+
+// runsPulumiOnTheTier matches a task body that previews or writes a tier's
+// stack. `outputs` and `stack ls` read metadata and are not in it.
+var runsPulumiOnTheTier = regexp.MustCompile(`pulumi [^\n]*(preview|up|destroy|refresh)`)
+
+// TestTierTasks_RefuseATargetTheyCannotHonour closes a trap Task builds in.
+//
+// Task accepts any `k=v` and drops what a task does not read, without a word.
+// So `task cluster:plan target=group:Network` ran a FULL preview and reported
+// success — measured, `target=group:ThisDoesNotExist` and `nonsense=whatever`
+// produced byte-identical output. Targeting exists on `platform:*`, so an
+// operator who knows that will reasonably try it here.
+//
+// A refusal rather than support: adding --target to a tier that holds the
+// servers, the firewall and the load balancer is a decision about risk, and it
+// is not this one.
+func TestTierTasks_RefuseATargetTheyCannotHonour(t *testing.T) {
+	t.Parallel()
+
+	var checked int
+
+	for _, path := range taskfiles(t) {
+		if !slices.Contains(tierTaskfiles, filepath.Base(path)) {
+			continue
+		}
+
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		for name, body := range tasksIn(string(raw)) {
+			if !runsPulumiOnTheTier.MatchString(body) {
+				continue
+			}
+
+			checked++
+
+			assert.Contains(t, body, `[ -z "{{.target}}" ]`,
+				"%s: %s runs pulumi over the whole tier and would ignore a target= in silence",
+				filepath.Base(path), name)
+		}
+	}
+
+	assert.Positive(t, checked, "no tier task matched — this test is checking nothing")
 }

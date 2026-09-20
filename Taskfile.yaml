@@ -70,6 +70,21 @@ vars:
     infra/cluster/cluster.<stack>.yaml, which is where everything about that
     cluster is described.
 
+  # The tiers take no target=, and Task drops a variable a task does not read
+  # without a word — so `task cluster:plan target=group:Network` ran a FULL
+  # preview and reported success. Measured: `target=group:ThisDoesNotExist` and
+  # `nonsense=whatever` produced byte-identical output.
+  #
+  # Held to every tier task that previews or writes by
+  # TestTierTasks_RefuseATargetTheyCannotHonour.
+  _NO_TARGET_USAGE: |
+    {{.TASK}} takes no target= — it would be ignored, and this refuses rather
+    than running over the whole tier and calling it success.
+
+    Targeting is a layer thing:
+
+        task platform:plan stack=dev layer=40-ingress target=traefik
+
   # The same, for the tasks that require a layer as well.
   #
   # Reported: `task platform:plan layer=10-node-platform` printed the message
