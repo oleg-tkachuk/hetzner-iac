@@ -42,7 +42,7 @@ env:
   # renovate: datasource=github-releases depName=securego/gosec
   GOSEC_VERSION: "v2.29.0"
   # renovate: datasource=pypi depName=checkov
-  CHECKOV_VERSION: "3.3.18"
+  CHECKOV_VERSION: "3.3.19"
 
   # Same reason: a kubeconform release changing which schemas it accepts would
   # turn CI red with no commit of ours in between.
