@@ -21,10 +21,6 @@ func idToInt(id pulumi.IDOutput) pulumi.IntOutput {
 	}))
 }
 
-// toStringMap converts a plain map into Pulumi inputs. A nil map becomes an
-// empty StringMap rather than nil: hcloud treats a missing labels field and
-// an empty one differently on update, and the empty form is what makes
-// removing the last label actually remove it.
 // asSecret marks a credential as secret, and says so if Pulumi hands back
 // something other than the string output it was given.
 //
@@ -43,6 +39,10 @@ func asSecret(name string, value pulumi.StringOutput) (pulumi.StringOutput, erro
 	return secret, nil
 }
 
+// toStringMap converts a plain map into Pulumi inputs. A nil map becomes an
+// empty StringMap rather than nil: hcloud treats a missing labels field and an
+// empty one differently on update, and the empty form is what makes removing
+// the last label actually remove it.
 func toStringMap(in map[string]string) pulumi.StringMapInput {
 	out := make(pulumi.StringMap, len(in))
 	for key, value := range in {

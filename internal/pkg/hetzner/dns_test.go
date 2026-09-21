@@ -142,3 +142,43 @@ func TestNewIngressRecords_CreatesNoZone(t *testing.T) {
 		"the zone is looked up, never created: a zone this stack owns is a zone "+
 			"`pulumi destroy` deletes, with every record in it")
 }
+
+// TestZoneName_RefusesALookupWithNoName covers the branch that used to be a
+// bare dereference of a pointer the provider types as optional.
+//
+// A panic in a Pulumi program is reported as a crashed provider, so the
+// operator sees a stack trace where a sentence about DNS belonged.
+func TestZoneName_RefusesALookupWithNoName(t *testing.T) {
+	t.Parallel()
+
+	stored := "example.test"
+	empty := ""
+
+	for name, one := range map[string]struct {
+		resolved *string
+		want     string
+		wantErr  bool
+	}{
+		"the lookup's own spelling is used": {resolved: &stored, want: stored},
+		"no name at all is refused":         {resolved: nil, wantErr: true},
+		"an empty name is refused too":      {resolved: &empty, wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := hetzner.ZoneName(one.resolved, "example.test")
+
+			if one.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "example.test",
+					"the failure does not say which zone it was asking about")
+				assert.Empty(t, got)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, one.want, got)
+		})
+	}
+}

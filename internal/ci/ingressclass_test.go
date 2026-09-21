@@ -57,7 +57,10 @@ func TestNoRetiredIngressClassInCode(t *testing.T) {
 
 	root := filepath.Join("..", "..")
 
-	var offences []string
+	var (
+		offences []string
+		scanned  int
+	)
 
 	require.NoError(t, filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -92,6 +95,8 @@ func TestNoRetiredIngressClassInCode(t *testing.T) {
 			return readErr
 		}
 
+		scanned++
+
 		for i, line := range strings.Split(string(raw), "\n") {
 			if !strings.Contains(strings.ToLower(line), retiredIngressClass) {
 				continue
@@ -106,6 +111,11 @@ func TestNoRetiredIngressClassInCode(t *testing.T) {
 
 		return nil
 	}))
+
+	// Without this the gate passes when it reads nothing — and it reads
+	// nothing the moment the extension set or the walk root stops matching the
+	// tree, neither of which fails on its own.
+	assert.Positive(t, scanned, "no file was read; this test is checking nothing")
 
 	assert.Empty(t, offences,
 		"%q appears in code, and this platform runs %s. Read the class from "+

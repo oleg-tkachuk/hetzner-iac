@@ -23,10 +23,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
@@ -37,6 +39,9 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
+
+	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/yaml"
 )
 
 // renderAll runs every chart check and reports how many failed.
@@ -206,7 +211,7 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 		return nil, err
 	}
 
-	return parseWorkloads(output, namespace), nil
+	return parseWorkloads(output, namespace)
 }
 
 // hostAccessMarkers are the pod-spec fields Pod Security Admission's baseline
@@ -235,19 +240,24 @@ var hostAccessMarkers = []string{
 // waited out its whole timeout while every other workload in the release was
 // Ready. The only evidence was one event on the DaemonSet.
 func checkHostAccess(key, releaseNamespace string, manifests []byte) error {
-	for _, doc := range strings.Split(string(manifests), "\n---") {
+	docs, err := documents(manifests)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+
+	for _, doc := range docs {
 		// A schema is not a pod. Skipped before the markers are looked for,
 		// because they are certainly there: see SchemaKind.
-		if isSchemaDocument(doc) {
+		if doc.Kind == SchemaKind {
 			continue
 		}
 
-		needs := hostAccessIn(doc)
+		needs := hostAccessIn(doc.Text)
 		if len(needs) == 0 {
 			continue
 		}
 
-		namespace := documentNamespace(doc, releaseNamespace)
+		namespace := doc.NamespaceOr(releaseNamespace)
 		if slices.Contains(clusterspec.PodSecurityExemptNamespaces, namespace) {
 			continue
 		}
@@ -293,58 +303,118 @@ const SchemaKind = "CustomResourceDefinition"
 //
 // Its own reader rather than documentKind next door, which deliberately
 // answers "" for anything that is not a workload and so cannot tell a CRD from
-// a Service. At the start of a line with no indentation, for the reason that
-// one gives: a `kind:` deeper in a document belongs to something else.
-func isSchemaDocument(doc string) bool {
-	for _, line := range strings.Split(doc, "\n") {
-		if name, found := strings.CutPrefix(line, "kind: "); found {
-			return strings.TrimSpace(name) == SchemaKind
-		}
-	}
+// a Service.
+//
+// Answered from the parsed object rather than by finding a `kind:` line, which
+// is what this file used to do everywhere and defended as "not a YAML parser
+// and does not need to be". It did need to be — see documents below.
 
-	return false
+// objectFields is what one rendered document is read into.
+//
+// json tags, because sigs.k8s.io/yaml reads YAML by converting it to JSON:
+// that is how Kubernetes' own clients unmarshal a manifest, so every field
+// here is spelled exactly as the API spells it.
+//
+// Only the fields this tool asks about. An unknown key is ignored, which is
+// the whole point — a CRD's schema can be thousands of lines and none of them
+// are a question anybody here is asking.
+type objectFields struct {
+	Kind     string `json:"kind"`
+	Metadata struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+	} `json:"metadata"`
+	// ReclaimPolicy is a StorageClass's, and it sits at the top level of the
+	// object rather than under a spec.
+	ReclaimPolicy string `json:"reclaimPolicy"`
 }
 
-// documentNamespace reads metadata.namespace, falling back to the release's.
+// document is one rendered object: its fields, and its text.
 //
-// The first `namespace:` line at two-space indentation, because that is where
-// metadata puts it and a rendered chart is machine-written — this is not a YAML
-// parser and does not need to be. A document whose namespace it cannot find,
-// or that leaves the key empty, falls back to the release namespace, which is
-// what Helm would do.
-func documentNamespace(doc, fallback string) string {
-	// An empty value is not a namespace named "": Helm resolves it against
-	// the release, same as an absent key. Returning "" instead reported
-	// `in namespace ""`, which tells the operator nothing about where the
-	// workload was actually going.
-	if namespace := documentField(doc, "namespace"); namespace != "" {
-		return namespace
+// The text is kept because two checks ask whether a MARKER appears anywhere in
+// a document rather than what a named field holds — see hostAccessIn, which is
+// deliberately over-broad because the shapes it looks through are four
+// different workload kinds' pod templates.
+type document struct {
+	Text string
+
+	Kind          string
+	Name          string
+	Namespace     string
+	ReclaimPolicy string
+}
+
+// NamespaceOr is metadata.namespace, or the release's when the object leaves
+// it out.
+//
+// An empty value is not a namespace named "": Helm resolves it against the
+// release, the same as an absent key. Returning "" instead reported
+// `in namespace ""`, which tells the operator nothing about where the workload
+// was actually going.
+func (d document) NamespaceOr(fallback string) string {
+	if d.Namespace != "" {
+		return d.Namespace
 	}
 
 	return fallback
 }
 
-// documentField reads one metadata field of a rendered document.
+// documents splits a rendered manifest stream and reads every object in it.
 //
-// The first matching line at two-space indentation, because that is where
-// metadata puts it and a rendered chart is machine-written — this is not a
-// YAML parser and does not need to be. Deeper indentation belongs to a
-// container, a volume or a selector, not to the object.
-func documentField(doc, field string) string {
-	prefix := "  " + field + ":"
+// Both halves are Kubernetes' own libraries, which is the point.
+// apimachinery's YAMLReader is the splitter kubectl uses, and
+// sigs.k8s.io/yaml the reader its clients use — so a document is separated and
+// interpreted here exactly as it would be by whatever applies it.
+//
+// What this replaces was `strings.Split(manifests, "\n---")` feeding three
+// line scanners, each carrying a comment saying a YAML parser was not needed.
+//
+// The split itself was sound, and worth saying so rather than inventing a
+// fault for it: cutting at a newline followed by `---` needs a line at column
+// zero to go wrong, and a mapping's own content is always indented, so
+// well-formed output cannot produce one.
+//
+// The field reads were not. Each matched on INDENTATION — the object's name
+// was the first `  name:` in the text, and a StorageClass's was the first
+// `name:` at ANY depth — so a document whose two-space `name` belongs to
+// something other than metadata answered with that instead, and the check then
+// compared against a workload nobody had rendered. Reading the object is the
+// same question without the guess.
+//
+// It is also less code, and the CRD-schema cost the old comment worried about
+// is a few milliseconds over the twelve pinned charts.
+func documents(manifests []byte) ([]document, error) {
+	reader := k8syaml.NewYAMLReader(bufio.NewReader(bytes.NewReader(manifests)))
 
-	for _, line := range strings.Split(doc, "\n") {
-		raw, found := strings.CutPrefix(line, prefix)
-		if !found {
+	var out []document
+
+	for {
+		chunk, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("split the rendered manifests: %w", err)
+		}
+
+		if strings.TrimSpace(string(chunk)) == "" {
 			continue
 		}
 
-		if value := strings.Trim(strings.TrimSpace(raw), `"'`); value != "" {
-			return value
+		var fields objectFields
+		if err := yaml.Unmarshal(chunk, &fields); err != nil {
+			return nil, fmt.Errorf("read a rendered document: %w", err)
 		}
-	}
 
-	return ""
+		out = append(out, document{
+			Text:          string(chunk),
+			Kind:          fields.Kind,
+			Name:          fields.Metadata.Name,
+			Namespace:     fields.Metadata.Namespace,
+			ReclaimPolicy: fields.ReclaimPolicy,
+		})
+	}
 }
 
 // kubeconformBinary is looked up rather than assumed so the absence is one
@@ -519,26 +589,33 @@ func renderRaw(ctx context.Context, chart charts.Chart, release, namespace, key 
 // namespace that was expected rather than the one the chart produced. That is
 // exactly what the node-exporter deploys hit twice.
 //
-// Text rather than a YAML parse: the stream contains CRDs whose schemas are
-// large, and three fields are needed from each document.
-func parseWorkloads(output []byte, releaseNamespace string) map[string]bool {
-	found := map[string]bool{}
-
-	for _, doc := range strings.Split(string(output), "\n---") {
-		kind := documentKind(doc)
-		if kind == "" {
-			continue
-		}
-
-		name := documentField(doc, "name")
-		if name == "" {
-			continue
-		}
-
-		found[kind+"/"+documentNamespace(doc, releaseNamespace)+"/"+name] = true
+// It reports an unreadable stream rather than returning what it managed to
+// find. The input is `helm template`'s own output, so a document this cannot
+// read is a broken tool rather than a broken chart — and a check that silently
+// parsed half a stream would report a missing workload as the chart's fault.
+func parseWorkloads(output []byte, releaseNamespace string) (map[string]bool, error) {
+	docs, err := documents(output)
+	if err != nil {
+		return nil, err
 	}
 
-	return found
+	found := map[string]bool{}
+
+	for _, doc := range docs {
+		// Only the kinds this check tracks. Counting a Service or a CRD would
+		// make it pass on a chart that renders no workloads at all.
+		if !slices.Contains(workloadKinds, doc.Kind) {
+			continue
+		}
+
+		if doc.Name == "" {
+			continue
+		}
+
+		found[doc.Kind+"/"+doc.NamespaceOr(releaseNamespace)+"/"+doc.Name] = true
+	}
+
+	return found, nil
 }
 
 // workloadKinds are the kinds this check tracks, spelled as Kubernetes spells
@@ -548,28 +625,6 @@ var workloadKinds = []string{
 	string(workloads.Deployment),
 	string(workloads.StatefulSet),
 	string(workloads.DaemonSet),
-}
-
-// documentKind returns the document's own kind, or "" when it is not a
-// workload.
-//
-// At the start of a line, with no indentation: a `kind:` deeper in the
-// document belongs to something else — a RoleRef, a subject, an autoscaler's
-// scaleTargetRef — and reading one as the document's kind attributes a
-// workload to whatever names it.
-func documentKind(doc string) string {
-	for _, line := range strings.Split(doc, "\n") {
-		name, found := strings.CutPrefix(line, "kind: ")
-		if !found {
-			continue
-		}
-
-		if kind := strings.TrimSpace(name); slices.Contains(workloadKinds, kind) {
-			return kind
-		}
-	}
-
-	return ""
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -650,19 +705,26 @@ func checkStorageClasses(key string, manifests []byte) error {
 		return nil
 	}
 
+	docs, err := documents(manifests)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+
 	rendered := map[string]string{}
 
-	for _, doc := range strings.Split(string(manifests), "\n---") {
-		if !strings.Contains(doc, "kind: "+StorageClassKind) {
+	for _, doc := range docs {
+		// The object's own kind, not the text containing it: a CRD that
+		// mentions StorageClass is not one, and the old `strings.Contains`
+		// could not tell the difference.
+		if doc.Kind != StorageClassKind {
 			continue
 		}
 
-		name, policy := storageClassNameAndPolicy(doc)
-		if name == "" {
+		if doc.Name == "" {
 			continue
 		}
 
-		rendered[name] = policy
+		rendered[doc.Name] = doc.ReclaimPolicy
 	}
 
 	for name, policy := range expectedStorageClasses {
@@ -686,26 +748,4 @@ func checkStorageClasses(key string, manifests []byte) error {
 	}
 
 	return nil
-}
-
-// storageClassNameAndPolicy reads the two fields out of one rendered document.
-//
-// Line-oriented rather than unmarshalled, the same way checkHostAccess reads
-// its markers: the question is two scalars deep in a document whose shape the
-// chart owns, and the reclaim policy is rendered quoted while the name is not.
-func storageClassNameAndPolicy(doc string) (string, string) {
-	var name, policy string
-
-	for _, line := range strings.Split(doc, "\n") {
-		trimmed := strings.TrimSpace(line)
-
-		switch {
-		case strings.HasPrefix(trimmed, "name:") && name == "":
-			name = strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "name:")), `"`)
-		case strings.HasPrefix(trimmed, "reclaimPolicy:"):
-			policy = strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "reclaimPolicy:")), `"`)
-		}
-	}
-
-	return name, policy
 }

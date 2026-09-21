@@ -36,7 +36,8 @@ spec:
         - name: cilium-run
 `)
 
-	found := parseWorkloads(manifest, "kube-system")
+	found, err := parseWorkloads(manifest, "kube-system")
+	require.NoError(t, err)
 
 	assert.True(t, found["Deployment/kube-system/cilium-operator"])
 	// No namespace of its own, so it takes the release's — which is what
@@ -65,7 +66,9 @@ metadata:
   name: ciliumnetworkpolicies.cilium.io
 `)
 
-	assert.Empty(t, parseWorkloads(manifest, "kube-system"))
+	found, err := parseWorkloads(manifest, "kube-system")
+	require.NoError(t, err)
+	assert.Empty(t, found)
 }
 
 func TestParseWorkloads_TakesOnlyTheObjectsOwnName(t *testing.T) {
@@ -83,7 +86,8 @@ spec:
       name: should-not-be-picked-up
 `)
 
-	found := parseWorkloads(manifest, "observability")
+	found, err := parseWorkloads(manifest, "observability")
+	require.NoError(t, err)
 
 	require.Len(t, found, 1)
 	assert.True(t, found["StatefulSet/observability/loki"])
@@ -92,8 +96,11 @@ spec:
 func TestParseWorkloads_Empty(t *testing.T) {
 	t.Parallel()
 
-	assert.Empty(t, parseWorkloads(nil, "kube-system"))
-	assert.Empty(t, parseWorkloads([]byte(""), "kube-system"))
+	for _, empty := range [][]byte{nil, []byte(""), []byte("---\n")} {
+		found, err := parseWorkloads(empty, "kube-system")
+		require.NoError(t, err)
+		assert.Empty(t, found)
+	}
 }
 
 func TestWriteValues(t *testing.T) {
@@ -313,7 +320,7 @@ spec:
 	}
 }
 
-func TestDocumentNamespace(t *testing.T) {
+func TestDocumentNamespaceOr(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -327,7 +334,9 @@ func TestDocumentNamespace(t *testing.T) {
 			want: "kube-system",
 		},
 		{
-			name: "unquotes a quoted namespace",
+			// Quoting is the YAML reader's problem now, and it was a
+			// strings.Trim of `"'` before.
+			name: "a quoted namespace is the same namespace",
 			doc:  "metadata:\n  namespace: \"kube-system\"\n",
 			want: "kube-system",
 		},
@@ -347,10 +356,10 @@ func TestDocumentNamespace(t *testing.T) {
 			want: "observability",
 		},
 		{
-			// Not the `namespace:` inside a subject list or a field selector:
-			// metadata sits at two spaces and a rendered chart is machine-
-			// written.
-			name: "ignores a namespace at another indentation",
+			// Not the `namespace:` inside a subject list. It used to be
+			// excluded by its indentation; now it is excluded because it is
+			// not metadata.namespace, which is the actual reason.
+			name: "a namespace belonging to something else is not the object's",
 			doc:  "subjects:\n  - kind: ServiceAccount\n    namespace: kube-system\n",
 			want: "observability",
 		},
@@ -360,9 +369,78 @@ func TestDocumentNamespace(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(t, test.want, documentNamespace(test.doc, "observability"))
+			docs, err := documents([]byte(test.doc))
+			require.NoError(t, err)
+			require.Len(t, docs, 1)
+
+			assert.Equal(t, test.want, docs[0].NamespaceOr("observability"))
 		})
 	}
+}
+
+// TestDocuments_ReadTheObjectsOwnFields covers what the line scanners got
+// wrong, which is the reason they are gone.
+//
+// Both documents here are valid YAML that the old readers answered incorrectly:
+// the name was the first `  name:` in the text, and a StorageClass's was the
+// first `name:` at any depth at all.
+func TestDocuments_ReadTheObjectsOwnFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a two-space name that is not metadata's", func(t *testing.T) {
+		t.Parallel()
+
+		docs, err := documents([]byte(`kind: Deployment
+spec:
+  name: not-the-object
+metadata:
+  name: the-object
+  namespace: kube-system
+`))
+		require.NoError(t, err)
+		require.Len(t, docs, 1)
+
+		assert.Equal(t, "the-object", docs[0].Name,
+			"the first two-space `name:` in the text is not the object's name")
+	})
+
+	t.Run("a storage class whose annotations come first", func(t *testing.T) {
+		t.Parallel()
+
+		docs, err := documents([]byte(`kind: StorageClass
+metadata:
+  annotations:
+    name: an-annotation-called-name
+  name: hcloud-volumes
+reclaimPolicy: Delete
+`))
+		require.NoError(t, err)
+		require.Len(t, docs, 1)
+
+		assert.Equal(t, "hcloud-volumes", docs[0].Name,
+			"the first `name:` at any depth is not the object's name")
+		assert.Equal(t, "Delete", docs[0].ReclaimPolicy)
+	})
+
+	t.Run("a multi-document stream is split by the reader", func(t *testing.T) {
+		t.Parallel()
+
+		docs, err := documents([]byte(`# Source: chart/templates/a.yaml
+kind: Deployment
+metadata:
+  name: a
+---
+# Source: chart/templates/b.yaml
+kind: DaemonSet
+metadata:
+  name: b
+`))
+		require.NoError(t, err)
+		require.Len(t, docs, 2)
+
+		assert.Equal(t, "Deployment", docs[0].Kind)
+		assert.Equal(t, "DaemonSet", docs[1].Kind)
+	})
 }
 
 func TestParseWorkloads_TellsNamespacesApart(t *testing.T) {
@@ -382,7 +460,8 @@ metadata:
 spec:
 `)
 
-	found := parseWorkloads(manifest, "observability")
+	found, err := parseWorkloads(manifest, "observability")
+	require.NoError(t, err)
 
 	assert.True(t, found["DaemonSet/observability/node-exporter"])
 	assert.False(t, found["DaemonSet/kube-system/node-exporter"],
@@ -408,8 +487,10 @@ spec:
     name: web
 `)
 
-	assert.Empty(t, parseWorkloads(manifest, "default"),
-		"only a top-level kind describes the document")
+	found, err := parseWorkloads(manifest, "default")
+	require.NoError(t, err)
+
+	assert.Empty(t, found, "only a top-level kind describes the document")
 }
 
 func TestHelmArgs_TellHelmWhatTheClusterServes(t *testing.T) {
