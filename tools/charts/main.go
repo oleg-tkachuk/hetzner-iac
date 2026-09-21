@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 
 	"sigs.k8s.io/yaml"
@@ -274,15 +275,15 @@ func fetchIndex(ctx context.Context, client *http.Client, repo string) (*repoInd
 	return &index, nil
 }
 
-func latestInRepo(ctx context.Context, client *http.Client, chart charts.Chart) (Version, error) {
+func latestInRepo(ctx context.Context, client *http.Client, chart charts.Chart) (*semver.Version, error) {
 	index, err := fetchIndex(ctx, client, chart.Repo)
 	if err != nil {
-		return Version{}, err
+		return nil, err
 	}
 
 	entries, known := index.Entries[chart.Name]
 	if !known {
-		return Version{}, fmt.Errorf("chart %q not in index", chart.Name)
+		return nil, fmt.Errorf("chart %q not in index", chart.Name)
 	}
 
 	versions := make([]string, 0, len(entries))
@@ -292,7 +293,7 @@ func latestInRepo(ctx context.Context, client *http.Client, chart charts.Chart) 
 
 	latest, found := LatestStable(versions)
 	if !found {
-		return Version{}, fmt.Errorf("no stable version in index")
+		return nil, fmt.Errorf("no stable version in index")
 	}
 
 	return latest, nil
