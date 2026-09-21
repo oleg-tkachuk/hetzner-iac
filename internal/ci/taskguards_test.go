@@ -190,10 +190,11 @@ func TestPerLayerTasks_ValidateAgainstTheAnchor(t *testing.T) {
 			"%s validates the layer against something other than the shared anchor", name)
 	}
 
-	// plan, apply, refresh, destroy, outputs. The count is the part that
-	// catches drift: a new per-layer task that validated against its own copy
-	// of the list would otherwise pass this test by not being looked at.
-	assert.Equal(t, 5, checked, "five tasks take a layer; the count changed")
+	// targets, plan, apply, refresh, destroy, outputs. The count is the part
+	// that catches drift: a new per-layer task that validated against its own
+	// copy of the list would otherwise pass this test by not being looked at.
+	// It caught `targets` on the commit that added it.
+	assert.Equal(t, 6, checked, "six tasks take a layer; the count changed")
 }
 
 // policyLayerEnum and policyTierEnum match the anchors in the policy taskfile.

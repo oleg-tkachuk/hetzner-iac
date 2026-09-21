@@ -259,6 +259,11 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 
 ### Narrowing to one component
 
+`task platform:targets stack=<stack> layer=<layer>` prints what a layer's stack
+holds, as the selectors below accept — `layer=all` walks every layer and labels
+each. It exists because that list was otherwise reachable only through a
+refusal: finding a name meant mistyping one on purpose.
+
 `plan`, `apply` and `destroy` take an optional `target=`, which becomes
 `pulumi --target`:
 
