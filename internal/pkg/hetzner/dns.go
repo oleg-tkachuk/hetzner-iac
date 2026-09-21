@@ -47,6 +47,32 @@ func RecordName(domain, zone string) string {
 	return strings.TrimSuffix(domain, "."+zone)
 }
 
+// ZoneName is the zone's own spelling of its name, as the lookup returned it.
+//
+// The provider types LookupZoneResult.Name as a pointer, so it has to be
+// checked: a bare dereference is a panic inside the Pulumi program, and a
+// panic reaches the operator as a crashed provider rather than as a sentence
+// about DNS. The lookup above has already failed on a zone that does not
+// exist, which is what makes this the unlikely branch rather than the absent
+// one.
+//
+// The lookup's answer rather than the requested name, even though they match
+// today: the zone's stored spelling is what its records have to be filed
+// under, and requested is here only so the failure says which zone it was
+// asking about.
+//
+// Exported for the reason RecordName above is: it is the part of this file a
+// test can reach without a Hetzner account.
+func ZoneName(resolved *string, requested string) (string, error) {
+	if resolved == nil || *resolved == "" {
+		return "", fmt.Errorf(
+			"hetzner dns zone %q: the lookup returned no name, so there is no zone to write "+
+				"the records into", requested)
+	}
+
+	return *resolved, nil
+}
+
 // IngressRecordsArgs is what a pair of ingress records needs.
 type IngressRecordsArgs struct {
 	// Zone is the zone as delegated to Hetzner, and Domain the name inside it
@@ -85,6 +111,11 @@ func NewIngressRecords(
 			"the records where the domain is hosted", args.Zone, err)
 	}
 
+	stored, err := ZoneName(zone.Name, args.Zone)
+	if err != nil {
+		return err
+	}
+
 	record := RecordName(args.Domain, args.Zone)
 
 	for _, rrset := range []struct {
@@ -96,7 +127,7 @@ func NewIngressRecords(
 		{suffix: "-aaaa", kind: RecordAAAA, value: args.IPv6},
 	} {
 		if _, err := hcloud.NewZoneRrset(ctx, name+rrset.suffix, &hcloud.ZoneRrsetArgs{
-			Zone: pulumi.String(*zone.Name),
+			Zone: pulumi.String(stored),
 			Name: pulumi.String(record),
 			Type: pulumi.String(rrset.kind),
 			Ttl:  pulumi.Int(RecordTTL),
