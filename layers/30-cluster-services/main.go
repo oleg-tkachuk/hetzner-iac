@@ -17,7 +17,6 @@ package main
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
@@ -66,6 +65,18 @@ const KedaChart = charts.Keda
 // KedaEnabledKey is the stack config switch that installs it. Spelled once,
 // here: the layer reads it and Pulumi.yaml declares it.
 const KedaEnabledKey = "kedaEnabled"
+
+// The ClusterIssuer's two stack config keys, named for the reason
+// KedaEnabledKey is: a config key is a contract between the code that reads it,
+// the Pulumi.yaml that declares it and the table in docs/configuration.md, and
+// `pulumi config set` accepts a misspelling without a word.
+const (
+	// AcmeEmailKey is the contact address, and whether an issuer is created at
+	// all. Unset means no ClusterIssuer.
+	AcmeEmailKey = "acmeEmail"
+	// AcmeStagingKey picks Let's Encrypt's staging endpoint.
+	AcmeStagingKey = "acmeStaging"
+)
 
 // Components are what this layer deploys.
 //
@@ -152,17 +163,24 @@ func createCertApprover(r *layer.Runner, dependencies []pulumi.Resource) (pulumi
 
 // createClusterIssuer makes the ACME issuer, or nothing and says so.
 func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
-	email := r.Cfg.Get("acmeEmail")
+	email := r.Cfg.Get(AcmeEmailKey)
 	if email == "" {
 		// The most confusing thing this layer can do is install cert-manager
 		// and no issuer, leaving every Certificate pending with nothing to
 		// satisfy it. Permanent, so it survives the run.
-		r.Log.Skipped("cluster-issuer", "acmeEmail unset, no ClusterIssuer created")
+		r.Log.Skipped("cluster-issuer", AcmeEmailKey+" unset, no ClusterIssuer created")
 
 		return nil, nil
 	}
 
-	staging := r.Cfg.GetBool("acmeStaging")
+	// layer.Flag, not Cfg.GetBool: the SDK's accessor discards the parse error,
+	// so `acmeStaging: yes` reads as false and the order goes to PRODUCTION —
+	// the direction that spends a weekly duplicate-certificate allowance that
+	// correcting the config afterwards does not give back.
+	staging, err := r.Flag(AcmeStagingKey)
+	if err != nil {
+		return nil, err
+	}
 
 	endpoint := "production"
 	if staging {
@@ -196,35 +214,13 @@ func main() {
 // accepted by the API server — they are just CRs — and then scale nothing,
 // because the controller reading them was never installed.
 func kedaRequested(r *layer.Runner) (bool, error) {
-	enabled, err := parseEnabled(KedaEnabledKey, r.Cfg.Get(KedaEnabledKey))
+	enabled, err := r.Flag(KedaEnabledKey)
 	if err != nil {
 		return false, err
 	}
 
 	if !enabled {
 		r.Log.Skipped(KedaChart, KedaEnabledKey+" is not set, so nothing here scales on events")
-	}
-
-	return enabled, nil
-}
-
-// parseEnabled reads a switch, and refuses a value that is not one.
-//
-// An unparseable value is an error rather than a silent false, which is the
-// argument layers/20-network-policy makes about its own switch and it holds
-// here for the same reason: the two states do not look different from outside.
-// A cluster that was never asked for KEDA and a cluster where `kedaEnabled:
-// yes` was read as false both have no autoscaler, and the second one has an
-// operator who believes otherwise.
-func parseEnabled(key, value string) (bool, error) {
-	if value == "" {
-		return false, nil
-	}
-
-	enabled, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, fmt.Errorf(
-			"config %q is %q, which is not a boolean: set it to true or false", key, value)
 	}
 
 	return enabled, nil
