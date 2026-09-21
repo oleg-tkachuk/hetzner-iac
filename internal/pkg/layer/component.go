@@ -190,7 +190,21 @@ func (d Deployed) MustRelease(name string) (*helm.Release, error) {
 }
 
 // Deploy creates every component in dependency order.
+//
+// It refuses a runner with no Kubernetes provider, which NewWithoutKubernetes
+// already says it does. Release refused it and Deploy did not, so the claim
+// held only for a set containing at least one CHART: a set of Create
+// components would have run, and a Create that makes a Kubernetes resource
+// with no provider lands it on whatever cluster the operator's shell happens
+// to point at. Refused here rather than trusted to the set's contents.
 func (r *Runner) Deploy(components Components) (Deployed, error) {
+	if r.Provider == nil {
+		return nil, fmt.Errorf(
+			"deploy %d component(s): this runner has no Kubernetes provider, so it was built "+
+				"by NewWithoutKubernetes for a tier that creates Hetzner resources only",
+			len(components))
+	}
+
 	ordered, err := order(components)
 	if err != nil {
 		return nil, err

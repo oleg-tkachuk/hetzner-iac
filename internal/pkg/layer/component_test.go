@@ -397,3 +397,39 @@ func TestDeploy_WhenIsAskedBeforeTheValuesAreRendered(t *testing.T) {
 		return err
 	}))
 }
+
+// TestDeploy_RefusesARunnerWithNoKubernetesProvider holds the claim
+// NewWithoutKubernetes makes about itself.
+//
+// Release already refused such a runner, so the claim looked covered — and it
+// was, for a set with a chart in it. A set of Create components went through:
+// nothing between Deploy and the layer's own function checks for a provider,
+// and a Kubernetes resource created without one is applied to whatever cluster
+// the operator's shell points at, which is the failure Runner.Provider's
+// comment exists to prevent.
+//
+// A bare Runner rather than the mock harness: the guard has to hold before
+// anything is ordered or created, which is exactly what a runner with nothing
+// in it proves.
+func TestDeploy_RefusesARunnerWithNoKubernetesProvider(t *testing.T) {
+	t.Parallel()
+
+	created := false
+
+	deployed, err := (&layer.Runner{}).Deploy(layer.Components{
+		{
+			Name: "a-resource-that-is-not-a-chart",
+			Create: func(*layer.Runner, []pulumi.Resource) (pulumi.Resource, error) {
+				created = true
+
+				return nil, nil
+			},
+		},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, deployed)
+	assert.False(t, created, "the component ran despite there being no provider to create it with")
+	assert.Contains(t, err.Error(), "NewWithoutKubernetes",
+		"the failure does not say where such a runner comes from")
+}
