@@ -272,3 +272,45 @@ func TestConfigKeys_TheTablesNameKeysThatExist(t *testing.T) {
 		}
 	}
 }
+
+// swallowingBoolRead matches the accessor that reads a boolean switch and
+// throws the parse failure away.
+//
+// The call, not the name: the replacement's own doc comment has to be able to
+// say what it replaces, and a comment naming GetBool is prose rather than a
+// read.
+var swallowingBoolRead = regexp.MustCompile(`(?i:cfg)\.GetBool\(`)
+
+// TestConfigKeys_NoLayerReadsASwitchThroughAnAccessorThatSwallowsIt keeps one
+// silent failure out of the layers.
+//
+// config.Config.GetBool casts through spf13/cast and DISCARDS the error, so
+// `acmeStaging: yes` — YAML's own word for true, which strconv.ParseBool does
+// not take — reads as false. That was live in layers/30-cluster-services while
+// the same file carried a hand-written parser refusing exactly that value for
+// a different key, which is what a rule spelled twice becomes.
+//
+// The direction of the silence is what makes it worth a gate. A dropped
+// `acmeStaging` sends the first order to Let's Encrypt's PRODUCTION endpoint,
+// whose duplicate-certificate limit is per week and is not returned by fixing
+// the config afterwards.
+//
+// layer.Flag is the replacement and reports the bad value instead. GetInt has
+// the same shape and no caller yet; it belongs here the day one arrives.
+func TestConfigKeys_NoLayerReadsASwitchThroughAnAccessorThatSwallowsIt(t *testing.T) {
+	t.Parallel()
+
+	scanned := 0
+
+	for project, dir := range layerProjects(t) {
+		scanned++
+
+		assert.NotRegexp(t, swallowingBoolRead, goSources(t, dir),
+			"%s reads a boolean through Cfg.GetBool, which returns false for a value it "+
+				"cannot parse and says nothing. Use r.Flag(key), which refuses it: a cluster "+
+				"that was never asked for the feature and one whose request was dropped look "+
+				"identical from outside", project)
+	}
+
+	assert.Positive(t, scanned, "no layer was read; this test is checking nothing")
+}
