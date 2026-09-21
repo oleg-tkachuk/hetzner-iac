@@ -26,9 +26,6 @@
 package main
 
 import (
-	"fmt"
-	"strconv"
-
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 
 	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/yaml"
@@ -76,26 +73,6 @@ func main() {
 	layer.RunComponents(Components)
 }
 
-// denyRequested reads the switch.
-//
-// An unparseable value is an error rather than a silent false. For this flag
-// the two states do not look different from outside: a cluster where the deny
-// was never applied and a cluster where `enabled: yes` was ignored both show
-// no deny policy, and the second one has an operator who believes otherwise.
-func denyRequested(value string) (bool, error) {
-	if value == "" {
-		return false, nil
-	}
-
-	enabled, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, fmt.Errorf(
-			"config %q is %q, which is not a boolean: set it to true or false", EnabledKey, value)
-	}
-
-	return enabled, nil
-}
-
 // createAllows applies every policy that only permits.
 func createAllows(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
 	r.Log.Step("allow", "policies that permit and never deny")
@@ -118,7 +95,10 @@ func createAllows(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resou
 // do would make the first of them fail in a way that reads as a broken
 // component rather than as policy.
 func createDefaultDeny(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
-	enabled, err := denyRequested(r.Cfg.Get(EnabledKey))
+	// Through layer.Flag rather than Cfg.GetBool, and the reason is there: an
+	// unparseable value is refused instead of read as "off", which for this
+	// switch is a cluster with no deny and an operator who believes otherwise.
+	enabled, err := r.Flag(EnabledKey)
 	if err != nil {
 		return nil, err
 	}
