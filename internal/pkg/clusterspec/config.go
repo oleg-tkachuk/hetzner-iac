@@ -645,7 +645,7 @@ func (t *Topology) validateNetwork() []string {
 	serviceCIDR, serviceCIDRProblem := parsePrefix("network.serviceCIDR", t.Network.ServiceCIDR)
 	serviceOK := record(&problems, serviceCIDRProblem)
 
-	if ipRangeOK && nodeSubnetOK && !ipRange.Overlaps(nodeSubnet) {
+	if ipRangeOK && nodeSubnetOK && !contains(ipRange, nodeSubnet) {
 		problems = append(problems, fmt.Sprintf("network.nodeSubnet %s is not inside network.ipRange %s",
 			t.Network.NodeSubnet, t.Network.IPRange))
 	}
@@ -794,6 +794,15 @@ func (t *Topology) validateWorkerPools() []string {
 	return problems
 }
 
+// maxHostBitsChecked is where the capacity arithmetic below stops asking.
+//
+// A subnet with more host bits than this holds over a million addresses, which
+// no pool layout this repository can express comes close to exhausting — so
+// `1 << hostBits` past it computes a number to compare against nothing, and on
+// a 32-bit build it would start competing with int's range instead. Named
+// because a bare 20 in a shift is the one literal a reader cannot infer.
+const maxHostBitsChecked = 20
+
 // validatePoolCapacity checks that every pool's fixed address slice fits in
 // the node subnet. Control-plane nodes take the first slice, so pool N starts
 // at (N+1)*PoolAddressStride.
@@ -804,8 +813,8 @@ func (t *Topology) validatePoolCapacity() []string {
 	}
 
 	hostBits := prefix.Addr().BitLen() - prefix.Bits()
-	if hostBits > 20 {
-		return nil // large enough that the arithmetic below cannot overflow into a real limit
+	if hostBits > maxHostBitsChecked {
+		return nil
 	}
 
 	capacity := 1 << hostBits
@@ -842,6 +851,27 @@ func parsePrefix(field, value string) (netip.Prefix, string) {
 	}
 
 	return prefix, ""
+}
+
+// contains reports whether inner sits wholly inside outer.
+//
+// netip.Prefix offers Overlaps and Contains, and neither one is this question:
+// Overlaps is true for ranges that merely intersect, and Contains takes an
+// address rather than a prefix. So the check has to be written, and the
+// arithmetic is the whole of it — a shorter prefix covers more, so outer must
+// not be longer than inner, and inner's base address must fall inside outer.
+//
+// It was Overlaps, which accepted a nodeSubnet that CONTAINS ipRange rather
+// than sitting in it: 10.0.0.0/8 against an ipRange of 10.0.0.0/16 intersects,
+// so validation passed and the message saying "is not inside" never printed.
+// Hetzner then refused the subnet during the apply that had already created
+// the network — the half-built-cluster failure ValidateServerTypes exists to
+// move to plan time.
+//
+// It also restores the reason nodeSubnet is left out of the disjointness list
+// above: that list stands for it only while it is genuinely inside ipRange.
+func contains(outer, inner netip.Prefix) bool {
+	return outer.Bits() <= inner.Bits() && outer.Contains(inner.Masked().Addr())
 }
 
 // record keeps a problem if there is one, and answers whether the value is
