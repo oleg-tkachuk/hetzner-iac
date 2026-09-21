@@ -59,7 +59,10 @@ func TestNoDatesInProse(t *testing.T) {
 
 	root := filepath.Join("..", "..")
 
-	var offences []string
+	var (
+		offences []string
+		scanned  int
+	)
 
 	require.NoError(t, filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -101,6 +104,8 @@ func TestNoDatesInProse(t *testing.T) {
 			return readErr
 		}
 
+		scanned++
+
 		for i, line := range strings.Split(string(raw), "\n") {
 			if !isoDate.MatchString(line) || isData(line) {
 				continue
@@ -112,6 +117,12 @@ func TestNoDatesInProse(t *testing.T) {
 
 		return nil
 	}))
+
+	// A scan that selected nothing would report no dates and pass, which is
+	// the failure this file exists to catch in other people's work. The same
+	// assertion guards TestDiscardedErrors_SayWhy and
+	// TestPrograms_ReportAFailureTheSameWay.
+	assert.Positive(t, scanned, "no file was read; this test is checking nothing")
 
 	assert.Empty(t, offences,
 		"a date in prose. Git history records when something was measured, per line and "+
