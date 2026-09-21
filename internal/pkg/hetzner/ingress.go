@@ -166,8 +166,13 @@ func NewIngressLoadBalancer(
 	return loadBalancer, nil
 }
 
-// ingressID is idToInt for a load balancer, named so the three call sites read
-// as what they are rather than as a conversion.
+// ingressID is idToInt for a load balancer, named so its call sites read as
+// what they are rather than as a conversion.
+//
+// Two of the three fields that take this load balancer's id want an int and
+// the third wants a string: hcloud's LoadBalancerService spells it
+// differently from LoadBalancerNetwork and LoadBalancerTarget, which is why
+// one call above converts by hand instead.
 func ingressID(loadBalancer *hcloud.LoadBalancer) pulumi.IntInput {
 	return idToInt(loadBalancer.ID())
 }

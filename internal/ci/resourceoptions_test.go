@@ -40,7 +40,10 @@ func TestNoAppendOntoASharedOptionSlice(t *testing.T) {
 
 	root := filepath.Join("..", "..")
 
-	var offences []string
+	var (
+		offences []string
+		scanned  int
+	)
 
 	require.NoError(t, filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -76,6 +79,8 @@ func TestNoAppendOntoASharedOptionSlice(t *testing.T) {
 			return readErr
 		}
 
+		scanned++
+
 		for i, line := range strings.Split(string(raw), "\n") {
 			if !appendOntoOptions.MatchString(line) || isComment(line) {
 				continue
@@ -86,6 +91,10 @@ func TestNoAppendOntoASharedOptionSlice(t *testing.T) {
 
 		return nil
 	}))
+
+	// The gate has to have looked at something. An empty scan collects no
+	// offences and reads as a clean tree.
+	assert.Positive(t, scanned, "no file was read; this test is checking nothing")
 
 	assert.Empty(t, offences,
 		"append onto an option slice the caller owns. Use pulumiopts.With, which copies:\n  %s",
