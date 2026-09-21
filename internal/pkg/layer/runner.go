@@ -9,8 +9,8 @@
 // Independence has a cost worth naming: ordering between layers is the
 // operator's responsibility, not Pulumi's. `task platform:apply` applies them
 // in order; applying layers/50-gitops against a cluster with no CNI will simply
-// and then fail. That is the trade for being able to touch one layer without
-// planning the other four.
+// wait for its release to time out and then fail. That is the trade for being
+// able to touch one layer without planning the other four.
 package layer
 
 import (
