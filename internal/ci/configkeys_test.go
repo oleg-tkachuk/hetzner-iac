@@ -20,8 +20,14 @@ var declaredKey = regexp.MustCompile(`(?m)^  ([a-z-]+):(\w+):$`)
 // 20-network-policy passes EnabledKey.
 // The receiver is matched case-insensitively: a layer reads through the
 // runner's `r.Cfg`, and internal/pkg/layer through a local `cfg`.
+//
+// StringOr and Flag are the runner's own accessors, matched without a
+// receiver. A read this pattern does not know about makes its key look unread,
+// and the assertion below then reports the layer's own Pulumi.yaml as
+// declaring something nothing consumes — which is how a new accessor
+// announces itself rather than passing unnoticed.
 var configRead = regexp.MustCompile(
-	`(?:(?i:cfg)\.(?:GetBool|GetInt|Get|RequireSecret|Require)|StringOr)\(\s*(?:"(\w+)"|([A-Z]\w+))`)
+	`(?:(?i:cfg)\.(?:GetBool|GetInt|Get|RequireSecret|Require)|StringOr|Flag)\(\s*(?:"(\w+)"|([A-Z]\w+))`)
 
 // tableRow matches a `project:key` in the first column of a markdown table.
 var tableRow = regexp.MustCompile("(?m)^\\| `([a-z-]+|<layer>):(\\w+)` \\|")
