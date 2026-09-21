@@ -794,6 +794,15 @@ func (t *Topology) validateWorkerPools() []string {
 	return problems
 }
 
+// maxHostBitsChecked is where the capacity arithmetic below stops asking.
+//
+// A subnet with more host bits than this holds over a million addresses, which
+// no pool layout this repository can express comes close to exhausting — so
+// `1 << hostBits` past it computes a number to compare against nothing, and on
+// a 32-bit build it would start competing with int's range instead. Named
+// because a bare 20 in a shift is the one literal a reader cannot infer.
+const maxHostBitsChecked = 20
+
 // validatePoolCapacity checks that every pool's fixed address slice fits in
 // the node subnet. Control-plane nodes take the first slice, so pool N starts
 // at (N+1)*PoolAddressStride.
@@ -804,8 +813,8 @@ func (t *Topology) validatePoolCapacity() []string {
 	}
 
 	hostBits := prefix.Addr().BitLen() - prefix.Bits()
-	if hostBits > 20 {
-		return nil // large enough that the arithmetic below cannot overflow into a real limit
+	if hostBits > maxHostBitsChecked {
+		return nil
 	}
 
 	capacity := 1 << hostBits
