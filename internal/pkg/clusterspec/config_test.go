@@ -254,6 +254,27 @@ func TestValidate_Rejects(t *testing.T) {
 			wantMsg: "is not inside network.ipRange",
 		},
 		{
+			// The case Overlaps accepted. A /8 on the same base address
+			// INTERSECTS a /16 without sitting inside it, so the check passed
+			// and Hetzner refused the subnet during an apply that had already
+			// created the network. It also swallows the default pod and
+			// service CIDRs, which the disjointness list does not compare
+			// nodeSubnet against precisely because it is supposed to be inside
+			// ipRange.
+			name:    "node subnet contains the private network instead of sitting in it",
+			mutate:  func(top *clusterspec.Topology) { top.Network.NodeSubnet = "10.0.0.0/8" },
+			wantMsg: "is not inside network.ipRange",
+		},
+		{
+			// One bit wider is enough, and one bit is the whole class: two
+			// CIDR prefixes are either disjoint or one holds the other, so
+			// "overlaps but is not inside" can only ever mean nodeSubnet is
+			// the larger of the two.
+			name:    "node subnet is one bit wider than the private network",
+			mutate:  func(top *clusterspec.Topology) { top.Network.NodeSubnet = "10.0.0.0/15" },
+			wantMsg: "is not inside network.ipRange",
+		},
+		{
 			name:    "CIDR with host bits set",
 			mutate:  func(top *clusterspec.Topology) { top.Network.NodeSubnet = "10.0.1.5/24" },
 			wantMsg: "has host bits set, did you mean 10.0.1.0/24?",
