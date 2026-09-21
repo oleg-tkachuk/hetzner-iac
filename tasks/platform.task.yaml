@@ -103,6 +103,36 @@ tasks:
           printf '\n'
           printf '%s\n' "{{._OK}} platform · init · next: task platform:plan layer=all stack={{._PL_STACK}}"
 
+  targets:
+    desc: "Print what a layer's stack holds, as the selectors target= takes; changes nothing"
+    requires:
+      vars:
+        - name: layer
+          enum: *layers
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_LAYER_USAGE}}"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          # Expand the selector HERE rather than in a file-level var.
+          # Measured: a var at this file's top level is evaluated without the
+          # task's own `layer`, so a call like `- task: platform:apply` with
+          # `vars: {layer: all}` resolved it to the empty string — and a `for`
+          # over nothing exits 0 having done nothing.
+          selected="{{.layer}}"
+          if [ "$selected" = all ]; then selected="{{._PL_LAYERS}}"; fi
+
+          # The list `target=` accepts, which was previously reachable only by
+          # mistyping one on purpose: the refusal carries it, so finding a name
+          # meant provoking a failure. layer=all is allowed here because this
+          # writes nothing — and each layer is labelled, or the names would
+          # arrive in one heap with nothing saying where they came from.
+          for layer in $selected; do
+            printf '%s\n' "{{._RUN}} platform · ${layer} · targets"
+            {{.KIT_TARGET}} -dir "{{.ROOT}}/layers/${layer}" -stack "{{._PL_STACK}}" -list
+          done
+
   plan:
     desc: "Preview a layer, or layer=all for every one in order; changes nothing"
     requires:
