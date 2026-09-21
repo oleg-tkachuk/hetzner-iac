@@ -8,119 +8,54 @@ package main
 import (
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
+
+	"github.com/Masterminds/semver/v3"
 )
 
-// Version is a parsed chart version. Chart versions are semver in practice but
-// spelled inconsistently — some repositories prefix a v, some publish
-// prereleases into the same index — so they are parsed rather than compared as
-// strings, where "10.8.4" sorts before "9.0.0".
-type Version struct {
-	Major, Minor, Patch int
-	PreRelease          string
-}
-
-// ParseVersion accepts both the 1.2.3 and v1.2.3 spellings.
-func ParseVersion(raw string) (Version, error) {
-	trimmed := strings.TrimPrefix(strings.TrimSpace(raw), "v")
-
-	// Split off build metadata first: it takes no part in ordering.
-	if plus := strings.IndexByte(trimmed, '+'); plus >= 0 {
-		trimmed = trimmed[:plus]
-	}
-
-	var preRelease string
-	if dash := strings.IndexByte(trimmed, '-'); dash >= 0 {
-		preRelease = trimmed[dash+1:]
-		trimmed = trimmed[:dash]
-	}
-
-	parts := strings.Split(trimmed, ".")
-	if len(parts) != 3 {
-		return Version{}, fmt.Errorf("version %q is not major.minor.patch", raw)
-	}
-
-	numbers := make([]int, 3)
-
-	for i, part := range parts {
-		value, err := strconv.Atoi(part)
-		if err != nil {
-			return Version{}, fmt.Errorf("version %q: %q is not a number", raw, part)
-		}
-
-		if value < 0 {
-			return Version{}, fmt.Errorf("version %q: %q is negative", raw, part)
-		}
-
-		numbers[i] = value
-	}
-
-	return Version{
-		Major:      numbers[0],
-		Minor:      numbers[1],
-		Patch:      numbers[2],
-		PreRelease: preRelease,
-	}, nil
-}
-
-// IsPreRelease reports whether this is an alpha, beta or release candidate.
+// ParseVersion reads a chart version, which is semver spelled inconsistently:
+// some repositories prefix a v, some leave the patch off, some publish
+// prereleases into the same index.
 //
-// Pins must not float onto one: the version policy is latest STABLE, and a
-// repository index happily lists prereleases next to releases.
-func (v Version) IsPreRelease() bool {
-	return v.PreRelease != ""
-}
-
-// Compare orders two versions: -1 if v is older, 0 if equal, 1 if newer.
+// Masterminds/semver rather than a parser written here, and this is the
+// library that DEFINES the answer rather than merely one that can produce it:
+// Helm resolves chart versions with it, so "the latest stable in the index"
+// means here exactly what `helm upgrade` would mean by it.
 //
-// A prerelease sorts BEFORE the release it precedes, as semver requires —
-// 2.0.0-rc.1 is older than 2.0.0. Getting this backwards would report a stable
-// pin as outdated against a candidate that has not shipped.
-func (v Version) Compare(other Version) int {
-	for _, pair := range [][2]int{
-		{v.Major, other.Major},
-		{v.Minor, other.Minor},
-		{v.Patch, other.Patch},
-	} {
-		if pair[0] != pair[1] {
-			if pair[0] < pair[1] {
-				return -1
-			}
-
-			return 1
-		}
+// The version written by hand got the specification wrong in one place nothing
+// had reached yet. It compared prerelease identifiers as text, so 2.0.0-rc.9
+// sorted AFTER 2.0.0-rc.10 — semver §11 compares numeric identifiers
+// numerically. LatestStable drops prereleases before they are ever compared,
+// which is the only reason that never surfaced; it is also exactly the kind of
+// clause a hand-written parser is wrong about and a library is not.
+//
+// NewVersion rather than StrictNewVersion, because the lenient one is what
+// Helm calls and it takes the spellings an index actually carries: a leading
+// v, and a version with the patch left off, which it reads as .0. The
+// hand-written parser refused both of those, so a chart published as `1.2` was
+// skipped as unparseable and could not be reported as newer than a pin.
+//
+// TrimSpace stays on this side. The library refuses a version with surrounding
+// whitespace outright, and an index entry is somebody else's text file.
+func ParseVersion(raw string) (*semver.Version, error) {
+	version, err := semver.NewVersion(strings.TrimSpace(raw))
+	if err != nil {
+		return nil, fmt.Errorf("version %q: %w", raw, err)
 	}
 
-	switch {
-	case v.PreRelease == other.PreRelease:
-		return 0
-	case v.PreRelease == "":
-		return 1 // a release is newer than any prerelease of the same number
-	case other.PreRelease == "":
-		return -1
-	case v.PreRelease < other.PreRelease:
-		return -1
-	default:
-		return 1
-	}
-}
-
-func (v Version) String() string {
-	out := fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
-	if v.PreRelease != "" {
-		out += "-" + v.PreRelease
-	}
-
-	return out
+	return version, nil
 }
 
 // LatestStable returns the newest non-prerelease version in the list.
 //
 // It returns false rather than an error when every candidate is a prerelease:
 // that is a real state for a young chart, and not something to fail on.
-func LatestStable(versions []string) (Version, bool) {
-	stable := make([]Version, 0, len(versions))
+//
+// This is the part that is ours rather than the library's — the version policy
+// is latest STABLE, and a repository index happily lists prereleases next to
+// releases.
+func LatestStable(versions []string) (*semver.Version, bool) {
+	stable := make([]*semver.Version, 0, len(versions))
 
 	for _, raw := range versions {
 		parsed, err := ParseVersion(raw)
@@ -130,7 +65,7 @@ func LatestStable(versions []string) (Version, bool) {
 			continue
 		}
 
-		if parsed.IsPreRelease() {
+		if parsed.Prerelease() != "" {
 			continue
 		}
 
@@ -138,10 +73,10 @@ func LatestStable(versions []string) (Version, bool) {
 	}
 
 	if len(stable) == 0 {
-		return Version{}, false
+		return nil, false
 	}
 
 	// The maximum, rather than a sort and the last element: this asks for one
 	// version and the order of the rest is not used for anything.
-	return slices.MaxFunc(stable, Version.Compare), true
+	return slices.MaxFunc(stable, func(a, b *semver.Version) int { return a.Compare(b) }), true
 }

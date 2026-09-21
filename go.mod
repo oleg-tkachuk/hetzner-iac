@@ -3,6 +3,7 @@ module github.com/oleg-tkachuk/hetzner-iac
 go 1.27.1
 
 require (
+	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/hetznercloud/hcloud-go/v2 v2.48.0
 	github.com/pulumi/pulumi-hcloud/sdk v1.42.0
