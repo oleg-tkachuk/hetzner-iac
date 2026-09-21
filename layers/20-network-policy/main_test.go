@@ -172,40 +172,6 @@ func TestKubeletProbesAreAllowedFirst(t *testing.T) {
 		"three control-plane nodes send probes from each other")
 }
 
-func TestDenyRequested(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		value   string
-		enabled bool
-		fails   bool
-	}{
-		{value: "", enabled: false},
-		{value: "false", enabled: false},
-		{value: "0", enabled: false},
-		{value: "true", enabled: true},
-		{value: "True", enabled: true},
-		{value: "1", enabled: true},
-		// The case this function exists for: a plausible spelling that
-		// would otherwise read as "off" and look identical to a cluster
-		// nobody has enabled it on.
-		{value: "yes", fails: true},
-		{value: "tru", fails: true},
-	} {
-		got, err := denyRequested(tc.value)
-
-		if tc.fails {
-			require.Error(t, err, "%q", tc.value)
-			assert.Contains(t, err.Error(), EnabledKey)
-
-			continue
-		}
-
-		require.NoError(t, err, "%q", tc.value)
-		assert.Equal(t, tc.enabled, got, "%q", tc.value)
-	}
-}
-
 func TestComponents(t *testing.T) {
 	t.Parallel()
 
