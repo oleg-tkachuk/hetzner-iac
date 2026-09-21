@@ -250,6 +250,14 @@ ships as a task here and the decision stays with whoever owns the organisation.
 | `gitops:repoSSHPrivateKey` | [`50-gitops`](../layers/50-gitops) | SSH private key for a private repository, in place of the two above — a read-only deploy key is enough (secret) |
 | `backup:storageBoxType` | [`backup`](../infra/backup) | Hetzner Storage Box type, default `bx11` |
 
+The three switches above — `network-policy:enabled`, `cluster-services:acmeStaging`
+and `cluster-services:kedaEnabled` — take `true` or `false` and refuse anything
+else, including YAML's own `yes` and `on`. A value that cannot be read as a
+boolean is an error rather than a silent `false`: a layer that was never asked
+for a feature and one whose request was dropped look identical from outside,
+and for `acmeStaging` the dropped request is the expensive direction — it sends
+the order to Let's Encrypt's production endpoint.
+
 Layer config is about what a layer deploys, not about the cluster. The three
 cluster switches that used to sit here are in the topology now.
 
