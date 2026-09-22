@@ -1,0 +1,64 @@
+# What this file is for: the diffs GitHub shows for this repository, and the
+# language it reports.
+#
+# Measured, before any of the rules below (tracked bytes):
+#
+#   Go              1,372,484   181 files
+#   YAML              298,635    44
+#   Markdown          234,874    37
+#   go.sum             45,496     1
+#   Go Template        30,279     9
+#
+# The label is already right: GitHub reports Go, and Go is 97% of the bytes
+# it counts. So unlike a repository whose language is wrong, almost nothing
+# here is about the language bar — it is about the DIFF. A file nobody reads
+# line by line should arrive collapsed, or it buries the change somebody does
+# have to read.
+#
+# The two attributes do different things, which decides most of what is below:
+# linguist-generated excludes from stats AND hides in diffs, while
+# linguist-vendored only excludes from stats.
+
+# ─── Generated: the module checksum file ─────────────────────────────────
+# 45 KB of resolver output, reviewed as "the lock moved" and never line by
+# line. It is the one rule here with a measurable effect on review.
+#
+# Not redundant, checked in Linguist's own generated.rb rather than assumed:
+# that file knows Gopkg.lock, glide.lock, poetry.lock, pdm.lock, uv.lock,
+# pixi.lock and the JavaScript lockfiles, and go.sum is not among them.
+#
+# go.mod is deliberately absent. It is hand-edited — it carries an `exclude`
+# with the reason a dependency is held back — and collapsing it would hide
+# exactly the line a reviewer needs to see.
+go.sum linguist-generated=true
+
+# ─── Not this repository's language ──────────────────────────────────────
+# A Homebrew bundle, which Linguist reads as Ruby because languages.yml claims
+# the filename. It is ALL of the Ruby GitHub reports — 4,944 bytes — for a
+# repository that contains none.
+#
+# `-linguist-detectable` rather than -generated or -vendored, because both of
+# those would be untrue: it is hand-written and a reviewer should see it in
+# full. The attribute says only "do not count this as a language".
+Brewfile -linguist-detectable
+
+# ─── Deliberately not marked ─────────────────────────────────────────────
+# The vendored upstream manifest,
+# layers/30-cluster-services/manifests/kubelet-serving-cert-approver.yaml.
+# linguist-vendored would do nothing for it: YAML is a `data` language, so it
+# never reaches the language bar anyway, and vendored does not touch diffs.
+# linguist-generated would collapse it, which is the opposite of what the
+# layer's own comment asks for — the copy is committed so that "the diff is
+# reviewable", and internal/ci refuses an edit to it by digest.
+#
+# `.github/**` needs no rule: Linguist's vendor.yml already matches it. That
+# is why .github/commit-type.awk is absent from the reported Awk and
+# tools/lines/main.awk is all 5,756 bytes of it.
+#
+# internal/pkg/charts/*.yaml.tmpl stay detectable on purpose. The Helm values
+# templates are written and reviewed here, and "Go Template" describes them
+# honestly.
+#
+# The five .task/remote/*.checksum files are machine-written and no reviewer
+# can verify a sha256 by eye, but they are 320 bytes in total — collapsing
+# five short lines is not worth a rule.
