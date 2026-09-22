@@ -66,6 +66,12 @@
 
   "packageRules": [
     {
+      "description": "grpc is held below 1.84.0 until a stable release carries the fix for GO-2026-6443 (CVE-2026-84445), a server panic reachable from this module's own code — govulncheck reports it with symbol traces rather than as a module we merely require. v1.83.2 is not affected and is what main runs. The 1.84 line has no released fix: the advisory names v1.82.2, v1.83.2 and a master pseudo-version, and v1.84.0 was cut after the patches without carrying one. Nothing in the dependency graph asks for more than v1.83.2, so holding it costs nothing; remove this rule when a stable 1.84.x or 1.85.0 ships and let the scans confirm it.",
+      "matchDepNames": ["google.golang.org/grpc"],
+      "allowedVersions": "<1.84.0",
+      "labels": ["security"]
+    },
+    {
       "description": "The runner image. Pinned rather than ubuntu-latest, so the migration to a new Ubuntu is a pull request on our schedule rather than a date GitHub chose — it warned on every job that ubuntu-latest becomes Ubuntu 26 on 19 October 2026. A bump changes what CI runs on and nothing this repository deploys, so it releases nothing. Verified before pinning: all 16 jobs are green on ubuntu-26.04, and .github/actionlint.yaml declares that label so the request is reviewable rather than red.",
       "matchDatasources": ["github-runners"],
       "semanticCommitType": "ci",
