@@ -22,7 +22,7 @@ func init() {
 		Chart: Chart{
 			Name:       "external-secrets",
 			Repo:       "https://charts.external-secrets.io",
-			Version:    "2.10.0", // app v2.10.0
+			Version:    "2.11.0", // app v2.10.0
 			AppVersion: "v2.10.0",
 			Namespace:  ExternalSecrets,
 		},
