@@ -136,7 +136,6 @@ func validate(t *testing.T, policy policyx.ResourceValidationPolicy, resource po
 	require.NoError(t, policy.Validate(context.Background(), policyx.ResourceValidationArgs{
 		Manager:  manager,
 		Resource: resource,
-		DryRun:   true,
 	}))
 
 	return manager
