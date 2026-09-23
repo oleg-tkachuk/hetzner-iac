@@ -44,7 +44,7 @@ vars:
   # the two equal, because a half-applied bump otherwise fails one entry point
   # with a message about trust rather than about the version.
   # renovate: datasource=github-tags depName=oleg-tkachuk/taskfiles
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.3.1'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.4.0'
 
   ROOT: { sh: pwd }
 

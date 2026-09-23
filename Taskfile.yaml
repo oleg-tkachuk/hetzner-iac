@@ -10,7 +10,7 @@ vars:
   # no sibling checkout. Working on the library itself:
   #   TASKLIB: '../taskfiles/%s'
   # renovate: datasource=github-tags depName=oleg-tkachuk/taskfiles
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.3.1'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v7.4.0'
 
   # Shared Pulumi tools — github.com/oleg-tkachuk/pulumi-kit, pinned.
   #
