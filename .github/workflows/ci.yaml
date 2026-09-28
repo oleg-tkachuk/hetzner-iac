@@ -38,11 +38,11 @@ env:
   # extractVersion appears where the pin omits the `v` its upstream tag carries.
   # Without it Renovate compares "0.8.0" against a list of "v0.8.0" tags.
   # renovate: datasource=github-releases depName=golangci/golangci-lint
-  GOLANGCI_VERSION: "v2.13.2"
+  GOLANGCI_VERSION: "v2.14.0"
   # renovate: datasource=github-releases depName=securego/gosec
   GOSEC_VERSION: "v2.29.0"
   # renovate: datasource=pypi depName=checkov
-  CHECKOV_VERSION: "3.3.19"
+  CHECKOV_VERSION: "3.3.20"
 
   # Same reason: a kubeconform release changing which schemas it accepts would
   # turn CI red with no commit of ours in between.
