@@ -41,6 +41,11 @@ import (
 // have is a failure rather than the empty string — `<no value>` in a values
 // file is a chart running on a default nobody chose.
 
+// Dir is where the values templates live, from the repository root — for a
+// message that tells an operator which file to edit. The templates are read
+// through the embed below, never through this path.
+const Dir = "internal/pkg/charts"
+
 // Extension is what a values template is called, so the tests and the render
 // check agree on how to find one.
 const Extension = ".yaml.tmpl"

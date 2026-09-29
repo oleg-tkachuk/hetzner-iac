@@ -6,7 +6,7 @@
 // cost. In short: a CCM-managed load balancer is invisible to `plan` and
 // `destroy`, and it refuses to target a control-plane node at all.
 //
-// The values themselves are internal/pkg/values/traefik.yaml.tmpl. What is left here is
+// The values themselves are internal/pkg/charts/traefik.yaml.tmpl. What is left here is
 // the part Go has to do: read stack config, resolve what the cluster tier
 // published, and create the Hetzner resources the chart no longer asks for.
 package main

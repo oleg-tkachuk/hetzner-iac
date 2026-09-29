@@ -264,7 +264,7 @@ func main() {
 	})
 }
 
-// ArgoCDData is what internal/pkg/values/argo-cd.yaml.tmpl renders with.
+// ArgoCDData is what internal/pkg/charts/argo-cd.yaml.tmpl renders with.
 //
 // An empty domain installs Argo CD without an Ingress, which is the right
 // shape before DNS exists: the UI is then reachable with `kubectl port-forward`

@@ -85,7 +85,7 @@ func TestIngressLoadBalancer_ServesBothEntryPointsOnThePinnedNodePorts(t *testin
 		service, found := byListenPort[listen]
 		require.True(t, found, "nothing listens on %v", listen)
 
-		// The contract with internal/pkg/values/traefik.yaml.tmpl. Both read
+		// The contract with internal/pkg/charts/traefik.yaml.tmpl. Both read
 		// internal/pkg/platform, so this asserts the pin reached the load balancer.
 		assert.Equal(t, float64(wantNodePort), service["destinationPort"].NumberValue(),
 			"port %v forwards somewhere other than the pinned node port", listen)

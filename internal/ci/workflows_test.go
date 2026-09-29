@@ -260,7 +260,7 @@ func TestCI_ClassifiesDocumentationAsInert(t *testing.T) {
 		"go.mod":                                         false,
 		"go.sum":                                         false,
 		".golangci.yaml":                                 false,
-		"internal/pkg/values/loki.yaml.tmpl":             false,
+		"internal/pkg/charts/argo-cd.yaml.tmpl":          false,
 		"Taskfile.yaml":                                  false,
 		"Taskfile.dev.yaml":                              false,
 		"tasks/platform.task.yaml":                       false,

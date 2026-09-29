@@ -135,7 +135,7 @@ func checkResources(ctx context.Context) int {
 			fmt.Printf("MISS  %-14s %s\n", key, problem)
 		}
 
-		fmt.Printf("      set it in internal/pkg/values/%s.yaml.tmpl, from `kubectl top pods --containers`\n", key)
+		fmt.Printf("      set it in %s/%s%s, from `kubectl top pods --containers`\n", charts.Dir, key, charts.Extension)
 
 		failures += len(problems)
 	}
