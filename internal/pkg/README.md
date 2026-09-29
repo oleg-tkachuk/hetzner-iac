@@ -17,6 +17,7 @@ under [layers/](../../layers), [infra/cluster/](../../infra/cluster) and
 | [cni/](cni) | which CNI a stack installs, and whether it agrees with what Talos did to kube-proxy |
 | [clustersmoke/](clustersmoke) | can a cluster run a workload — the judgements behind `tools/smoke` |
 | [pulumilog/](pulumilog) | the output vocabulary, the same one the taskfiles print |
+| [stackstatus/](stackstatus) | the report behind `task platform:status`, without the Pulumi import that reads it |
 | [pulumiopts/](pulumiopts) | one function, because appending to a shared option slice writes into the caller's array |
 
 Under `internal/` because nothing outside this module imports any of it, and

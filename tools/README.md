@@ -16,6 +16,7 @@ implementation.
 | [secrets/](secrets) | print a stack's Talos secrets bundle |
 | [smoke/](smoke) | can this cluster actually run a workload |
 | [stack/](stack) | list the cluster tier's environments |
+| [stackstatus/](stackstatus) | every stack of one environment: last run, interrupted updates, and whether they agree on the cluster |
 | [talos/](talos) | does Talos itself accept the machine-config patches |
 | [taskshell/](taskshell) | shellcheck over the shell inside the taskfiles |
 | [token/](token) | the Hetzner token for a stack, on stdout |
