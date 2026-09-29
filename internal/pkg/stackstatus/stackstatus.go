@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 // Result is the outcome of a stack's last operation, as Pulumi records it.
@@ -85,7 +87,7 @@ const (
 	resourcesColumn = 5
 
 	// title opens the report.
-	title = "hetzner-iac · platform status"
+	title = clusterspec.Name + " · platform status"
 )
 
 // changeSymbol pairs a change kind with the sign `pulumi preview` gives it.
