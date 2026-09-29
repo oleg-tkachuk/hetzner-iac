@@ -18,7 +18,13 @@ from. Beyond that, what no single `pulumi stack` says:
   cluster no longer publishes, or a cluster behind the version this checkout
   reads.
 
-Everything comes through the Automation API. Outputs come from the exported
+It refuses to start when this machine holds no credential for the projects'
+backend, and says `pulumi login`. The CLI does not fail on its own when an AI
+coding agent runs it: it signs up a temporary agent account, and the report
+would describe that account's empty backend. The check reads the credentials
+store through the SDK, before the first CLI call.
+
+Everything else comes through the Automation API. Outputs come from the exported
 checkpoint rather than `StackOutputs`, so secrets stay ciphertext. Reading the
 history has to select the stack, so the workspace's previous selection is put
 back afterwards.
