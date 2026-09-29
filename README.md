@@ -238,7 +238,7 @@ is shaped comes from its topology file.
 | `task up` | cluster, then every layer in dependency order |
 | `task plan` | preview the cluster and every layer; change nothing |
 | `task cluster:status` | nodes, then anything not Running |
-| `task platform:status` | which layers are deployed |
+| `task platform:status` | every stack's last run, and whether they agree on the cluster |
 | `task e2e` | verify a running cluster; read-only |
 
 Full reference: [commands.md](docs/commands.md). The checks and scanners are a

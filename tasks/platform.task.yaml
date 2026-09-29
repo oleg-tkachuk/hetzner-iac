@@ -24,8 +24,8 @@ vars:
   _PL_LAYERS: '{{.LAYERS}}'
   # The cluster tier — the stack every layer references.
   _PL_CLUSTER_DIR: '{{.ROOT}}/infra/cluster'
-  # init's row format, at the same layer-name width status prints, so the two
-  # tables line up. A name past the width pushes its own row and no other.
+  # init's row format: one layer per row. A name past the width pushes its own
+  # row and no other.
   _PL_ROW: '%-24s %-9s %s'
 
 tasks:
@@ -45,11 +45,10 @@ tasks:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
     cmds:
-      # One row per layer, in the same shape platform:status prints. It used to
-      # be two sentences per layer — an absolute path, and the cluster
-      # reference repeated six times — which is twelve lines saying two
-      # things: which stacks are new, and that they all point at the same
-      # cluster. Both are said once here.
+      # One row per layer. It used to be two sentences per layer — an
+      # absolute path, and the cluster reference repeated six times — which
+      # is twelve lines saying two things: which stacks are new, and that they
+      # all point at the same cluster. Both are said once here.
       - cmd: |
           set -euo pipefail
 
@@ -372,31 +371,15 @@ tasks:
           done
 
   status:
-    desc: "Which layers are deployed, and how many resources each holds"
+    desc: "Every tier's and layer's stack: last run, resources, interrupted updates, and whether they agree on the cluster"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
     cmds:
+      # Through the Automation API, see tools/stackstatus. The tiers first —
+      # every row is judged against the cluster's — then LAYERS in order.
       - cmd: |
           set -euo pipefail
-          printf '%-24s %s\n' LAYER RESOURCES
-          for layer in {{._PL_LAYERS}}; do
-            count="$( cd "{{.ROOT}}/layers/${layer}" && \
-              # stderr is kept and shown. A stack that was never created
-              # legitimately has no count, but so does an expired token — and
-              # reporting both as "-" turns a broken login into a tidy table
-              # saying nothing is deployed.
-              # `--output json`, not `--json`: the CLI has no such flag on this
-              # command and rejected it, so every row read "?" with an error
-              # above it. The table was honest about not knowing; the flag was
-              # simply wrong.
-              if out="$(pulumi --non-interactive --stack "{{._PL_STACK}}" stack --output json 2>&1)"; then
-                printf '%s' "$out" | jq -r '.resources | length'
-              else
-                case "$out" in
-                  *"no stack named"*|*"not found"*) printf '%s\n' "-" ;;
-                  *) printf '%s\n' "?"; printf '%s\n' "$out" >&2 ;;
-                esac
-              fi )"
-            printf '%-24s %s\n' "$layer" "$count"
-          done
+          for tier in {{.TIERS}}; do set -- "$@" "infra/${tier}"; done
+          for layer in {{._PL_LAYERS}}; do set -- "$@" "layers/${layer}"; done
+          cd "{{.ROOT}}" && go run ./tools/stackstatus --stack "{{._PL_STACK}}" "$@"

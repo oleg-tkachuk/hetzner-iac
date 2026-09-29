@@ -255,7 +255,7 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 | `task platform:plan layer=10-node-platform` | preview one layer, or `layer=all` for every one in order |
 | `task platform:plan layer=30-cluster-services target=group:Ingress` | preview one component or group |
 | `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
-| `task platform:status` | which layers are deployed, and how large |
+| `task platform:status` | every tier's and layer's stack: last run, resources, interrupted updates, and whether each references this cluster at its contract |
 
 ### Narrowing to one component
 
