@@ -108,6 +108,12 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 	return runner, nil
 }
 
+// ClusterStackRefKey is the stack config every consumer of the cluster tier
+// names it by — `<project>:clusterStackRef`, holding
+// `<org>/<cluster project>/<stack>`. tools/stackstatus reads it to say whether
+// every stack of an environment points at that environment's cluster.
+const ClusterStackRefKey = "clusterStackRef"
+
 // NewWithoutKubernetes builds a runner for a tier that creates Hetzner
 // resources only.
 //
@@ -128,7 +134,7 @@ func New(ctx *pulumi.Context) (*Runner, error) {
 func NewWithoutKubernetes(ctx *pulumi.Context) (*Runner, error) {
 	cfg := config.New(ctx, "")
 
-	ref := cfg.Get("clusterStackRef")
+	ref := cfg.Get(ClusterStackRefKey)
 	if ref == "" {
 		// Naming the task rather than the pulumi command: the task derives
 		// the reference from the cluster tier, where a hand-typed one can
