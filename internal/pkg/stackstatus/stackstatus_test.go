@@ -396,3 +396,37 @@ func TestRenderReportsAFailedWrite(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "write status report")
 }
+
+// TestRenderPaintsNoTextGrey keeps every value readable: grey on a dark,
+// low-contrast palette all but vanishes, which is how the header labels, the
+// column headings and the WHEN and TOOK columns went unreadable.
+func TestRenderPaintsNoTextGrey(t *testing.T) {
+	t.Parallel()
+
+	var grey []string
+
+	recording := func(code, s string) string {
+		if code == stackstatus.Grey {
+			grey = append(grey, s)
+		}
+
+		return s
+	}
+
+	h := header()
+	h.Cluster.Console = "https://app.pulumi.com/acme/hetzner-cluster/dev"
+
+	var report strings.Builder
+
+	require.NoError(t, stackstatus.Render(&report, h, []stackstatus.Project{
+		healthy(ingress),
+		{Name: "backup"},
+		{Name: "50-gitops", HasStack: true, ClusterRef: goodRef},
+	}, now, recording))
+
+	require.NotEmpty(t, grey, "no row printed the none mark, so this proved nothing")
+
+	for _, painted := range grey {
+		assert.Equal(t, stackstatus.MarkNone, painted, "text painted grey")
+	}
+}
