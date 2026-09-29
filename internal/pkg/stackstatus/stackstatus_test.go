@@ -310,6 +310,40 @@ func TestRenderShowsTheConsoleOnlyWhenKnown(t *testing.T) {
 	assert.Contains(t, render(t, h, nil), "console   https://app.pulumi.com/acme/hetzner-cluster/dev")
 }
 
+// TestRenderOrdersTheHeader pins the header's order: where the cluster is and
+// who reads it, then the tooling and the tree, then whether they agree.
+func TestRenderOrdersTheHeader(t *testing.T) {
+	t.Parallel()
+
+	labels := func(h stackstatus.Header) []string {
+		var found []string
+
+		for line := range strings.SplitSeq(render(t, h, nil), "\n") {
+			label, _, ok := strings.Cut(strings.TrimSpace(line), " ")
+			if !ok || !strings.HasPrefix(line, "  ") {
+				continue
+			}
+
+			if label == "STACK" {
+				break
+			}
+
+			found = append(found, label)
+		}
+
+		return found
+	}
+
+	h := header()
+	h.Cluster.Console = "https://app.pulumi.com/acme/hetzner-cluster/dev"
+
+	assert.Equal(t, []string{"cluster", "backend", "console", "pulumi", "HEAD", "contract"}, labels(h))
+
+	h.Cluster.Console = ""
+	assert.Equal(t, []string{"cluster", "backend", "pulumi", "HEAD", "contract"}, labels(h),
+		"an unknown console leaves no gap")
+}
+
 func TestRenderColoursOnlyWhenAsked(t *testing.T) {
 	t.Parallel()
 
