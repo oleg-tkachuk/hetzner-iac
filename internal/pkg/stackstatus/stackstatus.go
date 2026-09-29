@@ -396,15 +396,18 @@ func renderHeader(report *strings.Builder, header Header, paint Painter) {
 
 	fields := [][2]string{
 		{"cluster", clusterLine(header.Cluster)},
-		{"contract", contractLine(header, paint)},
 		{"backend", orDash(header.Backend) + " as " + orDash(header.User)},
-		{"pulumi", orDash(header.PulumiVersion)},
-		{"HEAD", orDash(head)},
 	}
 
 	if header.Cluster.Console != "" {
 		fields = append(fields, [2]string{"console", header.Cluster.Console})
 	}
+
+	fields = append(fields,
+		[2]string{"pulumi", orDash(header.PulumiVersion)},
+		[2]string{"HEAD", orDash(head)},
+		[2]string{"contract", contractLine(header, paint)},
+	)
 
 	for _, field := range fields {
 		// Pad before painting: an escape sequence has width in a format verb
