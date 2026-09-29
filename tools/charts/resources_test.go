@@ -1,13 +1,12 @@
 package main
 
 import (
-	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 )
 
 // workload builds a rendered Deployment carrying one container's resources
@@ -145,14 +144,15 @@ func TestUnmeasuredCharts_HaveNoMeasurementsToUse(t *testing.T) {
 		assert.Equal(t, reasonUnmeasured, reason,
 			"%s is skipped for a different reason than the others", key)
 
-		raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "pkg", "values", key+".yaml.tmpl"))
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
+		// Through the embedded templates rather than a path: the path this
+		// read from moved in a9122b3, every read then failed as "does not
+		// exist", and the skip for that case made the test pass having
+		// checked nothing. A skip for a chart with no template is itself a
+		// defect — a misspelt key exempts nothing and says so nowhere.
+		source, err := charts.Source(key)
+		require.NoError(t, err, "%s is in unmeasuredCharts and has no values template", key)
 
-		require.NoError(t, err)
-
-		assert.NotContains(t, string(raw), "resources:",
+		assert.NotContains(t, source, "resources:",
 			"%s sets resources in its values template, so it IS measured — "+
 				"delete its line from unmeasuredCharts and let the gate check it", key)
 	}

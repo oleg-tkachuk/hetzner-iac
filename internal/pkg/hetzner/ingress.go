@@ -115,7 +115,7 @@ func NewIngressLoadBalancer(
 				ListenPort:      pulumi.Int(service.listenPort),
 				DestinationPort: pulumi.Int(service.nodePort),
 				// One half of the PROXY protocol pair. The other is the trust
-				// list in internal/pkg/values/traefik.yaml.tmpl: Traefik trusts the
+				// list in internal/pkg/charts/traefik.yaml.tmpl: Traefik trusts the
 				// header from nobody by default, so this without that rejects
 				// every connection, and that without this makes Traefik wait
 				// for a header nobody sends.

@@ -84,7 +84,7 @@ const ACMESolverLabel = "acme.cert-manager.io/http01-solver"
 // Node ports the ingress load balancer forwards to.
 //
 // Two programs have to name the same two numbers and they never call each
-// other: internal/pkg/values/traefik.yaml.tmpl asks Kubernetes to allocate exactly
+// other: internal/pkg/charts/traefik.yaml.tmpl asks Kubernetes to allocate exactly
 // these for the ingress Service, and internal/pkg/hetzner points the load balancer's
 // services and health checks at them.
 //

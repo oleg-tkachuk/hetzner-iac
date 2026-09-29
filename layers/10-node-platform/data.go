@@ -36,7 +36,7 @@ func operatorReplicas(controlPlaneCount int) int {
 	return min(controlPlaneCount, OperatorReplicasWanted)
 }
 
-// The cilium values live in internal/pkg/values/cilium.yaml.tmpl.
+// The cilium values live in internal/pkg/charts/cilium.yaml.tmpl.
 //
 // It is a named function rather than an inline literal so the settings that
 // are coupled to decisions made in the cluster tier can be asserted in a test.

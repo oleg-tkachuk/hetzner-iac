@@ -1,6 +1,8 @@
 package charts_test
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
@@ -263,4 +265,17 @@ func TestProbeData_CarriesThePinnedValuesRatherThanACopy(t *testing.T) {
 	assert.Equal(t, platform.IssuerName, gitops.Issuer,
 		"the argo-cd probe renders issuer %q while the platform creates %q",
 		gitops.Issuer, platform.IssuerName)
+}
+
+// TestDir_IsThisPackage keeps the path an operator is told to edit pointing at
+// the templates. It went stale once: after the templates moved here, messages
+// and comments named internal/pkg/values for months.
+func TestDir_IsThisPackage(t *testing.T) {
+	t.Parallel()
+
+	here, err := filepath.Abs(".")
+	require.NoError(t, err)
+
+	assert.True(t, strings.HasSuffix(filepath.ToSlash(here), "/"+charts.Dir),
+		"charts.Dir is %q, and this package is at %s", charts.Dir, here)
 }
