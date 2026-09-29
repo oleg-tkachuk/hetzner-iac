@@ -63,8 +63,9 @@ cluster that outlives one.
 
 ### Every workload declares what it needs
 
-Most containers run with no resource limits, so any one of them can starve the
-node the others are on.
+Every chart but Argo CD sets a memory request and limit, and `charts render`
+holds each container to it. Argo CD waits for its first real sync: repo-server
+grows while rendering manifests, and it has rendered none yet.
 
 ### What runs is verified
 
