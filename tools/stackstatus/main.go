@@ -87,6 +87,10 @@ func run(stack string, dirs []string) error {
 		return errNoProjects
 	}
 
+	if err := requireLogin(dirs); err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), statusTimeout)
 	defer cancel()
 
