@@ -47,8 +47,10 @@ const (
 	Cyan   = "36"
 	Yellow = "33"
 	Red    = "31"
-	Grey   = "90"
-	Bold   = "1"
+	// Grey paints the "nothing here" mark only, never text: on a dark
+	// background with a low-contrast palette it all but disappears.
+	Grey = "90"
+	Bold = "1"
 )
 
 // Marks, the repository's own vocabulary: the same glyphs Taskfile.yaml's
@@ -385,7 +387,7 @@ type cell struct {
 func plainCell(text string) cell { return cell{text: text, color: ""} }
 
 func renderHeader(report *strings.Builder, header Header, paint Painter) {
-	report.WriteString(paint(Bold, MarkRunning+" "+title) + " " + paint(Grey, "· stack "+header.Stack) + "\n\n")
+	report.WriteString(paint(Bold, MarkRunning+" "+title) + " · stack " + header.Stack + "\n\n")
 
 	head := header.Head.Short()
 	if header.Head.Branch != "" {
@@ -408,7 +410,7 @@ func renderHeader(report *strings.Builder, header Header, paint Painter) {
 		// Pad before painting: an escape sequence has width in a format verb
 		// and none on screen, so padding a painted label eats its own gap.
 		label := fmt.Sprintf("%-*s", headerLabelWidth, field[0])
-		report.WriteString(indent + paint(Grey, label) + field[1] + "\n")
+		report.WriteString(indent + paint(Bold, label) + field[1] + "\n")
 	}
 
 	report.WriteString("\n")
@@ -452,14 +454,14 @@ func row(project Project, header Header, now time.Time) []cell {
 	case project.Err != nil:
 		return []cell{name, {MarkFailed, Red}, {"unreadable: " + firstLine(project.Err.Error()), Red}}
 	case !project.HasStack:
-		return []cell{name, {MarkNone, Grey}, {"no stack", Grey}}
+		return []cell{name, {MarkNone, Grey}, plainCell("no stack")}
 	}
 
 	notes := cell{text: strings.Join(Notes(project, header), "; "), color: Yellow}
 
 	if project.Last == nil {
 		return []cell{
-			name, {MarkNone, Grey}, {"never run", Grey}, plainCell(""), plainCell(""),
+			name, {MarkNone, Grey}, plainCell("never run"), plainCell(""), plainCell(""),
 			plainCell(count(project.Resources)), plainCell(""), plainCell(""), notes,
 		}
 	}
@@ -480,8 +482,8 @@ func row(project Project, header Header, now time.Time) []cell {
 		name,
 		{mark, markColor},
 		plainCell(runLabel(last)),
-		{When(now, last.Start), Grey},
-		{Took(last.Start, last.End), Grey},
+		plainCell(When(now, last.Start)),
+		plainCell(Took(last.Start, last.End)),
 		plainCell(count(project.Resources)),
 		plainCell(ChangeSummary(last.Changes)),
 		commit,
@@ -527,7 +529,7 @@ func renderTable(report *strings.Builder, rows [][]cell, paint Painter) {
 
 	for _, heading := range headings {
 		widths = append(widths, utf8.RuneCountInString(heading))
-		head = append(head, cell{text: heading, color: Grey})
+		head = append(head, cell{text: heading, color: Bold})
 	}
 
 	for _, cells := range rows {
