@@ -66,11 +66,12 @@ Everything below creates **billable**
 `task destroy` removes them — every layer, then the cluster.
 
 ```bash
-# 1. The repository, and the backend that will hold the state. Bare
-#    `pulumi login` is Pulumi Cloud; an S3 bucket is the same command with a
+# 1. The repository, and the backend that will hold the state: Pulumi Cloud,
+#    named explicitly — the URL every Pulumi.yaml declares, and the one the
+#    credential is stored under. An S3 bucket is the same command with its
 #    URL, and then PULUMI_CONFIG_PASSPHRASE has to be in the environment.
 git clone https://github.com/oleg-tkachuk/hetzner-iac.git && cd hetzner-iac
-pulumi login
+pulumi login https://api.pulumi.com
 
 # 2. Describe the cluster. Set network.adminCIDRs to the address you apply
 #    from: Talos configuration goes over the Talos API, and a host outside
@@ -137,7 +138,7 @@ both are written from the stack rather than kept.
 # 1. The same first step as above: the repository, and the backend that holds
 #    the state. Nothing is created here — the stack already exists.
 git clone https://github.com/oleg-tkachuk/hetzner-iac.git && cd hetzner-iac
-pulumi login
+pulumi login https://api.pulumi.com
 
 # 2. What stacks exist, and which of them this clone can describe. First,
 #    because it reports a stack whose topology file is missing here rather
@@ -189,7 +190,7 @@ a clone needs them only to run the same checks locally.
 
 | Tool | Why |
 |------|-----|
-| [Pulumi](https://www.pulumi.com/docs/install/) 3.261+ | runs everything here; `pulumi login` before the first task |
+| [Pulumi](https://www.pulumi.com/docs/install/) 3.261+ | runs everything here; `pulumi login https://api.pulumi.com` before the first task |
 | [Go](https://go.dev/dl/) 1.27+ | the programs are Go |
 | [Task](https://taskfile.dev/installation/) 3.53+ | the entry points; the [remote Taskfiles](https://github.com/oleg-tkachuk/taskfiles) it includes need 3.53 |
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
