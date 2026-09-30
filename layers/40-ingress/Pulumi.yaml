@@ -42,3 +42,11 @@ config:
       part of a load balancer this layer actually needs. Declared with no
       default of its own on purpose, so DefaultLoadBalancerType in the layer
       stays the one place the fallback is written.
+
+# `ingress:hcloudToken` is deliberately NOT declared above, for the reason
+# 10-node-platform gives for its own: a declared key with no default is required
+# before the program runs, and a default of "" would read as set-but-empty. It
+# overrides the token the cluster tier exports; set it only when the load
+# balancer and the DNS records must be created as another identity:
+#
+#   pulumi config set --secret ingress:hcloudToken <token>

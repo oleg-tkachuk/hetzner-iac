@@ -136,7 +136,11 @@ func deploy(r *layer.Runner) error {
 	// A provider of its own, because this is the first layer to create
 	// anything in Hetzner rather than in Kubernetes. r.Options carries the
 	// Kubernetes provider, which this must not inherit.
-	hcloudProvider, err := hetzner.NewProvider(r.Ctx, r.Cluster.HcloudToken)
+	//
+	// The token through the runner, which refuses the empty one the tier
+	// exports when its own was never set — a provider built from that
+	// authenticates as nothing and fails at its first call with a 401.
+	hcloudProvider, err := hetzner.NewProvider(r.Ctx, r.HcloudToken())
 	if err != nil {
 		return err
 	}

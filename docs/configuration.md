@@ -241,6 +241,7 @@ ships as a task here and the decision stays with whoever owns the organisation.
 | `cluster-services:acmeStaging` | [`30-cluster-services`](../layers/30-cluster-services) | order from Let's Encrypt's staging endpoint: untrusted certificates, and where a new domain's first attempt belongs |
 | `cluster-services:kedaEnabled` | [`30-cluster-services`](../layers/30-cluster-services) | install KEDA, the event-driven autoscaler; it scales pods and not nodes, so it cannot grow past the pinned worker pools |
 | `cluster-services:pulumiAccessToken` | [`30-cluster-services`](../layers/30-cluster-services) | token the External Secrets Operator reads Pulumi ESC with; empty creates no store, and it is set with `--secret` (see [secrets from Pulumi ESC](#secrets-from-pulumi-esc)) |
+| `ingress:hcloudToken` | [`40-ingress`](../layers/40-ingress) | optional; overrides the token the cluster stack exports for the load balancer and DNS records (secret) |
 | `ingress:loadBalancerType` | [`40-ingress`](../layers/40-ingress) | Hetzner load balancer type, default `lb11` |
 | `gitops:repoURL` | [`50-gitops`](../layers/50-gitops) | the repository Argo CD reconciles; omit it and Argo CD is installed and reconciles nothing |
 | `gitops:path` | [`50-gitops`](../layers/50-gitops) | where the tree of Applications starts in that repository, default the root |
