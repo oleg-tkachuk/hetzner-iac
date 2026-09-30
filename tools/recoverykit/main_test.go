@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -11,6 +14,89 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/secretout"
 )
 
+// backend answers for Pulumi: a fixed bundle, the stacks the backup tier
+// lists, and what reading its outputs returns.
+type backend struct {
+	stacks     []string
+	stacksErr  error
+	outputs    []byte
+	outputsErr error
+}
+
+func (backend) Bundle(context.Context, string) ([]byte, error) {
+	return []byte("cluster: {}\n"), nil
+}
+
+func (b backend) Outputs(context.Context, string, string) ([]byte, error) {
+	return b.outputs, b.outputsErr
+}
+
+func (b backend) Stacks(context.Context, string) ([]string, error) {
+	return b.stacks, b.stacksErr
+}
+
+// unreachable is a backend that answers nothing.
+type unreachable struct{}
+
+var errUnreachable = errors.New("backend unreachable")
+
+func (unreachable) Bundle(context.Context, string) ([]byte, error) { return nil, errUnreachable }
+
+func (unreachable) Outputs(context.Context, string, string) ([]byte, error) {
+	return nil, errUnreachable
+}
+
+func (unreachable) Stacks(context.Context, string) ([]string, error) { return nil, errUnreachable }
+
+// errTimedOut stands for any failure that is not an absent stack: a timeout,
+// an expired login, a backend refusing the request.
+var errTimedOut = errors.New("context deadline exceeded")
+
+// TestRun_BackupOutputsThatCannotBeReadFail is the green task that handed
+// over a kit without the restic password.
+//
+// A stack that exists and could not be read is not a layer that was never
+// applied. Writing it down as MISSING and exiting zero stored a kit that
+// cannot decrypt a single snapshot, and said so only inside the document
+// nobody reads until the day it is needed.
+func TestRun_BackupOutputsThatCannotBeReadFail(t *testing.T) {
+	t.Parallel()
+
+	for name, pulumi := range map[string]backend{
+		"the outputs fail":            {stacks: []string{"dev"}, outputsErr: errTimedOut},
+		"the listing fails too":       {stacksErr: errTimedOut, outputsErr: errTimedOut},
+		"an organisation-named stack": {stacks: []string{"acme/dev"}, outputsErr: errTimedOut},
+	} {
+		var out bytes.Buffer
+
+		err := run(context.Background(), pulumi, &out, []string{"dev"}, false)
+		require.Error(t, err, name)
+		require.ErrorIs(t, err, errTimedOut, name)
+		assert.Empty(t, out.String(), "%s: a kit without the backup credentials was written", name)
+	}
+}
+
+// TestRun_ABackupTierNeverAppliedIsANote keeps the half that does exist.
+//
+// No stack, or a stack with no outputs, is a layer that was never applied:
+// there is nothing to lose by printing the kit without it, and refusing would
+// leave the operator with nothing at all.
+func TestRun_ABackupTierNeverAppliedIsANote(t *testing.T) {
+	t.Parallel()
+
+	for name, pulumi := range map[string]backend{
+		"no such stack":    {stacks: []string{"prod", "acme/staging"}, outputsErr: errTimedOut},
+		"no outputs":       {stacks: []string{"dev"}, outputs: []byte("{}\n")},
+		"no stacks at all": {outputsErr: errTimedOut},
+	} {
+		var out bytes.Buffer
+
+		require.NoError(t, run(context.Background(), pulumi, &out, []string{"dev"}, false), name)
+		assert.Contains(t, out.String(), "MISSING — the snapshots on the Storage Box", name)
+		assert.Contains(t, out.String(), "Apply infra/backup", name)
+	}
+}
+
 // TestRun_RefusesATerminal is the whole reason this is a tool and not a
 // `pulumi stack output` in a taskfile: a certificate authority printed to a
 // terminal outlives the session in scrollback, and the shell's history of the
@@ -18,7 +104,7 @@ import (
 func TestRun_RefusesATerminal(t *testing.T) {
 	t.Parallel()
 
-	err := run(context.Background(), []string{"dev"}, true)
+	err := run(context.Background(), unreachable{}, io.Discard, []string{"dev"}, true)
 	require.Error(t, err)
 	require.ErrorIs(t, err, secretout.ErrTerminal)
 
@@ -31,7 +117,7 @@ func TestRun_RefusesTheWrongArgumentCount(t *testing.T) {
 	t.Parallel()
 
 	for _, args := range [][]string{{}, {"dev", "extra"}} {
-		err := run(context.Background(), args, false)
+		err := run(context.Background(), unreachable{}, io.Discard, args, false)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "usage: recoverykit <stack>")
 	}
@@ -50,7 +136,7 @@ func TestRun_RefusesAStackNameThatIsAPath(t *testing.T) {
 	for _, name := range []string{
 		"../dev", "dev/../../etc", "a/b", ".hidden", "", "dev name",
 	} {
-		err := run(context.Background(), []string{name}, false)
+		err := run(context.Background(), unreachable{}, io.Discard, []string{name}, false)
 		require.Error(t, err, "%q was accepted", name)
 		assert.Contains(t, err.Error(), "is not a stack name", "%q", name)
 	}
@@ -59,7 +145,7 @@ func TestRun_RefusesAStackNameThatIsAPath(t *testing.T) {
 	// backend, which is not this test's business — so the assertion is only
 	// that the refusal above is not what stopped them.
 	for _, name := range []string{"dev", "prod-2", "eu_west", "v1.2"} {
-		err := run(context.Background(), []string{name}, false)
+		err := run(context.Background(), unreachable{}, io.Discard, []string{name}, false)
 		if err != nil {
 			assert.NotContains(t, err.Error(), "is not a stack name", "%q", name)
 		}
