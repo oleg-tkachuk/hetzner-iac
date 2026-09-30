@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,16 +13,30 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// runDefaults is a `defaults.run` block, which a workflow and each of its jobs
+// may carry.
+type runDefaults struct {
+	Run struct {
+		WorkingDirectory string `json:"working-directory"`
+	} `json:"run"`
+}
+
 // workflow is the part of a GitHub Actions workflow this test walks.
 type workflow struct {
-	Jobs map[string]struct {
-		Steps []struct {
+	Defaults runDefaults `json:"defaults"`
+	Jobs     map[string]struct {
+		Defaults runDefaults `json:"defaults"`
+		Steps    []struct {
 			Name             string `json:"name"`
 			Run              string `json:"run"`
 			WorkingDirectory string `json:"working-directory"`
 		} `json:"steps"`
 	} `json:"jobs"`
 }
+
+// relativeGoRun is how a step runs a tool by a path relative to where it
+// stands.
+const relativeGoRun = "go run ./"
 
 // TestWorkflows_RunGoToolsFromTheWorkspace catches a relative package path
 // that resolves against the wrong directory.
@@ -43,7 +58,7 @@ func TestWorkflows_RunGoToolsFromTheWorkspace(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 
-	var steps int
+	var examined, wrong int
 
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
@@ -58,21 +73,38 @@ func TestWorkflows_RunGoToolsFromTheWorkspace(t *testing.T) {
 
 		for job, spec := range parsed.Jobs {
 			for _, step := range spec.Steps {
-				if step.WorkingDirectory == "" || !strings.Contains(step.Run, "go run ./") {
+				if !strings.Contains(step.Run, relativeGoRun) {
 					continue
 				}
 
-				steps++
+				examined++
+
+				// The directory a step runs in is its own, else its job's
+				// default, else the workflow's — GitHub's order. Reading the
+				// step alone let a `defaults.run` on the job move every step
+				// under it without this test seeing any of them.
+				dir := cmp.Or(step.WorkingDirectory,
+					spec.Defaults.Run.WorkingDirectory,
+					parsed.Defaults.Run.WorkingDirectory)
+				if dir == "" {
+					continue
+				}
+
+				wrong++
 
 				assert.Fail(t,
 					"a relative go package path in a step that changed directory",
 					"%s job %q step %q runs `go run ./…` from %s, where the package path does not resolve — address it as $GITHUB_WORKSPACE/…",
-					entry.Name(), job, step.Name, step.WorkingDirectory)
+					entry.Name(), job, step.Name, dir)
 			}
 		}
 	}
 
-	assert.Zero(t, steps)
+	// A step that runs a tool relatively must exist for the check above to
+	// have asked anything. Without it, a renamed key in the struct would
+	// match nothing and report a clean tree.
+	assert.Positive(t, examined, "no step runs %s…, so nothing was checked", relativeGoRun)
+	assert.Zero(t, wrong)
 }
 
 // gate is the part of a workflow these tests read: what a job is conditional
