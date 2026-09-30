@@ -60,6 +60,12 @@ type recorder struct {
 	// between an HA cluster that comes up and an apply that fails after
 	// creating everything else.
 	dependsOn map[string][]string
+
+	// callProviders is the provider reference each function call was made
+	// through, by token. Empty when the call went to the default provider —
+	// the one configured from the ambient environment rather than the one a
+	// layer built from its own token.
+	callProviders map[string]string
 }
 
 func newRecorder() *recorder {
@@ -69,7 +75,16 @@ func newRecorder() *recorder {
 		deleteFirst:    map[string]bool{},
 		replaceOn:      map[string][]string{},
 		dependsOn:      map[string][]string{},
+		callProviders:  map[string]string{},
 	}
+}
+
+// providerOf is the provider reference the call with this token went through.
+func (r *recorder) providerOf(token string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.callProviders[token]
 }
 
 func (r *recorder) record(token string, inputs resource.PropertyMap) {
@@ -140,6 +155,10 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 }
 
 func (r *recorder) Call(args pulumi.MockCallArgs) (resource.PropertyMap, error) {
+	r.mu.Lock()
+	r.callProviders[args.Token] = args.Provider
+	r.mu.Unlock()
+
 	switch args.Token {
 	case "hcloud:index/getImage:getImage":
 		return resource.PropertyMap{
