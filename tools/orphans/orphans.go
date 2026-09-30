@@ -111,6 +111,14 @@ type Claims struct {
 	// TalosVersion is the version the topology pins. A snapshot for another
 	// version is not wrong, only unused — and still billed.
 	TalosVersion string
+	// Cluster is the name the topology gives this cluster, which its
+	// Pulumi-made resources carry in their cluster label.
+	Cluster string
+	// ClusterGone is true when no server carries Cluster's label. The claims
+	// above are then empty because nothing is left to make any, and a
+	// Pulumi-made resource of this cluster is no longer claimed by a stack
+	// that will destroy it.
+	ClusterGone bool
 }
 
 // ClusterServers are the servers labelled as belonging to one cluster.
@@ -170,31 +178,7 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 
 	found = append(found, volumeFindings(inventory.Volumes, claims)...)
 
-	for _, balancer := range inventory.LoadBalancers {
-		uid, fromCCM := balancer.Labels[ServiceUIDLabel]
-
-		switch {
-		case balancer.Labels[clusterspec.LabelManagedBy] == clusterspec.ManagedBy:
-			// Pulumi's own, and therefore claimed: the stack that created it
-			// destroys it. Checked before the CCM label because these carry
-			// no CCM label at all.
-			continue
-		case !fromCCM:
-			// Neither Pulumi's nor the CCM's. Reported rather than skipped,
-			// because the operator is reading this list to find out what is
-			// being paid for, and "something else made it" is an answer.
-			found = append(found, Finding{
-				Kind: KindLoadBalancer, Name: balancer.Name,
-				Why: "no " + ServiceUIDLabel + " and no " + clusterspec.LabelManagedBy +
-					" label: created neither by this cluster's CCM nor by this repository",
-			})
-		case !claims.ServiceUIDs[uid]:
-			found = append(found, Finding{
-				Kind: KindLoadBalancer, Name: balancer.Name,
-				Why: "its Service is gone (uid " + uid + ")",
-			})
-		}
-	}
+	found = append(found, loadBalancerFindings(inventory.LoadBalancers, claims)...)
 
 	for _, server := range inventory.Servers {
 		if claims.Nodes[server.Name] {
@@ -378,6 +362,52 @@ func volumeFindings(volumes []Volume, claims Claims) []Finding {
 			Kind: KindVolume, Name: volume.Name, Size: float64(volume.SizeGB),
 			Why: "no PersistentVolume of this name in the cluster",
 		})
+	}
+
+	return found
+}
+
+// loadBalancerFindings is the load-balancer half of Orphans, split out because
+// who made a balancer decides which claim can account for it: a Service for
+// the CCM's, the stack for this repository's own.
+func loadBalancerFindings(balancers []LoadBalancer, claims Claims) []Finding {
+	var found []Finding
+
+	for _, balancer := range balancers {
+		uid, fromCCM := balancer.Labels[ServiceUIDLabel]
+		pulumiMade := balancer.Labels[clusterspec.LabelManagedBy] == clusterspec.ManagedBy
+		leftBehind := claims.ClusterGone && balancer.Labels[clusterspec.LabelCluster] == claims.Cluster
+
+		switch {
+		case pulumiMade && leftBehind:
+			// Pulumi's own, of a cluster that is gone. The stack that should
+			// have destroyed it did not: a destroy that stopped part-way, or a
+			// stack removed with --force, leaves exactly this, and it is billed.
+			found = append(found, Finding{
+				Kind: KindLoadBalancer, Name: balancer.Name,
+				Why: "created by this repository for " + claims.Cluster +
+					", which no server belongs to any more: the stack did not destroy it",
+			})
+		case pulumiMade:
+			// Pulumi's own, and therefore claimed: the stack that created it
+			// destroys it. Checked before the CCM label because these carry
+			// no CCM label at all.
+			continue
+		case !fromCCM:
+			// Neither Pulumi's nor the CCM's. Reported rather than skipped,
+			// because the operator is reading this list to find out what is
+			// being paid for, and "something else made it" is an answer.
+			found = append(found, Finding{
+				Kind: KindLoadBalancer, Name: balancer.Name,
+				Why: "no " + ServiceUIDLabel + " and no " + clusterspec.LabelManagedBy +
+					" label: created neither by this cluster's CCM nor by this repository",
+			})
+		case !claims.ServiceUIDs[uid]:
+			found = append(found, Finding{
+				Kind: KindLoadBalancer, Name: balancer.Name,
+				Why: "its Service is gone (uid " + uid + ")",
+			})
+		}
 	}
 
 	return found

@@ -373,3 +373,44 @@ func TestOrphans_AReleasedVolumeIsNotReportedTwice(t *testing.T) {
 	require.Len(t, found, 1)
 	assert.Contains(t, found[0].Why, PhaseReleased)
 }
+
+// TestOrphans_WithNoClusterReportsItsPulumiLoadBalancers is the bill the
+// cluster-gone report used to hide.
+//
+// A load balancer this repository created is claimed by the stack that
+// created it only while that stack can still destroy it. Once no server
+// carries the cluster's label, one that is still there is what a destroy that
+// stopped part-way, or a stack removed with --force, left behind — and the
+// report promises that everything it lists is exactly that. Another cluster's
+// balancer in the same project is still that cluster's stack's to destroy.
+func TestOrphans_WithNoClusterReportsItsPulumiLoadBalancers(t *testing.T) {
+	t.Parallel()
+
+	pulumiOwned := func(name, cluster string) LoadBalancer {
+		return LoadBalancer{Name: name, Labels: map[string]string{
+			clusterspec.LabelCluster:   cluster,
+			clusterspec.LabelManagedBy: clusterspec.ManagedBy,
+		}}
+	}
+
+	inventory := Inventory{LoadBalancers: []LoadBalancer{
+		pulumiOwned("platform-dev-ingress", "platform-dev"),
+		pulumiOwned("platform-prod-ingress", "platform-prod"),
+	}}
+
+	gone := claims()
+	gone.Cluster = "platform-dev"
+	gone.ClusterGone = true
+
+	found := Orphans(inventory, gone)
+
+	require.Len(t, found, 1, "only the gone cluster's balancer is left behind")
+	assert.Equal(t, KindLoadBalancer, found[0].Kind)
+	assert.Equal(t, "platform-dev-ingress", found[0].Name)
+
+	alive := claims()
+	alive.Cluster = "platform-dev"
+
+	assert.Empty(t, Orphans(inventory, alive),
+		"while the cluster exists its stack still claims the balancer")
+}
