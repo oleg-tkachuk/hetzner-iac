@@ -10,6 +10,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec/clusterspectest"
@@ -435,9 +436,37 @@ func TestNewCluster_WorkerPoolCarriesItsLabelsAndTaints(t *testing.T) {
 
 	rec := runCluster(t, topology, &hetzner.ClusterArgs{PublicIPv4: true})
 
-	// The taint reaches the node through its machine-config patch, which is
-	// built from the same values.
-	assert.Len(t, rec.of("talos:machine/configurationApply:ConfigurationApply"), 5)
+	applies := rec.of("talos:machine/configurationApply:ConfigurationApply")
+	assert.Len(t, applies, 5)
+
+	// The labels and taints reach the node through its machine-config patch,
+	// and only where Talos reads them: machine.nodeLabels and
+	// machine.nodeTaints. Counting the applies alone passed while both were
+	// written under machine.kubelet, which Talos refuses as unknown keys.
+	hostname := clusterspec.NodeName(topology.Metadata.Name, topology.WorkerPools[0].Name, 0)
+
+	var machine map[string]any
+
+	for _, apply := range applies {
+		for _, patch := range apply["configPatches"].ArrayValue() {
+			if !strings.Contains(patch.StringValue(), "hostname: "+hostname) {
+				continue
+			}
+
+			first, _, _ := strings.Cut(patch.StringValue(), "\n---\n")
+
+			var doc map[string]any
+			require.NoError(t, yaml.Unmarshal([]byte(first), &doc))
+
+			machine, _ = doc["machine"].(map[string]any)
+		}
+	}
+
+	require.NotNil(t, machine, "no node patch for %s", hostname)
+	assert.NotContains(t, machine, "kubelet")
+	assert.Equal(t, map[string]any{clusterspec.LabelPool: topology.WorkerPools[0].Name, "workload": "gpu"},
+		machine["nodeLabels"])
+	assert.Equal(t, map[string]any{"gpu": "true:NoSchedule"}, machine["nodeTaints"])
 }
 
 func TestNewCluster_NoWorkersAllowsSchedulingOnControlPlanes(t *testing.T) {
