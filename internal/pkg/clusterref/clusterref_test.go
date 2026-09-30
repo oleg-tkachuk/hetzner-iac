@@ -1,6 +1,7 @@
 package clusterref_test
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -191,6 +192,24 @@ func TestResolve_AProducerThatPredatesVersioningFailsWithOneCommand(t *testing.T
 	assert.Contains(t, err.Error(), "publishes contract v0")
 	assert.Contains(t, err.Error(), "task cluster:apply")
 	assert.Contains(t, err.Error(), "acme/hetzner-cluster/prod")
+}
+
+// TestResolve_AProducerOnANewerContractFails is the other direction of the
+// gate. A bump means an output was added, removed or repurposed, so a cluster
+// tier applied from a newer checkout may no longer publish what this older one
+// reads — and it was accepted, because only an older producer was refused.
+func TestResolve_AProducerOnANewerContractFails(t *testing.T) {
+	t.Parallel()
+
+	mocks := current()
+	mocks.outputs[resource.PropertyKey(clusterref.OutputContractVersion)] =
+		resource.NewNumberProperty(clusterref.ContractVersion + 1)
+
+	_, err := await(t, mocks, func(c *clusterref.Cluster) pulumi.Output { return c.ContractCheck })
+
+	require.Error(t, err, "a producer on a newer contract than this checkout reads was accepted")
+	assert.Contains(t, err.Error(), fmt.Sprintf("publishes contract v%d", clusterref.ContractVersion+1))
+	assert.Contains(t, err.Error(), "checkout")
 }
 
 // TestResolve_TheCheckIsNotInAnyValue is the regression this file exists for
