@@ -142,6 +142,25 @@ vars:
   # and all of them.
   _CL_SELECTOR: 'cluster=$(go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}")'
 
+  # Every node of the cluster, as Talos itself lists them: `workers` and
+  # `control_planes`, each a space-separated list of addresses.
+  #
+  # The generated talosconfig names the first control-plane node as both its
+  # endpoint and its only node, so a bare `talosctl <verb>` reaches that one
+  # node and no other. Tasks that promise every node walk these lists, one
+  # node at a time with --endpoints and --nodes both set — the pairing
+  # etcd:restore explains. Workers first, so the control plane is the last to
+  # go. An empty control plane is refused: it means Talos did not answer, not
+  # that there is nothing to do.
+  _CL_NODES: |
+    export TALOSCONFIG="{{.ROOT}}/talosconfig"
+    members_json="$(talosctl get members -o json)"
+    workers="$(jq -r --arg cp "{{._CL_MACHINE_CONTROL_PLANE}}" 'select(.spec.machineType != $cp) | .spec.addresses[0]' <<<"$members_json")"
+    control_planes="$(jq -r --arg cp "{{._CL_MACHINE_CONTROL_PLANE}}" 'select(.spec.machineType == $cp) | .spec.addresses[0]' <<<"$members_json")"
+    test -n "$control_planes"
+  # What Talos calls a control-plane node's machine type.
+  _CL_MACHINE_CONTROL_PLANE: controlplane
+
   # The system volumes that carry secrets, and what a probe calls an encrypted
   # one. Named because encryption:check compares against them: a typo here
   # reports "not found" rather than silently passing.
@@ -503,8 +522,14 @@ tasks:
       # there is more than one node and only one is going down.
       - cmd: |
           set -euo pipefail
-          export TALOSCONFIG="{{.ROOT}}/talosconfig"
-          talosctl shutdown
+          {{._CL_NODES}}
+
+          # shellcheck disable=SC2086 # two address lists, split on purpose
+          for node in $workers $control_planes; do
+            printf '%s\n' "{{._RUN}} cluster · stop · ${node}"
+            talosctl --endpoints "${node}" --nodes "${node}" shutdown
+          done
+
           printf '\n'
           printf '%s\n' "{{._OK}} cluster · stop · halted, and still billed — only cluster:destroy stops that"
           printf '%s\n' "{{._OK}} cluster · stop · back up with: task hcloud:poweron stack={{._CL_STACK}}"
@@ -519,8 +544,16 @@ tasks:
       # equivalent, for when Talos cannot answer, is `task hcloud:reset`.
       - cmd: |
           set -euo pipefail
-          export TALOSCONFIG="{{.ROOT}}/talosconfig"
-          talosctl reboot
+          {{._CL_NODES}}
+
+          # One node at a time, each waited for: talosctl reboot waits by
+          # default, and rebooting the control plane all at once takes etcd
+          # below quorum.
+          # shellcheck disable=SC2086 # two address lists, split on purpose
+          for node in $workers $control_planes; do
+            printf '%s\n' "{{._RUN}} cluster · reboot · ${node}"
+            talosctl --endpoints "${node}" --nodes "${node}" reboot
+          done
 
   # ---------------------------------------------------------------------------
   # Credentials and inspection
@@ -852,27 +885,31 @@ tasks:
       #   {"label":"STATE","name":"luks"}     <- encrypted
       - cmd: |
           set -euo pipefail
-          export TALOSCONFIG="{{.ROOT}}/talosconfig"
+          {{._CL_NODES}}
 
           plaintext=0
 
-          printf '%-12s %-10s %s\n' VOLUME PROBED STATE
+          printf '%-18s %-12s %-10s %s\n' NODE VOLUME PROBED STATE
 
-          for label in {{._CL_ENCRYPTED_VOLUMES}}; do
-            # No -n: the talosconfig this task just wrote names its own
-            # endpoint, the same way cluster:etcd:snapshot relies on it.
-            # Parsing `talosctl config info` for an address would be a second
-            # source for something the file already answers.
-            probed="$(talosctl get discoveredvolumes -o json \
-              | jq -r --arg l "$label" 'select(.spec.partition_label==$l) | .spec.name')"
+          # Every node. Encryption is per disk, and a node built before the
+          # VolumeConfig keeps plaintext partitions while every other node is
+          # encrypted — probing the first control-plane node only, as this
+          # did, reported the whole cluster from one disk.
+          # shellcheck disable=SC2086 # two address lists, split on purpose
+          for node in $workers $control_planes; do
+            volumes="$(talosctl --endpoints "${node}" --nodes "${node}" get discoveredvolumes -o json)"
 
-            case "$probed" in
-              "{{._CL_LUKS}}") state=encrypted ;;
-              "")              state="not found"; plaintext=1 ;;
-              *)               state=PLAINTEXT;   plaintext=1 ;;
-            esac
+            for label in {{._CL_ENCRYPTED_VOLUMES}}; do
+              probed="$(jq -r --arg l "$label" 'select(.spec.partition_label==$l) | .spec.name' <<<"$volumes")"
 
-            printf '%-12s %-10s %s\n' "$label" "${probed:--}" "$state"
+              case "$probed" in
+                "{{._CL_LUKS}}") state=encrypted ;;
+                "")              state="not found"; plaintext=1 ;;
+                *)               state=PLAINTEXT;   plaintext=1 ;;
+              esac
+
+              printf '%-18s %-12s %-10s %s\n' "$node" "$label" "${probed:--}" "$state"
+            done
           done
 
           if [ "$plaintext" -ne 0 ]; then
