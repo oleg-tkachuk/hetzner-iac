@@ -45,39 +45,29 @@ func TestNoAppendOntoASharedOptionSlice(t *testing.T) {
 		scanned  int
 	)
 
-	require.NoError(t, filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", ".cache", "node_modules", "coverage":
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-
-		if filepath.Ext(path) != ".go" {
-			return nil
+	// Tracked files only: an ignored build cache or scratch file is not code
+	// this repository ships, and reading it made the gate's answer depend on
+	// what happened to be lying in the working directory.
+	for _, name := range tracked(t, root) {
+		if filepath.Ext(name) != ".go" {
+			continue
 		}
 
 		// The package that exists to explain the trap quotes it, and its
 		// tests perform it on purpose to prove it is real.
-		if strings.Contains(filepath.ToSlash(path), "internal/pkg/pulumiopts/") {
-			return nil
+		if strings.Contains(filepath.ToSlash(name), "internal/pkg/pulumiopts/") {
+			continue
 		}
 
 		// This file names the pattern it is looking for.
-		if filepath.Base(path) == "resourceoptions_test.go" {
-			return nil
+		if filepath.Base(name) == "resourceoptions_test.go" {
+			continue
 		}
 
+		path := filepath.Join(root, name)
+
 		raw, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
+		require.NoError(t, readErr, name)
 
 		scanned++
 
@@ -88,9 +78,7 @@ func TestNoAppendOntoASharedOptionSlice(t *testing.T) {
 
 			offences = append(offences, filepath.ToSlash(path)+":"+strconv.Itoa(i+1)+": "+strings.TrimSpace(line))
 		}
-
-		return nil
-	}))
+	}
 
 	// The gate has to have looked at something. An empty scan collects no
 	// offences and reads as a clean tree.

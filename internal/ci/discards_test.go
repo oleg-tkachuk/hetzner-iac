@@ -1,7 +1,6 @@
 package ci
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -43,30 +42,19 @@ func TestDiscardedErrors_SayWhy(t *testing.T) {
 
 	var checked int
 
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-
-		if entry.IsDir() {
-			// Vendored, generated and build output: not ours to annotate.
-			if name := entry.Name(); name == ".git" || name == "bin" || name == ".cache" {
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-
+	// Tracked files only: vendored, generated and build output never is, and
+	// what git ignores is not code this repository ships.
+	for _, name := range tracked(t, root) {
 		// Tests discard freely and legibly — a t.TempDir cleanup needs no
 		// paragraph — and holding them to this would turn the gate into noise.
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
 
+		path := filepath.Join(root, name)
+
 		raw, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
+		require.NoError(t, readErr, name)
 
 		lines := strings.Split(string(raw), "\n")
 
@@ -92,10 +80,7 @@ func TestDiscardedErrors_SayWhy(t *testing.T) {
 					"A discarded error is often right — say which kind it is",
 				relativeToRoot(path), i+1, strings.TrimSpace(line))
 		}
-
-		return nil
-	})
-	require.NoError(t, err)
+	}
 
 	assert.Positive(t, checked, "no discarded error was examined; the pattern is broken")
 }

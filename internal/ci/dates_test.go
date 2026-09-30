@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -64,45 +65,36 @@ func TestNoDatesInProse(t *testing.T) {
 		scanned  int
 	)
 
-	require.NoError(t, filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
+	// Tracked files only, which is also what CI sees: .backups/ and the
+	// gitignored notes are not prose this repository publishes.
+	for _, name := range tracked(t, root) {
+		// Architecture decision records keep their Date. The rule holds
+		// elsewhere because git records when a line was written, which is
+		// the same fact the prose was stating. An ADR's date is when the
+		// DECISION was taken, and git cannot answer that: a record is
+		// committed whenever it gets written up, and one that stops being
+		// current is never recommitted. `**Date:**` is a structural field
+		// of the format rather than a note on when somebody measured
+		// something.
+		if slices.Contains(strings.Split(filepath.ToSlash(filepath.Dir(name)), "/"), "adr") {
+			continue
 		}
 
-		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", ".cache", "node_modules", "coverage", ".backups":
-				return filepath.SkipDir
-			// Architecture decision records keep their Date. The rule holds
-			// elsewhere because git records when a line was written, which is
-			// the same fact the prose was stating. An ADR's date is when the
-			// DECISION was taken, and git cannot answer that: a record is
-			// committed whenever it gets written up, and one that stops being
-			// current is never recommitted. `**Date:**` is a structural field
-			// of the format rather than a note on when somebody measured
-			// something.
-			case "adr":
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-
-		switch filepath.Ext(path) {
+		switch filepath.Ext(name) {
 		case ".go", ".md", ".yaml", ".yml", ".json", ".tmpl":
 		default:
-			return nil
+			continue
 		}
 
 		// This file names the pattern it looks for.
-		if filepath.Base(path) == "dates_test.go" {
-			return nil
+		if filepath.Base(name) == "dates_test.go" {
+			continue
 		}
 
+		path := filepath.Join(root, name)
+
 		raw, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
+		require.NoError(t, readErr, name)
 
 		scanned++
 
@@ -114,9 +106,7 @@ func TestNoDatesInProse(t *testing.T) {
 			offences = append(offences,
 				filepath.ToSlash(path)+":"+strconv.Itoa(i+1)+": "+strings.TrimSpace(line))
 		}
-
-		return nil
-	}))
+	}
 
 	// A scan that selected nothing would report no dates and pass, which is
 	// the failure this file exists to catch in other people's work. The same
