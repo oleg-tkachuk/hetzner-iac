@@ -80,33 +80,27 @@ func TestYAMLFixtures_NameALocationThatExists(t *testing.T) {
 
 	var checked int
 
-	for _, dir := range []string{
-		filepath.Join(root, "internal", "pkg", "hetzner"),
-		filepath.Join(root, "tools", "topology"),
-	} {
-		entries, err := os.ReadDir(dir)
-		require.NoError(t, err, dir)
+	// Every tracked test file rather than a list of directories. The list
+	// named two, and clusterspec and tools/stack carry topology fixtures too —
+	// a location that stopped existing would have gone stale in them unseen.
+	for _, name := range tracked(t, root) {
+		if !strings.HasSuffix(name, "_test.go") {
+			continue
+		}
 
-		for _, entry := range entries {
-			name := entry.Name()
-			if !strings.HasSuffix(name, "_test.go") {
-				continue
-			}
+		path := filepath.Join(root, name)
 
-			path := filepath.Join(dir, name)
+		raw, readErr := os.ReadFile(path)
+		require.NoError(t, readErr, path)
 
-			raw, readErr := os.ReadFile(path)
-			require.NoError(t, readErr, path)
+		for _, match := range yamlFixtureLocation.FindAllStringSubmatch(string(raw), -1) {
+			location := match[1]
 
-			for _, match := range yamlFixtureLocation.FindAllStringSubmatch(string(raw), -1) {
-				location := match[1]
+			checked++
 
-				checked++
-
-				assert.True(t, slices.Contains(clusterspec.Locations, location),
-					"%s has a fixture in location %q, which is not one this platform builds in",
-					relativeToRoot(path), location)
-			}
+			assert.True(t, slices.Contains(clusterspec.Locations, location),
+				"%s has a fixture in location %q, which is not one this platform builds in",
+				relativeToRoot(path), location)
 		}
 	}
 
