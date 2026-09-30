@@ -2,8 +2,10 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 	"github.com/stretchr/testify/assert"
@@ -118,4 +120,74 @@ func TestPasswordSpecialCharacters_RejectTheCharactersThatFailedTheApply(t *test
 		assert.NotContains(t, HetznerPasswordSpecialCharacters, refused,
 			"%q is recorded as accepted by Hetzner, and the API says otherwise", refused)
 	}
+}
+
+// keyRegistration is what the mock monitor saw when the restic key was
+// registered: the inputs sent, and the two options that keep the key.
+type keyRegistration struct {
+	mu        sync.Mutex
+	inputs    []string
+	protected bool
+	ignored   []string
+}
+
+func (k *keyRegistration) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if args.Name == repositoryKeyName {
+		for key := range args.Inputs {
+			k.inputs = append(k.inputs, string(key))
+		}
+
+		if rpc := args.RegisterRPC; rpc != nil {
+			k.protected = rpc.GetProtect()
+			k.ignored = rpc.GetIgnoreChanges()
+		}
+	}
+
+	return args.Name + "-id", args.Inputs, nil
+}
+
+func (*keyRegistration) Call(args pulumi.MockCallArgs) (resource.PropertyMap, error) {
+	return args.Args, nil
+}
+
+func registerRepositoryKey(t *testing.T) *keyRegistration {
+	t.Helper()
+
+	registered := &keyRegistration{}
+
+	require.NoError(t, pulumi.RunErr(func(ctx *pulumi.Context) error {
+		_, err := newRepositoryKey(ctx)
+
+		return err
+	}, pulumi.WithMocks("backup", "dev", registered)))
+
+	return registered
+}
+
+// TestRepositoryKey_IsProtected keeps a replace or a delete of the key from
+// going through: either one discards the only thing that decrypts the
+// snapshots already on the box.
+func TestRepositoryKey_IsProtected(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, registerRepositoryKey(t).protected,
+		"the restic key is not pulumi.Protect-ed, so a rename or a replace drops it and every "+
+			"snapshot on the box becomes unreadable")
+}
+
+// TestRepositoryKey_IgnoresEveryInputItIsGiven is the bug: the key shares
+// passwordArgs with the box passwords, so changing that alphabet for Hetzner
+// replaced it too. Held against the inputs actually sent, so a field added to
+// passwordArgs later fails here rather than rotating the key.
+func TestRepositoryKey_IgnoresEveryInputItIsGiven(t *testing.T) {
+	t.Parallel()
+
+	registered := registerRepositoryKey(t)
+
+	require.NotEmpty(t, registered.inputs, "the key was registered with no inputs, so this proved nothing")
+	assert.Subset(t, registered.ignored, registered.inputs,
+		"an input of the restic key is not ignored, so changing it draws a new key")
 }
