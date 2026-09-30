@@ -2,6 +2,7 @@ package clustersmoke
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -274,27 +276,39 @@ func (r *Runner) dataVolume(ctx context.Context, claim corev1.PersistentVolumeCl
 // consumer of that API asks it: a group that discovery cannot reach is a group
 // no HorizontalPodAutoscaler can read, whatever the object says about itself.
 //
+// ServerGroupsAndResources rather than ServerGroups, and that is the fix.
+// ServerGroups discards the versions that failed and still lists their
+// group's name, so a group registered and answering 503 read as served.
+// ServerGroupsAndResources reports them as ErrGroupDiscoveryFailed, which is
+// client-go's own account of which groups did not answer.
+//
 // No context: client-go's discovery interface predates them on this call.
 func (r *Runner) checkExternalMetrics() Result {
-	served, err := r.client.Discovery().ServerGroups()
+	served, _, err := r.client.Discovery().ServerGroupsAndResources()
 
-	var failure string
-	if err != nil {
-		// Not returned as a failure of the check. A partial discovery failure
-		// IS the answer — it names the groups that did not answer — and
+	var failed []string
+
+	var partial *discovery.ErrGroupDiscoveryFailed
+
+	switch {
+	case errors.As(err, &partial):
+		// Not a failure of the check. A partial discovery failure IS the
+		// answer — it names the groups that did not answer — and
 		// ExternalMetricsServed decides whether ours is among them.
-		failure = err.Error()
+		for version := range partial.Groups {
+			failed = append(failed, version.Group)
+		}
+	case err != nil:
+		return Result{Name: CheckExternalMetrics, Status: StatusFailed, Detail: "discovery failed: " + err.Error()}
 	}
 
 	var groups []string
 
-	if served != nil {
-		for _, group := range served.Groups {
-			groups = append(groups, group.Name)
-		}
+	for _, group := range served {
+		groups = append(groups, group.Name)
 	}
 
-	return ExternalMetricsServed(groups, failure)
+	return ExternalMetricsServed(groups, failed)
 }
 
 func (r *Runner) checkNodes(ctx context.Context) Result {
