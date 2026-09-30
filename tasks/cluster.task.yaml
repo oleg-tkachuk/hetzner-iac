@@ -389,14 +389,21 @@ tasks:
             exit 0
           fi
 
+          # Any failure lands here — a quota, a timeout, a server that did not
+          # come up — and an apply that failed part-way HAS changed things. So
+          # this says only what is true of every one of them, and names the
+          # protected case as one possibility the output above will confirm or
+          # not. It used to claim no change had been made and point at
+          # --ignore-protect whatever the cause was.
           if ! pulumi --non-interactive --stack "{{._CL_STACK}}" up --yes; then
             printf '\n'
-            printf '%s\n' "{{._SKIP}} cluster · apply · a protected resource is the control plane or the API endpoint"
+            printf '%s\n' "{{._ERR}} cluster · apply · pulumi up failed; its output above says why, and what it had already changed"
+            printf '\n'
+            printf '%s\n' "If it refused to replace a protected resource — a control-plane node or the API"
+            printf '%s\n' "load balancer — and that replacement is intended:"
             printf '\n'
             printf '%s\n' "    task cluster:etcd:snapshot stack={{._CL_STACK}}   # first, if etcd is running"
             printf '%s\n' "    task cluster:apply stack={{._CL_STACK}} replace_control_plane=yes"
-            printf '\n'
-            printf '%s\n' "applies it anyway. Nothing was changed."
             exit 1
           fi
 

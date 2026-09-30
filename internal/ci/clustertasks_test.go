@@ -104,3 +104,33 @@ func TestTalosctlCalls_NameAnEndpointWithEveryNode(t *testing.T) {
 
 	assert.Positive(t, checked, "no talosctl call targets a node; this test is checking nothing")
 }
+
+// TestClusterApply_DoesNotSayAFailedApplyChangedNothing keeps the failure
+// message to what is true of every failure.
+//
+// Every non-zero `pulumi up` printed "a protected resource is the control
+// plane or the API endpoint … Nothing was changed" and pointed at
+// replace_control_plane=yes, which is --ignore-protect. A quota error or a
+// timeout part-way through an apply has changed things, and the one advice
+// given was to rerun with the control plane's only guard switched off.
+func TestClusterApply_DoesNotSayAFailedApplyChangedNothing(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	body, found := tasksIn(string(raw))["apply"]
+	require.True(t, found, "no apply task to check")
+
+	assert.NotContains(t, strings.ToLower(body), "nothing was changed",
+		"cluster:apply says nothing changed after a failed pulumi up, which is false for any "+
+			"failure after the first resource")
+
+	hint := strings.Index(body, "replace_control_plane=yes\"")
+	condition := strings.Index(body, "If it refused")
+
+	require.Positive(t, hint, "cluster:apply no longer names replace_control_plane=yes on failure")
+	assert.True(t, condition >= 0 && condition < hint,
+		"cluster:apply offers replace_control_plane=yes without saying it is for a refused protected "+
+			"replacement only")
+}
