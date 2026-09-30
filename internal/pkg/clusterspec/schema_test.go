@@ -1,6 +1,7 @@
 package clusterspec_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,8 +9,10 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
@@ -135,14 +138,40 @@ func forbidsUnknown(t *testing.T, path string, schema node) {
 
 // TestSchema_MatchesTheCommittedTopology proves the schema accepts the file it
 // is written for — a schema nothing is checked against is decoration.
+//
+// Through a JSON Schema validator, reading the schema itself. This used to
+// load each topology with LoadTopology and call Validate, which proves the
+// file suits the loader and says nothing about the schema: a version pattern
+// narrowed until it rejected the committed `v1.13.10` passed, and the only
+// place that disagreement would show is an editor underlining a correct file.
+//
+// Each file is checked as written, not as loaded: the editor sees the YAML on
+// disk, before any default is applied.
 func TestSchema_MatchesTheCommittedTopology(t *testing.T) {
 	t.Parallel()
+
+	compiled, err := jsonschema.NewCompiler().Compile(schemaPath)
+	require.NoError(t, err, schemaPath)
 
 	paths, err := filepath.Glob(filepath.Join("..", "..", "..", "infra", "cluster", "cluster.*.yaml"))
 	require.NoError(t, err)
 	require.NotEmpty(t, paths, "no committed topology to check the schema against")
 
 	for _, path := range paths {
+		raw, readErr := os.ReadFile(path)
+		require.NoError(t, readErr, path)
+
+		asJSON, convertErr := yaml.YAMLToJSON(raw)
+		require.NoError(t, convertErr, path)
+
+		instance, decodeErr := jsonschema.UnmarshalJSON(bytes.NewReader(asJSON))
+		require.NoError(t, decodeErr, path)
+
+		assert.NoError(t, compiled.Validate(instance),
+			"%s does not satisfy %s, so an editor flags a topology the loader accepts", path, schemaPath)
+
+		// And the loader still accepts it, which is the other half of the
+		// claim: the schema and the package describe one file.
 		topology, loadErr := clusterspec.LoadTopology(path)
 		require.NoError(t, loadErr, path)
 		require.NoError(t, topology.Validate(), path)
