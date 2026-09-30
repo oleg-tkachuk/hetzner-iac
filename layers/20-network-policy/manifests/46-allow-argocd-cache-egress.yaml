@@ -14,6 +14,13 @@
 # which is indistinguishable from the state it is in today for a different
 # reason.
 #
+# The repo server is the same shape and was the next gap. The chart's own
+# NetworkPolicy lets it accept connections from the server and the controllers;
+# nothing let them open one. It did not show in the drops only because this
+# Argo CD reconciles nothing yet, so nobody asked it to render — the first
+# Application would have timed out on the rpc to it, which reads as a broken
+# repository. 8081 is repoServer.containerPorts.server in the pinned chart.
+#
 # The general lesson is in the drops rather than in this file: the allow set
 # was written from captures, and a capture shows a server's ingress while the
 # client's egress needs its own rule. Three of the four gaps the deny exposed
@@ -23,7 +30,7 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-argocd-cache-egress
 spec:
-  description: the Argo CD server and controller reach their cache
+  description: the Argo CD server and controllers reach their cache and the repo server
   endpointSelector:
     matchLabels:
       k8s:io.kubernetes.pod.namespace: argocd
@@ -38,4 +45,12 @@ spec:
       toPorts:
         - ports:
             - port: "6379"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: argocd
+            k8s:app.kubernetes.io/name: argocd-repo-server
+      toPorts:
+        - ports:
+            - port: "8081"
               protocol: TCP
