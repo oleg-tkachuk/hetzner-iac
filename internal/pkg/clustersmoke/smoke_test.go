@@ -406,7 +406,7 @@ func TestExternalMetricsServed(t *testing.T) {
 
 	cases := map[string]struct {
 		groups     []string
-		failure    string
+		failed     []string
 		want       clustersmoke.Status
 		wantDetail string
 	}{
@@ -414,10 +414,11 @@ func TestExternalMetricsServed(t *testing.T) {
 			groups: []string{"apps", clustersmoke.ExternalMetricsGroup},
 			want:   clustersmoke.StatusPassed,
 		},
+		// Listed AND failed: what discovery returns for a registered group
+		// whose version answered 503 — the case the check exists for.
 		"registered and not answering": {
-			groups: []string{"apps"},
-			failure: "unable to retrieve the complete list of server APIs: " +
-				clustersmoke.ExternalMetricsGroup + "/v1beta1: the server is currently unable to handle the request",
+			groups:     []string{"apps", clustersmoke.ExternalMetricsGroup},
+			failed:     []string{clustersmoke.ExternalMetricsGroup},
 			want:       clustersmoke.StatusFailed,
 			wantDetail: "apiservice",
 		},
@@ -429,9 +430,9 @@ func TestExternalMetricsServed(t *testing.T) {
 		},
 		// Discovery can fail for a group that is nothing to do with this one.
 		"another group is failing": {
-			groups:  []string{"apps", clustersmoke.ExternalMetricsGroup},
-			failure: "unable to retrieve the complete list of server APIs: custom.metrics.k8s.io/v1beta1",
-			want:    clustersmoke.StatusPassed,
+			groups: []string{"apps", clustersmoke.ExternalMetricsGroup},
+			failed: []string{"custom.metrics.k8s.io"},
+			want:   clustersmoke.StatusPassed,
 		},
 	}
 
@@ -439,7 +440,7 @@ func TestExternalMetricsServed(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			result := clustersmoke.ExternalMetricsServed(one.groups, one.failure)
+			result := clustersmoke.ExternalMetricsServed(one.groups, one.failed)
 
 			assert.Equal(t, one.want, result.Status)
 			assert.Equal(t, clustersmoke.CheckExternalMetrics, result.Name)
