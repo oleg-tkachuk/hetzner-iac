@@ -53,6 +53,9 @@ type rule struct {
 	FromEndpoints []struct {
 		MatchLabels map[string]string `json:"matchLabels"`
 	} `json:"fromEndpoints"`
+	ToEndpoints []struct {
+		MatchLabels map[string]string `json:"matchLabels"`
+	} `json:"toEndpoints"`
 	ToFQDNs []struct {
 		MatchName string `json:"matchName"`
 	} `json:"toFQDNs"`
@@ -461,4 +464,54 @@ func TestACMESolverPolicy_IsScopedToSolverPods(t *testing.T) {
 	assert.Empty(t, solver.Spec.Egress,
 		"%s has grown an egress rule. A solver pod is an HTTP server that is asked for a "+
 			"file; it initiates nothing", acmeSolverPolicy)
+}
+
+// Argo CD's repo server, as the pinned chart labels and exposes it: the
+// `argocd-repo-server` name label, and repoServer.containerPorts.server.
+const (
+	argoCDNamespace      = "argocd"
+	argoCDRepoServerName = "argocd-repo-server"
+	argoCDRepoServerPort = "8081"
+)
+
+// TestArgoCD_ClientsReachTheRepoServer is the half the allow set was missing.
+//
+// The chart's own NetworkPolicy lets the repo server accept connections from
+// the server and the controllers — the ingress half. Under the default deny
+// the clients' egress is a separate decision, and nothing granted it: the
+// first Application would have failed to render with an rpc timeout to the
+// repo server, which reads as a broken repository rather than as policy. The
+// same shape as the cache egress beside it, found the same way.
+func TestArgoCD_ClientsReachTheRepoServer(t *testing.T) {
+	t.Parallel()
+
+	var allowed bool
+
+	for _, policies := range manifests(t) {
+		for _, p := range policies {
+			if p.Spec.EndpointSelector.MatchLabels["k8s:io.kubernetes.pod.namespace"] != argoCDNamespace {
+				continue
+			}
+
+			for _, egress := range p.Spec.Egress {
+				for _, to := range egress.ToEndpoints {
+					if to.MatchLabels["k8s:app.kubernetes.io/name"] != argoCDRepoServerName {
+						continue
+					}
+
+					for _, block := range egress.ToPorts {
+						for _, port := range block.Ports {
+							if port.Port == argoCDRepoServerPort && port.Protocol == "TCP" {
+								allowed = true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	assert.True(t, allowed,
+		"no policy lets Argo CD's server and controllers reach %s on %s, so under the default "+
+			"deny no Application renders", argoCDRepoServerName, argoCDRepoServerPort)
 }
