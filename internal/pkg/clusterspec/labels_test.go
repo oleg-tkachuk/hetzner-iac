@@ -1,6 +1,7 @@
 package clusterspec_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,6 +71,19 @@ func TestNodeName(t *testing.T) {
 
 	assert.Equal(t, "platform-hel-control-plane-0", clusterspec.NodeName("platform-hel", "control-plane", 0))
 	assert.Equal(t, "platform-hel-worker-11", clusterspec.NodeName("platform-hel", "worker", 11))
+}
+
+func TestNodeNamePrefix_IsWhatNodeNameStartsWith(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "platform-hel-control-plane-", clusterspec.NodeNamePrefix("platform-hel", "control-plane"))
+	assert.True(t, strings.HasPrefix(
+		clusterspec.NodeName("platform-hel", "control-plane", 2),
+		clusterspec.NodeNamePrefix("platform-hel", "control-plane")))
+	assert.False(t, strings.HasPrefix(
+		clusterspec.NodeName("platform-hel2", "control-plane", 0),
+		clusterspec.NodeNamePrefix("platform-hel", "control-plane")),
+		"one cluster's name being the start of another's must not make its nodes match")
 }
 
 func TestSortedLabelPairs_IsDeterministic(t *testing.T) {
