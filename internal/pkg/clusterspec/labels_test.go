@@ -117,3 +117,17 @@ func TestParseTaint(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkerPoolSpec_NodeLabels(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, map[string]string{clusterspec.LabelPool: "general"},
+		clusterspec.WorkerPoolSpec{Name: "general"}.NodeLabels())
+
+	assert.Equal(t, map[string]string{clusterspec.LabelPool: "gpu", "workload": "gpu"},
+		clusterspec.WorkerPoolSpec{Name: "gpu", Labels: map[string]string{"workload": "gpu"}}.NodeLabels())
+
+	spec := clusterspec.WorkerPoolSpec{Name: "gpu", Labels: map[string]string{"workload": "gpu"}}
+	spec.NodeLabels()[clusterspec.LabelPool] = "changed"
+	assert.Equal(t, map[string]string{"workload": "gpu"}, spec.Labels, "the pool's own labels are not written to")
+}
