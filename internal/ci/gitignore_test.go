@@ -17,6 +17,7 @@ package ci
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -115,4 +116,23 @@ func hasMainPackage(t *testing.T, dir string) bool {
 	}
 
 	return false
+}
+
+// TestGitignore_KeepsClaudeCodesWorkingStateOut holds the .claude/ rule to
+// what it is for: agent worktrees are whole checkouts of this repository, and
+// one staged by `git add -A` would commit a second copy of the tree.
+//
+// Asked of git rather than read out of the file, so a pattern that is present
+// and does not match — a typo, a negation after it — fails here.
+func TestGitignore_KeepsClaudeCodesWorkingStateOut(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		".claude/worktrees/agent-0/go.mod",
+		".claude/.cc-writes/state",
+	} {
+		err := exec.CommandContext(t.Context(), "git", "-C", filepath.Join("..", ".."),
+			"check-ignore", "--quiet", "--no-index", path).Run()
+		assert.NoError(t, err, "%s is not ignored", path)
+	}
 }
