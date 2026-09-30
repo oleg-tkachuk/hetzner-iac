@@ -93,10 +93,7 @@ func NewWorkerPool(ctx *pulumi.Context, name string, args *WorkerPoolArgs, opts 
 
 	clientConfig := args.ClientConfiguration.ToClientConfigurationPtrOutput()
 
-	nodeLabels := map[string]string{clusterspec.LabelPool: args.PoolName}
-	for key, value := range args.Labels {
-		nodeLabels[key] = value
-	}
+	nodeLabels := clusterspec.WorkerPoolSpec{Name: args.PoolName, Labels: args.Labels}.NodeLabels()
 
 	servers := make([]*hcloud.Server, 0, args.Count)
 	names := make([]string, 0, args.Count)

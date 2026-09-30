@@ -362,7 +362,7 @@ type NodePatchArgs struct {
 	// the load balancer.
 	CertSANs []string
 
-	// NodeLabels and NodeTaints are applied by kubelet at registration.
+	// NodeLabels and NodeTaints are the Kubernetes node labels and taints.
 	NodeLabels map[string]string
 	NodeTaints []string
 }
@@ -377,11 +377,16 @@ func BuildNodePatch(args NodePatchArgs) (string, error) {
 		return "", fmt.Errorf("node patch: at least one certificate SAN is required, or nothing can verify this node")
 	}
 
-	kubelet := map[string]any{}
+	machine := map[string]any{
+		"certSANs": dedupe(args.CertSANs),
+	}
 
+	// machine.nodeLabels and machine.nodeTaints — NOT under machine.kubelet,
+	// where Talos has neither key and refuses the whole document as unknown
+	// keys. It was written there once, and every worker node would have
+	// failed to apply.
 	if len(args.NodeLabels) > 0 {
-		kubelet["extraConfig"] = map[string]any{}
-		kubelet["nodeLabels"] = args.NodeLabels
+		machine["nodeLabels"] = args.NodeLabels
 	}
 
 	if len(args.NodeTaints) > 0 {
@@ -397,15 +402,7 @@ func BuildNodePatch(args NodePatchArgs) (string, error) {
 			taints[key] = value + ":" + effect
 		}
 
-		kubelet["nodeTaints"] = taints
-	}
-
-	machine := map[string]any{
-		"certSANs": dedupe(args.CertSANs),
-	}
-
-	if len(kubelet) > 0 {
-		machine["kubelet"] = kubelet
+		machine["nodeTaints"] = taints
 	}
 
 	patch := map[string]any{

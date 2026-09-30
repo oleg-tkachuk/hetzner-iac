@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 func TestExtractTag(t *testing.T) {
@@ -214,4 +216,37 @@ func TestTalosctlPath_DirectoryIsNotABinary(t *testing.T) {
 	}
 
 	assert.NotEqual(t, filepath.Join(dir, LocalTalosctl), chosen)
+}
+
+func TestPoolsToValidate_ProbesATopologyWithNoPools(t *testing.T) {
+	t.Parallel()
+
+	// The common topology, and where a broken worker patch waited unseen:
+	// with no pools, nothing validated a worker's node patch at all.
+	assert.Equal(t, []clusterspec.WorkerPoolSpec{probePool()}, poolsToValidate(&clusterspec.Topology{}))
+
+	pools := []clusterspec.WorkerPoolSpec{{Name: "general"}, {Name: "gpu"}}
+	assert.Equal(t, pools, poolsToValidate(&clusterspec.Topology{WorkerPools: pools}))
+}
+
+func TestProbePool_ExercisesLabelsAndTaints(t *testing.T) {
+	t.Parallel()
+
+	assert.NotEmpty(t, probePool().Labels, "a probe with no labels would not validate where they go")
+	assert.NotEmpty(t, probePool().Taints, "a probe with no taints would not validate where they go")
+}
+
+func TestWorkerNodePatch_CarriesThePoolsLabelsAndTaints(t *testing.T) {
+	t.Parallel()
+
+	patch, err := workerNodePatch("platform-dev", probePool())
+	require.NoError(t, err)
+
+	assert.Contains(t, patch, "hostname: platform-dev-probe-0")
+	assert.Contains(t, patch, "nodeLabels:")
+	assert.Contains(t, patch, "nodeTaints:")
+
+	_, err = workerNodePatch("platform-dev", clusterspec.WorkerPoolSpec{Name: "bad", Taints: []string{"no-effect"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "worker pool bad")
 }
