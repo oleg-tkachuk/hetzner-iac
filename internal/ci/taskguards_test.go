@@ -22,6 +22,13 @@ import (
 // message instead of a command aimed at nothing.
 const stackGuard = `- sh: '[ -n "{{.stack}}" ]'`
 
+// quietStackGuard is the guard an internal dependency carries instead. It
+// stops before Pulumi is reached, as the precondition does, and leaves the
+// message to the task that called it — which runs its own precondition right
+// after its dependencies and names the task the operator actually ran. A
+// precondition here would name the internal task instead.
+const quietStackGuard = `[ -n "{{.stack}}" ] || exit 0`
+
 // TestTasks_ThatNeedAStackSaySoWhenItIsMissing closes the gap left by removing
 // the dev default.
 //
@@ -63,6 +70,10 @@ func TestTasks_ThatNeedAStackSaySoWhenItIsMissing(t *testing.T) {
 			checked++
 
 			if strings.Contains(body, stackGuard) {
+				continue
+			}
+
+			if strings.Contains(body, "internal: true") && strings.Contains(body, quietStackGuard) {
 				continue
 			}
 
@@ -302,6 +313,23 @@ const layerSelectorAll = "all"
 // a command that reads like a read.
 var changesTheCluster = regexp.MustCompile(`pulumi[^\n]*\b(up|destroy|refresh)\b`)
 
+// previewOnly is the flag that makes a destroy a plan and nothing else.
+const previewOnly = "--preview-only"
+
+// changesTheClusterIn reports whether any line of body runs a pulumi verb that
+// changes the cluster. A `destroy --preview-only` line does not: it is the plan
+// platform:destroy shows before it asks, and asking before showing the plan is
+// the ordering the plan exists to avoid.
+func changesTheClusterIn(body string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		if changesTheCluster.MatchString(line) && !strings.Contains(line, previewOnly) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // TestTasks_ThatChangeInfrastructureAskFirst is the guard for the confirmation
 // a task carries.
 //
@@ -324,7 +352,7 @@ func TestTasks_ThatChangeInfrastructureAskFirst(t *testing.T) {
 		require.NoError(t, err)
 
 		for name, body := range tasksIn(string(raw)) {
-			if !changesTheCluster.MatchString(body) {
+			if !changesTheClusterIn(body) {
 				continue
 			}
 
@@ -677,4 +705,37 @@ func TestTaskLoops_DoNotIterateOverACommandSubstitution(t *testing.T) {
 		"a for loop over a command substitution: its failure does not stop the script, so "+
 			"the loop runs zero times and the task succeeds. Assign the list to a variable "+
 			"first and refuse an empty one:\n  %s", strings.Join(offences, "\n  "))
+}
+
+// TestPlatformDestroy_ShowsThePlanBeforeItAsks holds the order of a targeted
+// destroy.
+//
+// Task runs a task's deps, then its prompt, then its cmds. The --preview-only
+// plan sat in the cmds, so the operator was asked "destroy <target>?" and saw
+// what --target-dependents would take only after answering — and the destroy
+// followed with no second question.
+func TestPlatformDestroy_ShowsThePlanBeforeItAsks(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "platform.task.yaml"))
+	require.NoError(t, err)
+
+	tasks := tasksIn(string(raw))
+
+	destroy, found := tasks["destroy"]
+	require.True(t, found, "no destroy task to check")
+
+	deps := strings.Index(destroy, "deps:")
+	prompt := strings.Index(destroy, "prompt:")
+	preview := strings.Index(destroy, "task: _destroy:preview")
+
+	require.Positive(t, prompt, "platform:destroy no longer asks")
+	assert.True(t, deps >= 0 && preview > deps && preview < prompt,
+		"platform:destroy does not run _destroy:preview as a dependency, which is what runs before the prompt")
+	assert.NotContains(t, destroy, previewOnly,
+		"platform:destroy shows a plan from its own cmds, which run after the prompt")
+
+	planner, found := tasks["_destroy:preview"]
+	require.True(t, found, "no _destroy:preview task")
+	assert.Contains(t, planner, previewOnly, "_destroy:preview does not run a preview-only destroy")
 }
