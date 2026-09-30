@@ -223,22 +223,74 @@ func validateTopology(ctx context.Context, talosctl, path string, topology *clus
 		return err
 	}
 
-	for _, machine := range []string{"controlplane", "worker"} {
-		patches := []string{clusterPatch}
-		// A worker takes the cluster patch only: the node patch carries a
-		// control-plane hostname and certificate SANs.
-		if machine == "controlplane" {
-			patches = append(patches, nodePatch)
+	if err := validateMachine(ctx, talosctl, workDir, machineControlPlane, []string{clusterPatch, nodePatch}); err != nil {
+		return fmt.Errorf("%s (%s): %w", path, machineControlPlane, err)
+	}
+
+	fmt.Printf("ok    %-34s %s\n", filepath.Base(path), machineControlPlane)
+
+	// Every worker takes the cluster patch AND a node patch of its own, which
+	// carries the pool's labels and taints. Validating the cluster patch alone
+	// is how a node patch Talos refuses — labels written where Talos has no
+	// such key — went unseen until a real pool would have been applied.
+	for _, pool := range poolsToValidate(topology) {
+		patch, patchErr := workerNodePatch(topology.Metadata.Name, pool)
+		if patchErr != nil {
+			return patchErr
 		}
 
-		if err := validateMachine(ctx, talosctl, workDir, machine, patches); err != nil {
-			return fmt.Errorf("%s (%s): %w", path, machine, err)
+		if err := validateMachine(ctx, talosctl, workDir, machineWorker, []string{clusterPatch, patch}); err != nil {
+			return fmt.Errorf("%s (%s pool %s): %w", path, machineWorker, pool.Name, err)
 		}
 
-		fmt.Printf("ok    %-34s %s\n", filepath.Base(path), machine)
+		fmt.Printf("ok    %-34s %s pool %s\n", filepath.Base(path), machineWorker, pool.Name)
 	}
 
 	return nil
+}
+
+// The machine types `talosctl gen config` writes a configuration for.
+const (
+	machineControlPlane = "controlplane"
+	machineWorker       = "worker"
+)
+
+// probePool stands in for the worker pools of a topology that has none, so a
+// worker's node patch — its labels and its taints — is validated whatever the
+// topology says. A topology with no pools is the common one, and it is exactly
+// where a broken worker patch would otherwise wait unseen.
+func probePool() clusterspec.WorkerPoolSpec {
+	return clusterspec.WorkerPoolSpec{
+		Name:   "probe",
+		Labels: map[string]string{"example.com/tier": "probe"},
+		Taints: []string{"example.com/dedicated=probe:NoSchedule"},
+	}
+}
+
+// poolsToValidate is every pool the topology declares, or the probe pool when
+// it declares none.
+func poolsToValidate(topology *clusterspec.Topology) []clusterspec.WorkerPoolSpec {
+	if len(topology.WorkerPools) == 0 {
+		return []clusterspec.WorkerPoolSpec{probePool()}
+	}
+
+	return topology.WorkerPools
+}
+
+// workerNodePatch is the node patch the first node of a pool is applied with,
+// built the way internal/pkg/hetzner builds it.
+func workerNodePatch(cluster string, pool clusterspec.WorkerPoolSpec) (string, error) {
+	patch, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
+		Hostname:   clusterspec.NodeName(cluster, pool.Name, 0),
+		CertSANs:   []string{"203.0.113.20", "10.0.1.20"},
+		NodeLabels: pool.NodeLabels(),
+		NodeTaints: pool.Taints,
+	})
+	if err != nil {
+		return "", fmt.Errorf("worker pool %s: %w", pool.Name, err)
+	}
+
+	return patch, nil
 }
 
 func generate(ctx context.Context, talosctl, workDir string, topology *clusterspec.Topology) error {
