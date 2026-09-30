@@ -573,7 +573,7 @@ func dataClaimsRunner(t *testing.T, objects ...runtime.Object) *clustersmoke.Run
 	deletes := corev1.PersistentVolumeReclaimDelete
 	retains := corev1.PersistentVolumeReclaimRetain
 
-	base := []runtime.Object{
+	cluster := []runtime.Object{
 		node("cp-0", true),
 		&storagev1.StorageClass{
 			ObjectMeta: metav1.ObjectMeta{
@@ -594,7 +594,7 @@ func dataClaimsRunner(t *testing.T, objects ...runtime.Object) *clustersmoke.Run
 		}},
 	}
 
-	return clustersmoke.NewWithClient(fake.NewSimpleClientset(append(base, objects...)...), nil, clustersmoke.Options{
+	return clustersmoke.NewWithClient(fake.NewSimpleClientset(append(cluster, objects...)...), nil, clustersmoke.Options{
 		StorageClass: platform.StorageClassDatabase,
 		BindTimeout:  testBindTimeout,
 	})
