@@ -709,7 +709,8 @@ tasks:
           # Readiness asked of hubble itself rather than of the port: the
           # forward accepts a connection before the relay behind it does, so a
           # port check passes and the observe that follows fails.
-          for _ in $(seq 1 "{{._CL_HUBBLE_WAIT}}"); do
+          attempts="$(seq 1 "{{._CL_HUBBLE_WAIT}}")"
+          for _ in $attempts; do
             if hubble --server "$server" status >/dev/null 2>&1; then
               break
             fi
@@ -1390,7 +1391,16 @@ tasks:
           export TALOSCONFIG="{{.ROOT}}/talosconfig"
           # One node at a time, waiting for each: rolling through the control
           # plane in parallel takes etcd below quorum.
-          for node in $(talosctl get members -o json | jq -r '.spec.addresses[0]'); do
+          # Read into a variable first. A command substitution in a `for`
+          # list does not trip `set -e`: an unreachable endpoint or an
+          # unhealthy etcd made this loop run zero times and report success.
+          members="$(talosctl get members -o json | jq -r '.spec.addresses[0]')"
+          if [ -z "$members" ]; then
+            printf '%s\n' "{{._ERR}} cluster · upgrade · talosctl reported no members, so no node was upgraded" >&2
+            exit 1
+          fi
+
+          for node in $members; do
             printf '%s\n' "{{._RUN}} cluster · upgrade · ${node} → ${version}"
             # --endpoints as well, for the reason etcd:restore carries at
             # length: `talosctl get members` reports each member's PUBLIC
