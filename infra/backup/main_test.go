@@ -84,6 +84,34 @@ func TestPasswordSpecialCharacters_SurviveAShell(t *testing.T) {
 	assert.GreaterOrEqual(t, len(strings.TrimSpace(PasswordSpecialCharacters)), 4)
 }
 
+// TestPasswordSpecialCharacters_SurviveAnInteractiveShell is the half the list
+// above missed: characters that are harmless in a script and change the value
+// typed at a prompt.
+//
+// `!` is history expansion in interactive bash and zsh, inside double quotes
+// too, so `export RESTIC_PASSWORD="…!x…"` substitutes a past command into the
+// key. The rest are expansions of an unquoted word — globs, a subshell, brace
+// expansion, a comment, tilde and zsh's `=command` — and a key pasted
+// unquoted becomes a different key or no command at all.
+func TestPasswordSpecialCharacters_SurviveAnInteractiveShell(t *testing.T) {
+	t.Parallel()
+
+	for _, dangerous := range []string{
+		"!",                // history expansion, even between double quotes
+		"*", "?", "[", "]", // globs
+		"(", ")", // a subshell, or extglob's @(…)
+		"{", "}", // brace expansion
+		"#", // a comment at the start of a word
+		"~", // tilde expansion, after `=` and `:` in an assignment too
+		"^", // zsh's extended glob, and bash's ^old^new
+		"=", // zsh's =command expansion at the start of a word
+	} {
+		assert.NotContains(t, PasswordSpecialCharacters, dangerous,
+			"%q is in the special set, and it changes a password typed at an interactive prompt",
+			dangerous)
+	}
+}
+
 // TestPasswordSpecialCharacters_AreAllAcceptedByHetzner is the other half of
 // the constraint, and the half that was missing.
 //

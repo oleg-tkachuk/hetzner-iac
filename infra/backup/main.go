@@ -126,7 +126,13 @@ func repositoryKeyInputs() []string {
 // " \' ` \\ $ ; | < > & and whitespace, because the restic key is pasted by
 // hand. It also excludes [ and ], because Hetzner rejects them — see
 // HetznerPasswordSpecialCharacters below, which this must remain a subset of.
-const PasswordSpecialCharacters = "!#%^*()-_=+{}:,.?" // #nosec G101 -- the alphabet a password may draw from, not a password
+//
+// And it excludes what an INTERACTIVE shell rewrites, which is where the key
+// is pasted: ! is history expansion even inside double quotes, * ? ( ) { } #
+// ~ ^ = are expansions of an unquoted word in bash or zsh. What is left
+// changes nothing wherever it lands, and nine characters are plenty for the
+// one special character Hetzner asks for.
+const PasswordSpecialCharacters = "%+,-./:@_" // #nosec G101 -- the alphabet a password may draw from, not a password
 
 // HetznerPasswordSpecialCharacters is what the Storage Box API accepts,
 // quoted from its own 422:
