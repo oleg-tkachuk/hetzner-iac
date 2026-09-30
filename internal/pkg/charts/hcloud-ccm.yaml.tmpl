@@ -9,24 +9,29 @@
 # down is one an upstream release can remove quietly.
 priorityClassName: system-cluster-critical
 
+# Both credentials come from the Secret this layer creates before the chart,
+# not from these values: a token in a values file is a token in the release's
+# stored manifest.
+#
+# The network under networking, not under env. With networking enabled the
+# chart writes HCLOUD_NETWORK itself from networking.network, and appends it
+# after whatever env holds — so a copy under env rendered the variable twice,
+# and the chart's, naming its default Secret, was the one the pod saw.
 networking:
   enabled: true
   clusterCIDR: {{ .PodCIDR }}
+  network:
+    valueFrom:
+      secretKeyRef:
+        name: {{ .SecretName }}
+        key: network
 
-# Both values come from the Secret this layer creates before the chart, not
-# from these values: a token in a values file is a token in the release's
-# stored manifest.
 env:
   HCLOUD_TOKEN:
     valueFrom:
       secretKeyRef:
         name: {{ .SecretName }}
         key: token
-  HCLOUD_NETWORK:
-    valueFrom:
-      secretKeyRef:
-        name: {{ .SecretName }}
-        key: network
 
 # Resources. Requests are measured, limits are memory-only.
 #
