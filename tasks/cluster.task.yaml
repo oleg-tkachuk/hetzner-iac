@@ -579,8 +579,16 @@ tasks:
       - cmd: |
           set -euo pipefail
           cd "{{._CL_DIR}}"
-          pulumi --non-interactive --stack "{{._CL_STACK}}" stack output kubeconfig --show-secrets > "{{.ROOT}}/kubeconfig"
-          chmod 600 "{{.ROOT}}/kubeconfig"
+          # Owner-only from the moment the file exists, and whole or not at
+          # all: mktemp creates it 0600 beside the target, and it is moved
+          # into place only once pulumi succeeded. Writing straight to the
+          # target left it at the default umask until a chmod, and truncated
+          # when the output could not be read. Not `umask`: Task's own shell
+          # interpreter has no such builtin.
+          partial="$(mktemp "{{.ROOT}}/.kubeconfig.XXXXXX")"
+          trap 'rm -f "$partial"' EXIT
+          pulumi --non-interactive --stack "{{._CL_STACK}}" stack output kubeconfig --show-secrets > "$partial"
+          mv "$partial" "{{.ROOT}}/kubeconfig"
           printf '%s\n' "{{._OK}} cluster · kubeconfig · wrote ./kubeconfig — export KUBECONFIG={{.ROOT}}/kubeconfig"
 
   smoke:
@@ -610,10 +618,13 @@ tasks:
       # set-cluster/set-credentials/set-context touch only the three names
       # they are given, so an unrelated entry keeps its file reference.
       #
-      # The certificate data is passed as base64 with --set-raw-bytes=false,
-      # which is what keeps a cluster-admin key off the disk: the alternative,
-      # --embed-certs with --client-key, needs the key written to a temporary
-      # file first.
+      # The credentials go in as files, never as arguments. `kubectl config set
+      # users.<u>.client-key-data <base64>` put the cluster-admin key on the
+      # command line, where `ps` shows it to every user on the machine. They
+      # are decoded into a directory only this user can read and embedded with
+      # --embed-certs, which copies the bytes into the target and keeps no
+      # reference to the file. The key is on this disk already, in
+      # ./kubeconfig; a temporary copy beside it adds nothing to that.
       #
       # Adding nothing at all is still an option, and the safer one:
       #
@@ -654,17 +665,29 @@ tasks:
 
             # kubectl re-serialises the whole document, so any comments in it
             # are lost either way. current-context survives.
-            cp "$target" "$target.$(date -u +%Y%m%dT%H%M%SZ).bak"
+            # Owner-only, like the target: it holds every credential the
+            # target does, and cp creates it at the default umask.
+            backup="$target.$(date -u +%Y%m%dT%H%M%SZ).bak"
+            cp "$target" "$backup"
+            chmod 600 "$backup"
           else
             mkdir -p "$(dirname "$target")"
           fi
 
+          # mktemp -d is owner-only, so the decoded credentials are too.
+          credentials="$(mktemp -d)"
+          trap 'rm -rf "$credentials"' EXIT
+          base64 -d <<<"$authority"   > "$credentials/ca.crt"
+          base64 -d <<<"$certificate" > "$credentials/client.crt"
+          base64 -d <<<"$key"         > "$credentials/client.key"
+
           add() { kubectl --kubeconfig "$target" config "$@" >/dev/null; }
 
-          add set-cluster "$cluster" --server="$server"
-          add set "clusters.$cluster.certificate-authority-data" "$authority" --set-raw-bytes=false
-          add set "users.$user.client-certificate-data" "$certificate" --set-raw-bytes=false
-          add set "users.$user.client-key-data" "$key" --set-raw-bytes=false
+          add set-cluster "$cluster" --server="$server" \
+            --certificate-authority="$credentials/ca.crt" --embed-certs=true
+          add set-credentials "$user" \
+            --client-certificate="$credentials/client.crt" \
+            --client-key="$credentials/client.key" --embed-certs=true
           add set-context "$context" --cluster="$cluster" --user="$user"
 
           chmod 600 "$target"
@@ -683,8 +706,16 @@ tasks:
       - cmd: |
           set -euo pipefail
           cd "{{._CL_DIR}}"
-          pulumi --non-interactive --stack "{{._CL_STACK}}" stack output talosconfig --show-secrets > "{{.ROOT}}/talosconfig"
-          chmod 600 "{{.ROOT}}/talosconfig"
+          # Owner-only from the moment the file exists, and whole or not at
+          # all: mktemp creates it 0600 beside the target, and it is moved
+          # into place only once pulumi succeeded. Writing straight to the
+          # target left it at the default umask until a chmod, and truncated
+          # when the output could not be read. Not `umask`: Task's own shell
+          # interpreter has no such builtin.
+          partial="$(mktemp "{{.ROOT}}/.talosconfig.XXXXXX")"
+          trap 'rm -f "$partial"' EXIT
+          pulumi --non-interactive --stack "{{._CL_STACK}}" stack output talosconfig --show-secrets > "$partial"
+          mv "$partial" "{{.ROOT}}/talosconfig"
           printf '%s\n' "{{._OK}} cluster · talosconfig · wrote ./talosconfig — export TALOSCONFIG={{.ROOT}}/talosconfig"
 
   nodes:
