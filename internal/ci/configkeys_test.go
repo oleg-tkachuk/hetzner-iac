@@ -52,38 +52,52 @@ var configTables = []struct {
 	{"README.md", false},
 }
 
-// layerProject returns each layer's Pulumi project name and the directory it
-// lives in, read from the Pulumi.yaml rather than assumed from the directory —
-// the two differ on purpose (`layers/40-ingress` is project `ingress`).
+// projectRoots are the directories whose children are Pulumi projects that
+// read stack config: the layers, and the tiers under infra/.
+//
+// The tiers were missing, and it cost the gate its reach without a word: the
+// backup tier moved from layers/ to infra/, and from then on nothing checked
+// that the keys it reads are declared, or that the tables documenting them
+// name keys that exist — every `backup:` row was skipped as "not a layer".
+var projectRoots = []string{"layers", "infra"}
+
+// layerProjects returns each project's Pulumi project name and the directory
+// it lives in, read from the Pulumi.yaml rather than assumed from the directory
+// — the two differ on purpose (`layers/40-ingress` is project `ingress`).
 func layerProjects(t *testing.T) map[string]string {
 	t.Helper()
 
 	root := filepath.Join("..", "..")
 
-	entries, err := os.ReadDir(filepath.Join(root, "layers"))
-	require.NoError(t, err)
-
 	projects := map[string]string{}
 
 	name := regexp.MustCompile(`(?m)^name: (\S+)$`)
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		dir := filepath.Join(root, "layers", entry.Name())
-
-		project, err := os.ReadFile(filepath.Join(dir, "Pulumi.yaml"))
+	for _, parent := range projectRoots {
+		entries, err := os.ReadDir(filepath.Join(root, parent))
 		require.NoError(t, err)
 
-		match := name.FindSubmatch(project)
-		require.NotNil(t, match, "layers/%s has no `name:` in its Pulumi.yaml", entry.Name())
+		var found int
 
-		projects[string(match[1])] = dir
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			dir := filepath.Join(root, parent, entry.Name())
+
+			project, err := os.ReadFile(filepath.Join(dir, "Pulumi.yaml"))
+			require.NoError(t, err)
+
+			match := name.FindSubmatch(project)
+			require.NotNil(t, match, "%s/%s has no `name:` in its Pulumi.yaml", parent, entry.Name())
+
+			projects[string(match[1])] = dir
+			found++
+		}
+
+		require.Positive(t, found, "no projects under %s/; this test is not reaching it", parent)
 	}
-
-	require.NotEmpty(t, projects, "no layers found; this test is checking nothing")
 
 	return projects
 }
@@ -197,6 +211,11 @@ func TestConfigKeys_DeclaredAndReadAreTheSameSet(t *testing.T) {
 	}
 }
 
+// providerNamespaces are config namespaces that belong to a provider rather
+// than to a project here, and so are declared by no Pulumi.yaml —
+// `hcloud:token` is set per stack and cannot be declared at all.
+var providerNamespaces = map[string]bool{"hcloud": true}
+
 // TestConfigKeys_TheTablesNameKeysThatExist holds the documented stack config
 // to the declared stack config.
 //
@@ -246,6 +265,13 @@ func TestConfigKeys_TheTablesNameKeysThatExist(t *testing.T) {
 			}
 
 			if _, ok := projects[project]; !ok {
+				// A provider's own key, which no project here declares. Any
+				// other prefix is a project that does not exist, and skipping
+				// it is how every `backup:` row went unchecked.
+				assert.True(t, providerNamespaces[project],
+					"%s documents %q under %q, which is neither a project here nor a provider",
+					table.path, key, project)
+
 				continue
 			}
 
