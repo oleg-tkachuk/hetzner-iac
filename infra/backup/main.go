@@ -87,6 +87,38 @@ func passwordArgs() *random.RandomPasswordArgs {
 	}
 }
 
+// repositoryKeyName is the restic key's resource name. Renaming it is a delete
+// and a create, which is what the options below exist to refuse.
+const repositoryKeyName = "restic"
+
+// newRepositoryKey generates the restic repository's encryption key, once.
+//
+// The box passwords may rotate: an input change replaces them, the box takes
+// the new ones and nothing is lost. This one may not. A RandomPassword is
+// replaced by a change to ANY of its inputs, and it shares passwordArgs with
+// the other two — so tightening the alphabet for Hetzner, which has happened
+// once, would have drawn a new key and left every snapshot already on the box
+// unreadable.
+//
+// So its inputs are ignored after the first apply, and it is protected: a
+// replace or a delete — a rename, a refactor, `pulumi destroy` — stops at
+// preview instead of discarding the key. backup:destroy passes
+// --ignore-protect already, for the Storage Box.
+func newRepositoryKey(ctx *pulumi.Context) (*random.RandomPassword, error) {
+	return random.NewRandomPassword(ctx, repositoryKeyName, passwordArgs(),
+		pulumi.Protect(true),
+		pulumi.IgnoreChanges(repositoryKeyInputs()),
+	)
+}
+
+// repositoryKeyInputs are the RandomPassword inputs passwordArgs sets, which
+// the key ignores once it exists. TestRepositoryKey_IgnoresEveryInputItIsGiven
+// holds this list to what is actually sent, so a field added to passwordArgs
+// cannot quietly become the one that replaces the key.
+func repositoryKeyInputs() []string {
+	return []string{"length", "special", "minUpper", "minLower", "minNumeric", "minSpecial", "overrideSpecial"}
+}
+
 // PasswordSpecialCharacters is the set OverrideSpecial allows: punctuation
 // that both Hetzner accepts and a shell leaves alone.
 //
@@ -169,7 +201,7 @@ func deploy(r *layer.Runner) error {
 	// bytes nothing can read. See docs/recovery.md — an operator should copy
 	// it out of the stack once, because Pulumi's state then stops being the
 	// only thing standing between the cluster and its backups.
-	resticPassword, err := random.NewRandomPassword(r.Ctx, "restic", passwordArgs())
+	resticPassword, err := newRepositoryKey(r.Ctx)
 	if err != nil {
 		return fmt.Errorf("restic repository password: %w", err)
 	}
