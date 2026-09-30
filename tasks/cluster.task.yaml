@@ -930,22 +930,59 @@ tasks:
           printf '%s\n' "{{._RUN}} cluster · state:export · {{._CL_STACK}} into .backups/state/"
 
           exported=0
+          failed=0
 
-          for project in infra/cluster {{range $layer := splitList " " .LAYERS}}layers/{{$layer}} {{end}}; do
+          # Installed rather than run with `go run`, which is what KIT_STACK
+          # does: `go run` exits 1 whatever the program exited with, and the
+          # difference between 2 (absent) and 1 (the backend did not answer)
+          # is the whole question below. The same pinned version.
+          kit="$(mktemp -d)"
+          trap 'rm -rf "$kit"' EXIT
+          GOBIN="$kit" go install "github.com/oleg-tkachuk/pulumi-kit/cmd/stack@{{.PULUMI_KIT_VERSION}}"
+
+          # Every tier from TIERS, then every layer. The tier list is the
+          # root taskfile's, so a tier added later is exported without anyone
+          # remembering this loop — which is how infra/backup was missed.
+          for project in {{range $tier := splitList " " .TIERS}}infra/{{$tier}} {{end}}{{range $layer := splitList " " .LAYERS}}layers/{{$layer}} {{end}}; do
             name="$(printf '%s' "$project" | tr / -)"
             out="${dir}/${name}.{{._CL_STACK}}.${stamp}.json"
 
-            # A stack that was never created is not a failure of this task: a
-            # layer nobody applied has no state to export, and refusing to
-            # write the ones that do exist would be the worse outcome.
+            # Asked first, and answered in three: 0 is there, 2 is not, 1 is
+            # that the backend could not say. A stack that was never created
+            # is not a failure — a layer nobody applied has nothing to export
+            # — but a backend that did not answer is, and it used to be
+            # reported as "has no stack" because every error looked alike.
+            status=0
+            "$kit/stack" exists "{{.ROOT}}/${project}" "{{._CL_STACK}}" >/dev/null 2>"$kit/why" || status=$?
+
+            case "$status" in
+              0) ;;
+              2)
+                printf '%s\n' "{{._SKIP}} cluster · state:export · ${project} has no {{._CL_STACK}} stack"
+                continue
+                ;;
+              *)
+                printf '%s\n' "{{._ERR}} cluster · state:export · ${project}: could not tell whether the stack exists" >&2
+                sed 's/^/    /' "$kit/why" >&2
+                failed=$((failed + 1))
+                continue
+                ;;
+            esac
+
             if ( cd "{{.ROOT}}/${project}" && \
-                 pulumi --non-interactive --stack "{{._CL_STACK}}" stack export > "${out}" ) 2>/dev/null; then
+                 pulumi --non-interactive --stack "{{._CL_STACK}}" stack export > "${out}" ); then
               exported=$((exported + 1))
             else
               rm -f "${out}"
-              printf '%s\n' "{{._SKIP}} cluster · state:export · ${project} has no {{._CL_STACK}} stack"
+              printf '%s\n' "{{._ERR}} cluster · state:export · ${project}: the export failed" >&2
+              failed=$((failed + 1))
             fi
           done
+
+          if [ "${failed}" -ne 0 ]; then
+            printf '%s\n' "{{._ERR}} cluster · state:export · ${failed} stack(s) not exported, ${exported} written — this copy is incomplete" >&2
+            exit 1
+          fi
 
           if [ "${exported}" -eq 0 ]; then
             printf '%s\n' "{{._ERR}} cluster · state:export · nothing exported — is this the right stack?" >&2
