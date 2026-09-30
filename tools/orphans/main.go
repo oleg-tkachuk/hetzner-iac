@@ -94,9 +94,11 @@ func run() (clean bool, err error) {
 	}
 
 	note := ClusterGoneNote
+	gone := true
 
 	if servers := ClusterServers(inventory, topology.Metadata.Name); len(servers) > 0 {
 		note = ""
+		gone = false
 
 		claims, err = readClaims(ctx, kubeconfig)
 		if err != nil {
@@ -107,6 +109,8 @@ func run() (clean bool, err error) {
 	}
 
 	claims.TalosVersion = topology.Talos.Version
+	claims.Cluster = topology.Metadata.Name
+	claims.ClusterGone = gone
 
 	found := Orphans(inventory, claims)
 
