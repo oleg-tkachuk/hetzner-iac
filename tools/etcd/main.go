@@ -165,6 +165,19 @@ type Facts struct {
 	Members []string
 }
 
+// consistencyProblems drains bbolt's check of every page reachable in tx.
+// The channel has to be read to the end: the check runs in a goroutine that
+// closes it when done.
+func consistencyProblems(tx *bolt.Tx) []error {
+	var problems []error
+
+	for problem := range tx.Check() {
+		problems = append(problems, problem)
+	}
+
+	return problems
+}
+
 // member is the part of etcd's stored member this reads. etcd's own type is
 // in its server module, which this tool declines for the reason given at the
 // top of the file; the field is the one `etcdctl member list` prints as NAME.
@@ -211,6 +224,16 @@ func inspect(db *bolt.DB) (Facts, error) {
 	var facts Facts
 
 	err := db.View(func(tx *bolt.Tx) error {
+		// Every page first, with bbolt's own consistency check, and before
+		// anything below reads one. Opening validated the meta pages and
+		// nothing else: a damaged data page opened fine and then crashed the
+		// first read of it, and in a bucket this does not read it was never
+		// looked at — and the restore wipes the nodes on this verdict.
+		if problems := consistencyProblems(tx); len(problems) > 0 {
+			return fmt.Errorf("fails bbolt's consistency check (%d problem(s)): %w",
+				len(problems), problems[0])
+		}
+
 		for _, name := range requiredBuckets {
 			if tx.Bucket([]byte(name)) == nil {
 				return fmt.Errorf("a bbolt database with no %q bucket: not an etcd snapshot", name)

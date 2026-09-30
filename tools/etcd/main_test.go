@@ -294,3 +294,75 @@ func TestRun_AcceptsASnapshotShapedDatabase(t *testing.T) {
 
 	require.NoError(t, run([]string{"verify", "--cluster", testCluster, fixture(t, "")}))
 }
+
+// corruptLeaf writes a snapshot big enough to need several data pages, then
+// overwrites the page id in the header of one leaf page the key bucket uses —
+// the kind of damage that leaves the meta pages, and so bbolt.Open, content.
+func corruptLeaf(t *testing.T) string {
+	t.Helper()
+
+	path := fixture(t, "")
+
+	db, err := bolt.Open(path, 0o600, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(keyBucket))
+
+		for i := range manyRevisions {
+			if putErr := bucket.Put([]byte(strconv.Itoa(i)), make([]byte, revisionSize)); putErr != nil {
+				return putErr
+			}
+		}
+
+		return nil
+	}))
+
+	pageSize := int64(db.Info().PageSize)
+	leaf := int64(-1)
+
+	require.NoError(t, db.View(func(tx *bolt.Tx) error {
+		for id := range scannedPages {
+			if page, pageErr := tx.Page(id); pageErr == nil && page != nil && page.Type == "leaf" {
+				leaf = int64(id)
+			}
+		}
+
+		return nil
+	}))
+	require.NoError(t, db.Close())
+	require.Positive(t, leaf, "the fixture has no leaf page to damage")
+
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	require.NoError(t, err)
+
+	wrongID := make([]byte, 8)
+	binary.LittleEndian.PutUint64(wrongID, uint64(leaf)+1)
+
+	_, err = file.WriteAt(wrongID, leaf*pageSize)
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+
+	return path
+}
+
+// Enough revisions of this size to spread the key bucket over several pages,
+// and how many page ids to look through for one of them.
+const (
+	manyRevisions = 2000
+	revisionSize  = 100
+	scannedPages  = 64
+)
+
+// TestInspect_RefusesADamagedDataPage: opening a snapshot validates only its
+// meta pages, and a damaged data page opened fine and then crashed the reader
+// — or, in a bucket this tool does not read, was never looked at. bbolt's own
+// consistency check walks every page, and runs before anything reads one.
+func TestInspect_RefusesADamagedDataPage(t *testing.T) {
+	t.Parallel()
+
+	_, err := inspect(open(t, corruptLeaf(t)))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "consistency")
+}

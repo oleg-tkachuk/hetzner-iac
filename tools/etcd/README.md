@@ -18,6 +18,10 @@ checksum — all of which this used to read by hand from copied offsets. Not
 `etcdutl`, which has the same check as a library and brings the etcd server
 and raft with it: thirteen modules to read a header.
 
+Opening checks the meta pages only, so every other page is then walked with
+bbolt's own consistency check before anything is read. A damaged data page
+used to open fine and crash the first read of it.
+
 It also refuses a snapshot taken from another cluster. Every etcd member is
 named after its control-plane node, and so after the cluster, so the snapshot
 itself says where it came from — a file name can be copied or renamed, and
