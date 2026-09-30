@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 )
 
 func main() {
@@ -188,11 +189,16 @@ func merge(listing []byte, files map[string]topologyFile) ([]Environment, error)
 	}
 
 	for name, file := range files {
-		environment, listed := found[name]
-		if !listed {
+		environment := listedAs(found, name)
+		if environment == nil {
 			environment = &Environment{Name: name}
-			found[name] = environment
 		}
+
+		// Filed under the topology's name, which is the one every task here
+		// is given: Pulumi resolves `dev` to `acme/dev` by itself.
+		delete(found, environment.Name)
+		environment.Name = name
+		found[name] = environment
 
 		environment.Present = true
 		environment.Topology = file.Topology
@@ -212,6 +218,23 @@ func merge(listing []byte, files map[string]topologyFile) ([]Environment, error)
 	}
 
 	return environments, nil
+}
+
+// listedAs finds the listed stack a topology's name refers to. Pulumi Cloud
+// lists `acme/dev` for the stack every command here calls `dev`, so an exact
+// lookup split one environment into two rows.
+func listedAs(found map[string]*Environment, name string) *Environment {
+	if environment, listed := found[name]; listed {
+		return environment
+	}
+
+	for listed, environment := range found {
+		if environment.InBackend && stackstatus.SameStack(listed, name) {
+			return environment
+		}
+	}
+
+	return nil
 }
 
 // table renders the environments, header included.

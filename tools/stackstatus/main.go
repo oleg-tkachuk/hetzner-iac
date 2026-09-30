@@ -254,7 +254,7 @@ func findStack(summaries []auto.StackSummary, stack string) (*auto.StackSummary,
 
 	for i := range summaries {
 		name := summaries[i].Name
-		if name == stack || strings.HasSuffix(name, "/"+stack) {
+		if stackstatus.SameStack(name, stack) {
 			found = &summaries[i]
 		}
 
