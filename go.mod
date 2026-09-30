@@ -24,6 +24,7 @@ require (
 	github.com/pulumi/pulumi-random/sdk/v4 v4.21.2
 	github.com/pulumi/pulumi/sdk/v3 v3.265.0
 	github.com/pulumiverse/pulumi-talos/sdk v0.8.1
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/bbolt v1.5.0
 	go.yaml.in/yaml/v3 v3.0.5
