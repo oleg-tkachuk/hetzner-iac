@@ -58,8 +58,26 @@ func TestSnapshotSidecar_IsSpelledOnce(t *testing.T) {
 // `hcloud` module now, and a gate belongs where the thing it guards lives:
 // this repository declares no hcloud task to check.
 
-// nodeTargeted matches a talosctl invocation that names a node.
-var nodeTargeted = regexp.MustCompile(`talosctl[^\n]*(?:-n |--nodes )`)
+// talosctlCall matches one talosctl command, up to where the shell ends it: a
+// pipe, a list operator or the close of a command substitution. Once
+// continuation lines are joined, the line goes on into whatever the output is
+// piped to, and `| tail -n 20` would otherwise read as a node flag.
+var talosctlCall = regexp.MustCompile(`talosctl[^\n|;&)]*`)
+
+// nodeTargeted matches the flag that names a node.
+var nodeTargeted = regexp.MustCompile(`\s(?:-n|--nodes)\s`)
+
+// lineContinuation is a shell line broken with a trailing backslash, and the
+// indentation of the line that carries on.
+var lineContinuation = regexp.MustCompile(`\\\n[ \t]*`)
+
+// shellCommands joins every backslash-continued line into the one command a
+// shell runs. Read line by line, `talosctl \` with --nodes on the next line
+// was invisible, and --nodes and --endpoints on two continuation lines failed
+// a call that had both.
+func shellCommands(text string) []string {
+	return strings.Split(lineContinuation.ReplaceAllString(text, " "), "\n")
+}
 
 // TestTalosctlCalls_NameAnEndpointWithEveryNode is a regression guard for a
 // restore that could not restore.
@@ -87,18 +105,20 @@ func TestTalosctlCalls_NameAnEndpointWithEveryNode(t *testing.T) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
-		for _, line := range strings.Split(string(raw), "\n") {
-			if !nodeTargeted.MatchString(line) {
-				continue
+		for _, line := range shellCommands(string(raw)) {
+			for _, call := range talosctlCall.FindAllString(line, -1) {
+				if !nodeTargeted.MatchString(call) {
+					continue
+				}
+
+				checked++
+
+				assert.Contains(t, call, "--endpoints",
+					"%s names a node without an endpoint:\n\t%s\nTalos will proxy through the "+
+						"configured endpoint, which cannot route to a peer's public address — and "+
+						"during a restore that endpoint is itself being wiped",
+					filepath.Base(path), strings.TrimSpace(call))
 			}
-
-			checked++
-
-			assert.Contains(t, line, "--endpoints",
-				"%s names a node without an endpoint:\n\t%s\nTalos will proxy through the "+
-					"configured endpoint, which cannot route to a peer's public address — and "+
-					"during a restore that endpoint is itself being wiped",
-				filepath.Base(path), strings.TrimSpace(line))
 		}
 	}
 
