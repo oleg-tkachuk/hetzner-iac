@@ -202,17 +202,17 @@ const CheckExternalMetrics = "the external metrics API answers"
 //   - the group is served: KEDA is installed and working.
 //   - the group is absent: nothing registered it, so KEDA is not installed —
 //     skipped rather than failed, because kedaEnabled is off by default.
-func ExternalMetricsServed(groups []string, discoveryFailure string) Result {
+func ExternalMetricsServed(groups, failed []string) Result {
 	result := Result{Name: CheckExternalMetrics}
 
-	if strings.Contains(discoveryFailure, ExternalMetricsGroup) {
+	if slices.Contains(failed, ExternalMetricsGroup) {
 		result.Status = StatusFailed
 		result.Detail = fmt.Sprintf(
-			"%s is registered and does not answer: %s. "+
+			"%s is registered and does not answer. "+
 				"The APIService carries the CA bundle KEDA's operator patches into it, so "+
 				"`kubectl get apiservice v1beta1.%s -o yaml` and the operator's logs are "+
 				"the two places to look",
-			ExternalMetricsGroup, strings.TrimSpace(discoveryFailure), ExternalMetricsGroup)
+			ExternalMetricsGroup, ExternalMetricsGroup)
 
 		return result
 	}

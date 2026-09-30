@@ -2,6 +2,9 @@ package clustersmoke_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +21,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
 )
 
@@ -556,4 +561,83 @@ func TestCheckSecretStores_PassesOnAReadyStore(t *testing.T) {
 	result := resultFor(t, smoke.Run(context.Background()), "secret store")
 
 	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
+}
+
+// discoveryServer answers discovery the way an API server does when an
+// aggregated group is registered: /apis lists it, and its version answers
+// with the given status.
+func discoveryServer(t *testing.T, externalMetrics int, listed bool) *httptest.Server {
+	t.Helper()
+
+	groups := []metav1.APIGroup{}
+
+	if listed {
+		version := metav1.GroupVersionForDiscovery{
+			GroupVersion: clustersmoke.ExternalMetricsGroup + "/v1beta1",
+			Version:      "v1beta1",
+		}
+		groups = append(groups, metav1.APIGroup{
+			Name: clustersmoke.ExternalMetricsGroup, Versions: []metav1.GroupVersionForDiscovery{version},
+			PreferredVersion: version,
+		})
+	}
+
+	reply := func(w http.ResponseWriter, status int, body any) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(body) // a test server; the client reports what it got
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api":
+			reply(w, http.StatusOK, metav1.APIVersions{Versions: []string{"v1"}})
+		case "/api/v1":
+			reply(w, http.StatusOK, metav1.APIResourceList{GroupVersion: "v1"})
+		case "/apis":
+			reply(w, http.StatusOK, metav1.APIGroupList{Groups: groups})
+		case "/apis/" + clustersmoke.ExternalMetricsGroup + "/v1beta1":
+			reply(w, externalMetrics, metav1.APIResourceList{GroupVersion: clustersmoke.ExternalMetricsGroup + "/v1beta1"})
+		default:
+			reply(w, http.StatusNotFound, metav1.Status{})
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	return server
+}
+
+// TestCheckExternalMetrics_FailsAGroupThatIsRegisteredAndNotAnswering drives
+// the check through client-go's real discovery rather than a hand-built error
+// string. ServerGroups, which it used, drops the groups that failed and still
+// lists their names, so a registered group that answered 503 read as served —
+// the one case the check exists for could not fail.
+func TestCheckExternalMetrics_FailsAGroupThatIsRegisteredAndNotAnswering(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		status int
+		listed bool
+		want   clustersmoke.Status
+	}{
+		"registered and not answering": {http.StatusServiceUnavailable, true, clustersmoke.StatusFailed},
+		"served":                       {http.StatusOK, true, clustersmoke.StatusPassed},
+		"not installed":                {http.StatusOK, false, clustersmoke.StatusSkipped},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			client, err := kubernetes.NewForConfig(&rest.Config{Host: discoveryServer(t, tc.status, tc.listed).URL})
+			require.NoError(t, err)
+
+			smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
+				StorageClass: platform.StorageClass,
+				BindTimeout:  testBindTimeout,
+			})
+
+			result := resultFor(t, smoke.Run(context.Background()), clustersmoke.CheckExternalMetrics)
+
+			assert.Equal(t, tc.want, result.Status, result.Detail)
+		})
+	}
 }
