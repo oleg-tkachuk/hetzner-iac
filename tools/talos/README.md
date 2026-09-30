@@ -16,6 +16,11 @@ document is always present and setting the name in both places is a conflict —
 that would have failed at apply, after the servers existed and were being paid
 for.
 
+A worker is validated with the cluster patch and the node patch of each of
+its pools — labels, taints, hostname — and with a probe pool when the topology
+has none. Validating the cluster patch alone missed labels and taints written
+under `machine.kubelet`, which Talos refuses as unknown keys.
+
 **The `talosctl` in PATH must match the version the topology pins.** Talos
 moves configuration between documents across minor versions, so validating a
 1.13 config with a 1.14 binary reports conflicts that do not exist, and the

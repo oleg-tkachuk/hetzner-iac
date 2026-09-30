@@ -284,12 +284,16 @@ func TestBuildNodePatch_LabelsAndTaints(t *testing.T) {
 
 	doc := decode(t, patch)
 	machine, _ := doc["machine"].(map[string]any)
-	kubelet, _ := machine["kubelet"].(map[string]any)
 
-	labels, _ := kubelet["nodeLabels"].(map[string]any)
+	// machine.nodeLabels and machine.nodeTaints, which is where Talos reads
+	// them. Under machine.kubelet — where this test used to look — Talos
+	// refuses the document as unknown keys.
+	assert.NotContains(t, machine, "kubelet")
+
+	labels, _ := machine["nodeLabels"].(map[string]any)
 	assert.Equal(t, "gpu", labels["pool"])
 
-	taints, _ := kubelet["nodeTaints"].(map[string]any)
+	taints, _ := machine["nodeTaints"].(map[string]any)
 	assert.Equal(t, "true:NoSchedule", taints["gpu"])
 }
 

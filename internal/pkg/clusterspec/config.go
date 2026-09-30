@@ -196,6 +196,20 @@ type WorkerPoolSpec struct {
 	Taints []string `json:"taints,omitempty"`
 }
 
+// NodeLabels are the Kubernetes labels every node of the pool carries: the
+// pool's own name under LabelPool, then the labels the topology gives it.
+//
+// One function because two places need the same answer — the worker pool
+// that applies it, and tools/talos, which proves Talos accepts it.
+func (pool WorkerPoolSpec) NodeLabels() map[string]string {
+	labels := map[string]string{LabelPool: pool.Name}
+	for key, value := range pool.Labels {
+		labels[key] = value
+	}
+
+	return labels
+}
+
 // TaintEffects are the effects Kubernetes defines for a taint, in the order a
 // message should list them.
 //
