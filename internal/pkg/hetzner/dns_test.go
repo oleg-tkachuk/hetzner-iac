@@ -5,6 +5,7 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 
+	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
@@ -141,6 +142,39 @@ func TestNewIngressRecords_CreatesNoZone(t *testing.T) {
 		of("hcloud:index/zone:Zone"),
 		"the zone is looked up, never created: a zone this stack owns is a zone "+
 			"`pulumi destroy` deletes, with every record in it")
+}
+
+// TestNewIngressRecords_LooksTheZoneUpThroughTheGivenProvider is the lookup
+// that went somewhere else.
+//
+// The records were created through the provider the layer built from the
+// cluster's token, and the zone lookup through the DEFAULT one — configured
+// from whatever the environment holds. With no ambient token the lookup
+// failed; with another project's, it found that project's zone.
+func TestNewIngressRecords_LooksTheZoneUpThroughTheGivenProvider(t *testing.T) {
+	t.Parallel()
+
+	rec := newRecorder()
+
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		provider, err := hcloud.NewProvider(ctx, "cluster-token", &hcloud.ProviderArgs{
+			Token: pulumi.String("token-from-the-cluster-tier"),
+		})
+		if err != nil {
+			return err
+		}
+
+		return hetzner.NewIngressRecords(ctx, "ingress", hetzner.IngressRecordsArgs{
+			Zone:   "example.com",
+			Domain: "platform.example.com",
+			IPv4:   pulumi.String("203.0.113.10"),
+			IPv6:   pulumi.String("2001:db8::10"),
+		}, pulumi.Provider(provider))
+	}, pulumi.WithMocks("hetzner-iac", "test", rec))
+	require.NoError(t, err)
+
+	assert.Contains(t, rec.providerOf("hcloud:index/getZone:getZone"), "cluster-token",
+		"the zone was looked up through the default provider, not the one the records use")
 }
 
 // TestZoneName_RefusesALookupWithNoName covers the branch that used to be a
