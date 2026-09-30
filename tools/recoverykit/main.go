@@ -28,7 +28,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +40,7 @@ import (
 	"time"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/secretout"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/talossecrets"
 )
 
@@ -49,7 +53,8 @@ var stackName = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9._-]*$`)
 // pattern cannot drift into disagreeing about what is allowed.
 const stackNameExtra = "hyphens, underscores and periods, and not a leading period"
 
-// timeout covers two Pulumi reads, each decrypting through the backend.
+// timeout covers up to three Pulumi reads, two of them decrypting through the
+// backend.
 const timeout = 120 * time.Second
 
 // BackupDir is the layer whose outputs hold the backup credentials. Every
@@ -61,13 +66,61 @@ const BackupDir = "infra/backup"
 const TopologyDir = "infra/cluster"
 
 func main() {
-	if err := run(context.Background(), os.Args[1:], secretout.IsTerminal()); err != nil {
+	if err := run(context.Background(), pulumiCLI{}, os.Stdout, os.Args[1:], secretout.IsTerminal()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, args []string, terminal bool) error {
+// pulumiReader is everything this command reads from Pulumi, behind an
+// interface so a test can answer for a backend: whether a stack is absent or
+// could not be read is decided here, and it is the part worth testing.
+type pulumiReader interface {
+	// Bundle is the stack's Talos secrets bundle.
+	Bundle(ctx context.Context, stack string) ([]byte, error)
+	// Outputs is every output of the stack in dir, secrets decrypted, as JSON.
+	Outputs(ctx context.Context, dir, stack string) ([]byte, error)
+	// Stacks names every stack of the project in dir, as Pulumi lists them.
+	Stacks(ctx context.Context, dir string) ([]string, error)
+}
+
+// pulumiCLI reads through the pulumi binary.
+type pulumiCLI struct{}
+
+func (pulumiCLI) Bundle(ctx context.Context, stack string) ([]byte, error) {
+	return talossecrets.Bundle(ctx, stack)
+}
+
+func (pulumiCLI) Outputs(ctx context.Context, dir, stack string) ([]byte, error) {
+	return pulumiJSON(ctx, dir, "--stack", stack, "stack", "output", "--json", "--show-secrets")
+}
+
+// listedStack is the part of `pulumi stack ls --json` this reads — the field
+// the automation API's StackSummary decodes as `name`.
+type listedStack struct {
+	Name string `json:"name"`
+}
+
+func (pulumiCLI) Stacks(ctx context.Context, dir string) ([]string, error) {
+	raw, err := pulumiJSON(ctx, dir, "stack", "ls", "--json")
+	if err != nil {
+		return nil, err
+	}
+
+	var listed []listedStack
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		return nil, fmt.Errorf("pulumi stack ls in %s returned no usable json: %w", dir, err)
+	}
+
+	names := make([]string, 0, len(listed))
+	for _, stack := range listed {
+		names = append(names, stack.Name)
+	}
+
+	return names, nil
+}
+
+func run(ctx context.Context, pulumi pulumiReader, out io.Writer, args []string, terminal bool) error {
 	if len(args) != 1 {
 		return fmt.Errorf("usage: recoverykit <stack>")
 	}
@@ -96,22 +149,24 @@ func run(ctx context.Context, args []string, terminal bool) error {
 
 	// The bundle is the one part with no substitute, so its absence is an
 	// error rather than a note: a kit without it opens nothing.
-	bundle, err := talossecrets.Bundle(ctx, stack)
+	bundle, err := pulumi.Bundle(ctx, stack)
 	if err != nil {
 		return fmt.Errorf("talos secrets bundle: %w", err)
 	}
 
 	kit.Bundle = bundle
 
-	// The other two are noted when missing rather than fatal. A layer that was
+	// The other two are noted when absent rather than fatal. A layer that was
 	// never applied has no backup destination to record, and a kit that
 	// refuses to print because of it would leave the operator with nothing on
 	// the day they need the half that does exist.
-	backup, err := stackOutputs(ctx, BackupDir, stack)
+	//
+	// Absent, not unreadable: a backup tier that exists and could not be read
+	// is an error, because the kit it would print lacks the restic password
+	// while the tier holding it is right there.
+	kit.Backup, kit.BackupMissing, err = backupOutputs(ctx, pulumi, stack)
 	if err != nil {
-		kit.BackupMissing = err.Error()
-	} else {
-		kit.Backup = backup
+		return fmt.Errorf("backup tier outputs: %w", err)
 	}
 
 	// #nosec G304,G703 -- the path is this file's own directory constant plus
@@ -125,26 +180,63 @@ func run(ctx context.Context, args []string, terminal bool) error {
 		kit.Topology = topology
 	}
 
-	_, err = os.Stdout.Write(kit.Document())
+	_, err = out.Write(kit.Document())
 
 	return err
 }
 
-// stackOutputs reads every output of a stack, secrets decrypted.
+// backupOutputs reads the backup tier's outputs, and tells a tier that was
+// never applied from one that could not be read.
+//
+// Only the first is a note. It is decided from Pulumi's own listing rather
+// than from the wording of the error: the stack is absent when the project
+// does not list it, and it has no outputs when it lists nothing under it.
+// Anything else — a timeout, an expired login, a backend refusing — is
+// returned, so the task fails instead of storing a kit that decrypts nothing.
+func backupOutputs(ctx context.Context, pulumi pulumiReader, stack string) (outputs []byte, missing string, err error) {
+	raw, readErr := pulumi.Outputs(ctx, BackupDir, stack)
+	if readErr == nil {
+		var decoded map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			return nil, "", fmt.Errorf("pulumi stack output in %s returned no usable json: %w", BackupDir, err)
+		}
+
+		if len(decoded) == 0 {
+			return nil, "stack " + stack + " in " + BackupDir + " has no outputs: it was never applied, " +
+				"or it was destroyed", nil
+		}
+
+		return raw, "", nil
+	}
+
+	stacks, listErr := pulumi.Stacks(ctx, BackupDir)
+	if listErr != nil {
+		return nil, "", errors.Join(readErr, listErr)
+	}
+
+	for _, listed := range stacks {
+		if stackstatus.SameStack(listed, stack) {
+			return nil, "", readErr
+		}
+	}
+
+	return nil, "no stack " + stack + " in " + BackupDir + ": the layer was never applied", nil
+}
+
+// pulumiJSON runs one pulumi command in dir and returns its JSON.
 //
 // The CLI as an argument vector and its JSON, rather than the automation API:
 // this is the same call tasks/cluster.task.yaml already makes for the upload
 // task, and `--show-secrets` on `stack output` is the documented way to get
 // the generated passwords out. Nothing is interpolated into a shell.
-func stackOutputs(ctx context.Context, dir, stack string) ([]byte, error) {
+func pulumiJSON(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	// #nosec G204,G702 -- the arguments are literals from this file plus a
 	// stack name, passed as a VECTOR: there is no shell to interpret any of
 	// it, so a name carrying shell metacharacters reaches pulumi as one
 	// argument and is rejected there. Both codes are needed — G702's taint
 	// analysis reports this separately from G204, which is how the pinned
 	// linter caught a G204-only directive here.
-	cmd := exec.CommandContext(ctx, "pulumi", "--non-interactive",
-		"--cwd", dir, "--stack", stack, "stack", "output", "--json", "--show-secrets")
+	cmd := exec.CommandContext(ctx, "pulumi", append([]string{"--non-interactive", "--cwd", dir}, args...)...)
 
 	var stderr bytes.Buffer
 
@@ -152,12 +244,14 @@ func stackOutputs(ctx context.Context, dir, stack string) ([]byte, error) {
 
 	out, err := cmd.Output()
 	if err != nil {
+		command := strings.Join(args, " ")
+
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
-			return nil, fmt.Errorf("pulumi stack output in %s: %w", dir, err)
+			return nil, fmt.Errorf("pulumi %s in %s: %w", command, dir, err)
 		}
 
-		return nil, fmt.Errorf("pulumi stack output in %s: %w\n%s", dir, err, message)
+		return nil, fmt.Errorf("pulumi %s in %s: %w\n%s", command, dir, err, message)
 	}
 
 	return out, nil
