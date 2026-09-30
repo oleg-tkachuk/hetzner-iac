@@ -284,6 +284,18 @@ func publishedVersion(stack *pulumi.StackReference, ref string) pulumi.IntOutput
 					ref, published, ContractVersion)
 			}
 
+			// Newer is refused as well. A bump is an output added, removed or
+			// repurposed, so a tier applied from a newer checkout may no
+			// longer publish what this one reads — and an absent output fails
+			// deep inside the apply, which is what the version exists to stop.
+			if published > ContractVersion {
+				return 0, fmt.Errorf(
+					"the cluster stack %s publishes contract v%d, and this checkout reads v%d.\n"+
+						"The cluster tier was applied from a newer checkout: update this one\n"+
+						"before applying a layer against it",
+					ref, published, ContractVersion)
+			}
+
 			return published, nil
 		}).(pulumi.IntOutput)
 }
