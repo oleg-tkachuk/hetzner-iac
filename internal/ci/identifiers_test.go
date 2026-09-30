@@ -60,12 +60,13 @@ var documentationRanges = []string{"192.0.2.0/24", "198.51.100.0/24", "203.0.113
 // that would lose their point without the number — the whole argument of the
 // first is that the address belongs to somebody else and is theirs to change.
 // Neither says anything about this project's own cluster.
+//
+// Every entry must still occur somewhere. Three once did not — two public
+// resolvers and a broadcast mask, for text no tracked file still held — and
+// an exemption nothing uses is a pre-signed permission for the next file.
 var publicAddressesWithAReason = map[string]string{
-	"172.65.46.172":   "Cloudflare, fronting Let's Encrypt — the reason 50-allow-acme.yaml uses toFQDNs and not toCIDRSet",
-	"213.239.246.78":  "what api.hetzner.cloud answers with, in the policy that allows reaching it",
-	"1.1.1.1":         "a public resolver, as an example of one",
-	"8.8.8.8":         "a public resolver, as an example of one",
-	"255.255.255.255": "a mask, not a host",
+	"172.65.46.172":  "Cloudflare, fronting Let's Encrypt — the reason 50-allow-acme.yaml uses toFQDNs and not toCIDRSet",
+	"213.239.246.78": "what api.hetzner.cloud answers with, in the policy that allows reaching it",
 }
 
 // TestTrackedFiles_NameNoRealAddressOfTheirOwn keeps this repository from
@@ -95,6 +96,8 @@ func TestTrackedFiles_NameNoRealAddressOfTheirOwn(t *testing.T) {
 	}
 
 	var checked int
+
+	used := map[string]bool{}
 
 	for _, name := range tracked(t, root) {
 		if name == "" || name == filepath.Join("internal", "ci", "identifiers_test.go") {
@@ -126,6 +129,8 @@ func TestTrackedFiles_NameNoRealAddressOfTheirOwn(t *testing.T) {
 			checked++
 
 			_, allowed := publicAddressesWithAReason[address.String()]
+			used[address.String()] = used[address.String()] || allowed
+
 			assert.True(t, allowed,
 				"%s names the real address %s. If it is this project's own, take it out — a "+
 					"documentation range from RFC 5737 carries the same meaning. If it belongs "+
@@ -137,6 +142,13 @@ func TestTrackedFiles_NameNoRealAddressOfTheirOwn(t *testing.T) {
 
 	assert.Positive(t, checked,
 		"no real address was examined, so this test proved nothing — the pattern is broken again")
+
+	for address, reason := range publicAddressesWithAReason {
+		assert.True(t, used[address],
+			"%s is exempt (%q) and no tracked file names it: drop it from "+
+				"publicAddressesWithAReason, because an exception nothing uses permits the next "+
+				"file to name it with no reason given", address, reason)
+	}
 }
 
 func inAny(address net.IP, networks []*net.IPNet) bool {
