@@ -134,7 +134,13 @@ func (r FirewallRule) validate(index int) error {
 // node name, so it has to survive DNS-1123 and stay stable: the ordinal is
 // positional, never a hash of the node's attributes.
 func NodeName(cluster, pool string, ordinal int) string {
-	return fmt.Sprintf("%s-%s-%d", cluster, pool, ordinal)
+	return NodeNamePrefix(cluster, pool) + strconv.Itoa(ordinal)
+}
+
+// NodeNamePrefix is what every node of one pool of one cluster is named
+// before its ordinal, so a name can be traced back to the cluster that made it.
+func NodeNamePrefix(cluster, pool string) string {
+	return cluster + "-" + pool + "-"
 }
 
 // SortedLabelPairs renders labels as sorted key=value pairs. Sorted so that a
