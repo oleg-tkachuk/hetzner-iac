@@ -324,7 +324,7 @@ func (stackMocks) Call(pulumi.MockCallArgs) (resource.PropertyMap, error) {
 	return resource.PropertyMap{}, nil
 }
 
-// resolved runs resolveToken against a cluster stack exporting `exported` and
+// resolved runs the runner's HcloudToken against a cluster stack exporting `exported` and
 // a layer config holding `override`, and returns the token the layer would put
 // into the credentials Secret.
 //
@@ -350,14 +350,14 @@ func resolved(t *testing.T, exported, override string) (string, error) {
 
 	err = pulumi.RunErr(func(ctx *pulumi.Context) error {
 		// Through layer.New rather than assembling the three fields by hand:
-		// resolveToken takes the runner, so the test exercises the same
-		// wiring the program does.
+		// the token is the runner's, so the test exercises the same wiring
+		// the program does.
 		runner, newErr := layer.New(ctx)
 		if newErr != nil {
 			return newErr
 		}
 
-		token := resolveToken(runner)
+		token := runner.HcloudToken()
 
 		// The token has to reach a resource. An output nothing consumes is
 		// never awaited, so an error raised inside it hangs the program
