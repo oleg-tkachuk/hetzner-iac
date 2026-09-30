@@ -38,8 +38,15 @@ var redactions = []struct {
 		// The key and the separator are kept: a line reading
 		// `token: [redacted]` still tells the operator which field was
 		// involved, which is most of why the line existed.
-		pattern: regexp.MustCompile(`(?i)\b(client-key-data|client-certificate-data|` +
-			`certificate-authority-data|token|password|secret)\b(\s*[:=]\s*)\S+`),
+		//
+		// The key may carry a prefix, because the underscore is a word
+		// character: `\btoken` never matched HCLOUD_TOKEN or client_secret.
+		// A quote may close the key before its separator, which is how JSON
+		// writes it. And a quoted value goes whole — stopping at the first
+		// space printed the rest of a passphrase.
+		pattern: regexp.MustCompile(`(?i)\b([A-Za-z0-9_-]*(?:client-key-data|client-certificate-data|` +
+			`certificate-authority-data|token|password|secret))\b(["']?\s*[:=]\s*)` +
+			`("[^"]*"|'[^']*'|\S+)`),
 		with: "${1}${2}" + Redacted,
 	},
 	{
