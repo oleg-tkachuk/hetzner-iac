@@ -51,9 +51,13 @@ The same discipline as [secrets](../secrets) and [token](../token), and it
 task cluster:recovery-kit stack=dev | pass insert -m hetzner/dev/recovery-kit
 ```
 
-A part that cannot be read is named in the document rather than left out: a kit
-is written on a good day and read on a bad one, and one that silently omitted
-the backup credentials would leave the reader believing the snapshots are
-recoverable.
+A part that does not exist yet — a backup tier never applied, a topology never
+written — is named in the document rather than left out: a kit is written on a
+good day and read on a bad one, and one that silently omitted the backup
+credentials would leave the reader believing the snapshots are recoverable.
+
+A part that exists and could not be read — a timeout, an expired login — fails
+the command instead. A kit without the restic password is only worth storing
+when there is no password to store.
 
 Run by `task cluster:recovery-kit`.
