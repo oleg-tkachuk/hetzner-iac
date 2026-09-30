@@ -5,6 +5,8 @@
 // prints that plus everything needed to use it. Both refuse a terminal, and
 // both refused it with their own copy of the same three parts — the test, the
 // sentinel and the message — which is three places for one decision to drift.
+// `tools/token` refuses too, on the same test and sentinel, with a remedy of
+// its own: the Hetzner token belongs in an environment, not a password store.
 //
 // The rule itself: a certificate authority in scrollback outlives the session,
 // is copied into whatever the terminal emulator persists, and is searched for
