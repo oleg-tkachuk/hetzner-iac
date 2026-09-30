@@ -492,11 +492,24 @@ func TestWorkflows_AnIssueCannotStartAJobForAStranger(t *testing.T) {
 const freeDiskAction = ".github/actions/free-disk/action.yml"
 
 // diskThreshold matches the shell variable holding how much room a cold build
-// needs, and a bare use of the same number.
+// needs; bareMegabytes, a number a shell line could compare free space with.
+// Three digits rather than five: a second guard at 9000 MB is as much a second
+// standard as one at 15000, and nothing on an executable line of the action
+// needs a number that large for any other reason.
 var (
 	diskThreshold = regexp.MustCompile(`(?m)^\s*need=(\d+)\s*$`)
-	bareMegabytes = regexp.MustCompile(`\b(\d{5,})\b`)
+	bareMegabytes = regexp.MustCompile(`\b\d{3,}\b`)
 )
+
+// compositeAction is the part of a composite action these tests read: the
+// scripts its steps run.
+type compositeAction struct {
+	Runs struct {
+		Steps []struct {
+			Run string `json:"run"`
+		} `json:"steps"`
+	} `json:"runs"`
+}
 
 // TestFreeDisk_HasOneThresholdAndUsesItTwice keeps the decision to make room
 // and the check that enough was made from disagreeing.
@@ -526,17 +539,38 @@ func TestFreeDisk_HasOneThresholdAndUsesItTwice(t *testing.T) {
 				"disagree about how much room a cold build needs", freeDiskAction, use)
 	}
 
-	// And nowhere a second copy of the number itself. The description quotes
-	// measurements with spaces in them — "87 476 MB" — which is why this looks
-	// for the bare digits a shell would read.
-	for _, match := range bareMegabytes.FindAllString(body, -1) {
-		if match == threshold {
-			continue
-		}
+	// And nowhere a second copy of the number, nor a second number. Only the
+	// scripts are read, and only the lines a shell executes: the description
+	// and the comments quote measurements — "87 476 MB", a run ID — which are
+	// history rather than a standard. Every other line must name the
+	// threshold through $need; a literal there, the same value or another,
+	// is a second standard that drifts on its own.
+	//
+	// This loop once skipped exactly the value it should have found, and only
+	// refused a second `need=` — which the Len above already refuses. A
+	// hard-coded threshold in a message and a second guard at 15000 both
+	// passed it.
+	var action compositeAction
+	require.NoError(t, yaml.Unmarshal(raw, &action), freeDiskAction)
 
-		assert.NotContains(t, body, "need="+match,
-			"%s assigns the threshold more than once", freeDiskAction)
+	var lines int
+
+	for _, step := range action.Runs.Steps {
+		for line := range strings.Lines(step.Run) {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") || diskThreshold.MatchString(line) {
+				continue
+			}
+
+			lines++
+
+			assert.Empty(t, bareMegabytes.FindAllString(line, -1),
+				"%s spells a number where it should read $need (%s): %q",
+				freeDiskAction, threshold, line)
+		}
 	}
+
+	assert.Positive(t, lines, "%s has no script lines, so nothing was checked", freeDiskAction)
 }
 
 // FloatingRunner is the label that makes the OS under a job change on a date
