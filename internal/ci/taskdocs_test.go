@@ -194,6 +194,19 @@ var includeWithExcludes = regexp.MustCompile(`(?m)^  ([a-z][a-z0-9-]*):\n((?:   
 // excludedTask matches one entry of an `excludes:` list.
 var excludedTask = regexp.MustCompile(`(?m)^      - ([a-z:_-]+)\s*$`)
 
+// excludedTaskCommand matches a command running the named task through either
+// entry point: `task security:dockerfile` and `task -t Taskfile.dev.yaml
+// security:dockerfile` alike.
+//
+// The flag is optional because most excludes belong to modules the dev
+// taskfile includes, and the documentation spells every such command with it.
+// Matching the bare form alone meant no exclude of the dev taskfile could ever
+// have been caught. The name must end where the command does, so
+// a longer task that merely starts with an excluded one is not mistaken for it.
+func excludedTaskCommand(name string) *regexp.Regexp {
+	return regexp.MustCompile(`task (?:-t \S+ )?` + regexp.QuoteMeta(name) + `(?:[^a-z0-9:_-]|$)`)
+}
+
 // TestDocs_NameNoExcludedTask closes the hole the other documentation gate
 // leaves open by design.
 //
@@ -260,7 +273,9 @@ func TestDocs_NameNoExcludedTask(t *testing.T) {
 		require.NoError(t, readErr, path)
 
 		for name := range excluded {
-			assert.NotContains(t, string(text), "task "+name,
+			// The match rather than NotRegexp, whose failure prints the whole
+			// document and buries the one line that is wrong.
+			assert.Empty(t, excludedTaskCommand(name).FindString(string(text)),
 				"%s names task %s, which this repository excludes from the library include",
 				filepath.Base(path), name)
 		}
