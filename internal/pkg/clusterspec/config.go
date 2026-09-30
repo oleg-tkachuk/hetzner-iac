@@ -346,6 +346,10 @@ const (
 	// Derived from RoleControlPlane rather than counted by hand: the first
 	// attempt at this constant guessed the suffix, got 48 instead of 47, and
 	// would have let a name through that hcloud then rejects.
+	//
+	// A floor for metadata.name, not the whole check: a worker pool's name can
+	// be longer and an ordinal can take two digits, so validateNodeNames holds
+	// every pool to the name it will actually produce.
 	NodeNameSuffix = len("-") + len(RoleControlPlane) + len("-") + 1
 
 	// MaxClusterNameLength is what remains for metadata.name. Derived rather
@@ -541,12 +545,53 @@ func (t *Topology) Validate() error {
 	problems = append(problems, t.validateVersions()...)
 	problems = append(problems, t.validateControlPlane()...)
 	problems = append(problems, t.validateWorkerPools()...)
+	problems = append(problems, t.validateNodeNames()...)
 
 	if len(problems) == 0 {
 		return nil
 	}
 
 	return fmt.Errorf("invalid cluster topology:\n  - %s", strings.Join(problems, "\n  - "))
+}
+
+// validateNodeNames checks the longest server name each pool will ask hcloud
+// for: the cluster's name, the pool's, and the pool's largest ordinal.
+//
+// MaxClusterNameLength alone cannot. It leaves room for control-plane and a
+// one-digit ordinal, and neither bound holds — a worker pool's name is as long
+// as its author wrote it, and eleven nodes end in -10. Either way the topology
+// validated and hcloud refused the server halfway through an apply. So every
+// pool is checked with its own name and its own count, which are the two
+// things the name is built from.
+//
+// Not reported when metadata.name is already over its own limit: that is the
+// same problem, and validateIdentity has said it.
+func (t *Topology) validateNodeNames() []string {
+	if t.Metadata.Name == "" || len(t.Metadata.Name) > MaxClusterNameLength {
+		return nil
+	}
+
+	var problems []string
+
+	check := func(field, pool string, count int) {
+		last := NodeName(t.Metadata.Name, pool, max(count-1, 0))
+		if len(last) > MaxServerName {
+			problems = append(problems, fmt.Sprintf(
+				"%s names its last node %q, which is %d characters: hcloud refuses a server "+
+					"name longer than %d, so shorten the pool's name or metadata.name",
+				field, last, len(last), MaxServerName))
+		}
+	}
+
+	check("controlPlane", RoleControlPlane, t.ControlPlane.Count)
+
+	for i, pool := range t.WorkerPools {
+		if pool.Name != "" {
+			check(fmt.Sprintf("workerPools[%d]", i), pool.Name, pool.Count)
+		}
+	}
+
+	return problems
 }
 
 // validateDNSZone holds the relationship between the two DNS fields.
