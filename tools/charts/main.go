@@ -166,23 +166,48 @@ func appVersionInRepo(ctx context.Context, client *http.Client, chart charts.Cha
 // `helm search`, which would mutate the operator's Helm configuration as a side
 // effect of a read-only report.
 func outdated() error {
-	out := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(out, "CHART\tPINNED\tLATEST\tSTATUS")
-
 	// A context so a hung registry cannot hang the whole report; the client
 	// timeout alone does not cover a slow body.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	client := &http.Client{Timeout: 30 * time.Second}
+
+	var pins []pin
+	for _, key := range charts.Keys() {
+		pins = append(pins, pin{Key: key, Chart: charts.MustGet(key)})
+	}
+
+	return reportOutdated(ctx, client, os.Stdout, os.Stderr, pins)
+}
+
+// pin is one chart the report checks, under the key it is listed by.
+type pin struct {
+	Key   string
+	Chart charts.Chart
+}
+
+// reportOutdated is outdated with its inputs passed in, so a test can run it
+// against a local repository.
+func reportOutdated(ctx context.Context, client *http.Client, stdout, stderr io.Writer, pins []pin) error {
+	out := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(out, "CHART\tPINNED\tLATEST\tSTATUS")
+
 	stale := 0
 
-	for _, key := range charts.Keys() {
-		chart := charts.MustGet(key)
+	// The charts that were not compared. Each still gets its row, and the
+	// report then fails: a `?` in a table that exits zero reads as "nothing
+	// outdated" when the truth is "nothing checked".
+	var unchecked []string
+
+	for _, p := range pins {
+		key, chart := p.Key, p.Chart
 
 		latest, err := latestInRepo(ctx, client, chart)
 		if err != nil {
 			fmt.Fprintf(out, "%s\t%s\t?\t%v\n", key, chart.Version, err)
+
+			unchecked = append(unchecked, key)
 
 			continue
 		}
@@ -190,6 +215,8 @@ func outdated() error {
 		pinned, err := ParseVersion(chart.Version)
 		if err != nil {
 			fmt.Fprintf(out, "%s\t%s\t%s\tunparseable pin\n", key, chart.Version, latest)
+
+			unchecked = append(unchecked, key)
 
 			continue
 		}
@@ -211,7 +238,12 @@ func outdated() error {
 		// Report, do not fail. An upgrade is a decision with a changelog to
 		// read, and a gate that fails on every upstream release is a gate
 		// people switch off.
-		fmt.Fprintf(os.Stderr, "\n%d chart(s) behind upstream — read the changelogs before bumping\n", stale)
+		fmt.Fprintf(stderr, "\n%d chart(s) behind upstream — read the changelogs before bumping\n", stale)
+	}
+
+	if len(unchecked) > 0 {
+		return fmt.Errorf("%d of %d chart(s) could not be checked against upstream: %s",
+			len(unchecked), len(pins), strings.Join(unchecked, ", "))
 	}
 
 	return nil
@@ -232,6 +264,17 @@ type indexEntry struct {
 // Directly rather than through `helm repo add` and `helm search`, which would
 // mutate the operator's Helm configuration as a side effect of a read.
 func fetchIndex(ctx context.Context, client *http.Client, repo string) (*repoIndex, error) {
+	return fetchIndexWithin(ctx, client, repo, maxIndexBytes)
+}
+
+// maxIndexBytes bounds what an index may take. Some repository indexes are
+// genuinely large; the limit is a guard against a misbehaving endpoint, not
+// against a big project.
+const maxIndexBytes = 64 << 20
+
+// fetchIndexWithin is fetchIndex with its size limit passed in, so a test can
+// reach the limit without serving 64 MiB.
+func fetchIndexWithin(ctx context.Context, client *http.Client, repo string, limit int64) (*repoIndex, error) {
 	url := repo
 	if url[len(url)-1] != '/' {
 		url += "/"
@@ -257,13 +300,16 @@ func fetchIndex(ctx context.Context, client *http.Client, repo string) (*repoInd
 		return nil, fmt.Errorf("index returned %s", response.Status)
 	}
 
-	// Some repository indexes are genuinely large; the limit is a guard
-	// against a misbehaving endpoint, not against a big project.
-	const maxIndexBytes = 64 << 20
-
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxIndexBytes))
+	// One byte past the limit, so a body that reaches it is told apart from
+	// one that fits exactly. Cut at the limit, an index is still YAML — just
+	// one missing its newest entries — and would report a stale pin current.
+	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("read index: %w", err)
+	}
+
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("index at %s is larger than %d bytes, so it was not read whole", url, limit)
 	}
 
 	var index repoIndex

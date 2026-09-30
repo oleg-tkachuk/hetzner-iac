@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -123,6 +124,55 @@ func TestFetchIndex_Errors(t *testing.T) {
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), tc.want, name)
 	}
+}
+
+// TestFetchIndex_ATruncatedIndexIsAnError is the partial read that parsed.
+//
+// The limit cut the body short without a word, and YAML cut at a line
+// boundary is still YAML: the index read as one missing its newest entries,
+// which is a report calling a stale pin current.
+func TestFetchIndex_ATruncatedIndexIsAnError(t *testing.T) {
+	t.Parallel()
+
+	server := indexServer(t, http.StatusOK, testIndex)
+
+	// Just short of the whole body, so the cut falls inside it.
+	_, err := fetchIndexWithin(t.Context(), server.Client(), server.URL, int64(len(testIndex)-1))
+
+	require.Error(t, err, "a truncated index was read as a complete one")
+	assert.Contains(t, err.Error(), "larger than")
+
+	_, err = fetchIndexWithin(t.Context(), server.Client(), server.URL, int64(len(testIndex)))
+	require.NoError(t, err, "an index exactly at the limit is whole")
+}
+
+// TestReportOutdated_FailsWhenAnIndexCouldNotBeRead is the report that checked
+// nothing and exited zero.
+//
+// Every fetch error became a `?` in the table. With every repository
+// unreachable the report still succeeded, and a task that gates on it read
+// "nothing outdated" out of "nothing checked".
+func TestReportOutdated_FailsWhenAnIndexCouldNotBeRead(t *testing.T) {
+	t.Parallel()
+
+	good := indexServer(t, http.StatusOK, testIndex)
+	broken := indexServer(t, http.StatusInternalServerError, "boom")
+
+	var stdout, stderr bytes.Buffer
+
+	err := reportOutdated(t.Context(), good.Client(), &stdout, &stderr, []pin{
+		{Key: "traefik", Chart: testChart(good.URL)},
+		{Key: "unreachable", Chart: testChart(broken.URL)},
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "1 of 2")
+	assert.Contains(t, stdout.String(), "unreachable", "the row still says which one")
+	assert.Contains(t, stdout.String(), "OUTDATED", "the readable ones are still reported")
+
+	require.NoError(t, reportOutdated(t.Context(), good.Client(), &stdout, &stderr, []pin{
+		{Key: "traefik", Chart: testChart(good.URL)},
+	}), "an outdated pin is a report, not a failure")
 }
 
 func TestLatestInRepo_PicksTheLatestStable(t *testing.T) {
