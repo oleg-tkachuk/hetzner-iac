@@ -3,6 +3,7 @@ package clustersmoke
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -165,7 +166,7 @@ func (r *Runner) checkDataVolumes(ctx context.Context) Result {
 			Detail: "listing namespaces: " + err.Error()}
 	}
 
-	reclaim, err := r.reclaimPolicies(ctx)
+	classes, err := r.storageClasses(ctx)
 	if err != nil {
 		return Result{Name: CheckDataVolumes, Status: StatusFailed, Detail: err.Error()}
 	}
@@ -181,44 +182,88 @@ func (r *Runner) checkDataVolumes(ctx context.Context) Result {
 		}
 
 		for _, claim := range claims.Items {
-			class := r.opts.StorageClass
-			if claim.Spec.StorageClassName != nil && *claim.Spec.StorageClassName != "" {
-				class = *claim.Spec.StorageClassName
+			volume, resolveErr := r.dataVolume(ctx, claim, classes)
+			if resolveErr != nil {
+				return Result{Name: CheckDataVolumes, Status: StatusFailed, Detail: resolveErr.Error()}
 			}
 
-			volumes = append(volumes, DataVolume{
-				Namespace: namespace.Name,
-				Name:      claim.Name,
-				Class:     class,
-				Reclaim:   reclaim[class],
-			})
+			volumes = append(volumes, volume)
 		}
 	}
 
 	return DataVolumesAreRetained(volumes, len(namespaces.Items))
 }
 
-// reclaimPolicies maps every storage class to what deleting a claim on it
-// does, and names the default class as itself as well.
+// DefaultClassAnnotation is the annotation Kubernetes reads to pick the class
+// a claim naming none is bound to. The API server's admission plugin reads the
+// same key; k8s.io/api does not export it.
+const DefaultClassAnnotation = "storageclass.kubernetes.io/is-default-class"
+
+// classes is what the cluster's storage classes say about deleting a claim.
+type classes struct {
+	// reclaim maps each class to its reclaim policy.
+	reclaim map[string]string
+	// defaultClass carries DefaultClassAnnotation, or is empty when none does.
+	defaultClass string
+}
+
+// storageClasses reads every class's reclaim policy, and which class is the
+// default.
 //
 // The default matters because a claim may name nothing: Kubernetes then binds
-// it to whichever class carries the default annotation, which is the one this
-// repository deliberately made `Delete`.
-func (r *Runner) reclaimPolicies(ctx context.Context) (map[string]string, error) {
-	classes, err := r.client.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+// it to whichever class carries the annotation, which is the one this
+// repository deliberately made `Delete`. It used to be taken from
+// --storage-class, which is the probe's class, so a run with the retaining
+// class passed every claim that named none.
+func (r *Runner) storageClasses(ctx context.Context) (classes, error) {
+	list, err := r.client.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("listing storage classes: %w", err)
+		return classes{}, fmt.Errorf("listing storage classes: %w", err)
 	}
 
-	policies := make(map[string]string, len(classes.Items))
+	found := classes{reclaim: make(map[string]string, len(list.Items)), defaultClass: ""}
 
-	for _, class := range classes.Items {
+	for _, class := range list.Items {
 		if class.ReclaimPolicy != nil {
-			policies[class.Name] = string(*class.ReclaimPolicy)
+			found.reclaim[class.Name] = string(*class.ReclaimPolicy)
+		}
+
+		if class.Annotations[DefaultClassAnnotation] == strconv.FormatBool(true) {
+			found.defaultClass = class.Name
 		}
 	}
 
-	return policies, nil
+	return found, nil
+}
+
+// dataVolume resolves what deleting one claim would do.
+//
+// A bound claim is judged by its volume: the volume's own reclaim policy is
+// what the API server acts on, and the class only set it at provisioning. An
+// unbound one by its class — the one it names, or the default when it names
+// none. A class that cannot be found leaves the policy empty, which the
+// judgement refuses rather than reading as "not Delete".
+func (r *Runner) dataVolume(ctx context.Context, claim corev1.PersistentVolumeClaim, found classes) (DataVolume, error) {
+	volume := DataVolume{Namespace: claim.Namespace, Name: claim.Name, Class: found.defaultClass, Reclaim: ""}
+
+	if claim.Spec.StorageClassName != nil {
+		volume.Class = *claim.Spec.StorageClassName
+	}
+
+	if claim.Spec.VolumeName != "" {
+		bound, err := r.client.CoreV1().PersistentVolumes().Get(ctx, claim.Spec.VolumeName, metav1.GetOptions{})
+		if err != nil {
+			return volume, fmt.Errorf("reading volume %s of %s/%s: %w", claim.Spec.VolumeName, claim.Namespace, claim.Name, err)
+		}
+
+		volume.Reclaim = string(bound.Spec.PersistentVolumeReclaimPolicy)
+
+		return volume, nil
+	}
+
+	volume.Reclaim = found.reclaim[volume.Class]
+
+	return volume, nil
 }
 
 // checkExternalMetrics asks discovery whether the aggregated external metrics
