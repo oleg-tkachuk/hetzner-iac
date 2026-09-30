@@ -95,15 +95,29 @@ type IngressRecordsArgs struct {
 // Both families, because the load balancer has both. An AAAA-less record on a
 // dual-stack load balancer fails only for IPv6-only clients, which is the
 // failure nobody testing from a laptop will see.
+//
+// opts go to the lookup as well as to the records, which is why they are the
+// options valid for both. Above all the provider: the records are written
+// through the one the caller built from the cluster's token, and a lookup
+// left on the default provider reads the ambient environment instead — no
+// token there fails the lookup, another project's finds that project's zone.
 func NewIngressRecords(
 	ctx *pulumi.Context,
 	name string,
 	args IngressRecordsArgs,
-	opts ...pulumi.ResourceOption,
+	opts ...pulumi.ResourceOrInvokeOption,
 ) error {
+	invokeOpts := make([]pulumi.InvokeOption, 0, len(opts))
+	resourceOpts := make([]pulumi.ResourceOption, 0, len(opts))
+
+	for _, opt := range opts {
+		invokeOpts = append(invokeOpts, opt)
+		resourceOpts = append(resourceOpts, opt)
+	}
+
 	zone, err := hcloud.LookupZone(ctx, &hcloud.LookupZoneArgs{
 		Name: pulumi.StringRef(args.Zone),
-	}, nil)
+	}, invokeOpts...)
 	if err != nil {
 		return fmt.Errorf("hetzner dns zone %q: %w\n"+
 			"the zone has to exist and be delegated to Hetzner: point the registrar's NS "+
@@ -134,7 +148,7 @@ func NewIngressRecords(
 			Records: hcloud.ZoneRrsetRecordArray{
 				hcloud.ZoneRrsetRecordArgs{Value: rrset.value},
 			},
-		}, opts...); err != nil {
+		}, resourceOpts...); err != nil {
 			return fmt.Errorf("hetzner dns %s record for %s: %w", rrset.kind, args.Domain, err)
 		}
 	}
