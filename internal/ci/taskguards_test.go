@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -634,4 +635,46 @@ func TestTierTasks_RefuseATargetTheyCannotHonour(t *testing.T) {
 	}
 
 	assert.Positive(t, checked, "no tier task matched — this test is checking nothing")
+}
+
+// loopOverSubstitution matches a shell `for` whose word list is a command
+// substitution.
+var loopOverSubstitution = regexp.MustCompile(`\bfor\s+\w+\s+in\s+\$\(`)
+
+// TestTaskLoops_DoNotIterateOverACommandSubstitution keeps one silent success
+// out of the taskfiles.
+//
+// `set -euo pipefail` does not reach a command substitution in a `for` list:
+// `for n in $(false | cat)` runs zero times and the script goes on to exit 0.
+// upgrade:talos looped over `$(talosctl get members …)` that way, so an
+// unreachable endpoint upgraded no node and reported success, and
+// platform:destroy walked its layers the same way. Reading the list into a
+// variable first is what makes the failure stop the script.
+func TestTaskLoops_DoNotIterateOverACommandSubstitution(t *testing.T) {
+	t.Parallel()
+
+	var (
+		offences []string
+		scanned  int
+	)
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		scanned++
+
+		for i, line := range strings.Split(string(raw), "\n") {
+			if loopOverSubstitution.MatchString(line) && !isComment(line) {
+				offences = append(offences, relativeToRoot(path)+":"+strconv.Itoa(i+1)+": "+strings.TrimSpace(line))
+			}
+		}
+	}
+
+	require.Positive(t, scanned, "no taskfile was read; this test is checking nothing")
+
+	assert.Empty(t, offences,
+		"a for loop over a command substitution: its failure does not stop the script, so "+
+			"the loop runs zero times and the task succeeds. Assign the list to a variable "+
+			"first and refuse an empty one:\n  %s", strings.Join(offences, "\n  "))
 }
