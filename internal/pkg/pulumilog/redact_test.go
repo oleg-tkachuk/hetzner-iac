@@ -75,6 +75,43 @@ func TestRedact(t *testing.T) {
 			want: "◉ core · env · HCLOUD_TOKEN=" + Redacted,
 		},
 		{
+			// The case above passes on the token's shape alone. A short value
+			// behind the same variable is still the credential, and there is
+			// no word boundary between the underscore and TOKEN.
+			name: "a prefixed environment variable is removed whatever its value",
+			line: "◉ core · env · HCLOUD_TOKEN=short",
+			want: "◉ core · env · HCLOUD_TOKEN=" + Redacted,
+		},
+		{
+			name: "a prefixed password variable is removed",
+			line: "◉ backup · env · RESTIC_PASSWORD=hunter2",
+			want: "◉ backup · env · RESTIC_PASSWORD=" + Redacted,
+		},
+		{
+			name: "a snake_case secret field is removed",
+			line: "◉ gitops · oidc · client_secret: hunter2",
+			want: "◉ gitops · oidc · client_secret: " + Redacted,
+		},
+		{
+			// JSON quotes the key, so a quote stands between it and the colon.
+			name: "a json password field is removed",
+			line: `◉ backup · body · {"password":"hunter2"}`,
+			want: `◉ backup · body · {"password":` + Redacted + `}`,
+		},
+		{
+			// A quoted value with a space in it went half: the first word was
+			// redacted and the second printed.
+			name: "a quoted value goes whole, not up to its first space",
+			line: `◉ backup · s3 · password: "correct horse"`,
+			want: "◉ backup · s3 · password: " + Redacted,
+		},
+		{
+			// The widening must not reach a key that only contains the word.
+			name: "a key that merely continues past the word is untouched",
+			line: "◉ core · secrets · imagePullSecrets: registry",
+			want: "◉ core · secrets · imagePullSecrets: registry",
+		},
+		{
 			name: "a password field is removed whatever its case",
 			line: "▲ backup · s3 · Password: hunter2",
 			want: "▲ backup · s3 · Password: " + Redacted,
