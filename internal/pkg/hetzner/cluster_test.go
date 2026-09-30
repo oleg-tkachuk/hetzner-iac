@@ -29,6 +29,12 @@ type recorder struct {
 	mu        sync.Mutex
 	resources map[string][]resource.PropertyMap
 
+	// calls is the arguments of every invoke, keyed the same way. The machine
+	// configuration is an invoke rather than a resource, and the patch every
+	// node shares goes in through its arguments, so a setting in that patch
+	// is visible nowhere else.
+	calls map[string][]resource.PropertyMap
+
 	// serverTypes is what the getServerTypes lookup reports, name to
 	// architecture. Empty by default, which ValidateServerTypes reads as
 	// "unverified" rather than "none exist".
@@ -65,6 +71,7 @@ type recorder struct {
 func newRecorder() *recorder {
 	return &recorder{
 		resources:      map[string][]resource.PropertyMap{},
+		calls:          map[string][]resource.PropertyMap{},
 		protectedNames: map[string]bool{},
 		deleteFirst:    map[string]bool{},
 		replaceOn:      map[string][]string{},
@@ -139,7 +146,19 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 	return "1", outputs, nil
 }
 
+// callsOf is every invoke of this token, by its arguments.
+func (r *recorder) callsOf(token string) []resource.PropertyMap {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.calls[token]
+}
+
 func (r *recorder) Call(args pulumi.MockCallArgs) (resource.PropertyMap, error) {
+	r.mu.Lock()
+	r.calls[args.Token] = append(r.calls[args.Token], args.Args)
+	r.mu.Unlock()
+
 	switch args.Token {
 	case "hcloud:index/getImage:getImage":
 		return resource.PropertyMap{
@@ -469,6 +488,39 @@ func TestNewCluster_WorkerPoolCarriesItsLabelsAndTaints(t *testing.T) {
 	assert.Equal(t, map[string]any{"gpu": "true:NoSchedule"}, machine["nodeTaints"])
 }
 
+// allowSchedulingKey is the Talos cluster setting that lets pods run on a
+// control-plane node.
+const allowSchedulingKey = "allowSchedulingOnControlPlanes"
+
+// schedulingOnControlPlanes reads allowSchedulingOnControlPlanes out of every
+// machine-config patch that sets it, which is the value Talos is handed rather
+// than the argument NewCluster computed.
+//
+// From the machine-configuration invoke, not the ConfigurationApply: the
+// shared cluster patch is generated into the configuration there, and each
+// apply carries only its own node's patch.
+func schedulingOnControlPlanes(t *testing.T, rec *recorder) []any {
+	t.Helper()
+
+	var found []any
+
+	for _, generated := range rec.callsOf("talos:machine/getConfiguration:getConfiguration") {
+		for _, patch := range generated["configPatches"].ArrayValue() {
+			first, _, _ := strings.Cut(patch.StringValue(), "\n---\n")
+
+			var doc map[string]any
+			require.NoError(t, yaml.Unmarshal([]byte(first), &doc))
+
+			cluster, _ := doc["cluster"].(map[string]any)
+			if value, set := cluster[allowSchedulingKey]; set {
+				found = append(found, value)
+			}
+		}
+	}
+
+	return found
+}
+
 func TestNewCluster_NoWorkersAllowsSchedulingOnControlPlanes(t *testing.T) {
 	t.Parallel()
 
@@ -479,6 +531,30 @@ func TestNewCluster_NoWorkersAllowsSchedulingOnControlPlanes(t *testing.T) {
 	rec := runCluster(t, topology, &hetzner.ClusterArgs{PublicIPv4: true})
 
 	assert.Len(t, rec.of("hcloud:index/server:Server"), 1)
+
+	// Counting servers alone passed whatever the setting said, and the setting
+	// is the whole claim: read it from the patch the node is configured with.
+	allowed := schedulingOnControlPlanes(t, rec)
+	require.NotEmpty(t, allowed, "no machine-config patch sets %s", allowSchedulingKey)
+
+	for _, value := range allowed {
+		assert.Equal(t, true, value, "a cluster with no workers must schedule on its control plane")
+	}
+}
+
+func TestNewCluster_WorkersKeepPodsOffTheControlPlanes(t *testing.T) {
+	t.Parallel()
+
+	// The opposite, so a setting stuck at true cannot pass the test above: with
+	// a worker pool, workloads belong on the workers.
+	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: true})
+
+	allowed := schedulingOnControlPlanes(t, rec)
+	require.NotEmpty(t, allowed, "no machine-config patch sets %s", allowSchedulingKey)
+
+	for _, value := range allowed {
+		assert.Equal(t, false, value, "a cluster with workers must keep pods off its control plane")
+	}
 }
 
 func TestNewCluster_RejectsMissingTopology(t *testing.T) {
