@@ -795,15 +795,49 @@ func (t *Topology) validateWorkerPools() []string {
 			problems = append(problems, field+".serverType is required")
 		}
 
-		for j, taint := range pool.Taints {
-			if !taintPattern.MatchString(taint) {
-				problems = append(problems, fmt.Sprintf("%s.taints[%d] %q must be key=value:Effect where Effect is one of "+strings.Join(TaintEffects, ", "),
-					field, j, taint))
-			}
-		}
+		problems = append(problems, validateTaints(field, pool.Taints)...)
 	}
 
 	problems = append(problems, t.validatePoolCapacity()...)
+
+	return problems
+}
+
+// validateTaints checks one pool's taints: each well formed, and no key twice.
+//
+// Talos keys node taints by key — machine.nodeTaints is a map, see
+// BuildNodePatch — so a second taint with the same key replaces the first in
+// the machine config. `gpu=true:NoSchedule` beside `gpu=true:NoExecute` is a
+// pool that asked for both and gets one, and the topology read as though it
+// had both.
+func validateTaints(field string, taints []string) []string {
+	var problems []string
+
+	seen := make(map[string]int, len(taints))
+
+	for j, taint := range taints {
+		if !taintPattern.MatchString(taint) {
+			problems = append(problems, fmt.Sprintf("%s.taints[%d] %q must be key=value:Effect where Effect is one of "+strings.Join(TaintEffects, ", "),
+				field, j, taint))
+
+			continue
+		}
+
+		key, _, _, err := ParseTaint(taint)
+		if err != nil {
+			continue // the pattern above has already said what is wrong
+		}
+
+		if first, repeated := seen[key]; repeated {
+			problems = append(problems, fmt.Sprintf("%s.taints[%d] repeats the key %q of taints[%d]: "+
+				"a node carries one taint per key, so only one of them would be applied",
+				field, j, key, first))
+
+			continue
+		}
+
+		seen[key] = j
+	}
 
 	return problems
 }

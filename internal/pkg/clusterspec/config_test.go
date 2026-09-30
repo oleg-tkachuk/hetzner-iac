@@ -321,6 +321,16 @@ func TestValidate_Rejects(t *testing.T) {
 			wantMsg: "must be key=value:Effect",
 		},
 		{
+			// Talos keys node taints by key, so the second of these replaced
+			// the first in the machine config: a pool asked to evict and
+			// refuse scheduling got one of the two, with nothing said.
+			name: "two taints with one key",
+			mutate: func(top *clusterspec.Topology) {
+				top.WorkerPools[0].Taints = []string{"gpu=true:NoSchedule", "gpu=true:NoExecute"}
+			},
+			wantMsg: `workerPools[0].taints[1] repeats the key "gpu" of taints[0]`,
+		},
+		{
 			// Kubernetes assigns a Service its ClusterIP out of serviceCIDR
 			// and a pod its address out of podCIDR. Overlapping ranges make
 			// one address mean two things, and the symptom is a Service that
