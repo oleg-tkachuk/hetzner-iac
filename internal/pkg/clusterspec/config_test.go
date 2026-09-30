@@ -316,6 +316,28 @@ func TestValidate_Rejects(t *testing.T) {
 			wantMsg: "more than the 40 addresses a pool owns",
 		},
 		{
+			// metadata.name's own limit assumes the longest pool name is
+			// control-plane. A pool name is unbounded, so this one fit that
+			// check, and hcloud refused the server at apply:
+			// platform-hel- + 52 characters + -1 is 66.
+			name: "a pool whose node names are too long for hcloud",
+			mutate: func(top *clusterspec.Topology) {
+				top.WorkerPools[0].Name = strings.Repeat("w", 52)
+			},
+			wantMsg: "workerPools[0] names its last node",
+		},
+		{
+			// The same limit counted a one-digit ordinal. Eleven control-plane
+			// nodes end in -10, one character past it, with a name exactly at
+			// the limit metadata.name is held to.
+			name: "control-plane node names past a single-digit ordinal",
+			mutate: func(top *clusterspec.Topology) {
+				top.Metadata.Name = strings.Repeat("c", clusterspec.MaxClusterNameLength)
+				top.ControlPlane.Count = 11
+			},
+			wantMsg: "controlPlane names its last node",
+		},
+		{
 			name:    "malformed taint",
 			mutate:  func(top *clusterspec.Topology) { top.WorkerPools[0].Taints = []string{"gpu=true:Nope"} },
 			wantMsg: "must be key=value:Effect",
