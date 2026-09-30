@@ -104,3 +104,38 @@ func TestTalosctlCalls_NameAnEndpointWithEveryNode(t *testing.T) {
 
 	assert.Positive(t, checked, "no talosctl call targets a node; this test is checking nothing")
 }
+
+// TestStateExport_CoversEveryStackAndTellsAbsenceFromFailure holds the three
+// ways cluster:state:export reported a complete copy that was not one.
+//
+//   - It walked infra/cluster and the layers by hand, and infra/backup — the
+//     one tier whose state holds a generated secret nothing else has, the
+//     restic key — was never in the list.
+//   - Every failed export was sent to /dev/null and reported as "has no
+//     stack", so a backend that did not answer looked like a layer nobody
+//     applied.
+//   - Asking pulumi-kit whether the stack exists through `go run` cannot tell
+//     the two apart either: go run exits 1 whatever the program exited with.
+func TestStateExport_CoversEveryStackAndTellsAbsenceFromFailure(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	body, found := tasksIn(string(raw))["state:export"]
+	require.True(t, found, "no state:export task to check")
+
+	for _, list := range []string{".TIERS", ".LAYERS"} {
+		assert.Contains(t, body, `splitList " " `+list,
+			"state:export does not walk %s, so a project added there is never exported", list)
+	}
+
+	assert.NotContains(t, body, "infra/cluster ",
+		"state:export names a tier by hand beside TIERS — the list it used to keep, and missed a tier in")
+	assert.NotContains(t, body, "2>/dev/null",
+		"state:export discards an error, which is how a failed export read as an absent stack")
+	assert.NotContains(t, body, "{{.KIT_STACK}} exists",
+		"state:export asks `exists` through go run, which exits 1 for both absent and failed")
+	assert.Contains(t, body, "exists",
+		"state:export no longer asks whether a stack exists before exporting it")
+}
