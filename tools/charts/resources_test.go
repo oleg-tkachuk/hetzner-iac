@@ -96,6 +96,22 @@ func TestUnboundedContainers(t *testing.T) {
 			},
 		},
 		{
+			// An init container runs on the same node with the same memory,
+			// and one with restartPolicy: Always is a sidecar that runs for
+			// the pod's whole life. Reading only `containers` let both
+			// through unbounded.
+			name: "an init container is judged like any other",
+			manifests: workload(bounded) + `      initContainers:
+        - name: wait-for-api
+        - name: log-shipper
+          restartPolicy: Always
+` + bounded,
+			want: []string{
+				"Deployment/hcloud-csi-controller init container wait-for-api has no memory request",
+				"Deployment/hcloud-csi-controller init container wait-for-api has no memory limit",
+			},
+		},
+		{
 			// Helm emits comments, empty documents and kinds with no pod
 			// template. None of those is a finding.
 			name:      "a kind with no pod template",
@@ -122,6 +138,23 @@ func TestUnboundedContainers(t *testing.T) {
 			assert.ElementsMatch(t, test.want, got)
 		})
 	}
+}
+
+// TestUnboundedContainers_AnUnreadableDocumentIsAFinding is the silence the
+// gate used to keep.
+//
+// A document that does not parse was skipped as if it were a comment, so a
+// Deployment the check could not read passed it — every container in it
+// unexamined, and the gate still printing ok.
+func TestUnboundedContainers_AnUnreadableDocumentIsAFinding(t *testing.T) {
+	t.Parallel()
+
+	manifests := workload(bounded) + "---\nkind: Deployment\nspec: [unterminated\n"
+
+	got := unboundedContainers([]byte(manifests))
+
+	require.Len(t, got, 1, "an unreadable document passed the gate")
+	assert.Contains(t, got[0], "could not be read")
 }
 
 // TestUnmeasuredCharts_HaveNoMeasurementsToUse keeps the skip list honest, and
