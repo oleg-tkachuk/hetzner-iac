@@ -37,6 +37,13 @@ on:
   repository_dispatch:
     types: [release]
 
+# One release at a time. Two dispatches in quick succession would otherwise run
+# semantic-release twice over the same history; the second waits for the first
+# and then finds nothing new, or releases what came after it.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 # Nothing at the top level. The job below asks for exactly what it needs.
 #
 # This mattered less under workflow_call, where the caller's grant was the
@@ -81,7 +88,28 @@ jobs:
         run: |
           printf 'dispatched by CI run %s for commit %s\n' "${CI_RUN:-unknown}" "${SHA:-unknown}"
 
-      - uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6.0.0
+      # The checkout above is main's head NOW, which is not necessarily the
+      # commit CI passed: a merge that lands between the dispatch and this
+      # checkout would be tagged and released while its own CI is still
+      # running, or red. So the release goes ahead only when main is still at
+      # the dispatched commit. When it has moved on, the newer commit's CI
+      # dispatches its own release once it passes, and that one carries this
+      # commit's changes too — nothing is lost by stopping here.
+      - name: Release only the commit CI passed
+        id: passed
+        env:
+          SHA: ${{ github.event.client_payload.sha }}
+        run: |
+          head="$(git rev-parse HEAD)"
+          if [ -n "${SHA}" ] && [ "${head}" = "${SHA}" ]; then
+            printf 'current=true\n' >> "${GITHUB_OUTPUT}"
+          else
+            printf 'main is at %s, not the dispatched %s; its own CI run releases it\n' "${head}" "${SHA:-unknown}"
+            printf 'current=false\n' >> "${GITHUB_OUTPUT}"
+          fi
+
+      - if: steps.passed.outputs.current == 'true'
+        uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
