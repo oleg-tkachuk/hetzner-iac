@@ -297,7 +297,7 @@ func TestDocs_NameTheEntryPointThatHasTheTask(t *testing.T) {
 
 			assert.Equal(t, want, flag,
 				"%s says `task %s`, and that task is on %s. Pasted as written it does not run",
-				filepath.Base(path), name, entry)
+				relativeToRoot(path), name, entry)
 		}
 	}
 
