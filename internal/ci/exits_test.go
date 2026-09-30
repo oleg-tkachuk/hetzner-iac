@@ -1,7 +1,6 @@
 package ci
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -74,36 +73,29 @@ func mainPackages(t *testing.T, root string) ([]string, error) {
 
 	var found []string
 
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "bin") {
-			return filepath.SkipDir
-		}
-
+	// Tracked files only: a main package that exists only in somebody's
+	// working directory is not a program this repository ships.
+	for _, name := range tracked(t, root) {
 		// Any Go file in a main package, not main.go alone: a program that
 		// splits its entry point from its wiring — layers/10-node-platform
 		// does — would otherwise be able to move the failure line into a file
 		// this never opens.
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") ||
-			strings.HasSuffix(entry.Name(), "_test.go") {
-			return nil
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
+
+		path := filepath.Join(root, name)
 
 		raw, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return readErr
+			return nil, readErr
 		}
 
 		if strings.HasPrefix(string(raw), "package main") ||
 			strings.Contains(string(raw), "\npackage main\n") {
 			found = append(found, path)
 		}
+	}
 
-		return nil
-	})
-
-	return found, err
+	return found, nil
 }

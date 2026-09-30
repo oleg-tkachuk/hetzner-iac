@@ -62,38 +62,27 @@ func TestNoRetiredIngressClassInCode(t *testing.T) {
 		scanned  int
 	)
 
-	require.NoError(t, filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if entry.IsDir() {
-			// .git holds every past version of the file, including the ones
-			// this test is about; node_modules and the Pulumi caches are not
-			// ours to police.
-			switch entry.Name() {
-			case ".git", ".cache", "node_modules", "coverage":
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-
-		if !codeExtensions[filepath.Ext(path)] {
-			return nil
+	// The tracked files, not the working directory. A walk of the directory
+	// also read what git ignores — and `task cluster:state:export` writes
+	// Pulumi state into .backups/, where the Cilium chart's own hubble-ui
+	// objects carry this word. Running that task failed this test, and with
+	// it the pre-push hook.
+	for _, name := range tracked(t, root) {
+		if !codeExtensions[filepath.Ext(name)] {
+			continue
 		}
 
 		// This file names what it is looking for, so it cannot be subject to
 		// its own rule. Skipped by name rather than by assembling the literal
 		// from pieces, which would hide the one thing the file is about.
-		if filepath.Base(path) == gateFile {
-			return nil
+		if filepath.Base(name) == gateFile {
+			continue
 		}
 
+		path := filepath.Join(root, name)
+
 		raw, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
+		require.NoError(t, readErr, name)
 
 		scanned++
 
@@ -108,9 +97,7 @@ func TestNoRetiredIngressClassInCode(t *testing.T) {
 
 			offences = append(offences, filepath.ToSlash(path)+":"+strconv.Itoa(i+1)+": "+strings.TrimSpace(line))
 		}
-
-		return nil
-	}))
+	}
 
 	// Without this the gate passes when it reads nothing — and it reads
 	// nothing the moment the extension set or the walk root stops matching the
