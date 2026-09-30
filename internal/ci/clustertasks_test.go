@@ -139,3 +139,43 @@ func TestStateExport_CoversEveryStackAndTellsAbsenceFromFailure(t *testing.T) {
 	assert.Contains(t, body, "exists",
 		"state:export no longer asks whether a stack exists before exporting it")
 }
+
+// TestNodeTasks_WalkEveryNode keeps the tasks that promise every node from
+// reaching one.
+//
+// The generated talosconfig names the first control-plane node as its
+// endpoint and its only node. stop and reboot prompted "every node of <stack>"
+// and ran a bare `talosctl shutdown` / `talosctl reboot`, and encryption:check
+// judged the whole cluster from one disk — the one kind of volume state that
+// differs node by node.
+func TestNodeTasks_WalkEveryNode(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	tasks := tasksIn(string(raw))
+
+	for _, name := range []string{"stop", "reboot", "encryption:check"} {
+		body, found := tasks[name]
+		require.True(t, found, "no %s task to check", name)
+
+		assert.Contains(t, body, "{{._CL_NODES}}", "%s does not walk the node list", name)
+
+		var calls int
+
+		for _, line := range strings.Split(body, "\n") {
+			if !strings.Contains(line, "talosctl ") || isComment(line) {
+				continue
+			}
+
+			calls++
+
+			assert.Contains(t, line, "--nodes",
+				"%s calls talosctl without naming a node, so it reaches the talosconfig's one:\n\t%s",
+				name, strings.TrimSpace(line))
+		}
+
+		assert.Positive(t, calls, "%s calls talosctl nowhere; this test proved nothing about it", name)
+	}
+}
