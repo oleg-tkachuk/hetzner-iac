@@ -26,7 +26,7 @@ vars:
   _CL_CONTROL_PLANE: |
     HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._CL_STACK}}")"
     export HCLOUD_TOKEN
-    cluster="$(go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}")"
+    cluster="$({{._CL_CLUSTER_NAME}})"
     nodes="$(hcloud server list -l "cluster=${cluster},role=control-plane" -o noheader -o columns=ipv4)"
     test -n "$nodes"
 
@@ -55,6 +55,13 @@ vars:
   # and etcd:restore reads it, and a mismatch is not an error — the restore
   # just silently stops showing what the snapshot was supposed to contain.
   _CL_SNAPSHOT_INFO: '.info'
+  # A snapshot's name carries its stack, so the default choice in etcd:upload
+  # is among this stack's own. The name is a convenience, not the check:
+  # tools/etcd reads which cluster took a snapshot from the snapshot itself.
+  _CL_SNAPSHOT_PREFIX: 'etcd-{{.stack}}-'
+  # The cluster's name from its topology — what its nodes, and so its etcd
+  # members, are named after.
+  _CL_CLUSTER_NAME: 'go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}"'
 
   # The layer that owns the backup destination, and the five outputs it
   # publishes. The names are spelled in infra/backup/main.go as constants
@@ -963,12 +970,16 @@ tasks:
   etcd:snapshot:
     desc: "Take an etcd snapshot into .backups/, read it back, and record what it holds"
     deps: [talosconfig]
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
     cmds:
       - cmd: |
           set -euo pipefail
           mkdir -p "{{.ROOT}}/.backups"
           stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-          file="{{.ROOT}}/.backups/etcd-${stamp}.db"
+          file="{{.ROOT}}/.backups/{{._CL_SNAPSHOT_PREFIX}}${stamp}.db"
+          cluster="$({{._CL_CLUSTER_NAME}})"
 
           # talosctl reports the hash, the revision and the key count as it
           # writes, on stdout. Captured rather than left to scroll past: it is
@@ -980,10 +991,11 @@ tasks:
           # Read back before this reports success. A snapshot nobody has
           # opened is a file of the right size, and the moment to discover
           # that is now rather than during the incident it was taken for.
-          read_back="$(go run "{{.ROOT}}/tools/etcd" verify "$file")"
+          read_back="$(go run "{{.ROOT}}/tools/etcd" verify --cluster "$cluster" "$file")"
 
           # Beside the snapshot, so the two travel together wherever it goes.
           {
+            printf '%s\n' "stack:     {{._CL_STACK}}"
             printf '%s\n' "taken:     ${stamp}"
             printf '%s\n' "talosctl:  ${taken}"
             printf '%s\n' "read back: ${read_back}"
@@ -991,7 +1003,7 @@ tasks:
 
           printf '%s\n' "{{._OK}} cluster · etcd · ${taken}"
           printf '%s\n' "{{._OK}} cluster · etcd · ${read_back}"
-          printf '%s\n' "{{._OK}} cluster · etcd · wrote .backups/etcd-${stamp}.db and its {{._CL_SNAPSHOT_INFO}}"
+          printf '%s\n' "{{._OK}} cluster · etcd · wrote .backups/{{._CL_SNAPSHOT_PREFIX}}${stamp}.db and its {{._CL_SNAPSHOT_INFO}}"
 
   etcd:restore:
     desc: "Restore etcd from a snapshot — wipes every control-plane node first (snapshot=<path>). The other half of a backup."
@@ -1003,7 +1015,7 @@ tasks:
         msg: |
           cluster:etcd:restore needs the snapshot to restore from.
 
-              task cluster:etcd:restore stack=dev snapshot=.backups/etcd-<stamp>.db
+              task cluster:etcd:restore stack=dev snapshot=.backups/etcd-dev-<stamp>.db
 
           `task cluster:etcd:snapshot` writes them; ls .backups/ for what exists.
       - sh: '[ -f "{{.snapshot}}" ]'
@@ -1034,9 +1046,10 @@ tasks:
 
           # Before anything is wiped. A truncated download has the right name
           # and the right size to the eye, and finding out after the reset
-          # leaves a cluster with no etcd and no way back.
+          # leaves a cluster with no etcd and no way back. So does another
+          # cluster's snapshot, which is why the check names this one.
           printf '%s\n' "{{._RUN}} cluster · etcd:restore · checking the snapshot"
-          go run "{{.ROOT}}/tools/etcd" verify "{{.snapshot}}"
+          go run "{{.ROOT}}/tools/etcd" verify --cluster "$({{._CL_CLUSTER_NAME}})" "{{.snapshot}}"
 
           # What the snapshot said about itself when it was taken, if
           # cluster:etcd:snapshot wrote it. Shown beside what was just read
@@ -1176,7 +1189,7 @@ tasks:
           snapshot="{{.snapshot}}"
           if [ -z "$snapshot" ]; then
             # shellcheck disable=SC2012 # ls -t orders by mtime; find -printf is GNU-only and this runs on macOS
-            snapshot="$(ls -t "{{.ROOT}}"/.backups/*.db 2>/dev/null | awk 'NR == 1')"
+            snapshot="$(ls -t "{{.ROOT}}/.backups/{{._CL_SNAPSHOT_PREFIX}}"*.db 2>/dev/null | awk 'NR == 1')"
           fi
 
           if [ -z "$snapshot" ] || [ ! -f "$snapshot" ]; then
@@ -1187,6 +1200,11 @@ tasks:
             printf '%s\n' "writes one into .backups/; pass snapshot=<path> for a particular file."
             exit 1
           fi
+
+          # Before anything reaches the box. The repository keeps the last N
+          # recovery points, so another cluster's snapshot uploaded here does
+          # not just sit beside this cluster's — it pushes one of them out.
+          go run "{{.ROOT}}/tools/etcd" verify --cluster "$({{._CL_CLUSTER_NAME}})" "$snapshot"
 
           # The sidecar travels with it — it is the only record that the bytes
           # were read back as an etcd database. A warning rather than a
