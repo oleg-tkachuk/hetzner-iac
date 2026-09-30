@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/secretout"
 )
 
 func TestRun_RejectsTheWrongNumberOfArguments(t *testing.T) {
@@ -17,7 +19,7 @@ func TestRun_RejectsTheWrongNumberOfArguments(t *testing.T) {
 		"none":     {},
 		"too many": {"dev", "extra"},
 	} {
-		err := run(args)
+		err := run(args, false)
 
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), "usage:", name)
@@ -29,7 +31,7 @@ func TestRun_PrintsTheExportedToken(t *testing.T) {
 	// exercises the whole path without a stack or a network.
 	t.Setenv("HCLOUD_TOKEN", "exported-token")
 
-	require.NoError(t, run([]string{"dev"}))
+	require.NoError(t, run([]string{"dev"}, false))
 }
 
 func TestRun_TheUsageErrorCarriesTheRemedy(t *testing.T) {
@@ -42,9 +44,25 @@ func TestRun_TheUsageErrorCarriesTheRemedy(t *testing.T) {
 		"no arguments": {},
 		"empty stack":  {""},
 	} {
-		err := run(args)
+		err := run(args, false)
 
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), "stack=dev", name)
 	}
+}
+
+// TestRun_RefusesATerminal keeps the token out of scrollback.
+//
+// Its caller is `export HCLOUD_TOKEN="$(…)"`, which is a pipe. Run bare, it
+// printed a token that can create and delete every server in the project onto
+// the screen, where it outlives the session — the reason tools/secrets and
+// tools/recoverykit refuse a terminal, and this said it followed them.
+func TestRun_RefusesATerminal(t *testing.T) {
+	t.Setenv("HCLOUD_TOKEN", "exported-token")
+
+	err := run([]string{"dev"}, true)
+
+	require.ErrorIs(t, err, secretout.ErrTerminal)
+	assert.Contains(t, err.Error(), `export HCLOUD_TOKEN="$(`,
+		"the refusal carries the use that keeps it off the screen")
 }
