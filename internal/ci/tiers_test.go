@@ -15,9 +15,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// hetznerProvider is the call that gives a project the power to write to
-// Hetzner Cloud.
-const hetznerProvider = "hetzner.NewProvider"
+// hetznerProviders are the calls that give a project the power to write to
+// Hetzner Cloud, by the import path of the package that declares each.
+//
+// By path rather than by `hetzner.NewProvider` as spelt: the spelling was the
+// whole check, so the upstream `hcloud.NewProvider` this repository's wrapper
+// calls, or the wrapper under an import alias, built a provider unseen.
+var hetznerProviders = map[string]string{
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner": "NewProvider",
+	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud":            "NewProvider",
+	"github.com/hetznercloud/hcloud-go/v2/hcloud":              "NewClient",
+}
 
 // writesToHetzner are the projects allowed to make that call, and the reason
 // each one is.
@@ -128,7 +136,7 @@ func TestOnlyNamedProjectsWriteToHetzner(t *testing.T) {
 }
 
 // callsHetznerProvider reports whether a directory's non-test Go actually
-// calls it.
+// calls one of hetznerProviders.
 //
 // The syntax tree rather than a grep, because three projects DISCUSS the
 // provider without building one — layers/10-node-platform explains why it
@@ -157,6 +165,8 @@ func callsHetznerProvider(t *testing.T, dir string) (bool, error) {
 			return false, parseErr
 		}
 
+		imported := importsByLocalName(file)
+
 		ast.Inspect(file, func(node ast.Node) bool {
 			selector, ok := node.(*ast.SelectorExpr)
 			if !ok {
@@ -168,7 +178,7 @@ func callsHetznerProvider(t *testing.T, dir string) (bool, error) {
 				return true
 			}
 
-			if pkg.Name+"."+selector.Sel.Name == hetznerProvider {
+			if constructor, known := hetznerProviders[imported[pkg.Name]]; known && selector.Sel.Name == constructor {
 				called = true
 
 				return false
@@ -179,6 +189,29 @@ func callsHetznerProvider(t *testing.T, dir string) (bool, error) {
 	}
 
 	return called, nil
+}
+
+// importsByLocalName maps the name a file refers to each import by — its alias,
+// or the last element of its path — to the import path.
+//
+// The last element stands in for the package clause, which is not in the
+// path: every package these tests look for is named for its directory, so
+// reading each import's source to be exact would buy nothing.
+func importsByLocalName(file *ast.File) map[string]string {
+	imported := make(map[string]string, len(file.Imports))
+
+	for _, spec := range file.Imports {
+		path := strings.Trim(spec.Path.Value, `"`)
+
+		local := path[strings.LastIndex(path, "/")+1:]
+		if spec.Name != nil {
+			local = spec.Name.Name
+		}
+
+		imported[local] = path
+	}
+
+	return imported
 }
 
 // tierList matches the whitespace-separated list of tiers in the root taskfile,
