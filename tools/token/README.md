@@ -14,7 +14,9 @@ first, then the encrypted stack config through Pulumi's own decryption.
 stdout and only stdout. The caller is `export HCLOUD_TOKEN="$(…)"`, so the
 value never reaches an argument vector where `ps` would show it to every other
 user on the machine. It is the same reason `task cluster:token` takes no
-`token=` argument.
+`token=` argument, and it **refuses a terminal** as [secrets](../secrets) and
+[recoverykit](../recoverykit) do: a token printed to the screen stays in
+scrollback.
 
 Run by the root taskfile, which hands `HCLOUD_TOKEN` to the shared library's
 `hcloud` module, and by the cluster tasks that call `hcloud` directly.
