@@ -110,6 +110,33 @@ func TestMerge_IsTheUnionOfBothSources(t *testing.T) {
 		"a topology that is there and unreadable is not the same as one that is absent")
 }
 
+// TestMerge_MatchesAStackTheBackendQualifiesByOrganisation is Pulumi Cloud's
+// listing, which names a stack `acme/dev` while its topology is
+// cluster.dev.yaml.
+//
+// Matched exactly, the one environment read as two rows: a stack with no
+// topology, and a topology with no stack — both wrong, and the second invites
+// an init over a stack that exists.
+func TestMerge_MatchesAStackTheBackendQualifiesByOrganisation(t *testing.T) {
+	t.Parallel()
+
+	listing := []byte(`[{"name": "acme/dev", "resourceCount": 24}, {"name": "acme/predev", "resourceCount": 3}]`)
+
+	environments, err := merge(listing, map[string]topologyFile{"dev": loaded(t, sparse)})
+	require.NoError(t, err)
+
+	byName := map[string]Environment{}
+	for _, environment := range environments {
+		byName[environment.Name] = environment
+	}
+
+	require.Len(t, environments, 2, "one environment per stack, not one per spelling of its name")
+	assert.Equal(t, "yes", state(byName["dev"]), "both halves")
+	assert.Equal(t, 24, byName["dev"].Resources)
+	assert.Equal(t, "missing", state(byName["acme/predev"]),
+		"a stack whose name merely ends in the same letters is another stack")
+}
+
 func TestMerge_UnparseableListingIsAnError(t *testing.T) {
 	t.Parallel()
 
