@@ -264,17 +264,22 @@ func TestCCMValues_ReadsBothCredentialsFromTheSharedSecret(t *testing.T) {
 	// controller has no network to write routes into. And the name has to be
 	// the Secret this layer creates — a mismatch produces pods that start and
 	// then fail to authenticate against the Hetzner API.
-	env := nestedMap(t, ccmValues(t), "env")
+	values := ccmValues(t)
 
-	for name, key := range map[string]string{
-		"HCLOUD_TOKEN":   "token",
-		"HCLOUD_NETWORK": "network",
-	} {
-		ref := nestedMap(t, env, name, "valueFrom", "secretKeyRef")
+	token := nestedMap(t, values, "env", "HCLOUD_TOKEN", "valueFrom", "secretKeyRef")
+	assert.Equal(t, CredentialsSecret, token["name"])
+	assert.Equal(t, "token", token["key"])
 
-		assert.Equal(t, CredentialsSecret, ref["name"], name)
-		assert.Equal(t, key, ref["key"], name)
-	}
+	// The network on the chart's own key. The chart writes HCLOUD_NETWORK
+	// itself from networking.network whenever networking is enabled, so a
+	// copy under env rendered the variable twice — and the chart's copy, last
+	// in the list and naming its default Secret, is the one that won.
+	network := nestedMap(t, values, "networking", "network", "valueFrom", "secretKeyRef")
+	assert.Equal(t, CredentialsSecret, network["name"])
+	assert.Equal(t, "network", network["key"])
+
+	assert.NotContains(t, nestedMap(t, values, "env"), "HCLOUD_NETWORK",
+		"the chart manages HCLOUD_NETWORK; setting it under env renders it twice")
 }
 
 // ---------------------------------------------------------------------------
