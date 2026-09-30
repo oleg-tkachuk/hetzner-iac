@@ -47,8 +47,13 @@ func storageClass(mode storagev1.VolumeBindingMode) *storagev1.StorageClass {
 	// the data-volume check read an unknown policy and pass.
 	reclaim := corev1.PersistentVolumeReclaimDelete
 
+	// The default, as the real one is: a claim naming no class resolves to it
+	// through this annotation, not through its name.
 	return &storagev1.StorageClass{
-		ObjectMeta:        metav1.ObjectMeta{Name: platform.StorageClass},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        platform.StorageClass,
+			Annotations: map[string]string{clustersmoke.DefaultClassAnnotation: "true"},
+		},
 		Provisioner:       "csi.hetzner.cloud",
 		VolumeBindingMode: &mode,
 		ReclaimPolicy:     &reclaim,
@@ -556,4 +561,108 @@ func TestCheckSecretStores_PassesOnAReadyStore(t *testing.T) {
 	result := resultFor(t, smoke.Run(context.Background()), "secret store")
 
 	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
+}
+
+// dataClaimsRunner is a cluster with the platform's two classes — the default
+// one, which deletes, and the database one, which retains — one labelled data
+// namespace, and the given claims and volumes in it. The probe's own class is
+// the retaining one, which is the flag that used to stand in for "the default".
+func dataClaimsRunner(t *testing.T, objects ...runtime.Object) *clustersmoke.Runner {
+	t.Helper()
+
+	deletes := corev1.PersistentVolumeReclaimDelete
+	retains := corev1.PersistentVolumeReclaimRetain
+
+	base := []runtime.Object{
+		node("cp-0", true),
+		&storagev1.StorageClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        platform.StorageClass,
+				Annotations: map[string]string{clustersmoke.DefaultClassAnnotation: "true"},
+			},
+			Provisioner:   "csi.hetzner.cloud",
+			ReclaimPolicy: &deletes,
+		},
+		&storagev1.StorageClass{
+			ObjectMeta:    metav1.ObjectMeta{Name: platform.StorageClassDatabase},
+			Provisioner:   "csi.hetzner.cloud",
+			ReclaimPolicy: &retains,
+		},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+			Name:   "postgres",
+			Labels: map[string]string{platform.DataNamespaceLabel: "true"},
+		}},
+	}
+
+	return clustersmoke.NewWithClient(fake.NewSimpleClientset(append(base, objects...)...), nil, clustersmoke.Options{
+		StorageClass: platform.StorageClassDatabase,
+		BindTimeout:  testBindTimeout,
+	})
+}
+
+func dataClaim(name string, class *string, volume string) *corev1.PersistentVolumeClaim {
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "postgres"},
+		Spec:       corev1.PersistentVolumeClaimSpec{StorageClassName: class, VolumeName: volume},
+	}
+}
+
+// TestCheckDataVolumes_ResolvesTheDefaultClassByItsAnnotation is the bug: a
+// claim naming no class was judged against --storage-class, the PROBE's
+// class. Run with the database class, every such claim passed while it sat on
+// the class that deletes.
+func TestCheckDataVolumes_ResolvesTheDefaultClassByItsAnnotation(t *testing.T) {
+	t.Parallel()
+
+	result := resultFor(t, dataClaimsRunner(t, dataClaim("data-pg-0", nil, "")).Run(context.Background()), "holding data")
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status,
+		"a claim naming no class is on the annotated default, which deletes, whatever --storage-class says")
+	assert.Contains(t, result.Detail, "postgres/data-pg-0")
+}
+
+// TestCheckDataVolumes_FailsAClassItCannotFind: a misspelt class used to have
+// no reclaim policy, and no policy is not Delete, so it passed.
+func TestCheckDataVolumes_FailsAClassItCannotFind(t *testing.T) {
+	t.Parallel()
+
+	typo := platform.StorageClassDatabase + "-typo"
+
+	result := resultFor(t, dataClaimsRunner(t, dataClaim("data-pg-0", &typo, "")).Run(context.Background()), "holding data")
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status,
+		"a claim on a class that does not exist is not known to retain anything")
+	assert.Contains(t, result.Detail, typo)
+}
+
+// TestCheckDataVolumes_ReadsTheBoundVolumeRatherThanTheClass: what deleting a
+// bound claim does is the volume's own reclaim policy, which the class only
+// set at provisioning and which can be changed on the volume afterwards.
+func TestCheckDataVolumes_ReadsTheBoundVolumeRatherThanTheClass(t *testing.T) {
+	t.Parallel()
+
+	database := platform.StorageClassDatabase
+
+	volume := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "pvc-1"},
+		Spec: corev1.PersistentVolumeSpec{
+			StorageClassName:              database,
+			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete,
+		},
+	}
+
+	result := resultFor(t, dataClaimsRunner(t, volume, dataClaim("data-pg-0", &database, volume.Name)).Run(context.Background()), "holding data")
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status,
+		"the bound volume reclaims Delete, so deleting the claim deletes it, whatever the class says")
+}
+
+func TestCheckDataVolumes_PassesAClaimOnTheRetainingClass(t *testing.T) {
+	t.Parallel()
+
+	database := platform.StorageClassDatabase
+
+	result := resultFor(t, dataClaimsRunner(t, dataClaim("data-pg-0", &database, "")).Run(context.Background()), "holding data")
+
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status, result.Detail)
 }

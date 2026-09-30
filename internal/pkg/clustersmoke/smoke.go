@@ -501,14 +501,27 @@ func DataVolumesAreRetained(volumes []DataVolume, labelled int) Result {
 		return result
 	}
 
-	var wrong []string
+	var wrong, unknown []string
 
 	for _, volume := range volumes {
-		if volume.Reclaim != ReclaimDelete {
-			continue
+		switch volume.Reclaim {
+		case ReclaimDelete:
+			wrong = append(wrong, fmt.Sprintf("%s/%s on %s", volume.Namespace, volume.Name, volume.Class))
+		case "":
+			// No policy found: a class that does not exist, or no default to
+			// fall back on. Unknown is not "retained", and passing it is how a
+			// misspelt class name read as safe.
+			unknown = append(unknown, fmt.Sprintf("%s/%s on %s", volume.Namespace, volume.Name, orNone(volume.Class)))
 		}
+	}
 
-		wrong = append(wrong, fmt.Sprintf("%s/%s on %s", volume.Namespace, volume.Name, volume.Class))
+	if len(unknown) > 0 {
+		result.Status = StatusFailed
+		result.Detail = fmt.Sprintf(
+			"%s: no reclaim policy found for the class, so nothing says the data survives a deleted claim",
+			strings.Join(unknown, ", "))
+
+		return result
 	}
 
 	if len(wrong) > 0 {
@@ -660,4 +673,13 @@ func NetworkPoliciesAreValid(policies []NetworkPolicy) Result {
 	result.Detail = fmt.Sprintf("%d policy(ies) accepted by Cilium", len(policies))
 
 	return result
+}
+
+// orNone names an empty class as such in a message.
+func orNone(class string) string {
+	if class == "" {
+		return "no class"
+	}
+
+	return class
 }
