@@ -38,6 +38,7 @@ var tableRow = regexp.MustCompile("(?m)^\\| `([a-z-]+|<layer>):(\\w+)` \\|")
 // is no longer an exception.
 var deliberatelyUndeclared = map[string]string{
 	"node-platform:hcloudToken": "deliberately NOT declared",
+	"ingress:hcloudToken":       "deliberately NOT declared",
 }
 
 // configTables are the two places stack config is written down for a reader.

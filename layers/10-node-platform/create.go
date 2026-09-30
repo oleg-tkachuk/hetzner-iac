@@ -7,10 +7,8 @@
 package main
 
 import (
-	"fmt"
 	"strconv"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/cni"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
@@ -57,59 +55,11 @@ func createCredentials(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.
 		// plans to replace the Secret, every time, for ever. This apply is the
 		// last one that replaces it.
 		Data: pulumi.StringMap{
-			"token": layer.Base64Of(resolveToken(r)),
+			"token": layer.Base64Of(r.HcloudToken()),
 			// The route controller programmes pod routes inside this network.
 			// Without it the CCM starts and silently manages no routes, which
 			// surfaces as pods unable to reach pods on other nodes.
 			"network": layer.Base64Of(pulumix.Cast[pulumi.StringOutput](pulumix.Apply(r.Cluster.NetworkID, strconv.Itoa))),
 		},
 	}, r.With(layer.DependsOn(dependencies)...)...)
-}
-
-// resolveToken decides where the Hetzner API token comes from.
-//
-// The cluster tier exports it, so this layer normally needs no copy of its
-// own: one token, set once, in the stack whose provider already holds it.
-// This reverses an earlier decision to keep a second copy here — the argument
-// against was that exporting a cloud credential puts it into the state of
-// every stack holding a reference, which is true and already the case: the
-// same channel carries the cluster-admin kubeconfig and the talosconfig, both
-// strictly more powerful than an API token.
-//
-// The config key stays as an override. A cluster stack applied before that
-// export existed has nothing to offer, and an operator may deliberately want
-// a token scoped differently from the one that built the cluster.
-//
-// An empty token from either source fails here rather than reaching the
-// cluster. Left alone it becomes a Secret that authenticates against nothing,
-// and the symptom is a CCM that starts, logs 401 and never clears the
-// uninitialized taint — which reads as a broken cluster rather than as a
-// missing credential.
-func resolveToken(r *layer.Runner) pulumi.StringOutput {
-	if r.Cfg.Get("hcloudToken") != "" {
-		r.Log.Done("token", "from this layer's config, overriding the cluster stack")
-
-		return r.Cfg.RequireSecret("hcloudToken")
-	}
-
-	r.Log.Step("token", "from the cluster stack")
-
-	// Empty rather than absent: internal/pkg/clusterref's version gate has established
-	// that the tier publishes this output, and the tier exports it empty when
-	// its own `hcloud:token` is unset — a cluster built from an environment
-	// variable rather than from stack config. That is a real state with two
-	// remedies, not a migration to wait out.
-	return pulumix.Cast[pulumi.StringOutput](pulumix.ApplyErr(r.Cluster.HcloudToken,
-		func(token string) (string, error) {
-			if token == "" {
-				return "", fmt.Errorf(
-					"the cluster stack exports an empty %q. Either set it there and apply the tier:\n"+
-						"  pulumi -C infra/cluster config set --secret hcloud:token <token>\n"+
-						"or give this layer its own:\n"+
-						"  pulumi config set --secret node-platform:hcloudToken <token>",
-					clusterref.OutputHcloudToken)
-			}
-
-			return token, nil
-		}))
 }
