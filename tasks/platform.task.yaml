@@ -333,9 +333,16 @@ tasks:
                 --preview-only ${targets} ${dependents} )
           fi
 
-          # shellcheck disable=SC2013 # a word list is what tools/lines reverses, not lines
-          for layer in $(awk -f "{{.ROOT}}/tools/lines/main.awk" -v op=reverse-words \
-                         <<<"$selected"); do
+          # Reversed into a variable first: a failing command substitution in
+          # a `for` list does not trip `set -e`, and a destroy that walked zero
+          # layers would still end green.
+          reversed="$(awk -f "{{.ROOT}}/tools/lines/main.awk" -v op=reverse-words <<<"$selected")"
+          if [ -z "$reversed" ]; then
+            printf '%s\n' "{{._ERR}} platform · destroy · no layer to destroy in \"$selected\"" >&2
+            exit 1
+          fi
+
+          for layer in $reversed; do
             printf '%s\n' "{{._RUN}} platform · ${layer} · destroy{{if .target}} · target {{.target}}{{end}}"
             # shellcheck disable=SC2086 # targets and dependents are flags; a URN carries no spaces
             ( cd "{{.ROOT}}/layers/${layer}" && \
