@@ -139,3 +139,65 @@ func TestStateExport_CoversEveryStackAndTellsAbsenceFromFailure(t *testing.T) {
 	assert.Contains(t, body, "exists",
 		"state:export no longer asks whether a stack exists before exporting it")
 }
+
+// TestCredentialFiles_AreWrittenWholeAndKeptOffTheCommandLine holds the three
+// tasks that write a cluster credential.
+//
+//   - kubeconfig and talosconfig redirected pulumi straight into the target,
+//     which existed at the default umask until a chmod and was left truncated
+//     when the output could not be read. They go through a mktemp file now.
+//   - kubeconfig:add passed the cluster-admin key to `kubectl config set` as
+//     an argument, where `ps` shows it to every user on the machine.
+func TestCredentialFiles_AreWrittenWholeAndKeptOffTheCommandLine(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	tasks := tasksIn(string(raw))
+
+	for _, name := range []string{"kubeconfig", "talosconfig"} {
+		body, found := tasks[name]
+		require.True(t, found, "no %s task to check", name)
+
+		assert.Contains(t, body, "mktemp", "%s does not write through a temporary file", name)
+		assert.NotContains(t, body, `--show-secrets > "{{.ROOT}}/`+name+`"`,
+			"%s redirects the credential straight into its target", name)
+	}
+
+	body, found := tasks["kubeconfig:add"]
+	require.True(t, found, "no kubeconfig:add task to check")
+
+	assert.NotContains(t, body, "client-key-data\" \"$",
+		"kubeconfig:add passes the client key to kubectl as an argument")
+	assert.Contains(t, body, "--client-key=", "kubeconfig:add no longer hands kubectl the key as a file")
+}
+
+// TestTaskfiles_DoNotCallUmask keeps out a builtin Task's shell does not have.
+//
+// Task runs every command through its own shell interpreter, not /bin/sh, and
+// that interpreter has no `umask`: the task stops with "unsupported builtin"
+// before doing anything. Found by running a task that used it.
+func TestTaskfiles_DoNotCallUmask(t *testing.T) {
+	t.Parallel()
+
+	var scanned int
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		scanned++
+
+		for i, line := range strings.Split(string(raw), "\n") {
+			if isComment(line) {
+				continue
+			}
+
+			assert.NotRegexp(t, `(^|[;&|\s])umask\b`, line,
+				"%s:%d calls umask, which Task's shell interpreter does not have", relativeToRoot(path), i+1)
+		}
+	}
+
+	require.Positive(t, scanned, "no taskfile was read; this test is checking nothing")
+}
