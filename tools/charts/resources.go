@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strings"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 
@@ -64,6 +63,10 @@ type container struct {
 }
 
 // podSpec is a rendered workload, reduced to its containers.
+//
+// Init containers too. One runs on the same node as the rest and takes memory
+// from the same place, and one with `restartPolicy: Always` is a sidecar that
+// runs for the pod's whole life — the shape a chart upgrade adds a sidecar in.
 type podSpec struct {
 	Kind     string `json:"kind"`
 	Metadata struct {
@@ -72,11 +75,18 @@ type podSpec struct {
 	Spec struct {
 		Template struct {
 			Spec struct {
-				Containers []container `json:"containers"`
+				Containers     []container `json:"containers"`
+				InitContainers []container `json:"initContainers"`
 			} `json:"spec"`
 		} `json:"template"`
 	} `json:"spec"`
 }
+
+// How a finding names the list a container came from.
+const (
+	roleContainer     = "container"
+	roleInitContainer = "init container"
+)
 
 // checkResources proves that every container this platform installs is bounded.
 //
@@ -144,40 +154,61 @@ func checkResources(ctx context.Context) int {
 }
 
 // unboundedContainers returns one message per container that breaks the policy.
+//
+// A document that does not parse is a finding, not a skip. Helm's comments and
+// empty documents are handled by documents(), which splits the way kubectl
+// does; what is left failing is a manifest this check could not read, and
+// passing it would pass every container in it unexamined.
 func unboundedContainers(manifests []byte) []string {
+	docs, err := documents(manifests)
+	if err != nil {
+		return []string{fmt.Sprintf("the rendered manifests could not be read: %v", err)}
+	}
+
 	var problems []string
 
-	for _, doc := range strings.Split(string(manifests), "\n---") {
-		if strings.TrimSpace(doc) == "" {
+	for _, doc := range docs {
+		if !slices.Contains(workloadKinds, doc.Kind) {
 			continue
 		}
 
 		var workload podSpec
-		if err := yaml.Unmarshal([]byte(doc), &workload); err != nil {
-			// A document this check cannot parse is not a finding: helm emits
-			// comments, empty documents and kinds with no pod template.
+		if err := yaml.Unmarshal([]byte(doc.Text), &workload); err != nil {
+			problems = append(problems, fmt.Sprintf("%s/%s could not be read: %v", doc.Kind, doc.Name, err))
+
 			continue
 		}
 
-		if !slices.Contains(workloadKinds, workload.Kind) {
-			continue
-		}
+		pod := workload.Spec.Template.Spec
 
-		for _, c := range workload.Spec.Template.Spec.Containers {
-			where := fmt.Sprintf("%s/%s container %s", workload.Kind, workload.Metadata.Name, c.Name)
-
-			if c.Resources.Requests[resourceMemory] == "" {
-				problems = append(problems, where+" has no memory request")
-			}
-
-			if c.Resources.Limits[resourceMemory] == "" {
-				problems = append(problems, where+" has no memory limit")
-			}
-
-			if c.Resources.Limits[resourceCPU] != "" {
-				problems = append(problems, where+" has a cpu limit, which this platform does not use")
+		for role, list := range map[string][]container{
+			roleContainer:     pod.Containers,
+			roleInitContainer: pod.InitContainers,
+		} {
+			for _, c := range list {
+				where := fmt.Sprintf("%s/%s %s %s", workload.Kind, workload.Metadata.Name, role, c.Name)
+				problems = append(problems, containerProblems(where, c)...)
 			}
 		}
+	}
+
+	return problems
+}
+
+// containerProblems is the policy for one container, wherever it was listed.
+func containerProblems(where string, c container) []string {
+	var problems []string
+
+	if c.Resources.Requests[resourceMemory] == "" {
+		problems = append(problems, where+" has no memory request")
+	}
+
+	if c.Resources.Limits[resourceMemory] == "" {
+		problems = append(problems, where+" has no memory limit")
+	}
+
+	if c.Resources.Limits[resourceCPU] != "" {
+		problems = append(problems, where+" has a cpu limit, which this platform does not use")
 	}
 
 	return problems
