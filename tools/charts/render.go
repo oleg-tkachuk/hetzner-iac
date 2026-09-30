@@ -211,6 +211,10 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 		return nil, err
 	}
 
+	if err := checkDuplicateEnv(key, output); err != nil {
+		return nil, err
+	}
+
 	return parseWorkloads(output, namespace)
 }
 
