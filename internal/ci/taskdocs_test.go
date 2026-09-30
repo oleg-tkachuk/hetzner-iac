@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -105,7 +106,7 @@ func TestDocs_NameOnlyTasksThatExist(t *testing.T) {
 			checked++
 
 			assert.True(t, declared[name],
-				"%s names %q, which no taskfile declares", filepath.Base(path), name)
+				"%s names %q, which no taskfile declares", relativeToRoot(path), name)
 		}
 	}
 
@@ -248,27 +249,13 @@ func TestDocs_NameNoExcludedTask(t *testing.T) {
 
 	require.NotEmpty(t, excluded, "no excluded task was found, so this test proved nothing")
 
-	paths, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
-	require.NoError(t, err)
-
-	records, err := filepath.Glob(filepath.Join(root, "docs", "adr", "*.md"))
-	require.NoError(t, err)
-
-	community, err := filepath.Glob(filepath.Join(root, ".github", "*.md"))
-	require.NoError(t, err)
-
-	paths = append(paths, records...)
-	paths = append(paths, community...)
-	paths = append(paths,
-		filepath.Join(root, "README.md"),
-		filepath.Join(root, "ROADMAP.md"),
-		filepath.Join(root, "Brewfile"))
+	// The same documents the other gate reads, rather than a second list of
+	// them, plus the roadmap. The roadmap is left out there because it names
+	// tasks before they exist; an excluded task is one that never will, so
+	// naming it is wrong in planning too.
+	paths := append(documents(t, root), filepath.Join(root, "ROADMAP.md"))
 
 	for _, path := range paths {
-		if filepath.Base(path) == "BACKLOG.md" {
-			continue
-		}
-
 		text, readErr := os.ReadFile(path)
 		require.NoError(t, readErr, path)
 
@@ -282,8 +269,11 @@ func TestDocs_NameNoExcludedTask(t *testing.T) {
 	}
 }
 
+// readme is the name every directory's own documentation goes by.
+const readme = "README.md"
+
 // documents is every file that tells somebody to run a task: the
-// documentation, the records, the community files, the Brewfile and the
+// documentation, the records, the community files, the Brewfile and every
 // README.
 //
 // Shared with TestDocs_NameTheEntryPointThatHasTheTask, because a second copy
@@ -315,7 +305,19 @@ func documents(t *testing.T, root string) []string {
 	// Markdown. Leaving it out is how `task cluster:config-check` survived in
 	// it — a task that has never existed under that name, in the one file a
 	// new clone reads before anything else works.
-	docs = append(docs, filepath.Join(root, "Brewfile"), filepath.Join(root, "README.md"))
+	docs = append(docs, filepath.Join(root, "Brewfile"), filepath.Join(root, readme))
+
+	// And every other README: each tool and package has one, and it is the
+	// page somebody reads before running that tool — tools/etcd's names the
+	// restore task it exists for. None of the globs above reaches below docs/,
+	// so a misspelt task in one of them would have gone unread. Tracked files
+	// rather than a walk, so a README that exists only on this disk does not
+	// decide the result.
+	for _, path := range tracked(t, root) {
+		if full := filepath.Join(root, path); filepath.Base(path) == readme && !slices.Contains(docs, full) {
+			docs = append(docs, full)
+		}
+	}
 
 	kept := make([]string, 0, len(docs))
 
