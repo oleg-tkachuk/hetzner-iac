@@ -85,7 +85,15 @@ func TestRenovateAlerts_AgreeWithWhatTheTokenIsToldToAllow(t *testing.T) {
 			"to grant, which sends somebody to widen a credential for a feature nothing uses",
 		alertPermission)
 
-	assert.Contains(t, string(docs), "off",
+	assert.Regexp(t, alertsDocumentedOff, string(docs),
 		"vulnerabilityAlerts are off and docs/ci.md does not say so, so the documented "+
 			"behaviour is a security fast path this repository does not have")
 }
+
+// alertsDocumentedOff is the sentence in docs/ci.md that says the setting is
+// off, emphasis optional.
+//
+// The word alone was the first form, and "off" occurs throughout that file —
+// `cache-mode: off`, "offers", "keys off" — so deleting the whole section explaining
+// the decision still passed.
+var alertsDocumentedOff = regexp.MustCompile("`vulnerabilityAlerts` is (?:\\*\\*)?off\\b")
