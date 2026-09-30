@@ -20,11 +20,19 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
 // Buckets every etcd snapshot carries. A bbolt database without them opens
@@ -33,7 +41,7 @@ import (
 //
 // `key` holds the keyspace, `meta` the consistency bookkeeping, `members` and
 // `cluster` the membership a recovery rebuilds from.
-var requiredBuckets = []string{"key", "meta", "members", "cluster"}
+var requiredBuckets = []string{keyBucket, metaBucket, membersBucket, clusterBucket}
 
 const (
 	// metaBucket and consistentIndexKey are where etcd records how far raft
@@ -49,6 +57,14 @@ const (
 	// nothing across a restore.
 	metaBucket         = "meta"
 	consistentIndexKey = "consistent_index"
+
+	// membersBucket holds one entry per etcd member, keyed by member ID. The
+	// value is the member as JSON, and its name is the Talos node name — which
+	// carries the name of the cluster that took the snapshot.
+	membersBucket = "members"
+
+	// clusterBucket holds the cluster-wide settings a recovery rebuilds from.
+	clusterBucket = "cluster"
 
 	// keyBucket holds one entry per REVISION, not per key — etcd is
 	// multi-version, so this is larger than the key count etcdutl reports and
@@ -71,12 +87,26 @@ func main() {
 	}
 }
 
+// Usage is what a wrong argument list gets.
+const Usage = "usage: etcd verify --cluster <cluster name> <snapshot>"
+
+var errUsage = errors.New(Usage)
+
 func run(args []string) error {
-	if len(args) != 2 || args[0] != "verify" {
-		return fmt.Errorf("usage: etcd verify <snapshot>")
+	if len(args) == 0 || args[0] != "verify" {
+		return errUsage
 	}
 
-	path := args[1]
+	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+
+	cluster := flags.String("cluster", "", "the cluster the snapshot must have been taken from")
+
+	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 1 || *cluster == "" {
+		return errUsage
+	}
+
+	path := flags.Arg(0)
 
 	// #nosec G703 -- the path names the snapshot the operator asked to
 	// restore from, and reading it is the whole command. The taint analysis
@@ -103,8 +133,16 @@ func run(args []string) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 
-	fmt.Printf("%s — %d bytes, %d revisions, consistent index %d\n",
-		path, info.Size(), facts.Revisions, facts.ConsistentIndex)
+	// Before anything is reported as good. Every snapshot is a valid etcd
+	// database; what makes one safe to restore is that it came from THIS
+	// cluster, and nothing else about the file says so — the file name did
+	// not carry the stack, and upload picked the newest of any.
+	if err := belongsTo(facts.Members, *cluster); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+
+	fmt.Printf("%s — %d bytes, %d revisions, consistent index %d, %d members of %s\n",
+		path, info.Size(), facts.Revisions, facts.ConsistentIndex, len(facts.Members), *cluster)
 
 	return nil
 }
@@ -120,6 +158,47 @@ type Facts struct {
 	// taken. Zero is a valid value only for a cluster that has applied
 	// nothing, which a real one never is.
 	ConsistentIndex uint64
+
+	// Members are the names of the etcd members, which are the names of the
+	// control-plane nodes. A member added but never started has no name yet
+	// and is not listed.
+	Members []string
+}
+
+// member is the part of etcd's stored member this reads. etcd's own type is
+// in its server module, which this tool declines for the reason given at the
+// top of the file; the field is the one `etcdctl member list` prints as NAME.
+type member struct {
+	Name string `json:"name"`
+}
+
+// belongsTo refuses a snapshot any of whose members is not a control-plane
+// node of cluster.
+//
+// Every member rather than any: a snapshot is one etcd cluster, so one
+// foreign name already means the file is not this cluster's.
+func belongsTo(members []string, cluster string) error {
+	if len(members) == 0 {
+		return errors.New("records no named etcd member, so nothing says which cluster it came from")
+	}
+
+	prefix := clusterspec.NodeNamePrefix(cluster, clusterspec.RoleControlPlane)
+
+	var foreign []string
+
+	for _, name := range members {
+		ordinal, found := strings.CutPrefix(name, prefix)
+		if _, err := strconv.Atoi(ordinal); !found || err != nil {
+			foreign = append(foreign, name)
+		}
+	}
+
+	if len(foreign) > 0 {
+		return fmt.Errorf("taken from another cluster: member(s) %s are not control-plane nodes of %s",
+			strings.Join(foreign, ", "), cluster)
+	}
+
+	return nil
 }
 
 // inspect reads what a snapshot says about itself, and refuses a database
@@ -150,7 +229,18 @@ func inspect(db *bolt.DB) (Facts, error) {
 
 		facts.ConsistentIndex = binary.BigEndian.Uint64(raw)
 
-		return nil
+		return tx.Bucket([]byte(membersBucket)).ForEach(func(_, value []byte) error {
+			var stored member
+			if err := json.Unmarshal(value, &stored); err != nil {
+				return fmt.Errorf("%s holds an entry that is not an etcd member: %w", membersBucket, err)
+			}
+
+			if stored.Name != "" {
+				facts.Members = append(facts.Members, stored.Name)
+			}
+
+			return nil
+		})
 	})
 
 	return facts, err

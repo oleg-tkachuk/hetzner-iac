@@ -125,7 +125,7 @@ as `task cluster:secrets:export`, which is the other half a restore needs.
 
 ### Restoring
 
-    task cluster:etcd:restore stack=dev snapshot=.backups/etcd-<stamp>.db
+    task cluster:etcd:restore stack=dev snapshot=.backups/etcd-dev-<stamp>.db
 
 This is the procedure Talos documents, with nothing on top: wipe the EPHEMERAL
 partition of every control-plane node, wait for each to come back with etcd in
