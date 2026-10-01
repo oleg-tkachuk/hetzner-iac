@@ -21,8 +21,9 @@
 #
 # Both clients, because they are the same credential and the same endpoint:
 # the CSI controller provisions and attaches volumes, the CCM manages
-# addresses, routes and load balancers. The node DaemonSet is deliberately not
-# selected — it reads the metadata service on the node's own link, not the API.
+# addresses, routes and load balancers. The node DaemonSet is not selected: it
+# reads the metadata service, not the API, and 61-allow-hcloud-metadata.yaml
+# allows that.
 #
 # toFQDNs rather than the address, for the reason 50-allow-acme.yaml gives at
 # length: an IP written into a policy is a policy that works until the vendor

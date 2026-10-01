@@ -56,6 +56,7 @@ type rule struct {
 	ToEndpoints []struct {
 		MatchLabels map[string]string `json:"matchLabels"`
 	} `json:"toEndpoints"`
+	ToCIDR  []string `json:"toCIDR"`
 	ToFQDNs []struct {
 		MatchName string `json:"matchName"`
 	} `json:"toFQDNs"`
@@ -514,4 +515,50 @@ func TestArgoCD_ClientsReachTheRepoServer(t *testing.T) {
 	assert.True(t, allowed,
 		"no policy lets Argo CD's server and controllers reach %s on %s, so under the default "+
 			"deny no Application renders", argoCDRepoServerName, argoCDRepoServerPort)
+}
+
+const (
+	// hcloudMetadataCIDR is the Hetzner metadata service, the same link-local
+	// address on every server.
+	hcloudMetadataCIDR = "169.254.169.254/32"
+	// hcloudMetadataPort is the plain-HTTP port it answers on.
+	hcloudMetadataPort = "80"
+	// csiNodeComponent is the component label the hcloud-csi chart puts on
+	// its node DaemonSet's pods.
+	csiNodeComponent = "node"
+)
+
+func TestCSINode_ReachesTheMetadataService(t *testing.T) {
+	t.Parallel()
+
+	var allowed bool
+
+	for _, policies := range manifests(t) {
+		for _, p := range policies {
+			selector := p.Spec.EndpointSelector.MatchLabels
+			if selector["k8s:io.kubernetes.pod.namespace"] != "kube-system" ||
+				selector["k8s:app.kubernetes.io/name"] != "hcloud-csi" ||
+				selector["k8s:app.kubernetes.io/component"] != csiNodeComponent {
+				continue
+			}
+
+			for _, egress := range p.Spec.Egress {
+				if !slices.Contains(egress.ToCIDR, hcloudMetadataCIDR) {
+					continue
+				}
+
+				for _, block := range egress.ToPorts {
+					for _, port := range block.Ports {
+						if port.Port == hcloudMetadataPort && port.Protocol == "TCP" {
+							allowed = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	assert.True(t, allowed,
+		"no policy lets the CSI node plugin reach %s:%s, so under the default deny it exits at start "+
+			"and no volume can be mounted", hcloudMetadataCIDR, hcloudMetadataPort)
 }
