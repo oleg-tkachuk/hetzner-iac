@@ -1,0 +1,37 @@
+# The CSI node plugin reading the Hetzner metadata service.
+#
+# At start the driver asks the metadata service which location the node is in,
+# and exits if it cannot:
+#
+#   failed to setup CSI driver: could not determine default volume location:
+#   failed to get location from metadata service
+#
+# The node pods are not on the host network, so the request leaves through the
+# pod network and the default deny drops it — measured in Hubble as
+# `hcloud-csi-node -> 169.254.169.254:80 EGRESS DENIED`. Pods started before
+# the deny existed kept running, which is why this showed only once they were
+# restarted.
+#
+# An address, not a name: the metadata service is link-local and has no DNS
+# name to match, and it is the same address on every Hetzner server.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-hcloud-metadata
+spec:
+  description: the CSI node plugin reads the Hetzner metadata service
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: kube-system
+      k8s:app.kubernetes.io/name: hcloud-csi
+      k8s:app.kubernetes.io/component: node
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toCIDR:
+        - 169.254.169.254/32
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
