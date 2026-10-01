@@ -114,6 +114,8 @@ this layer no longer has an opinion about it.
 
 A change made by hand outside this repository stays invisible until the next
 apply. The goal is a scheduled comparison that says what differs.
+`task platform:drift` makes that comparison on demand and exits 1 on drift.
+**Remaining:** a schedule, which needs the backend and cloud credentials in CI.
 
 ### Upgrades are exercised before they matter
 

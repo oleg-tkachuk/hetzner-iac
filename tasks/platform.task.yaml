@@ -414,6 +414,21 @@ tasks:
               pulumi --non-interactive --stack "{{._PL_STACK}}" stack output )
           done
 
+  drift:
+    desc: "Every tier's and layer's resources the cloud no longer agrees with, from a refresh preview; changes nothing"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+    cmds:
+      # Through the Automation API, see tools/stackdrift. A plan compares the
+      # code with the state; this compares the state with the cloud, which is
+      # the half a plan never reads. Exits 1 on drift, so a schedule can fail.
+      - cmd: |
+          set -euo pipefail
+          for tier in {{.TIERS}}; do set -- "$@" "infra/${tier}"; done
+          for layer in {{._PL_LAYERS}}; do set -- "$@" "layers/${layer}"; done
+          cd "{{.ROOT}}" && go run ./tools/stackdrift --stack "{{._PL_STACK}}" "$@"
+
   status:
     desc: "Every tier's and layer's stack: last run, resources, interrupted updates, and whether they agree on the cluster"
     preconditions:
