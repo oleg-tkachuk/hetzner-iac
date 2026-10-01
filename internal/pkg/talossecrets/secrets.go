@@ -20,6 +20,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource/sig"
+
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
@@ -32,21 +34,17 @@ import (
 const SecretsResourceType = "talos:machine/secrets:Secrets"
 
 // Pulumi wraps a secret value in an envelope rather than storing it bare:
-// an object carrying the signature below and the value under `plaintext`,
+// an object carrying the signature key and the value under `plaintext`,
 // itself JSON-encoded. `--show-secrets` decrypts the value and leaves the
 // envelope.
 //
-// Named because two places must spell them identically — and because the
-// signature is how a secret is told apart from Pulumi's other envelopes, an
-// asset or an output value, which must pass through untouched.
-// #nosec G101 -- Pulumi's own public signature constants, documented and
-// identical in every state file ever written. Flagged for looking like hex,
-// which is exactly what a signature looks like.
+// The signatures come from the SDK's sig package, which imports nothing, so
+// they are Pulumi's own definition rather than a copy. The signature is how a
+// secret is told apart from Pulumi's other envelopes, an asset or an output
+// value, which must pass through untouched.
 const (
-	// gitleaks:allow -- published constants, not credentials. gitleaks scans
-	// the staged diff, where a line has no context and hex reads as entropy.
-	secretSignatureKey = "4dabf18193072939515e22adb298388d" // gitleaks:allow
-	secretSignature    = "1b47061264138c4ac30d75fd1eb44270" // gitleaks:allow
+	secretSignatureKey = sig.Key
+	secretSignature    = sig.Secret
 	plaintextKey       = "plaintext"
 )
 
@@ -67,11 +65,12 @@ const enginePrefix = "__"
 // but nothing above the cluster tier has any use for the CA, and it is
 // strictly more powerful.
 //
-// `pulumi stack export --show-secrets` rather than the automation API:
-// Workspace.ExportStack has no equivalent of that flag, so it returns the
-// bundle as the ciphertext it is stored as — which is a copy that only the
-// backend holding the key can read, and the backend is exactly what a second
-// copy exists to survive.
+// `pulumi stack export --show-secrets` rather than the automation API, for
+// weight alone: Workspace.ExportStack runs the same command, with the same
+// flag, but importing it puts 800 packages behind this function. The flag is
+// what matters — without it the bundle stays the ciphertext it is stored as,
+// a copy only the backend holding the key can read, and the backend is
+// exactly what a second copy exists to survive.
 func Bundle(ctx context.Context, stack string) ([]byte, error) {
 	if stack == "" {
 		return nil, fmt.Errorf("no stack to read the secrets bundle from")
