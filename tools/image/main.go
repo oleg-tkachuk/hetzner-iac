@@ -39,6 +39,19 @@ import (
 // no hash to keep in sync by hand.
 const factoryURL = "https://factory.talos.dev"
 
+// factoryRegistry is the factory's container registry, where installer images
+// live: the host of factoryURL.
+const factoryRegistry = "factory.talos.dev"
+
+// installerRepository is the factory's Hetzner Cloud installer, the platform
+// the snapshot is baked for. Talos stopped publishing ghcr.io/siderolabs/installer
+// with v1.14, so an upgrade to it can only come from here.
+const installerRepository = "hcloud-installer"
+
+// installerCommand is the subcommand that prints the installer image a node
+// upgrades to, for the topology's version.
+const installerCommand = "installer"
+
 // factoryTimeout bounds the two Image Factory calls. Generous, because the
 // factory builds on demand.
 const factoryTimeout = 2 * time.Minute
@@ -72,8 +85,12 @@ func main() {
 var osArgs = os.Args
 
 func run(ctx context.Context) error {
+	if len(osArgs) == 3 && osArgs[1] == installerCommand {
+		return printInstaller(ctx, osArgs[2])
+	}
+
 	if len(osArgs) != 3 {
-		return fmt.Errorf("usage: image <topology.yaml> <stack>")
+		return fmt.Errorf("usage: image <topology.yaml> <stack> | image %s <topology.yaml>", installerCommand)
 	}
 
 	topologyPath, stack := osArgs[1], osArgs[2]
@@ -133,6 +150,30 @@ func run(ctx context.Context) error {
 	fmt.Printf("snapshot ready — next: task cluster:apply stack=%s\n", stack)
 
 	return nil
+}
+
+// printInstaller prints the installer image for the topology's Talos
+// version, from the same schematic the snapshot is baked from.
+func printInstaller(ctx context.Context, topologyPath string) error {
+	topology, err := clusterspec.LoadTopology(topologyPath)
+	if err != nil {
+		return err
+	}
+
+	schematic, err := schematicID(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(installerImage(schematic, topology.Talos.Version))
+
+	return nil
+}
+
+// installerImage is the factory's installer reference for a schematic and a
+// Talos version.
+func installerImage(schematic, version string) string {
+	return fmt.Sprintf("%s/%s/%s:%s", factoryRegistry, installerRepository, schematic, version)
 }
 
 // imageURL is where the factory serves a built image. Separated from the call

@@ -1523,8 +1523,14 @@ tasks:
             exit 1
           fi
 
+          # From the Image Factory, for the schematic the snapshot is baked
+          # from. Talos stopped publishing ghcr.io/siderolabs/installer with
+          # v1.14: an upgrade naming it failed on the first node with "not
+          # found", before anything changed.
+          installer="$(go run "{{.ROOT}}/tools/image" installer "{{._CL_TOPOLOGY}}")"
+
           for node in $members; do
-            printf '%s\n' "{{._RUN}} cluster · upgrade · ${node} → ${version}"
+            printf '%s\n' "{{._RUN}} cluster · upgrade · ${node} → ${version} (${installer})"
             # --endpoints as well, for the reason etcd:restore carries at
             # length: `talosctl get members` reports each member's PUBLIC
             # address, and --nodes alone makes talosctl proxy through the
@@ -1536,7 +1542,7 @@ tasks:
             # rejects, which docs/BACKLOG.md records. The mechanism is the
             # same and the addresses are the same kind.
             talosctl --endpoints "${node}" --nodes "${node}" \
-              upgrade --image "ghcr.io/siderolabs/installer:${version}" --wait
+              upgrade --image "${installer}" --wait
           done
 
   upgrade:k8s:

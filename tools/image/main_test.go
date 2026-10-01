@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -253,4 +254,22 @@ func TestArchitectures_CoverEveryOneTheTopologyAccepts(t *testing.T) {
 		assert.Contains(t, clusterspec.Architectures, arch,
 			"%q maps to a factory architecture and the topology validator rejects it", arch)
 	}
+}
+
+func TestInstallerImage_IsTheFactoryHcloudInstaller(t *testing.T) {
+	t.Parallel()
+
+	// ghcr.io/siderolabs/installer stops at v1.13; a v1.14.2 upgrade from it
+	// fails on the node with "not found" before anything is touched.
+	assert.Equal(t,
+		"factory.talos.dev/hcloud-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:v1.14.2",
+		installerImage("376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba", "v1.14.2"))
+}
+
+func TestFactoryRegistry_IsTheFactorysHost(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := url.Parse(factoryURL)
+	require.NoError(t, err)
+	assert.Equal(t, parsed.Host, factoryRegistry, "images and installers come from one factory")
 }
