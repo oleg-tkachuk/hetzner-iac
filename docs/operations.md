@@ -347,3 +347,57 @@ Note what still works while the list is wrong: `task hcloud:*` acts through the
 Hetzner API rather than through the cluster, so power state, a VNC console and
 the inventory all answer — those need the topology too, for the cluster label
 they select on. Tasks that only read the Pulumi backend need neither.
+
+## Control-plane addresses
+
+Each control-plane node holds an explicit Hetzner Primary IP with auto-delete
+off, so a replaced node comes back on the address the kubeconfig and the
+talosconfig already name. Workers keep implicit addresses: nothing connects to
+them by address, and they are replaceable by design.
+
+The server's public network is set when it is created and never updated. The
+hcloud provider updates one by powering the server off, unassigning its
+address and — when the old state named no address — deleting that address
+before assigning the new one. On dev it got as far as the power-off, and
+refused the rest only because the node was a load balancer target.
+
+### Moving a cluster that predates this
+
+A cluster built before v7 has implicit addresses, and a plain apply would
+create three new ones and leave them unassigned, billed and unused. Adopt the
+addresses it has instead; no server is touched.
+
+1. Find each control-plane node's address id:
+
+   ```bash
+   bash -c 'cd infra/cluster && HCLOUD_TOKEN="$(pulumi config get hcloud:token --stack <stack>)" hcloud primary-ip list -o json | jq -r ".[] | \"\(.id) \(.ip) server \(.assignee_id)\""'
+   ```
+
+   and match `assignee_id` to the server ids in `pulumi stack export`.
+
+2. Import them under the names the program uses, `<node>-ipv4`, with the
+   control plane component as the parent:
+
+   ```json
+   {
+     "nameTable": {"cp": "urn:pulumi:<stack>::hetzner-cluster::hetzner-iac:cluster:Cluster$hetzner-iac:cluster:ControlPlane::<cluster>-control-plane"},
+     "resources": [
+       {"type": "hcloud:index/primaryIp:PrimaryIp", "name": "<cluster>-control-plane-0-ipv4", "id": "<id>", "parent": "cp"}
+     ]
+   }
+   ```
+
+   ```bash
+   bash -c 'cd infra/cluster && pulumi import --stack <stack> --file <that file> --generate-code=false --protect'
+   ```
+
+3. Import records the address's current `assigneeId` as an input, and the
+   provider refuses an address with both that and a `location`. Remove it from
+   the inputs — the outputs keep it, and nothing in Hetzner changes:
+
+   ```bash
+   bash -c 'cd infra/cluster && pulumi stack export --stack <stack> > state.json && jq "(.deployment.resources[] | select(.type==\"hcloud:index/primaryIp:PrimaryIp\") | .inputs) |= del(.assigneeId)" state.json > state.new.json && pulumi stack import --stack <stack> --file state.new.json'
+   ```
+
+4. `task cluster:plan stack=<stack>` now shows the three addresses renamed,
+   labelled and switched to auto-delete off, and nothing else. Apply it.

@@ -26,6 +26,51 @@ type serverSpec struct {
 	// Set for control-plane nodes, where etcd's data is, and not for workers,
 	// which are replaceable by design. See createControlPlaneNodes.
 	protect bool
+
+	// stableAddress gives the node an explicit Primary IP that outlives the
+	// server. See newPrimaryIP.
+	stableAddress bool
+}
+
+// The Primary IP fields hcloud spells.
+const (
+	primaryIPTypeIPv4     = "ipv4"
+	primaryIPAssigneeType = "server"
+)
+
+// newPrimaryIP is the public address a control-plane node keeps across a
+// replacement.
+//
+// A server's implicit address is deleted with it, and servers here are
+// replaced delete-first, so a replaced control-plane node came back on a new
+// address — and the kubeconfig and talosconfig name the first node's. An
+// explicit Primary IP with autoDelete off survives the delete and is assigned
+// to the new server. It is protected with the server: a teardown that takes
+// one takes the other.
+func newPrimaryIP(ctx *pulumi.Context, spec serverSpec, opts ...pulumi.ResourceOption) (*hcloud.PrimaryIp, error) {
+	// The server assigns the address, through its public network, because the
+	// address has to exist before the server it is created with. assigneeId is
+	// therefore the server's to set: left to this resource, an address read
+	// back as assigned plans an unassignment, which takes the node's public
+	// address away.
+	options := pulumiopts.With(opts, pulumi.IgnoreChanges([]string{"assigneeId"}))
+	if spec.protect {
+		options = pulumiopts.With(options, pulumi.Protect(true))
+	}
+
+	address, err := hcloud.NewPrimaryIp(ctx, spec.name+"-ipv4", &hcloud.PrimaryIpArgs{
+		Name:         pulumi.String(spec.name),
+		Type:         pulumi.String(primaryIPTypeIPv4),
+		AssigneeType: pulumi.String(primaryIPAssigneeType),
+		Location:     pulumi.String(spec.location),
+		AutoDelete:   pulumi.Bool(false),
+		Labels:       toStringMap(spec.labels),
+	}, options...)
+	if err != nil {
+		return nil, fmt.Errorf("hcloud primary ip for %q: %w", spec.name, err)
+	}
+
+	return address, nil
 }
 
 // newServer creates one node.
@@ -54,6 +99,15 @@ func newServer(ctx *pulumi.Context, spec serverSpec, opts ...pulumi.ResourceOpti
 		// IPv6 is free on Hetzner and off here regardless: Talos would
 		// advertise an address the rest of the platform is not configured for.
 		Ipv6Enabled: pulumi.Bool(false),
+	}
+
+	if spec.publicIPv4 && spec.stableAddress {
+		address, err := newPrimaryIP(ctx, spec, opts...)
+		if err != nil {
+			return nil, err
+		}
+
+		publicNet.Ipv4 = idToInt(address.ID())
 	}
 
 	args := &hcloud.ServerArgs{
@@ -115,6 +169,16 @@ func newServer(ctx *pulumi.Context, spec serverSpec, opts ...pulumi.ResourceOpti
 
 	if spec.protect {
 		options = pulumiopts.With(options, pulumi.Protect(true))
+	}
+
+	// The public network is read at create — which a replacement is — and
+	// never updated. The provider updates it by powering the server off,
+	// unassigning its address and, when the old state named no address id,
+	// DELETING that address before assigning the new one. Measured on dev:
+	// moving a node from its implicit address to the same address made
+	// explicit powered it off and tried to delete the address it was given.
+	if spec.stableAddress {
+		options = pulumiopts.With(options, pulumi.IgnoreChanges([]string{"publicNets"}))
 	}
 
 	server, err := hcloud.NewServer(ctx, spec.name, args, options...)
