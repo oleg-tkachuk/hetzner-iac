@@ -29,6 +29,7 @@ bin/
 /smoke
 /stack
 /stackstatus
+/stackdrift
 /talos
 /taskshell
 /token
