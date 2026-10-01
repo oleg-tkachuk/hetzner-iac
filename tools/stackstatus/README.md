@@ -26,7 +26,8 @@ would describe that account's empty backend. The check reads the credentials
 store through the SDK, before the first CLI call.
 
 Everything else comes through the Automation API. Outputs come from the exported
-checkpoint rather than `StackOutputs`, so secrets stay ciphertext. Reading the
+checkpoint. The export decrypts secrets, as `StackOutputs` would, but keeps each
+in its envelope, and the report prints only bare strings. Reading the
 history has to select the stack, so the workspace's previous selection is put
 back afterwards.
 

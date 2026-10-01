@@ -267,9 +267,9 @@ func findStack(summaries []auto.StackSummary, stack string) (*auto.StackSummary,
 }
 
 // readState reads the checkpoint: what did not finish cleanly, and the
-// outputs. Export rather than StackOutputs, because the checkpoint keeps
-// secrets as ciphertext while StackOutputs decrypts every one of them — and
-// this report prints none.
+// outputs. ExportStack always passes --show-secrets, so secrets arrive
+// decrypted, inside Pulumi's secret envelope; the readers below skip any
+// value that is not a bare string, and this report prints none.
 func readState(ctx context.Context, workspace auto.Workspace, stack string, read *reading) error {
 	untyped, err := workspace.ExportStack(ctx, stack)
 	if err != nil {
@@ -335,8 +335,7 @@ func stateOf(deployment apitype.DeploymentV3) stackstatus.State {
 }
 
 // rootOutputs are the stack's exported outputs, as the root resource holds
-// them. A secret stays a ciphertext envelope, which the readers below treat
-// as absent.
+// them. A secret is an envelope map, which the readers below treat as absent.
 func rootOutputs(deployment apitype.DeploymentV3) map[string]any {
 	for _, res := range deployment.Resources {
 		if res.Type == resource.RootStackType && res.Parent == "" {
