@@ -435,6 +435,13 @@ The load balancer is not a convenience. It is the endpoint signed into every
 certificate, which is what makes a member replaceable — with a node's own
 address there, replacing that node reissues everything that named it.
 
+It has no public interface. A Hetzner firewall attaches to servers, not to a
+load balancer, and the load balancer reaches its targets over the private
+network, so a public one was tcp/6443 open to anyone beside a firewall that
+admits only `network.adminCIDRs`. The nodes use its private address. The
+kubeconfig points at the first control-plane node, through the firewall, as
+the talosconfig already did.
+
 One thing HA needs that a single node never did: **etcd has to advertise
 inside the private network.** Left alone it advertises whichever address the
 node has first, and on Hetzner that is the public one — where the perimeter

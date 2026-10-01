@@ -48,6 +48,9 @@ type Cluster struct {
 	Kubeconfig  pulumi.StringOutput `pulumi:"kubeconfig"`
 	Talosconfig pulumi.StringOutput `pulumi:"talosconfig"`
 
+	// Endpoint is the API URL the kubeconfig points at, which an operator can
+	// reach. APILoadBalancerIP is the load balancer's private address, empty
+	// on a single control plane; the nodes reach the API through it.
 	Endpoint          pulumi.StringOutput `pulumi:"endpoint"`
 	APILoadBalancerIP pulumi.StringOutput `pulumi:"apiLoadBalancerIp"`
 	NetworkID         pulumi.IntOutput    `pulumi:"networkId"`
@@ -155,7 +158,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 	component.WorkerPools = pools
 	component.Kubeconfig = controlPlane.Kubeconfig
 	component.Talosconfig = talosconfig
-	component.Endpoint = controlPlane.Endpoint
+	component.Endpoint = controlPlane.ClientEndpoint
 	component.APILoadBalancerIP = loadBalancerIP
 	component.NetworkID = base.network.NetworkID
 	component.PodCIDR = pulumi.String(topology.Network.PodCIDR).ToStringOutput()
@@ -410,9 +413,17 @@ func apiEndpointAddress(
 	}
 
 	// Kept, not discarded: the target below cannot exist until this has.
+	//
+	// No public interface. A Hetzner firewall attaches to servers, never to a
+	// load balancer, and the load balancer reaches its targets over the
+	// private network, so nothing behind it sees the client's address. A
+	// public interface here was a port 6443 open to the internet beside a
+	// firewall that admits only network.adminCIDRs. The load balancer is the
+	// endpoint the nodes use; operators reach a node, through the firewall.
 	attachment, err := hcloud.NewLoadBalancerNetwork(ctx, name+"-api-network", &hcloud.LoadBalancerNetworkArgs{
-		LoadBalancerId: idToInt(loadBalancer.ID()),
-		NetworkId:      network.NetworkID,
+		LoadBalancerId:        idToInt(loadBalancer.ID()),
+		NetworkId:             network.NetworkID,
+		EnablePublicInterface: pulumi.Bool(false),
 	}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet}))...)
 	if err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer network: %w", err)
@@ -458,7 +469,7 @@ func apiEndpointAddress(
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer target: %w", err)
 	}
 
-	return loadBalancer.Ipv4, loadBalancer.Ipv4, nil
+	return attachment.Ip, attachment.Ip, nil
 }
 
 // lookupTalosImage resolves the snapshot the nodes boot from.
