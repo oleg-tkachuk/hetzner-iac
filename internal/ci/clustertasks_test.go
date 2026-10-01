@@ -324,3 +324,33 @@ func TestEtcdRestore_WipesTheControlPlaneTogether(t *testing.T) {
 	assert.Regexp(t, `(?m)^\s*wait\b`, after, "the parallel resets are not waited for")
 	assert.Contains(t, body, `if [ -z "$unreachable" ]`, "a node is wiped while another is still rebooting")
 }
+
+// TestEtcdDownload_IsUploadsOtherHalf holds the task that reads a snapshot
+// back from the Storage Box to what upload wrote.
+//
+// Upload existed alone: the copy on the box could be written and never read
+// back by anything in this repository, which is the copy a recovery needs
+// when the machine that took the snapshot is gone. Both tasks reach the
+// repository through one snippet, so they cannot disagree on where it is.
+func TestEtcdDownload_IsUploadsOtherHalf(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	tasks := tasksIn(string(raw))
+
+	for _, name := range []string{"etcd:upload", "etcd:download"} {
+		body, found := tasks[name]
+		require.True(t, found, "no %s task", name)
+		assert.Contains(t, body, "{{._CL_BACKUP_REPO}}", "%s reaches the repository its own way", name)
+	}
+
+	download := tasks["etcd:download"]
+	assert.Regexp(t, `restic restore "\$snapshot_id" --host "\$cluster" --tag etcd`, download,
+		"download reads another cluster's snapshots, or ones upload never tagged")
+	assert.Contains(t, download, `tools/etcd" verify --cluster "$cluster"`,
+		"a downloaded file is handed to etcd:restore without being read back")
+	assert.Contains(t, download, `cmp -s "$found" "$target"`,
+		"download overwrites a different local snapshot of the same name")
+}

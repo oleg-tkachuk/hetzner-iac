@@ -103,6 +103,7 @@ and `destroy` does not take it — that is the point of it being a tier, and
 | `task cluster:etcd:restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
 | `task cluster:etcd:snapshot` | snapshot etcd into `.backups/` |
 | `task cluster:etcd:upload` | upload a snapshot to the Storage Box with restic; keeps the last ten |
+| `task cluster:etcd:download` | fetch an etcd snapshot back from the Storage Box into `.backups/` (`id=`, default the newest), verified, for `etcd:restore` |
 | `task cluster:hubble` | print recent pod flows through Hubble; `last=<n>` to widen |
 | `task cluster:image:bake` | bake the Talos snapshot named by the topology, per version **and** architecture; idempotent |
 | `task cluster:init` | create the Pulumi stack for this environment |
