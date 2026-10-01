@@ -90,9 +90,10 @@ whether or not Hetzner serves the zone.
 
 ### A server keeps its address when it is replaced
 
-Public addresses are implicit and deleted with their server, and servers here
-are replaced delete-first. An explicit primary IP survives that; it does not
-make a load balancer's address stable, which is the one DNS would point at.
+Control-plane nodes hold explicit Primary IPs, so a replacement keeps the
+address the kubeconfig and talosconfig name. Workers keep implicit ones, and
+the ingress load balancer's address — the one DNS points at — is still the
+load balancer's own.
 
 ### Workloads arrive through GitOps
 

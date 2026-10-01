@@ -71,6 +71,9 @@ type recorder struct {
 	// replaceWith is the URNs each resource, by name, is replaced with.
 	replaceWith map[string][]string
 
+	// ignoreChanges is the properties each resource, by name, ignores.
+	ignoreChanges map[string][]string
+
 	// callProviders is the provider reference each function call was made
 	// through, by token. Empty when the call went to the default provider —
 	// the one configured from the ambient environment rather than the one a
@@ -118,6 +121,7 @@ func newRecorder() *recorder {
 		replaceOn:      map[string][]string{},
 		dependsOn:      map[string][]string{},
 		replaceWith:    map[string][]string{},
+		ignoreChanges:  map[string][]string{},
 		callProviders:  map[string]string{},
 	}
 }
@@ -177,6 +181,10 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 
 		if urns := rpc.GetReplaceWith(); len(urns) > 0 {
 			r.replaceWith[args.Name] = urns
+		}
+
+		if fields := rpc.GetIgnoreChanges(); len(fields) > 0 {
+			r.ignoreChanges[args.Name] = fields
 		}
 
 		r.mu.Unlock()
@@ -383,6 +391,51 @@ func TestNewCluster_RemovingAPoolLeavesAPinnedOneWhereItWas(t *testing.T) {
 	assert.Equal(t,
 		workerAddresses(runCluster(t, before, &hetzner.ClusterArgs{PublicIPv4: true}))[gpuNode],
 		workerAddresses(runCluster(t, after, &hetzner.ClusterArgs{PublicIPv4: true}))[gpuNode])
+}
+
+func TestNewCluster_ControlPlanesKeepTheirAddressAcrossAReplacement(t *testing.T) {
+	t.Parallel()
+
+	// A server's implicit address is deleted with it, servers are replaced
+	// delete-first, and the kubeconfig and talosconfig name the first
+	// control-plane node's address. An explicit Primary IP outlives the server.
+	topology := haTopology(t)
+	rec := runCluster(t, topology, &hetzner.ClusterArgs{PublicIPv4: true})
+
+	addresses := rec.of("hcloud:index/primaryIp:PrimaryIp")
+	require.Len(t, addresses, topology.ControlPlane.Count, "one per control-plane node, none for workers")
+
+	for _, address := range addresses {
+		assert.False(t, address["autoDelete"].BoolValue(), "an auto-deleted address goes with its server")
+		assert.Equal(t, topology.Placement.Location, address["location"].StringValue())
+		assert.True(t, rec.isProtected(address["name"].StringValue()+"-ipv4"), "protected with its server")
+		assert.Contains(t, rec.ignoreChanges[address["name"].StringValue()+"-ipv4"], "assigneeId",
+			"the server assigns the address; left to the address, a read-back assignment plans an unassignment")
+	}
+
+	for _, server := range rec.of("hcloud:index/server:Server") {
+		name := server["name"].StringValue()
+		ipv4 := server["publicNets"].ArrayValue()[0].ObjectValue()["ipv4"]
+
+		if strings.Contains(name, clusterspec.RoleControlPlane) {
+			assert.False(t, ipv4.IsNull(), "%s is not given its Primary IP", name)
+			// The provider updates a public network by powering the server
+			// off and, from an implicit address, deleting it first.
+			assert.Contains(t, rec.ignoreChanges[name], "publicNets", "%s's public network is updatable", name)
+
+			continue
+		}
+
+		assert.True(t, ipv4.IsNull(), "%s is a worker, replaceable on any address", name)
+	}
+}
+
+func TestNewCluster_NoPrimaryIPWithoutAPublicAddress(t *testing.T) {
+	t.Parallel()
+
+	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: false})
+
+	assert.Empty(t, rec.of("hcloud:index/primaryIp:PrimaryIp"))
 }
 
 func TestNewCluster_SingleControlPlaneGetsNoLoadBalancer(t *testing.T) {

@@ -310,7 +310,8 @@ func createControlPlaneNodes(ctx *pulumi.Context, args *ControlPlaneArgs, opts .
 			// server.go used to claim this was safe already — "on an HA one
 			// the replacement is one member at a time, which etcd survives".
 			// Nothing enforced it. This does.
-			protect: true,
+			protect:       true,
+			stableAddress: true,
 		}, opts...)
 		if err != nil {
 			return nil, err
