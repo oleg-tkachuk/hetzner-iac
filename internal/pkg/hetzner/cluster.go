@@ -371,6 +371,10 @@ func talosconfigFor(
 			ClientCertificate: secrets.ClientConfiguration.ClientCertificate(),
 			ClientKey:         secrets.ClientConfiguration.ClientKey(),
 		},
+		// The first node only. Listing every node as an endpoint was tried:
+		// with the first one silent, as a powered-off server is, talosctl
+		// timed out after 20 seconds rather than moving to the next. A dead
+		// first node is `talosctl -e <another node>` away instead.
 		Endpoints: pulumi.StringArray{controlPlane.FirstNodeAddress},
 		Nodes:     pulumi.StringArray{controlPlane.FirstNodeAddress},
 	})

@@ -107,7 +107,7 @@ and `destroy` does not take it — that is the point of it being a tier, and
 | `task cluster:image:bake` | bake the Talos snapshot named by the topology, per version **and** architecture; idempotent |
 | `task cluster:init` | create the Pulumi stack for this environment |
 | `task cluster:kubeconfig` | write `./kubeconfig` |
-| `task cluster:kubeconfig:add` | add this cluster to `~/.kube/config`, so a plain `kubectl` reaches it |
+| `task cluster:kubeconfig:add` | add this cluster to `~/.kube/config`, one context per control-plane node, so a plain `kubectl` reaches it |
 | `task cluster:machine-config:check` | Talos accepts the machine-config patches |
 | `task cluster:nodes` | list nodes |
 | `task cluster:orphans` | Hetzner resources nothing claims, released volumes included, with or without a live cluster; read-only |

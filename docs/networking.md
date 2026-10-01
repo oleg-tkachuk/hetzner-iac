@@ -257,9 +257,20 @@ balancer reaches its targets over the private network, so nothing behind it
 sees the client's address. A public interface on it was tcp/6443 open to
 everyone beside a firewall that admitted only `network.adminCIDRs`. It has
 none now: the nodes reach the API through it, and an operator reaches the
-first control-plane node directly, where the firewall decides. If that node
-is down, point the kubeconfig at another one — every node's addresses are in
-the apiserver certificate.
+first control-plane node directly, where the firewall decides.
+
+kubectl does not fail over, so the kubeconfig carries a context per
+control-plane node, every one signed into the apiserver certificate. When the
+first is down:
+
+```bash
+kubectl config use-context admin@<cluster>-control-plane-1
+talosctl -e <another node's address> -n <another node's address> version
+```
+
+The talosconfig keeps one endpoint. Listing every node was tried: with the
+first one silent, as a powered-off server is, talosctl timed out rather than
+moving to the next.
 
 ## How pod traffic crosses a node boundary
 

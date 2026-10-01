@@ -33,6 +33,9 @@ type ControlPlane struct {
 	ClientEndpoint pulumi.StringOutput `pulumi:"clientEndpoint"`
 	// FirstNodeAddress is where talosctl and the kubeconfig resource connect.
 	FirstNodeAddress pulumi.StringOutput `pulumi:"firstNodeAddress"`
+	// NodeAddresses are every control-plane node's reachable address, first
+	// node first: one kubeconfig context each.
+	NodeAddresses pulumi.StringArrayOutput `pulumi:"nodeAddresses"`
 	// Kubeconfig is as powerful as cluster-admin, so it is a secret output.
 	Kubeconfig pulumi.StringOutput `pulumi:"kubeconfig"`
 }
@@ -212,12 +215,11 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 	component.ClientEndpoint = nodes[0].address.ApplyT(clusterspec.APIURL).(pulumi.StringOutput)
 	component.FirstNodeAddress = nodes[0].address
 
-	// Talos writes the cluster endpoint into the kubeconfig, and on an HA
-	// cluster that is a private address no operator can reach.
-	clientKubeconfig := pulumix.Cast[pulumi.StringOutput](pulumix.Apply2Err(
-		kubeconfig.KubeconfigRaw, component.ClientEndpoint, pointKubeconfigAt))
+	var operatorKubeconfig pulumi.StringOutput
 
-	kubeconfigSecret, err := asSecret("kubeconfig", clientKubeconfig)
+	component.NodeAddresses, operatorKubeconfig = operatorAccess(nodes, kubeconfig.KubeconfigRaw)
+
+	kubeconfigSecret, err := asSecret("kubeconfig", operatorKubeconfig)
 	if err != nil {
 		return nil, err
 	}
@@ -228,12 +230,40 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 		"endpoint":         component.Endpoint,
 		"clientEndpoint":   component.ClientEndpoint,
 		"firstNodeAddress": component.FirstNodeAddress,
+		"nodeAddresses":    component.NodeAddresses,
 		"kubeconfig":       component.Kubeconfig,
 	}); err != nil {
 		return nil, fmt.Errorf("register control plane outputs: %w", err)
 	}
 
 	return component, nil
+}
+
+// operatorAccess is every control-plane node's reachable address, and the
+// kubeconfig an operator uses: Talos writes the cluster endpoint into it, and
+// on an HA cluster that is a private address no operator can reach.
+func operatorAccess(nodes []controlPlaneNode, raw pulumi.StringOutput) (pulumi.StringArrayOutput, pulumi.StringOutput) {
+	addresses := make(pulumi.StringArray, 0, len(nodes))
+	names := make([]string, 0, len(nodes))
+
+	for _, node := range nodes {
+		addresses = append(addresses, node.address)
+		names = append(names, node.hostname)
+	}
+
+	reachable := addresses.ToStringArrayOutput()
+
+	kubeconfig := pulumix.Cast[pulumi.StringOutput](pulumix.Apply2Err(raw, reachable,
+		func(raw string, addresses []string) (string, error) {
+			servers := make([]string, 0, len(addresses))
+			for _, address := range addresses {
+				servers = append(servers, clusterspec.APIURL(address))
+			}
+
+			return clientKubeconfig(raw, kubeconfigNodes(names, servers))
+		}))
+
+	return reachable, kubeconfig
 }
 
 func createControlPlaneNodes(ctx *pulumi.Context, args *ControlPlaneArgs, opts ...pulumi.ResourceOption) ([]controlPlaneNode, error) {
