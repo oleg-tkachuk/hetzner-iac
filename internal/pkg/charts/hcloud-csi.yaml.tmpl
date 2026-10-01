@@ -34,6 +34,12 @@
 controller:
   # Creating and attaching volumes at all.
   priorityClassName: system-cluster-critical
+  # Hetzner publishes no signature, so the image is pinned by digest. The tag and
+  # digest come from internal/pkg/imagepolicy/images.yaml, the one place both are
+  # held; `tag@digest` keeps the version the chart reads and pulls the digest.
+  image:
+    hcloudCSIDriver:
+      tag: "{{ (pinned "docker.io/hetznercloud/hcloud-csi-driver").Reference }}"
   # THE CONTROLLER IS TOLD ITS LOCATION, NOT LEFT TO FIND IT.
   #
   # The chart's own words for the empty default: "If set the controller could
@@ -102,6 +108,10 @@ node:
   # loss is a node-level failure: the plugin evicted here means every pod with
   # a volume on this node stays Pending, with nothing wrong on the volume.
   priorityClassName: system-node-critical
+  # The same pin as the controller's.
+  image:
+    hcloudCSIDriver:
+      tag: "{{ (pinned "docker.io/hetznercloud/hcloud-csi-driver").Reference }}"
   resources:
     hcloudCSIDriver:
       requests:

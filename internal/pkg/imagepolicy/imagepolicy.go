@@ -14,6 +14,7 @@ import (
 	"sort"
 
 	"github.com/distribution/reference"
+	"github.com/opencontainers/go-digest"
 	"sigs.k8s.io/yaml"
 )
 
@@ -61,13 +62,26 @@ func PublicKey(name string) ([]byte, error) {
 	return data, nil
 }
 
+// Pin is an unsigned repository's one admitted image: the tag its chart
+// renders by default, and the index digest that tag resolved to when pinned.
+//
+// The tag is recorded so a chart upgrade cannot leave the digest behind. A
+// chart bump moves its default tag; tools/charts compares that tag with this
+// one and fails until the digest is moved with it, rather than keep running
+// the old image with every check green.
+type Pin struct {
+	// Reason is why no signature can be required: the publisher signs nothing.
+	Reason string `json:"reason"`
+	Tag    string `json:"tag"`
+	Digest string `json:"digest"`
+}
+
 // Image is one repository and how its provenance is established.
 type Image struct {
 	Repository string  `json:"repository"`
 	Signed     *Signer `json:"signed,omitempty"`
-	// Unsigned is why no signature can be required — the publisher signs
-	// nothing — and so why the policy pins it by digest instead.
-	Unsigned string `json:"unsigned,omitempty"`
+	// Unsigned pins a repository that publishes no signature by digest.
+	Unsigned *Pin `json:"unsigned,omitempty"`
 }
 
 // Inventory is the parsed file.
@@ -117,12 +131,12 @@ func Parse(data []byte) (*Inventory, error) {
 
 func (i Image) validate() error {
 	switch {
-	case i.Signed == nil && i.Unsigned == "":
+	case i.Signed == nil && i.Unsigned == nil:
 		return errors.New("neither signed nor unsigned")
-	case i.Signed != nil && i.Unsigned != "":
+	case i.Signed != nil && i.Unsigned != nil:
 		return errors.New("both signed and unsigned")
 	case i.Signed == nil:
-		return nil
+		return i.Unsigned.validate()
 	case i.Signed.Key != "":
 		if i.Signed.Issuer != "" || i.Signed.Subject != "" || i.Signed.SubjectRegExp != "" {
 			return errors.New("signed by a key and keylessly at once")
@@ -142,6 +156,45 @@ func (i Image) validate() error {
 	}
 
 	return nil
+}
+
+func (p Pin) validate() error {
+	switch {
+	case p.Reason == "":
+		return errors.New("unsigned with no reason")
+	case p.Tag == "" || reference.TagRegexp.FindString(p.Tag) != p.Tag:
+		return fmt.Errorf("unsigned pin tag %q is not a tag", p.Tag)
+	}
+
+	if _, err := digest.Parse(p.Digest); err != nil {
+		return fmt.Errorf("unsigned pin digest %q: %w", p.Digest, err)
+	}
+
+	return nil
+}
+
+// Reference is the pin as a chart's tag value takes it: `tag@digest`, where
+// the digest is what the runtime pulls and the tag is what the chart's own
+// version checks read.
+func (p Pin) Reference() string {
+	return p.Tag + "@" + p.Digest
+}
+
+// Pinned is an unsigned repository's pin.
+func (inv *Inventory) Pinned(repository string) (Pin, error) {
+	for _, entry := range inv.Images {
+		if entry.Repository != repository {
+			continue
+		}
+
+		if entry.Unsigned == nil {
+			return Pin{}, fmt.Errorf("%s is signed, not pinned by digest", repository)
+		}
+
+		return *entry.Unsigned, nil
+	}
+
+	return Pin{}, fmt.Errorf("%s has no entry in %s", repository, File)
 }
 
 // Repository is an image reference's repository in its fully qualified form:

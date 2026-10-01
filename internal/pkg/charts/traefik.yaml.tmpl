@@ -18,6 +18,12 @@
 # components get a class and which deliberately do not.
 priorityClassName: system-cluster-critical
 
+# Traefik publishes no signature, so the image is pinned by digest. The tag and
+# digest come from internal/pkg/imagepolicy/images.yaml, the one place both are
+# held; `tag@digest` keeps the version the chart reads and pulls the digest.
+image:
+  tag: "{{ (pinned "docker.io/library/traefik").Reference }}"
+
 deployment:
   # Two, so losing one node does not take ingress with it.
   replicas: {{ .Replicas }}

@@ -200,7 +200,14 @@ hubble:
         memory: 128Mi
   ui:
     enabled: true
+    # Cilium signs no Hubble UI image. The chart already pins both by digest;
+    # these name the same pins from internal/pkg/imagepolicy/images.yaml, so the
+    # digest the admission policy expects is the one the chart is given.
     backend:
+      image:
+        tag: "{{ (pinned "quay.io/cilium/hubble-ui-backend").Tag }}"
+        digest: "{{ (pinned "quay.io/cilium/hubble-ui-backend").Digest }}"
+        useDigest: true
       # 59Mi and 1m measured.
       resources:
         requests:
@@ -209,6 +216,10 @@ hubble:
         limits:
           memory: 192Mi
     frontend:
+      image:
+        tag: "{{ (pinned "quay.io/cilium/hubble-ui").Tag }}"
+        digest: "{{ (pinned "quay.io/cilium/hubble-ui").Digest }}"
+        useDigest: true
       # 10Mi and 1m measured.
       resources:
         requests:

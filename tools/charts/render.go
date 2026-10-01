@@ -122,6 +122,7 @@ func run() (int, error) {
 	failures += checkEffects(ctx)
 	failures += checkResources(ctx)
 	failures += checkImages(ctx)
+	failures += checkPins(ctx)
 
 	return failures, nil
 }
