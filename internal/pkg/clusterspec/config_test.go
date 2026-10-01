@@ -581,3 +581,35 @@ func TestValidate_CapacityCountsTheHighestSlot(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "up to slot 5")
 }
+
+func TestConfigContract_IsThePinOrTheVersion(t *testing.T) {
+	t.Parallel()
+
+	topology := clusterspectest.MustParse(t, clusterspectest.Valid)
+	topology.Talos.Version = "v1.14.2"
+
+	assert.Equal(t, "v1.14.2", topology.ConfigContract(), "a new cluster is generated for the Talos it runs")
+
+	pinned := "v1.13.10"
+	topology.Talos.ConfigVersion = &pinned
+
+	assert.Equal(t, pinned, topology.ConfigContract(), "an upgraded cluster keeps the contract it was created with")
+	require.NoError(t, topology.Validate())
+}
+
+func TestValidate_RefusesAContractNewerThanTheNodes(t *testing.T) {
+	t.Parallel()
+
+	for contract, want := range map[string]string{
+		"v1.15.0": "newer than talos.version",
+		"1.13":    "must look like",
+	} {
+		topology := clusterspectest.MustParse(t, clusterspectest.Valid)
+		topology.Talos.Version = "v1.14.2"
+		topology.Talos.ConfigVersion = &contract
+
+		err := topology.Validate()
+		require.Error(t, err, contract)
+		assert.Contains(t, err.Error(), want, contract)
+	}
+}

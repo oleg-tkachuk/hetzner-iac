@@ -438,6 +438,51 @@ func TestNewCluster_NoPrimaryIPWithoutAPublicAddress(t *testing.T) {
 	assert.Empty(t, rec.of("hcloud:index/primaryIp:PrimaryIp"))
 }
 
+func TestNewCluster_GeneratesConfigForTheContractAndBootsTheVersion(t *testing.T) {
+	t.Parallel()
+
+	// A cluster upgraded to 1.14 keeps generating 1.13-shaped configuration:
+	// 1.14 rejects that shape once it is generated for 1.14, and the generator
+	// here cannot produce 1.14's documents.
+	contract := "v1.13.10"
+	topology := haTopology(t)
+	topology.Talos.Version = "v1.14.2"
+	topology.Talos.ConfigVersion = &contract
+
+	rec := runCluster(t, topology, &hetzner.ClusterArgs{PublicIPv4: true})
+
+	for _, config := range rec.callsOf("talos:machine/getConfiguration:getConfiguration") {
+		assert.Equal(t, contract, config["talosVersion"].StringValue())
+	}
+
+	secrets := rec.of("talos:machine/secrets:Secrets")
+	require.Len(t, secrets, 1)
+	assert.Equal(t, contract, secrets[0]["talosVersion"].StringValue())
+
+	images := rec.callsOf("hcloud:index/getImage:getImage")
+	require.NotEmpty(t, images)
+	assert.Contains(t, images[0]["withSelector"].StringValue(), "v1.14.2", "the nodes boot the version they run")
+}
+
+func TestNewCluster_TheSecretsBundleNeverFollowsAVersionChange(t *testing.T) {
+	t.Parallel()
+
+	// Its talosVersion is read when the CA is generated. Reaching it later
+	// plans a replacement of the CA, which only Protect would refuse.
+	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: true})
+
+	var name string
+
+	for candidate := range rec.ignoreChanges {
+		if strings.HasSuffix(candidate, "-secrets") {
+			name = candidate
+		}
+	}
+
+	require.NotEmpty(t, name, "the secrets bundle ignores nothing")
+	assert.Contains(t, rec.ignoreChanges[name], "talosVersion")
+}
+
 func TestNewCluster_SingleControlPlaneGetsNoLoadBalancer(t *testing.T) {
 	t.Parallel()
 

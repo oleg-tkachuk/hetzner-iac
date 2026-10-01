@@ -87,16 +87,19 @@ talos:
   # the version label, so a bump without a bake fails at plan time with "no
   # available Talos snapshot matches the selector".
   #
-  # Held at 1.13 on purpose, not out of caution: pulumi-talos 0.8.1 bridges
-  # terraform-provider-talos 0.11.0, which embeds Talos machinery v1.13.0. It
-  # is the machinery that GENERATES the machine configuration, so a 1.14 pin
-  # would boot 1.14 nodes with a configuration built by a 1.13 generator.
-  # Checked: Talos v1.14.0 is out, pulumi-talos v0.8.1 is still
-  # the newest, and terraform-provider-talos v0.11.0 — the one it bridges —
-  # requires pkg/machinery v1.13.0. So 1.14 is not a caution, it is blocked.
-  # Move this when a newer pulumi-talos carries 1.14 machinery, then install
-  # the matching talosctl and re-run `task cluster:machine-config:check`.
+  # This is the Talos the nodes RUN. The machine configuration is generated
+  # for configVersion below, which defaults to this and is a separate thing:
+  # pulumi-talos 0.8.1 embeds Talos machinery v1.13.0, so it generates
+  # 1.13-shaped configuration, and Talos 1.14 rejects that shape once it is
+  # generated for 1.14 — but runs it as a 1.13 contract. To move a running
+  # cluster to 1.14, pin configVersion to the version it was created with
+  # first, then raise this, bake, and run `task cluster:upgrade:talos`.
   version: v1.13.10
+
+  # The Talos version the machine configuration and the secrets are generated
+  # for. Leave it unset on a new cluster; on a running one it stays where the
+  # cluster was created until the generator can write a newer contract.
+  # configVersion: v1.13.10
 
   # x86 or arm, and it decides three things at once: which image the factory
   # builds (amd64 or arm64), which server types can boot it, and which types

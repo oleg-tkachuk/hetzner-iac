@@ -225,9 +225,12 @@ func newMachineConfig(ctx *pulumi.Context, name string, args *ClusterArgs, paren
 	// Talos secrets are the cluster's root of trust: the CA keys every node
 	// and client certificate descends from. Protect stops a `pulumi destroy`
 	// from taking them out from under a cluster that still exists.
+	// TalosVersion is read when the bundle is generated and never again: an
+	// upgrade that reached this input would plan a replacement of the cluster
+	// CA, which only Protect would refuse.
 	secrets, err := talosmachine.NewSecrets(ctx, name+"-secrets", &talosmachine.SecretsArgs{
-		TalosVersion: pulumi.String(topology.Talos.Version),
-	}, parent, pulumi.Protect(true))
+		TalosVersion: pulumi.String(topology.ConfigContract()),
+	}, parent, pulumi.Protect(true), pulumi.IgnoreChanges([]string{"talosVersion"}))
 	if err != nil {
 		return machineConfig{}, fmt.Errorf("talos secrets: %w", err)
 	}
@@ -296,7 +299,7 @@ func newControlPlane(
 		PlacementGroupID:    idToIntPtr(placementGroup.ID()),
 		APIAddress:          apiAddress,
 		KubernetesVersion:   topology.Kubernetes.Version,
-		TalosVersion:        topology.Talos.Version,
+		TalosVersion:        topology.ConfigContract(),
 		ClusterPatch:        pulumi.String(config.clusterPatch),
 		EtcdPatch:           pulumi.String(config.etcdPatch),
 		MachineSecrets:      config.secrets.MachineSecrets,
@@ -338,7 +341,7 @@ func newWorkerPools(
 			NetworkID:           base.network.NetworkID,
 			Labels:              spec.Labels,
 			Taints:              spec.Taints,
-			TalosVersion:        topology.Talos.Version,
+			TalosVersion:        topology.ConfigContract(),
 			KubernetesVersion:   topology.Kubernetes.Version,
 			ClusterPatch:        pulumi.String(config.clusterPatch),
 			Endpoint:            controlPlane.Endpoint,

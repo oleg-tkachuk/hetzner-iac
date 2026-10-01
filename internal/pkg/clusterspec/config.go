@@ -22,6 +22,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 // ClusterDir is the Pulumi project that holds the cluster: the one project
@@ -148,10 +150,19 @@ type NetworkSpec struct {
 // TalosSpec pins the Talos version contract and the architecture it was
 // built for. Both must match the baked snapshot.
 type TalosSpec struct {
-	// Version is the Talos version contract. It must match the snapshot baked
+	// Version is the Talos the nodes run. It must match the snapshot baked
 	// into the project: the image lookup keys off this value, so bumping it
-	// without re-baking finds no snapshot and fails at plan time.
+	// without re-baking finds no snapshot and fails at plan time. It also
+	// picks the installer an upgrade takes.
 	Version string `json:"version"`
+	// ConfigVersion is the Talos version the machine configuration is
+	// generated for — the contract, which Talos keeps working across upgrades
+	// and which an existing cluster leaves where it was created. Unset, it is
+	// Version, which is right for a new cluster. Pin it before raising Version
+	// on a running one: Talos 1.14 rejects the 1.13-shaped configuration this
+	// repository writes once it is generated for 1.14, and the generator here
+	// cannot produce 1.14's typed documents yet.
+	ConfigVersion *string `json:"configVersion,omitempty"`
 	// Architecture is x86 or arm. arm selects the CAX server types.
 	Architecture string `json:"architecture"`
 	// ImageSelector overrides the label selector used to find the baked Talos
@@ -773,12 +784,24 @@ func (t *Topology) validateNetwork() []string {
 	return problems
 }
 
+// ConfigContract is the Talos version the machine configuration and secrets
+// are generated for: talos.configVersion when pinned, otherwise talos.version.
+func (t *Topology) ConfigContract() string {
+	if t.Talos.ConfigVersion != nil {
+		return *t.Talos.ConfigVersion
+	}
+
+	return t.Talos.Version
+}
+
 func (t *Topology) validateVersions() []string {
 	var problems []string
 
 	if !semverish.MatchString(t.Talos.Version) {
 		problems = append(problems, fmt.Sprintf("talos.version %q must look like v1.14.0", t.Talos.Version))
 	}
+
+	problems = append(problems, t.validateConfigContract()...)
 
 	if t.Kubernetes.Version != "" && !semverish.MatchString(t.Kubernetes.Version) {
 		problems = append(problems, fmt.Sprintf(
@@ -1056,4 +1079,33 @@ func sortedKeys(m map[string]string) []string {
 	slices.Sort(keys)
 
 	return keys
+}
+
+// validateConfigContract refuses a contract the nodes cannot honour: Talos
+// keeps working with configuration generated for an older version, never a
+// newer one.
+func (t *Topology) validateConfigContract() []string {
+	if t.Talos.ConfigVersion == nil {
+		return nil
+	}
+
+	contract := *t.Talos.ConfigVersion
+	if !semverish.MatchString(contract) {
+		return []string{fmt.Sprintf("talos.configVersion %q must look like v1.13.10", contract)}
+	}
+
+	running, runningErr := semver.NewVersion(t.Talos.Version)
+	generated, generatedErr := semver.NewVersion(contract)
+
+	if runningErr != nil || generatedErr != nil {
+		return nil // talos.version's own check reports it
+	}
+
+	if generated.GreaterThan(running) {
+		return []string{fmt.Sprintf(
+			"talos.configVersion %s is newer than talos.version %s: nodes run configuration generated for "+
+				"their own version or an older one, never a newer one", contract, t.Talos.Version)}
+	}
+
+	return nil
 }
