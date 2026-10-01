@@ -1215,9 +1215,9 @@ tasks:
           # Invisible with one control-plane node, because that node IS the
           # endpoint — which is why the earlier single-node rehearsal passed
           # and this is what the three-member one found.
-          # Wiped, then wiped AGAIN for whatever came back joined. One pass
-          # is not enough, and that is the second thing the three-member
-          # rehearsal found.
+          # Wiped together, then wiped AGAIN, together, for whatever came back
+          # joined. One pass is not always enough, and that is the second
+          # thing the three-member rehearsal found.
           #
           # A node whose EPHEMERAL is wiped does not land in Preparing while
           # other members are still alive with data: on reboot its etcd
@@ -1255,18 +1255,31 @@ tasks:
               exit 1
             fi
 
+            # Never while one is rebooting. A wipe lands on whoever answers,
+            # and a node wiped while another is down comes back to the
+            # members still holding data and rejoins them. Resetting one at a
+            # time did exactly that on three members: each wiped node rejoined
+            # the two not yet wiped, etcd kept its data through every pass,
+            # and the loop wiped the whole control plane over and over until
+            # it was stopped.
+            unreachable=""
             for node in $pending; do
-              # Unreachable means it is still rebooting from the last reset,
-              # and resetting a node mid-reboot is how one gets wedged. Skip
-              # it; the next pass will find it either Preparing or joined.
-              if ! talosctl --endpoints "$node" --nodes "$node" version --client=false >/dev/null 2>&1; then
-                continue
-              fi
-
-              printf '%s\n' "{{._RUN}} cluster · etcd:restore · ${node} → wiping EPHEMERAL (pass ${attempt})"
-              talosctl --endpoints "$node" --nodes "$node" \
-                reset --graceful=false --reboot --system-labels-to-wipe=EPHEMERAL || true
+              talosctl --endpoints "$node" --nodes "$node" version --client=false >/dev/null 2>&1 ||
+                unreachable="${unreachable} ${node}"
             done
+
+            if [ -z "$unreachable" ]; then
+              # Together, so no wiped node has a member with data to return to.
+              # --wait returns once a node is back, so the next pass reads
+              # where every one of them landed rather than catching one still
+              # shutting down.
+              printf '%s\n' "{{._RUN}} cluster · etcd:restore ·${pending} → wiping EPHEMERAL together (pass ${attempt})"
+              for node in $pending; do
+                talosctl --endpoints "$node" --nodes "$node" \
+                  reset --graceful=false --reboot --wait --system-labels-to-wipe=EPHEMERAL &
+              done
+              wait || true
+            fi
 
             sleep 10
           done
