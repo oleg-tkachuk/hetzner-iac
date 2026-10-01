@@ -186,6 +186,14 @@ var domainAssignment = regexp.MustCompile(
 var emailAddress = regexp.MustCompile(
 	`(^|[^:/a-z0-9._%+\-])([a-z0-9][a-z0-9._%+\-]*)@([a-z0-9][a-z0-9.\-]*\.[a-z][a-z0-9\-]*)`)
 
+// signingIdentities are addresses that are a publisher's public signing
+// identity rather than anybody's contact, and that an image policy has to name
+// exactly: the certificate subject a verified signature carries.
+var signingIdentities = map[string]bool{
+	// Kubernetes' release tooling, which signs every registry.k8s.io image.
+	"krel-trust@k8s-releng-prod.iam.gserviceaccount.com": true,
+}
+
 // reservedTLDs are the names RFC 2606 §2 sets aside for documentation and
 // testing. A value under any of them cannot be anybody's real cluster.
 var reservedTLDs = []string{".test", ".example", ".invalid", ".localhost"}
@@ -243,6 +251,10 @@ func TestTrackedFiles_NameNoDomainOfTheirOwn(t *testing.T) {
 
 		for _, match := range emailAddress.FindAllStringSubmatch(text, -1) {
 			emails++
+
+			if signingIdentities[match[2]+"@"+match[3]] {
+				continue
+			}
 
 			assert.True(t, reservedName(match[3]),
 				"%s writes the address %s@%s. An ACME contact is somebody's own — "+

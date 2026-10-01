@@ -56,6 +56,7 @@ const (
 // container is the part of a rendered pod spec this check reads.
 type container struct {
 	Name      string `json:"name"`
+	Image     string `json:"image"`
 	Resources struct {
 		Requests map[string]string `json:"requests"`
 		Limits   map[string]string `json:"limits"`
