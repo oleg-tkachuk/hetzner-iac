@@ -18,6 +18,11 @@ compares, offline, in seconds. It also checks that the values took effect,
 which was proven by breaking it: shortening `kubeProxyReplacement` by a letter
 turns the check red, while `helm template` renders the typo and exits zero.
 
+It also holds every image to [the image inventory](../../internal/pkg/imagepolicy/images.yaml),
+and every unsigned image to its digest pin. A chart bump that moves an
+unsigned image's default tag fails here until the pin's tag and digest are
+moved with it: `crane digest <repository>:<new tag>`.
+
 It renders with `--repo` rather than `helm repo add`, so a read-only check does
 not mutate the operator's Helm configuration.
 

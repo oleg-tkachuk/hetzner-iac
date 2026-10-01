@@ -9,6 +9,12 @@
 # down is one an upstream release can remove quietly.
 priorityClassName: system-cluster-critical
 
+# Hetzner publishes no signature, so the image is pinned by digest. The tag and
+# digest come from internal/pkg/imagepolicy/images.yaml, the one place both are
+# held; `tag@digest` keeps the version the chart reads and pulls the digest.
+image:
+  tag: "{{ (pinned "docker.io/hetznercloud/hcloud-cloud-controller-manager").Reference }}"
+
 # Both credentials come from the Secret this layer creates before the chart,
 # not from these values: a token in a values file is a token in the release's
 # stored manifest.

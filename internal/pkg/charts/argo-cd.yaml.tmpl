@@ -61,6 +61,13 @@ server:
 applicationSet:
   replicas: {{ .Replicas }}
 
+# Docker Official Images publishes no signature, so the image is pinned by digest. The tag and
+# digest come from internal/pkg/imagepolicy/images.yaml, the one place both are
+# held; `tag@digest` keeps the version the chart reads and pulls the digest.
+redis:
+  image:
+    tag: "{{ (pinned "ecr-public.aws.com/docker/library/redis").Reference }}"
+
 # Redis HA needs three nodes and buys availability for a cache that is rebuilt
 # on start.
 redis-ha:

@@ -8,6 +8,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/imagepolicy"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
@@ -278,4 +279,36 @@ func TestDir_IsThisPackage(t *testing.T) {
 
 	assert.True(t, strings.HasSuffix(filepath.ToSlash(here), "/"+charts.Dir),
 		"charts.Dir is %q, and this package is at %s", charts.Dir, here)
+}
+
+// Every pin in the inventory reaches the values of the chart that runs it, so
+// the digest the admission policy expects is the one the chart is given.
+func TestTemplates_HandEveryUnsignedImageItsPin(t *testing.T) {
+	t.Parallel()
+
+	inventory, err := imagepolicy.Load()
+	require.NoError(t, err)
+
+	names, err := charts.TemplateNames()
+	require.NoError(t, err)
+
+	var rendered strings.Builder
+
+	for _, name := range names {
+		data, err := charts.Probe(name)
+		require.NoError(t, err)
+
+		values, err := charts.Render(name, data)
+		require.NoError(t, err, name)
+		rendered.WriteString(values)
+	}
+
+	for _, entry := range inventory.Images {
+		if entry.Unsigned == nil {
+			continue
+		}
+
+		assert.Contains(t, rendered.String(), entry.Unsigned.Digest,
+			"%s is pinned in %s and no values template hands its chart the digest", entry.Repository, imagepolicy.File)
+	}
 }

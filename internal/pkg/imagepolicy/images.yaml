@@ -6,7 +6,9 @@
 # tightening the identity until it still verified: a release workflow on a tag
 # where the publisher signs from one. Unsigned means no signature exists for
 # the repository at all — not one that failed to verify — and those are pinned
-# by digest in the admission policy instead.
+# by digest instead: the tag the chart renders by default, and the index digest
+# `crane digest <repository>:<tag>` returned for it. A chart upgrade that moves
+# the tag fails tools/charts until the digest is moved with it.
 
 images:
   # Argo CD and its two dependencies.
@@ -19,7 +21,10 @@ images:
       issuer: *github
       subjectRegExp: ^https://github\.com/dexidp/dex/\.github/workflows/.+@refs/tags/.+$
   - repository: ecr-public.aws.com/docker/library/redis
-    unsigned: Docker Official Images publish no cosign signature.
+    unsigned:
+      reason: Docker Official Images publish no cosign signature.
+      tag: 8.6.4-alpine
+      digest: sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763
 
   # cert-manager signs with a key in Google Cloud KMS, over sha512, and does
   # not record its signatures in Rekor — https://cert-manager.io/docs/installation/code-signing/
@@ -51,9 +56,15 @@ images:
       issuer: *github
       subjectRegExp: ^https://github\.com/cilium/proxy/\.github/workflows/.+@.+$
   - repository: quay.io/cilium/hubble-ui
-    unsigned: Cilium signs no Hubble UI image.
+    unsigned:
+      reason: Cilium signs no Hubble UI image.
+      tag: v0.13.6
+      digest: sha256:049a80a03585c043d0c3121bdc518c72b0fd42bae07e4bcce0fdb8f1e88041d0
   - repository: quay.io/cilium/hubble-ui-backend
-    unsigned: Cilium signs no Hubble UI image.
+    unsigned:
+      reason: Cilium signs no Hubble UI image.
+      tag: v0.13.6
+      digest: sha256:83b3fc763f3d49948c306bf49b08277383e195904b9ca5c0c0022b2112628787
 
   - repository: ghcr.io/external-secrets/external-secrets
     signed:
@@ -62,9 +73,15 @@ images:
 
   # Hetzner signs neither driver.
   - repository: docker.io/hetznercloud/hcloud-cloud-controller-manager
-    unsigned: Hetzner publishes no signature for the cloud controller manager.
+    unsigned:
+      reason: Hetzner publishes no signature for the cloud controller manager.
+      tag: v1.38.0
+      digest: sha256:0ceeacefbecbc4e149f0fb740b48518c8eeff077557b730ae615b4f7a7b1c669
   - repository: docker.io/hetznercloud/hcloud-csi-driver
-    unsigned: Hetzner publishes no signature for the CSI driver.
+    unsigned:
+      reason: Hetzner publishes no signature for the CSI driver.
+      tag: v2.23.0
+      digest: sha256:024ea4b07161b2f2cb27449be60de8cf942ac80424d1d213696db237cdf7f7f4
 
   - repository: ghcr.io/kedacore/keda
     signed: &keda
@@ -76,7 +93,10 @@ images:
     signed: *keda
 
   - repository: docker.io/library/traefik
-    unsigned: Traefik publishes no cosign signature.
+    unsigned:
+      reason: Traefik publishes no cosign signature.
+      tag: v3.7.13
+      digest: sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
 
   # Sigstore's policy-controller, and the kubectl its uninstall hook runs.
   # Chainguard signs from a branch, so that identity cannot be held to a tag.

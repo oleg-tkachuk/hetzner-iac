@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/imagepolicy"
 )
 
 // Every chart's Helm values, as a template file beside its declaration.
@@ -86,10 +88,21 @@ func Source(chart string) (string, error) {
 
 // helpers are the template functions a values file may use.
 //
-// Only indent, and only because one chart takes a whole configuration file as
-// a values string: a multi-line collector config, which YAML needs indented
-// under the key that holds it.
+// indent, because one chart takes a whole configuration file as a values
+// string, which YAML needs indented under the key that holds it.
+//
+// pinned, because an unsigned image's digest is held in one place — the image
+// inventory the admission policies are generated from — and a values file
+// that wrote it again would be a second copy free to disagree.
 var helpers = template.FuncMap{
+	"pinned": func(repository string) (imagepolicy.Pin, error) {
+		inventory, err := imagepolicy.Load()
+		if err != nil {
+			return imagepolicy.Pin{}, err
+		}
+
+		return inventory.Pinned(repository)
+	},
 	"indent": func(spaces int, text string) string {
 		pad := strings.Repeat(" ", spaces)
 

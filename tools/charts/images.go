@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/distribution/reference"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -62,21 +63,10 @@ func checkImages(ctx context.Context) int {
 			continue
 		}
 
-		for _, image := range images {
-			entry, found, err := inventory.Lookup(image)
+		for _, problem := range imageProblems(images, inventory, used) {
+			fmt.Printf("MISS  %-14s %s\n", key, problem)
 
-			switch {
-			case err != nil:
-				fmt.Printf("MISS  %-14s %v\n", key, err)
-
-				failures++
-			case !found:
-				fmt.Printf("MISS  %-14s %s has no entry in %s\n", key, image, imagepolicy.File)
-
-				failures++
-			default:
-				used[entry.Repository] = true
-			}
+			failures++
 		}
 	}
 
@@ -93,6 +83,51 @@ func checkImages(ctx context.Context) int {
 	}
 
 	return failures
+}
+
+// imageProblems holds each rendered image to its inventory entry, marking the
+// entries it finds as used.
+func imageProblems(images []string, inventory *imagepolicy.Inventory, used map[string]bool) []string {
+	var problems []string
+
+	for _, image := range images {
+		entry, found, err := inventory.Lookup(image)
+
+		switch {
+		case err != nil:
+			problems = append(problems, err.Error())
+		case !found:
+			problems = append(problems, fmt.Sprintf("%s has no entry in %s", image, imagepolicy.File))
+		default:
+			used[entry.Repository] = true
+
+			if problem := pinProblem(image, entry); problem != "" {
+				problems = append(problems, problem)
+			}
+		}
+	}
+
+	return problems
+}
+
+// pinProblem is what is wrong with how an unsigned image is rendered: it must
+// carry the pinned digest, or the runtime pulls whatever its tag points to now.
+func pinProblem(image string, entry imagepolicy.Image) string {
+	if entry.Unsigned == nil {
+		return ""
+	}
+
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return fmt.Sprintf("%s: %v", image, err)
+	}
+
+	digested, ok := named.(reference.Digested)
+	if !ok || digested.Digest().String() != entry.Unsigned.Digest {
+		return fmt.Sprintf("%s is not pinned to %s from %s", image, entry.Unsigned.Digest, imagepolicy.File)
+	}
+
+	return ""
 }
 
 // renderedImages is every image a chart's pods run — containers and init

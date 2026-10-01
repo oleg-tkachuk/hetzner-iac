@@ -1,10 +1,13 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/imagepolicy"
 )
 
 func TestRenderedImages_ReadsContainersAndInitContainersOnce(t *testing.T) {
@@ -113,4 +116,102 @@ metadata: {name: broken}
 spec: {template: {spec: {containers: "not a list"}}}`))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Job/broken")
+}
+
+func testInventory(t *testing.T) *imagepolicy.Inventory {
+	t.Helper()
+
+	inventory, err := imagepolicy.Parse([]byte(`images:
+  - repository: docker.io/library/traefik
+    unsigned: {reason: r, tag: v3.7.13, digest: "sha256:` + strings.Repeat("a", 64) + `"}
+  - repository: quay.io/cilium/cilium
+    signed: {issuer: i, subject: s}
+`))
+	require.NoError(t, err)
+
+	return inventory
+}
+
+func TestPinProblem_DemandsThePinnedDigest(t *testing.T) {
+	t.Parallel()
+
+	inventory := testInventory(t)
+	traefik, _, err := inventory.Lookup("traefik")
+	require.NoError(t, err)
+
+	pinned := "docker.io/traefik:v3.7.13@sha256:" + strings.Repeat("a", 64)
+	assert.Empty(t, pinProblem(pinned, traefik))
+	assert.Empty(t, pinProblem("docker.io/traefik@sha256:"+strings.Repeat("a", 64), traefik),
+		"a bare digest is as pinned as tag@digest")
+
+	assert.Contains(t, pinProblem("docker.io/traefik:v3.7.13", traefik), "is not pinned",
+		"a tag alone pulls whatever the tag points to now")
+	assert.Contains(t, pinProblem("docker.io/traefik:v3.7.13@sha256:"+strings.Repeat("b", 64), traefik), "is not pinned",
+		"a digest other than the inventory's")
+
+	cilium, _, err := inventory.Lookup("quay.io/cilium/cilium")
+	require.NoError(t, err)
+	assert.Empty(t, pinProblem("quay.io/cilium/cilium:v1", cilium), "a signed image needs no pin")
+}
+
+// The case the check exists for: Renovate bumps the chart, its default tag
+// moves, and the pin still names the old one.
+func TestStalePins_ReportsAChartThatMovedPastItsPin(t *testing.T) {
+	t.Parallel()
+
+	inventory := testInventory(t)
+
+	problems, checked := stalePins([]string{"docker.io/traefik:v3.7.13", "quay.io/cilium/cilium:v1"}, inventory)
+	assert.Empty(t, problems)
+	assert.Equal(t, map[string]bool{"docker.io/library/traefik": true}, checked,
+		"only unsigned repositories have a pin to check")
+
+	problems, _ = stalePins([]string{"docker.io/traefik:v3.8.0"}, inventory)
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], `tag "v3.8.0"`)
+	assert.Contains(t, problems[0], "crane digest docker.io/library/traefik:v3.8.0")
+}
+
+func TestUncheckedPins_NamesAPinNoDefaultRenderShowed(t *testing.T) {
+	t.Parallel()
+
+	inventory := testInventory(t)
+
+	assert.Empty(t, uncheckedPins(inventory, map[string]bool{"docker.io/library/traefik": true}))
+
+	problems := uncheckedPins(inventory, map[string]bool{})
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "docker.io/library/traefik")
+}
+
+func TestTagOf(t *testing.T) {
+	t.Parallel()
+
+	for image, want := range map[string]string{
+		"traefik:v3.7.13": "v3.7.13",
+		"quay.io/cilium/hubble-ui:v0.13.6@sha256:" + strings.Repeat("a", 64): "v0.13.6",
+		"quay.io/cilium/hubble-ui@sha256:" + strings.Repeat("a", 64):         "",
+		"traefik":    "",
+		"Not A Name": "",
+	} {
+		assert.Equal(t, want, tagOf(image), image)
+	}
+}
+
+func TestImageProblems_MarksWhatItFindsAndReportsTheRest(t *testing.T) {
+	t.Parallel()
+
+	inventory := testInventory(t)
+	used := map[string]bool{}
+
+	problems := imageProblems([]string{
+		"quay.io/cilium/cilium:v1",
+		"docker.io/library/busybox:1",
+		"docker.io/traefik:v3.7.13",
+	}, inventory, used)
+
+	require.Len(t, problems, 2)
+	assert.Contains(t, problems[0], "busybox:1 has no entry")
+	assert.Contains(t, problems[1], "traefik:v3.7.13 is not pinned")
+	assert.Equal(t, map[string]bool{"quay.io/cilium/cilium": true, "docker.io/library/traefik": true}, used)
 }
