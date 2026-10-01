@@ -109,7 +109,9 @@ vars:
   _CL_BACKUP_KEEP: "10"
   # How the Talos secrets bundle is stored beside the etcd snapshots: the
   # restic tag that is its series, and the file name inside each snapshot.
+  # checkov:skip=CKV_SECRET_6: a restic tag, not a secret
   _CL_SECRETS_TAG: talos-secrets
+  # checkov:skip=CKV_SECRET_6: a file name, not a secret
   _CL_SECRETS_FILE: talos-secrets.yaml
 
   # The known_hosts this upload trusts. Gitignored: it names the operator's own
