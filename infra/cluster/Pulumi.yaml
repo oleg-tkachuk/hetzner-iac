@@ -1,4 +1,6 @@
 name: hetzner-cluster
+# The oldest CLI the tasks work with: --ignore-protect landed in 3.256.0.
+requiredPulumiVersion: ">=3.256.0"
 runtime:
   name: go
   options:
