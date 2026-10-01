@@ -74,6 +74,31 @@ hangs with the port filtered.
 
 The stack files themselves are **not** committed, for that one field.
 
+### What goes in `network.adminCIDRs`
+
+The public egress address of every machine that administers the cluster: the
+one running `task cluster:*` and `task platform:*`, and anywhere `kubectl` or
+`talosctl` is used. The firewall opens the Kubernetes API (tcp/6443) and the
+Talos API (tcp/50000) to these ranges and to nothing else, and the API load
+balancer has no public interface, so this list is the whole of the perimeter.
+
+```bash
+curl -s https://api.ipify.org
+```
+
+prints the address a machine is seen from. Use it as a `/32` when it is
+fixed. When it moves — a VPN, a mobile connection, an ISP that reassigns —
+choose between a `/32` added each time it changes and the provider's range,
+which stays quiet and admits everyone else on it.
+[operations.md](operations.md#from-a-machine-the-firewall-does-not-know) has
+that trade-off and the way back in when the list is wrong.
+
+Never commit it. `infra/cluster/cluster.*.yaml` is ignored except the example,
+and `TestTrackedFiles_NameNoRealAddressOfTheirOwn` fails CI on a real address
+in any tracked file; placeholders come from the RFC 5737 documentation ranges.
+A change reaches Hetzner through `task cluster:apply`, which updates the
+firewall in place.
+
 ## How pod traffic crosses nodes
 
 `network.routingMode` is `native` or `tunnel`, and the default is `native`.
