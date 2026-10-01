@@ -20,14 +20,83 @@ repository builds the cluster itself — a Talos control plane on a private
 network — and then deploys the platform onto it in independent, idempotent
 layers.
 
-```
-infra/cluster              the network, the servers, and the cluster's own secrets
-  ├─ exports kubeconfig ──► layers/10-node-platform       Cilium, hcloud CCM + CSI
-  │                         layers/20-network-policy      Cilium network policy (opt-in)
-  │                         layers/30-cluster-services    cert-manager, ESO, metrics-server
-  │                         layers/40-ingress             Traefik
-  │                         layers/50-gitops              Argo CD
-  └─ exports the token ───► infra/backup                  Storage Box for etcd snapshots
+```mermaid
+flowchart TB
+    classDef actor fill:#f6f8fa,stroke:#57606a,stroke-width:1px,color:#1f2328
+    classDef state fill:#f6ecf7,stroke:#8a3391,stroke-width:1px,color:#1f2328
+    classDef hetzner fill:#fde8eb,stroke:#d50c2d,stroke-width:1px,color:#1f2328
+    classDef gate fill:#fff0e0,stroke:#ff7300,stroke-width:2px,color:#1f2328
+    classDef talos fill:#fff0e0,stroke:#ff7300,stroke-width:1px,color:#1f2328
+    classDef kube fill:#e7effc,stroke:#326ce5,stroke-width:1px,color:#1f2328
+
+    operator(["👤 operator<br/>task · pulumi · kubectl · talosctl"])
+    users(["🌐 users"])
+
+    subgraph state["Pulumi Cloud — state and secrets"]
+        direction LR
+        sc[("infra/cluster")]
+        sb[("infra/backup")]
+        sl[("layers/10 … 50")]
+        sc -. "kubeconfig · token<br/>StackReference" .-> sl
+        sc -. "token" .-> sb
+    end
+
+    subgraph hcloud["☁️ Hetzner Cloud"]
+        direction TB
+        fw{{"firewall<br/>tcp/6443 · tcp/50000 from network.adminCIDRs"}}
+        inglb(["ingress load balancer<br/>public · tcp/80 · tcp/443"])
+
+        subgraph net["🔒 private network"]
+            direction TB
+            apilb(["API load balancer<br/>private · the cluster endpoint"])
+
+            subgraph k8s["Talos Kubernetes"]
+                direction TB
+                subgraph cp["control plane × 3"]
+                    direction LR
+                    api["kube-apiserver"]
+                    etcd[("etcd")]
+                end
+
+                subgraph platform["platform, one layer at a time"]
+                    direction LR
+                    l10["10 · Cilium<br/>hcloud CCM · CSI"]
+                    l20["20 · network policy<br/>default deny"]
+                    l30["30 · cert-manager<br/>ESO · metrics-server"]
+                    l40["40 · Traefik"]
+                    l50["50 · Argo CD"]
+                    l10 --> l20 --> l30 --> l40 --> l50
+                end
+
+                workers["worker pools · optional"]
+            end
+        end
+
+        box[("Storage Box<br/>etcd snapshots · restic")]
+    end
+
+    operator ==>|"pulumi up"| state
+    state ==>|"creates and configures"| hcloud
+    operator -->|"kubectl · talosctl"| fw
+    fw --> cp
+    users --> inglb
+    inglb -->|"PROXY protocol"| l40
+    apilb --> api
+    etcd -. "cluster:etcd:upload" .-> box
+
+    class operator,users actor
+    class sc,sb,sl state
+    class inglb,apilb,box,workers hetzner
+    class fw gate
+    class api,etcd talos
+    class l10,l20,l30,l40,l50 kube
+
+    style state fill:#fbf6fc,stroke:#8a3391,stroke-width:2px,color:#1f2328
+    style hcloud fill:#fffafb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
+    style net fill:#fff5f6,stroke:#d50c2d,stroke-dasharray:4 3,color:#1f2328
+    style k8s fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
+    style cp fill:#fffbf5,stroke:#ff7300,stroke-width:1px,color:#1f2328
+    style platform fill:#eef4fd,stroke:#326ce5,stroke-width:1px,color:#1f2328
 ```
 
 ## Contents
