@@ -291,3 +291,36 @@ func TestTaskfiles_DoNotCallUmask(t *testing.T) {
 
 	require.Positive(t, scanned, "no taskfile was read; this test is checking nothing")
 }
+
+// TestEtcdRestore_WipesTheControlPlaneTogether holds the restore to resetting
+// every node in one go.
+//
+// Reset one after another, each wiped node came back to the members not yet
+// wiped and rejoined them with their data: no node reached Preparing, etcd
+// kept the state the restore was meant to discard, and the loop wiped the
+// whole control plane pass after pass until it was stopped.
+func TestEtcdRestore_WipesTheControlPlaneTogether(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	body, found := tasksIn(string(raw))["etcd:restore"]
+	require.True(t, found, "no etcd:restore task to check")
+
+	var reset string
+
+	for _, line := range strings.Split(body, "\n") {
+		if strings.Contains(line, " reset ") && !isComment(line) {
+			reset = strings.TrimSpace(line)
+		}
+	}
+
+	require.NotEmpty(t, reset, "etcd:restore resets no node")
+	assert.True(t, strings.HasSuffix(reset, "&"), "the reset runs in the foreground, one node at a time:\n\t%s", reset)
+	assert.Contains(t, reset, "--wait", "without --wait the next pass reads a node still shutting down")
+
+	_, after, _ := strings.Cut(body, reset)
+	assert.Regexp(t, `(?m)^\s*wait\b`, after, "the parallel resets are not waited for")
+	assert.Contains(t, body, `if [ -z "$unreachable" ]`, "a node is wiped while another is still rebooting")
+}
