@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -293,13 +294,19 @@ func dnsPod(name, node string) *corev1.Pod {
 			Namespace: "kube-system",
 			Labels:    map[string]string{"k8s-app": "kube-dns"},
 		},
-		Spec: corev1.PodSpec{NodeName: node},
+		Spec:   corev1.PodSpec{NodeName: node},
+		Status: corev1.PodStatus{PodIP: "10.244.0." + strconv.Itoa(int(name[len(name)-1]))},
 	}
 }
 
-// proberExits makes the fake clientset answer as a prober that terminated with
-// the given code, which is the only thing the check reads off it.
+// proberExits makes the fake clientset answer as a prober whose every
+// container terminated with the given code, the only thing the check reads.
 func proberExits(code int32) func(*fake.Clientset) {
+	return proberAnswers(func(int) int32 { return code })
+}
+
+// proberAnswers makes container i of the prober terminate with code(i).
+func proberAnswers(code func(i int) int32) func(*fake.Clientset) {
 	return func(client *fake.Clientset) {
 		bindClaimsOn(client)
 
@@ -311,12 +318,14 @@ func proberExits(code int32) func(*fake.Clientset) {
 				}
 
 				pod.Status.Phase = corev1.PodSucceeded
-				pod.Status.ContainerStatuses = []corev1.ContainerStatus{{
-					Name: "prober",
-					State: corev1.ContainerState{
-						Terminated: &corev1.ContainerStateTerminated{ExitCode: code},
-					},
-				}}
+				for i, container := range pod.Spec.Containers {
+					pod.Status.ContainerStatuses = append(pod.Status.ContainerStatuses, corev1.ContainerStatus{
+						Name: container.Name,
+						State: corev1.ContainerState{
+							Terminated: &corev1.ContainerStateTerminated{ExitCode: code(i)},
+						},
+					})
+				}
 
 				return false, pod, nil
 			})
@@ -347,6 +356,48 @@ func TestCheckCrossNode_FailsWhenThePathIsBroken(t *testing.T) {
 
 	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
 	assert.Contains(t, result.Detail, "cilium-health status")
+}
+
+func TestCheckCrossNode_AsksEveryReplicaAndNamesTheOneThatIsSilent(t *testing.T) {
+	t.Parallel()
+
+	// One replica refusing pods while the other answers: through the Service
+	// that passed most of the time. Measured on dev after a Cilium agent
+	// restart left one CoreDNS endpoint's policy map without its DNS allows.
+	var commands [][]string
+
+	client := fake.NewSimpleClientset(threeNodeCluster()...)
+	proberAnswers(func(i int) int32 { return int32(i) })(client)
+
+	client.PrependReactor("create", "pods",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if pod, ok := action.(k8stesting.CreateAction).GetObject().(*corev1.Pod); ok &&
+				pod.Name == "cluster-smoke-crossnode" {
+				for _, container := range pod.Spec.Containers {
+					commands = append(commands, container.Command)
+				}
+			}
+
+			return false, nil, nil
+		})
+
+	smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+		BindTimeout:  testBindTimeout,
+	})
+
+	result := resultFor(t, smoke.Run(context.Background()), "another node")
+
+	require.Len(t, commands, 2, "one container per DNS replica")
+
+	for _, command := range commands {
+		assert.Len(t, command, 3, "each asks a replica by address, not the Service: %v", command)
+	}
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "1 of 2")
+	assert.Contains(t, result.Detail, "coredns-b on cp-1")
+	assert.NotContains(t, result.Detail, "coredns-a on")
 }
 
 func TestCheckCrossNode_PassesAndProbesFromTheDNSFreeNode(t *testing.T) {
@@ -459,11 +510,14 @@ func TestProberPod_SatisfiesTheRestrictedPodSecurityStandard(t *testing.T) {
 	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault,
 		created.Spec.SecurityContext.SeccompProfile.Type)
 
-	require.Len(t, created.Spec.Containers, 1)
-	security := created.Spec.Containers[0].SecurityContext
-	require.NotNil(t, security)
-	assert.Equal(t, false, *security.AllowPrivilegeEscalation)
-	assert.Equal(t, []corev1.Capability{"ALL"}, security.Capabilities.Drop)
+	require.NotEmpty(t, created.Spec.Containers)
+
+	for _, container := range created.Spec.Containers {
+		security := container.SecurityContext
+		require.NotNil(t, security, container.Name)
+		assert.Equal(t, false, *security.AllowPrivilegeEscalation, container.Name)
+		assert.Equal(t, []corev1.Capability{"ALL"}, security.Capabilities.Drop, container.Name)
+	}
 }
 
 // TestCheckDataVolumes_ReadsTheDefaultClassForAClaimThatNamesNone is the case
