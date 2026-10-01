@@ -250,9 +250,11 @@ workerPools: []
 #
 # Each pool owns a fixed 40-address slice of network.nodeSubnet, at a
 # non-overlapping offset, so adding a pool never renumbers an existing one —
-# renumbering would replace every node in it. A /24 therefore holds the control
-# plane plus five pools, and validation says so rather than letting apply find
-# out.
+# renumbering would replace every node in it. The slice is the pool's position
+# in this list unless addressSlot pins it, so pin it before removing a pool or
+# reordering them: an unpinned pool after the change moves to a new slice. A
+# /24 holds the control plane plus slots 0 to 4, and validation says so rather
+# than letting apply find out.
 #
 # labels and taints are per-pool, which is the point of a pool rather than a
 # node count: a GPU pool and a general pool differ in shape while sharing one
@@ -268,3 +270,4 @@ workerPools: []
 #   - name: general
 #     count: 2
 #     serverType: cx33
+#     addressSlot: 0

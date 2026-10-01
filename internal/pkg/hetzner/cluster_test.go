@@ -347,6 +347,44 @@ func TestNewCluster_AssignsDisjointPrivateAddresses(t *testing.T) {
 	assert.Equal(t, "platform-hel-worker-0", seen["10.0.1.40"])
 }
 
+// workerAddresses is every worker's private address, by node name.
+func workerAddresses(rec *recorder) map[string]string {
+	out := map[string]string{}
+
+	for _, server := range rec.of("hcloud:index/server:Server") {
+		name := server["name"].StringValue()
+		if strings.Contains(name, clusterspec.RoleControlPlane) {
+			continue
+		}
+
+		out[name] = server["networks"].ArrayValue()[0].ObjectValue()["ip"].StringValue()
+	}
+
+	return out
+}
+
+func TestNewCluster_RemovingAPoolLeavesAPinnedOneWhereItWas(t *testing.T) {
+	t.Parallel()
+
+	slot := 1
+	general := clusterspec.WorkerPoolSpec{Name: "general", Count: 1, ServerType: "cx33"}
+	gpu := clusterspec.WorkerPoolSpec{Name: "gpu", Count: 1, ServerType: "cx33", AddressSlot: &slot}
+
+	before := haTopology(t)
+	before.WorkerPools = []clusterspec.WorkerPoolSpec{general, gpu}
+
+	after := haTopology(t)
+	after.WorkerPools = []clusterspec.WorkerPoolSpec{gpu}
+
+	gpuNode := clusterspec.NodeName(before.Metadata.Name, gpu.Name, 0)
+
+	// Unpinned, gpu would move to the first worker slice once general is
+	// gone, and its node would be replaced with a new address.
+	assert.Equal(t,
+		workerAddresses(runCluster(t, before, &hetzner.ClusterArgs{PublicIPv4: true}))[gpuNode],
+		workerAddresses(runCluster(t, after, &hetzner.ClusterArgs{PublicIPv4: true}))[gpuNode])
+}
+
 func TestNewCluster_SingleControlPlaneGetsNoLoadBalancer(t *testing.T) {
 	t.Parallel()
 

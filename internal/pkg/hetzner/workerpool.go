@@ -28,9 +28,9 @@ type WorkerPool struct {
 type WorkerPoolArgs struct {
 	ClusterName string
 	PoolName    string
-	// PoolIndex decides the pool's fixed slice of the node subnet. It must
-	// stay stable across changes: reordering pools in the topology file would
-	// otherwise renumber their addresses and replace every node.
+	// PoolIndex decides the pool's fixed slice of the node subnet: the
+	// topology's PoolSlot, which addressSlot pins so that removing or
+	// reordering another pool does not renumber this one.
 	PoolIndex int
 
 	Count      int
