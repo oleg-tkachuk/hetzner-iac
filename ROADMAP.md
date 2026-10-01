@@ -118,9 +118,10 @@ this layer no longer has an opinion about it.
 ### Drift is reported, not discovered
 
 A change made by hand outside this repository stays invisible until the next
-apply. The goal is a scheduled comparison that says what differs.
-`task platform:drift` makes that comparison on demand and exits 1 on drift.
-**Remaining:** a schedule, which needs the backend and cloud credentials in CI.
+apply. `task platform:drift` says what differs, from each stack's refresh
+preview, and exits 1 on drift. It is run by hand, before a change, by
+decision: a refresh reads the Kubernetes and Talos APIs, which the firewall
+opens to network.adminCIDRs only, so a hosted CI runner cannot reach them.
 
 ### Upgrades are exercised before they matter
 
