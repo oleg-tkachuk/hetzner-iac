@@ -642,6 +642,9 @@ const (
 	// the cluster's own DNS rather than an upstream — so a reply proves the
 	// query reached a CoreDNS pod, which the plan has put on another node.
 	proberName = "kubernetes.default.svc.cluster.local"
+
+	// replicaContainerPrefix names the prober's containers, one per replica.
+	replicaContainerPrefix = "dns-"
 )
 
 // proberTimeout bounds the wait for the prober to finish. Short: a working
@@ -680,9 +683,15 @@ func (r *Runner) checkCrossNode(ctx context.Context) Result {
 	}
 
 	dnsNodes := make([]string, 0, len(dns.Items))
+	replicas := make([]DNSReplica, 0, len(dns.Items))
+
 	for _, pod := range dns.Items {
 		if pod.Spec.NodeName != "" {
 			dnsNodes = append(dnsNodes, pod.Spec.NodeName)
+		}
+
+		if pod.Status.PodIP != "" {
+			replicas = append(replicas, DNSReplica{Pod: pod.Name, Node: pod.Spec.NodeName, IP: pod.Status.PodIP})
 		}
 	}
 
@@ -698,19 +707,24 @@ func (r *Runner) checkCrossNode(ctx context.Context) Result {
 	r.deleteProber(ctx)
 
 	if _, createErr := r.client.CoreV1().Pods(probeNamespace).
-		Create(ctx, proberFor(plan.ProbeNode), metav1.CreateOptions{}); createErr != nil {
+		Create(ctx, proberFor(plan.ProbeNode, replicas), metav1.CreateOptions{}); createErr != nil {
 		return Result{Name: name, Status: StatusFailed,
 			Detail: fmt.Sprintf("create the prober on %s: %v", plan.ProbeNode, createErr)}
 	}
 
 	r.opts.Logf("prober %s/%s applied on %s", probeNamespace, proberPod, plan.ProbeNode)
 
-	code, detail, err := r.waitForProber(ctx)
+	answers, err := r.waitForProber(ctx, replicas)
 	if err != nil {
 		return Result{Name: name, Status: StatusFailed, Detail: err.Error()}
 	}
 
-	return CrossNodeVerdict(plan.ProbeNode, code, detail)
+	return CrossNodeVerdict(plan.ProbeNode, answers)
+}
+
+// replicaContainer names the prober's container that asks replica i.
+func replicaContainer(i int) string {
+	return fmt.Sprintf("%s%d", replicaContainerPrefix, i)
 }
 
 // proberFor builds the prober, pinned to one node.
@@ -718,7 +732,7 @@ func (r *Runner) checkCrossNode(ctx context.Context) Result {
 // nodeName rather than an affinity rule: the choice is already made and an
 // affinity the scheduler could satisfy elsewhere would silently move the probe
 // onto a node where the answer means nothing.
-func proberFor(node string) *corev1.Pod {
+func proberFor(node string, replicas []DNSReplica) *corev1.Pod {
 	noEscalation := false
 	nonRoot := true
 	// busybox's own user. runAsNonRoot needs a numeric id, because the image
@@ -740,50 +754,71 @@ func proberFor(node string) *corev1.Pod {
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
 			}},
-			Containers: []corev1.Container{{
-				Name:  "prober",
-				Image: ProberImage,
-				// The default dnsPolicy sends this at the cluster's DNS, whose
-				// every replica the plan has placed on another node. nslookup's
-				// exit code is the whole result, so nothing parses output.
-				Command: []string{"nslookup", proberName},
-				SecurityContext: &corev1.SecurityContext{
-					AllowPrivilegeEscalation: &noEscalation,
-					Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-				},
-			}},
+			Containers: proberContainers(replicas, &noEscalation),
 		},
 	}
 }
 
-// waitForProber polls until the prober's container terminates, and returns its
-// exit code with whatever the pod says about why.
-func (r *Runner) waitForProber(ctx context.Context) (int32, string, error) {
+// proberContainers asks each DNS replica by its own address, one container
+// apiece. nslookup's exit code is the whole result, so nothing parses output.
+func proberContainers(replicas []DNSReplica, noEscalation *bool) []corev1.Container {
+	containers := make([]corev1.Container, 0, len(replicas))
+
+	for i, replica := range replicas {
+		containers = append(containers, corev1.Container{
+			Name:    replicaContainer(i),
+			Image:   ProberImage,
+			Command: []string{"nslookup", proberName, replica.IP},
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: noEscalation,
+				Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+			},
+		})
+	}
+
+	return containers
+}
+
+// waitForProber polls until every container of the prober has terminated, and
+// returns each replica's exit code with whatever its container said.
+func (r *Runner) waitForProber(ctx context.Context, replicas []DNSReplica) ([]ReplicaAnswer, error) {
 	deadline := time.Now().Add(proberTimeout)
 
 	for {
 		pod, err := r.client.CoreV1().Pods(probeNamespace).
 			Get(ctx, proberPod, metav1.GetOptions{})
 		if err != nil {
-			return 0, "", fmt.Errorf("read the prober: %w", err)
+			return nil, fmt.Errorf("read the prober: %w", err)
 		}
+
+		finished := map[string]*corev1.ContainerStateTerminated{}
 
 		for _, status := range pod.Status.ContainerStatuses {
 			if done := status.State.Terminated; done != nil {
-				return done.ExitCode, done.Message, nil
+				finished[status.Name] = done
 			}
+		}
+
+		if len(finished) == len(replicas) {
+			answers := make([]ReplicaAnswer, 0, len(replicas))
+			for i, replica := range replicas {
+				done := finished[replicaContainer(i)]
+				answers = append(answers, ReplicaAnswer{Replica: replica, ExitCode: done.ExitCode, Detail: done.Message})
+			}
+
+			return answers, nil
 		}
 
 		if time.Now().After(deadline) {
 			// Pending past the deadline is its own answer, and a different one:
 			// the pod never ran, so nothing was measured.
-			return 0, "", fmt.Errorf("the prober was still %s after %s — it never ran, so "+
+			return nil, fmt.Errorf("the prober was still %s after %s — it never ran, so "+
 				"nothing about cross-node traffic was measured", pod.Status.Phase, proberTimeout)
 		}
 
 		select {
 		case <-ctx.Done():
-			return 0, "", ctx.Err()
+			return nil, ctx.Err()
 		case <-time.After(pollInterval):
 		}
 	}

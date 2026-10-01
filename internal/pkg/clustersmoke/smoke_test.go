@@ -224,37 +224,69 @@ func TestPlanCrossNode_SkipsWhereThereIsNothingToProve(t *testing.T) {
 	}
 }
 
-func TestCrossNodeVerdict_FailsOnANonZeroExitAndSaysWhereToLook(t *testing.T) {
+func answers(codes ...int32) []clustersmoke.ReplicaAnswer {
+	out := make([]clustersmoke.ReplicaAnswer, 0, len(codes))
+	for i, code := range codes {
+		name := string(rune('a' + i))
+		out = append(out, clustersmoke.ReplicaAnswer{
+			Replica:  clustersmoke.DNSReplica{Pod: "coredns-" + name, Node: "cp-" + name, IP: "10.244.0." + name},
+			ExitCode: code,
+		})
+	}
+
+	return out
+}
+
+func TestCrossNodeVerdict_FailsWhenNoReplicaAnswersAndSaysWhereToLook(t *testing.T) {
 	t.Parallel()
 
 	// The failing case, which is the one that hid for thirteen hours: every
 	// component Running and a third of DNS queries timing out. During the
 	// incident this exact query — nslookup kubernetes.default from a pod —
 	// answered "no servers could be reached", which is this non-zero exit.
-	result := clustersmoke.CrossNodeVerdict("cp-2", 1, "")
+	result := clustersmoke.CrossNodeVerdict("cp-2", answers(1, 1))
 
 	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
 	assert.Contains(t, result.Detail, "cp-2")
+	assert.Contains(t, result.Detail, "2 of 2")
 	// The remedy, because "it failed" without the command that separates node
 	// reachability from endpoint reachability sends the reader back to guessing.
 	assert.Contains(t, result.Detail, "cilium-health status")
 	assert.Contains(t, result.Detail, "0/1")
 }
 
-func TestCrossNodeVerdict_PassesOnZeroAndSaysWhereItAskedFrom(t *testing.T) {
+func TestCrossNodeVerdict_NamesASingleSilentReplica(t *testing.T) {
 	t.Parallel()
 
-	result := clustersmoke.CrossNodeVerdict("cp-2", 0, "")
+	result := clustersmoke.CrossNodeVerdict("cp-2", answers(0, 1))
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "1 of 2")
+	assert.Contains(t, result.Detail, "coredns-b on cp-b")
+	assert.Contains(t, result.Detail, "bpf policy get", "one replica silent is its policy, not the path")
+}
+
+func TestCrossNodeVerdict_PassesOnlyWhenEveryReplicaAnswers(t *testing.T) {
+	t.Parallel()
+
+	result := clustersmoke.CrossNodeVerdict("cp-2", answers(0, 0))
 
 	assert.Equal(t, clustersmoke.StatusPassed, result.Status)
 	assert.Contains(t, result.Detail, "cp-2",
 		"a pass has to name the node it asked from, or two runs cannot be compared")
+	assert.Contains(t, result.Detail, "(2)")
+
+	empty := clustersmoke.CrossNodeVerdict("cp-2", nil)
+	assert.Equal(t, clustersmoke.StatusFailed, empty.Status, "no replica asked is nothing measured, not a pass")
 }
 
 func TestCrossNodeVerdict_CarriesWhatTheProberSaid(t *testing.T) {
 	t.Parallel()
 
-	result := clustersmoke.CrossNodeVerdict("cp-2", 1, "  connection timed out  ")
+	silent := answers(1)
+	silent[0].Detail = "  connection timed out  "
+
+	result := clustersmoke.CrossNodeVerdict("cp-2", silent)
 
 	assert.Contains(t, result.Detail, "connection timed out")
 	assert.NotContains(t, result.Detail, "  connection", "the message is not trimmed")

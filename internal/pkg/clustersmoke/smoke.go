@@ -401,34 +401,72 @@ func PlanCrossNode(nodes []NodeState, dnsNodes []string) CrossNodePlan {
 			"could be answered locally and would prove nothing about crossing a node", len(ready))}
 }
 
-// CrossNodeVerdict turns the prober's exit code into a result.
+// DNSReplica is one cluster DNS pod the prober asks directly.
+type DNSReplica struct {
+	Pod  string
+	Node string
+	IP   string
+}
+
+// ReplicaAnswer is how one replica answered: the exit code of the nslookup
+// aimed at it, and whatever its container said.
+type ReplicaAnswer struct {
+	Replica  DNSReplica
+	ExitCode int32
+	Detail   string
+}
+
+// CrossNodeVerdict judges the prober's answers, one per DNS replica.
 //
-// Zero means a DNS reply came back from a replica on another node, which is
-// the whole claim: a pod reached a pod across a node boundary. Anything else is
-// the failure this check exists for, and it is the one that hid for thirteen
-// hours — every component Running, and a third of DNS queries timing out.
-func CrossNodeVerdict(probeNode string, exitCode int32, detail string) Result {
+// Every replica is asked by its own address rather than through the Service.
+// Through the Service a query lands on whichever replica the load balancing
+// picks, so one replica refusing pods — its policy map missing the DNS allows
+// after an agent restart, measured on dev — showed up as an occasional slow
+// lookup and a check that passed.
+func CrossNodeVerdict(probeNode string, answers []ReplicaAnswer) Result {
 	result := Result{Name: "a pod reaches a pod on another node"}
 
-	if exitCode == 0 {
+	var silent []string
+
+	for _, answer := range answers {
+		if answer.ExitCode == 0 {
+			continue
+		}
+
+		line := fmt.Sprintf("%s on %s (%s) exit %d", answer.Replica.Pod, answer.Replica.Node,
+			answer.Replica.IP, answer.ExitCode)
+		if detail := strings.TrimSpace(answer.Detail); detail != "" {
+			line += ": " + detail
+		}
+
+		silent = append(silent, line)
+	}
+
+	if len(answers) > 0 && len(silent) == 0 {
 		result.Status = StatusPassed
-		result.Detail = "cluster DNS answered from another node, asked from " + probeNode
+		result.Detail = fmt.Sprintf("every cluster DNS replica (%d) answered from another node, asked from %s",
+			len(answers), probeNode)
 
 		return result
 	}
 
 	result.Status = StatusFailed
+
+	if len(answers) == 0 {
+		result.Detail = "no cluster DNS replica had an address to ask, so nothing about cross-node traffic was measured"
+
+		return result
+	}
+
 	result.Detail = fmt.Sprintf(
-		"from %s the cluster DNS on another node did not answer (exit %d). "+
-			"Pod-to-pod across nodes is the first thing to check: "+
+		"from %s, %d of %d cluster DNS replicas did not answer: %s. "+
+			"All of them silent is pod-to-pod across nodes: "+
 			"`kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-health status` "+
 			"reports node and endpoint reachability separately, and endpoints at 0/1 "+
-			"with nodes at 1/1 means the hosts route and the pods do not",
-		probeNode, exitCode)
-
-	if strings.TrimSpace(detail) != "" {
-		result.Detail += ". Prober said: " + strings.TrimSpace(detail)
-	}
+			"with nodes at 1/1 means the hosts route and the pods do not. "+
+			"Some of them silent is those replicas: look at their policy with "+
+			"`cilium-dbg bpf policy get <endpoint>` on their node",
+		probeNode, len(silent), len(answers), strings.Join(silent, "; "))
 
 	return result
 }
