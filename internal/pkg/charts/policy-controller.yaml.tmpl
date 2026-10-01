@@ -1,0 +1,64 @@
+# Sigstore policy-controller.
+
+webhook:
+  # Two, because the chart's PodDisruptionBudget keeps one available: with one
+  # replica the budget can never be met, and a drain of the node holding it
+  # waits out its whole timeout. The chart already spreads the replicas across
+  # nodes with a preferred anti-affinity.
+  replicaCount: 2
+
+  # Once a namespace is enforced this webhook is in the admission path for its
+  # pods, with failurePolicy Fail: evicted beside them, it stops them being
+  # scheduled. task charts:render-check asserts this reaches the pod spec.
+  priorityClass: system-cluster-critical
+
+  # The chart's two security blocks are named the other way round from the
+  # pod spec they render into: `podSecurityContext` is the CONTAINER's
+  # securityContext and `securityContext` is the POD's. Read off the
+  # deployment template at this version, not guessed.
+  #
+  # The container block is the chart's own and already drops every capability
+  # and mounts the root filesystem read-only. The pod block is off by default;
+  # it is turned on here for what the `restricted` Pod Security level asks and
+  # the container block does not say — runAsNonRoot and a seccomp profile —
+  # because Talos warns at `restricted` in every namespace but kube-system.
+  #
+  # `runAsUser: null` removes the chart's 65532 from the pod block. The
+  # container runs as 1000, set in its own block, and two different users in
+  # one pod spec is a question nobody should have to answer.
+  securityContext:
+    enabled: true
+    runAsUser: null
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Resources. Requests are measured, limits are memory-only.
+  #
+  # Measured on the dev cluster with `kubectl top pods --containers`, with no
+  # namespace enforced yet: 6m and 43-52Mi per replica. The request is that,
+  # rounded up; the limit stays at the chart's 512Mi until a namespace is
+  # enforced, because verifying signatures is the load nobody has measured and
+  # a limit guessed low shows up as an OOMKill in the admission path.
+  #
+  # `cpu: null`, not an absent key: Helm merges this file into the chart's
+  # defaults, and the chart ships `limits: {cpu: 200m}`. Leaving the key out
+  # would keep that limit in the rendered pod spec.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: null
+      memory: 512Mi
+
+# The post-delete Job that removes the webhook's leader-election leases.
+#
+# The chart pulls `cgr.dev/chainguard/kubectl:latest-dev`, a floating tag that
+# resolves to a different image each time it is pulled. Pinned by digest here,
+# and held to Chainguard's signature in internal/pkg/imagepolicy like every
+# other image. It runs once, on uninstall, so the chart's empty resources are
+# left alone.
+leasescleanup:
+  image:
+    version: sha256:6178138764470b10bf89105ae03e482f2d259ed6be373e0d3722623aa1ad0b68

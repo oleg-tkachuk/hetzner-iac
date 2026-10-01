@@ -73,6 +73,54 @@ func TestMetricsServerValues_SurvivesANodeFailure(t *testing.T) {
 	assert.Equal(t, true, nestedMap(t, rendered, "podDisruptionBudget")["enabled"])
 }
 
+func TestPolicyControllerValues_KeepsAWebhookThroughADrain(t *testing.T) {
+	t.Parallel()
+
+	// The chart's budget keeps one webhook available, so a single replica
+	// blocks every drain of the node it runs on.
+	webhook := nestedMap(t, chartValues(t, charts.PolicyController, nil), "webhook")
+
+	assert.Equal(t, float64(charts.PolicyControllerReplicas), webhook["replicaCount"])
+	assert.Equal(t, charts.PriorityClusterCritical, webhook["priorityClass"])
+}
+
+func TestPolicyControllerValues_RemovesTheChartsCPULimit(t *testing.T) {
+	t.Parallel()
+
+	// The chart ships a CPU limit and Helm merges this file into its defaults,
+	// so only an explicit null removes it.
+	webhook := nestedMap(t, chartValues(t, charts.PolicyController, nil), "webhook")
+	limits := nestedMap(t, nestedMap(t, webhook, "resources"), "limits")
+
+	cpu, present := limits["cpu"]
+	assert.True(t, present, "an absent key keeps the chart's CPU limit")
+	assert.Nil(t, cpu)
+	assert.NotEmpty(t, limits["memory"])
+}
+
+func TestPolicyControllerValues_MeetsRestrictedPodSecurity(t *testing.T) {
+	t.Parallel()
+
+	// `securityContext` is the POD's block in this chart, the reverse of what
+	// the name suggests.
+	pod := nestedMap(t, nestedMap(t, chartValues(t, charts.PolicyController, nil), "webhook"), "securityContext")
+
+	assert.Equal(t, true, pod["enabled"])
+	assert.Equal(t, true, pod["runAsNonRoot"])
+	assert.Equal(t, "RuntimeDefault", nestedMap(t, pod, "seccompProfile")["type"])
+}
+
+func TestPolicyControllerValues_PinsTheCleanupImageByDigest(t *testing.T) {
+	t.Parallel()
+
+	// The chart's default is the floating tag `latest-dev`.
+	image := nestedMap(t, nestedMap(t, chartValues(t, charts.PolicyController, nil), "leasescleanup"), "image")
+
+	version, ok := image["version"].(string)
+	require.True(t, ok)
+	assert.Regexp(t, `^sha256:[0-9a-f]{64}$`, version)
+}
+
 func TestIssuerSpec_UsesTheProductionACMEEndpoint(t *testing.T) {
 	t.Parallel()
 

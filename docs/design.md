@@ -52,7 +52,7 @@ flowchart TB
         direction TB
         ks["kube-system<br/>layers/10-node-platform"]
         pol["cluster-wide policy<br/>layers/20-network-policy"]
-        cmns["cert-manager, external-secrets<br/>layers/30-cluster-services"]
+        cmns["cert-manager, external-secrets, cosign-system<br/>layers/30-cluster-services"]
         kedans["keda<br/>layers/30-cluster-services, when kedaEnabled"]
         tns["traefik<br/>layers/40-ingress"]
         argons["argocd<br/>layers/50-gitops"]

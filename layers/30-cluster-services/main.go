@@ -1,7 +1,7 @@
 // Command cluster-services installs the services the rest of the cluster
-// consumes: cert-manager, external-secrets and metrics-server, plus the
-// ClusterIssuer, the kubelet-serving-certificate approver, and KEDA when it is
-// asked for.
+// consumes: cert-manager, external-secrets, metrics-server and the Sigstore
+// policy-controller, plus the ClusterIssuer, the kubelet-serving-certificate
+// approver, and KEDA when it is asked for.
 //
 // Named for what they are rather than for their importance. None of them is
 // needed to make a node Ready — that is 10-node-platform, which holds the CNI
@@ -131,6 +131,12 @@ var Components = layer.Components{
 		// capacity that is already paid for.
 		Chart: KedaChart,
 		When:  kedaRequested,
+	},
+	{
+		// Admission checks on image signatures. No After: it calls only the
+		// registries and Sigstore's trust root, and it enforces nothing until
+		// a namespace is labelled for it.
+		Chart: charts.PolicyController,
 	},
 	{
 		// After the approver: metrics-server scrapes the kubelet over TLS and

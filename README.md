@@ -113,7 +113,7 @@ flowchart LR
 
     l10["10-node-platform<br/>Cilium · hcloud CCM · CSI"]
     l20["20-network-policy<br/>default deny, opt-in"]
-    l30["30-cluster-services<br/>cert-manager · ESO · metrics-server"]
+    l30["30-cluster-services<br/>cert-manager · ESO · metrics-server<br/>policy-controller"]
     l40["40-ingress<br/>Traefik · ingress load balancer"]
     l50["50-gitops<br/>Argo CD"]
 

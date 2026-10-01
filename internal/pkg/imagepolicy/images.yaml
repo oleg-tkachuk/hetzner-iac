@@ -78,6 +78,17 @@ images:
   - repository: docker.io/library/traefik
     unsigned: Traefik publishes no cosign signature.
 
+  # Sigstore's policy-controller, and the kubectl its uninstall hook runs.
+  # Chainguard signs from a branch, so that identity cannot be held to a tag.
+  - repository: ghcr.io/sigstore/policy-controller/policy-controller
+    signed:
+      issuer: *github
+      subjectRegExp: ^https://github\.com/sigstore/policy-controller/\.github/workflows/.+@refs/tags/.+$
+  - repository: cgr.dev/chainguard/kubectl
+    signed:
+      issuer: *github
+      subject: https://github.com/chainguard-images/images/.github/workflows/release.yaml@refs/heads/main
+
   # Kubernetes' own images, signed by its release tooling.
   - repository: registry.k8s.io/metrics-server/metrics-server
     signed: &k8s-release

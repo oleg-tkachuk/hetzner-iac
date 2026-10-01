@@ -158,8 +158,8 @@ monthly gross:
 
 Every image the platform installs publishes `linux/arm64` at the versions
 pinned in [`internal/pkg/charts`](../internal/pkg/charts) — Cilium, both hcloud drivers,
-cert-manager, external-secrets, metrics-server, Traefik and Argo CD, all
-checked. So nothing in the platform is the obstacle; the reason to pick
+cert-manager, external-secrets, metrics-server, policy-controller, Traefik and
+Argo CD, all checked. So nothing in the platform is the obstacle; the reason to pick
 `arm` is wanting Arm nodes, not saving money.
 
 ### Which locations have Arm, and why that is not the blocker here

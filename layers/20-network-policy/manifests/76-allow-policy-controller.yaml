@@ -1,0 +1,35 @@
+# The Sigstore policy-controller reaching Sigstore's trust root.
+#
+# At startup the webhook fetches the public-good TUF repository — the Fulcio
+# and Rekor keys every keyless signature is checked against. Denied, it never
+# becomes Ready and Helm waits out its whole timeout, which reads as a slow
+# chart rather than as policy.
+#
+# Only the trust root here. The registries it reads signatures and digests
+# from are reached only when a namespace is labelled for enforcement, so that
+# flow is absent from a cluster at rest — the same shape 75-allow-external-
+# secrets.yaml describes — and is written with the policies that cause it,
+# from what Hubble shows them doing.
+#
+# Ingress needs nothing here: kube-apiserver calls the webhook from the node,
+# which 00-allow-host.yaml already permits to every endpoint.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-policy-controller
+spec:
+  description: the Sigstore policy-controller fetches Sigstore's TUF trust root
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: cosign-system
+      k8s:app.kubernetes.io/name: policy-controller
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toFQDNs:
+        - matchName: tuf-repo-cdn.sigstore.dev
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
