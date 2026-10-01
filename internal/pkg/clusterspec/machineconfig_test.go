@@ -717,3 +717,36 @@ func TestClusterPatch_KubePrismPortIsTheOneCiliumIsPointedAt(t *testing.T) {
 		"Talos would listen on %v while Cilium is pointed at %d",
 		prism["port"], clusterspec.KubePrismPort)
 }
+
+func TestBuildNodePatch_ServiceAccountIssuer(t *testing.T) {
+	t.Parallel()
+
+	patch, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
+		Hostname:             "cp-0",
+		CertSANs:             []string{"10.0.1.2"},
+		ServiceAccountIssuer: clusterspec.ServiceAccountIssuer,
+	})
+	require.NoError(t, err)
+
+	cluster, _ := decode(t, patch)["cluster"].(map[string]any)
+	apiServer, _ := cluster["apiServer"].(map[string]any)
+	extraArgs, _ := apiServer["extraArgs"].(map[string]any)
+
+	// A string, not a list: the Talos provider refuses a list here.
+	assert.Equal(t, clusterspec.ServiceAccountIssuer, extraArgs["service-account-issuer"])
+
+	worker, err := clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{Hostname: "w-0", CertSANs: []string{"10.0.1.9"}})
+	require.NoError(t, err)
+
+	cluster, _ = decode(t, worker)["cluster"].(map[string]any)
+	apiServer, _ = cluster["apiServer"].(map[string]any)
+	assert.NotContains(t, apiServer, "extraArgs", "no issuer means Talos's default, untouched")
+}
+
+func TestAPIURL(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "https://10.0.1.1:6443", clusterspec.APIURL("10.0.1.1"))
+	assert.NotContains(t, clusterspec.ServiceAccountIssuer, "6443",
+		"the issuer is a name, not an endpoint that can move")
+}
