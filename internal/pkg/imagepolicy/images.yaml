@@ -1,0 +1,92 @@
+# Every image repository the platform's charts run, and how its provenance is
+# established. tools/charts fails on a rendered image with no entry here and on
+# an entry no chart renders.
+#
+# Each signer was found by verifying the pinned release with cosign and then
+# tightening the identity until it still verified: a release workflow on a tag
+# where the publisher signs from one. Unsigned means no signature exists for
+# the repository at all — not one that failed to verify — and those are pinned
+# by digest in the admission policy instead.
+
+images:
+  # Argo CD and its two dependencies.
+  - repository: quay.io/argoproj/argocd
+    signed:
+      issuer: &github https://token.actions.githubusercontent.com
+      subjectRegExp: ^https://github\.com/argoproj/argo-cd/\.github/workflows/.+@refs/tags/.+$
+  - repository: ghcr.io/dexidp/dex
+    signed:
+      issuer: *github
+      subjectRegExp: ^https://github\.com/dexidp/dex/\.github/workflows/.+@refs/tags/.+$
+  - repository: ecr-public.aws.com/docker/library/redis
+    unsigned: Docker Official Images publish no cosign signature.
+
+  # cert-manager signs with a key in Google Cloud KMS, over sha512, and does
+  # not record its signatures in Rekor — https://cert-manager.io/docs/installation/code-signing/
+  - repository: quay.io/jetstack/cert-manager-cainjector
+    signed: &cert-manager
+      key: cert-manager.pem
+      hashAlgorithm: sha512
+      noTransparencyLog: true
+  - repository: quay.io/jetstack/cert-manager-controller
+    signed: *cert-manager
+  - repository: quay.io/jetstack/cert-manager-webhook
+    signed: *cert-manager
+
+  # Cilium. Envoy is built from cilium/proxy and signed from a branch, so its
+  # identity cannot be held to a tag. Hubble UI is not signed.
+  - repository: quay.io/cilium/cilium
+    signed: &cilium
+      issuer: *github
+      subjectRegExp: ^https://github\.com/cilium/cilium/\.github/workflows/.+@refs/tags/.+$
+  - repository: quay.io/cilium/hubble-relay
+    signed: *cilium
+  - repository: quay.io/cilium/operator-generic
+    signed: *cilium
+  - repository: quay.io/cilium/cilium-envoy
+    signed:
+      issuer: *github
+      subjectRegExp: ^https://github\.com/cilium/proxy/\.github/workflows/.+@.+$
+  - repository: quay.io/cilium/hubble-ui
+    unsigned: Cilium signs no Hubble UI image.
+  - repository: quay.io/cilium/hubble-ui-backend
+    unsigned: Cilium signs no Hubble UI image.
+
+  - repository: ghcr.io/external-secrets/external-secrets
+    signed:
+      issuer: *github
+      subject: https://github.com/external-secrets/external-secrets/.github/workflows/release.yml@refs/heads/main
+
+  # Hetzner signs neither driver.
+  - repository: docker.io/hetznercloud/hcloud-cloud-controller-manager
+    unsigned: Hetzner publishes no signature for the cloud controller manager.
+  - repository: docker.io/hetznercloud/hcloud-csi-driver
+    unsigned: Hetzner publishes no signature for the CSI driver.
+
+  - repository: ghcr.io/kedacore/keda
+    signed: &keda
+      issuer: *github
+      subjectRegExp: ^https://github\.com/kedacore/keda/\.github/workflows/.+@refs/tags/.+$
+  - repository: ghcr.io/kedacore/keda-admission-webhooks
+    signed: *keda
+  - repository: ghcr.io/kedacore/keda-metrics-apiserver
+    signed: *keda
+
+  - repository: docker.io/library/traefik
+    unsigned: Traefik publishes no cosign signature.
+
+  # Kubernetes' own images, signed by its release tooling.
+  - repository: registry.k8s.io/metrics-server/metrics-server
+    signed: &k8s-release
+      issuer: https://accounts.google.com
+      subject: krel-trust@k8s-releng-prod.iam.gserviceaccount.com
+  - repository: registry.k8s.io/sig-storage/csi-attacher
+    signed: *k8s-release
+  - repository: registry.k8s.io/sig-storage/csi-node-driver-registrar
+    signed: *k8s-release
+  - repository: registry.k8s.io/sig-storage/csi-provisioner
+    signed: *k8s-release
+  - repository: registry.k8s.io/sig-storage/csi-resizer
+    signed: *k8s-release
+  - repository: registry.k8s.io/sig-storage/livenessprobe
+    signed: *k8s-release
