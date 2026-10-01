@@ -37,7 +37,7 @@ flowchart TB
             wk["worker pools"]
         end
 
-        apilb(["load balancer for the API<br/>the endpoint every certificate names"])
+        apilb(["load balancer for the API<br/>private only — the nodes' endpoint"])
         inglb(["load balancer for ingress<br/>layers/40-ingress"])
         box[("Storage Box + subaccount<br/>infra/backup")]
     end
@@ -59,11 +59,14 @@ flowchart TB
     end
 
     trust[("Pulumi state<br/>the cluster CA lives only here")]
+    op(["operator<br/>network.adminCIDRs"])
 
     trust -.->|"every certificate descends from it"| talos
     servers ==> talos
     talos ==> k8s
     inglb ==>|"tcp/80, tcp/443 to a pinned nodePort"| servers
+    servers -->|"cluster endpoint over the private network<br/>targets the control plane"| apilb
+    op -->|"tcp/6443, tcp/50000 through the firewall<br/>to the first control-plane node"| fw
     etcd -.->|"task cluster:etcd:upload — restic over sftp"| box
 
     class net,fw,pg,snap,cp,wk,box hetzner
@@ -71,6 +74,7 @@ flowchart TB
     class etcd,api talos
     class ks,pol,cmns,kedans,tns,argons kube
     class trust state
+    class op derived
 
     style hetzner fill:#fffafb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
     style servers fill:#fde8eb,stroke:#d50c2d,stroke-dasharray:3 3,color:#1f2328
@@ -441,6 +445,12 @@ network, so a public one was tcp/6443 open to anyone beside a firewall that
 admits only `network.adminCIDRs`. The nodes use its private address. The
 kubeconfig points at the first control-plane node, through the firewall, as
 the talosconfig already did.
+
+Service account tokens are signed with a fixed issuer,
+`https://kubernetes.default.svc.cluster.local`, not the one Talos derives from
+the cluster endpoint. With the derived one, moving the endpoint made every
+token already in a pod fail with 401 until the pod restarted — measured when
+the load balancer went private.
 
 One thing HA needs that a single node never did: **etcd has to advertise
 inside the private network.** Left alone it advertises whichever address the
