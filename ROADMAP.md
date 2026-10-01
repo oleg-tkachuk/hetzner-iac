@@ -125,8 +125,13 @@ opens to network.adminCIDRs only, so a hosted CI runner cannot reach them.
 
 ### Upgrades are exercised before they matter
 
-Talos and Kubernetes upgrades have never been run here. The goal is to run each
-one first on a cluster that can be discarded.
+The goal is to run each one first on a cluster that can be discarded.
+Talos is done: dev went from v1.13.10 to v1.14.2 one control-plane node at a
+time with `task cluster:upgrade:talos`, etcd healthy throughout, and the
+configuration kept on the v1.13.10 contract through `talos.configVersion`.
+**Blocked on:** Kubernetes 1.37, which needs the v1.14 contract. pulumi-talos
+0.8.1 generates configuration with Talos machinery v1.13.0; the next step is a
+release built on terraform-provider-talos 0.12.0, which carries v1.14.
 
 ## Not planned
 
