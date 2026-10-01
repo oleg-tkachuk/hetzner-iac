@@ -139,3 +139,7 @@ release built on terraform-provider-talos 0.12.0, which carries v1.14.
 - **Another cloud.** Only the cluster tier is Hetzner-specific, but portability
   is not a goal and would cost the things that keep this simple.
 - **A managed control plane.** Hetzner offers none — that is why this exists.
+- **Observability.** Metrics, logs and alerting are for whoever runs workloads
+  on the cluster to choose and install. This repository stops at the cluster
+  and its platform; the smoke checks and `task platform:drift` verify those,
+  and are not monitoring.
