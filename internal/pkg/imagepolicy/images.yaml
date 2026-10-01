@@ -30,6 +30,9 @@ images:
       noTransparencyLog: true
   - repository: quay.io/jetstack/cert-manager-controller
     signed: *cert-manager
+  # The post-install hook Job that waits for the webhook to answer.
+  - repository: quay.io/jetstack/cert-manager-startupapicheck
+    signed: *cert-manager
   - repository: quay.io/jetstack/cert-manager-webhook
     signed: *cert-manager
 

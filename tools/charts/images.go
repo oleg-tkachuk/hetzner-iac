@@ -6,6 +6,9 @@ import (
 	"slices"
 	"sort"
 
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
@@ -92,8 +95,14 @@ func checkImages(ctx context.Context) int {
 	return failures
 }
 
-// renderedImages is every image a chart's workloads run, containers and init
+// renderedImages is every image a chart's pods run — containers and init
 // containers both, sorted and without repeats.
+//
+// Every kind that becomes a pod, not only the long-running workloads the
+// render check asserts on. A hook Job runs once and finishes, which is why the
+// render check ignores it, but admission sees its pod like any other:
+// cert-manager's startupapicheck runs on every install, and an image only a
+// Job uses would reach the cluster with no entry here.
 func renderedImages(manifests []byte) ([]string, error) {
 	docs, err := documents(manifests)
 	if err != nil {
@@ -103,16 +112,15 @@ func renderedImages(manifests []byte) ([]string, error) {
 	seen := map[string]bool{}
 
 	for _, doc := range docs {
-		if !slices.Contains(workloadKinds, doc.Kind) {
-			continue
-		}
-
-		var workload podSpec
-		if err := yaml.Unmarshal([]byte(doc.Text), &workload); err != nil {
+		pod, err := podOf(doc.Kind, []byte(doc.Text))
+		if err != nil {
 			return nil, fmt.Errorf("%s/%s could not be read: %w", doc.Kind, doc.Name, err)
 		}
 
-		pod := workload.Spec.Template.Spec
+		if pod == nil {
+			continue
+		}
+
 		for _, c := range slices.Concat(pod.Containers, pod.InitContainers) {
 			if c.Image != "" {
 				seen[c.Image] = true
@@ -129,3 +137,40 @@ func renderedImages(manifests []byte) ([]string, error) {
 
 	return images, nil
 }
+
+// podOf is the pod spec a document runs, and nil for a kind that runs none.
+//
+// The API's own types rather than a struct of the fields read here: a CronJob
+// nests its pod three levels deeper than a Deployment, and the types are what
+// says where.
+func podOf(kind string, text []byte) (*corev1.PodSpec, error) {
+	switch kind {
+	case string(charts.Deployment):
+		var o appsv1.Deployment
+		return &o.Spec.Template.Spec, yaml.Unmarshal(text, &o)
+	case string(charts.StatefulSet):
+		var o appsv1.StatefulSet
+		return &o.Spec.Template.Spec, yaml.Unmarshal(text, &o)
+	case string(charts.DaemonSet):
+		var o appsv1.DaemonSet
+		return &o.Spec.Template.Spec, yaml.Unmarshal(text, &o)
+	case kindJob:
+		var o batchv1.Job
+		return &o.Spec.Template.Spec, yaml.Unmarshal(text, &o)
+	case kindCronJob:
+		var o batchv1.CronJob
+		return &o.Spec.JobTemplate.Spec.Template.Spec, yaml.Unmarshal(text, &o)
+	case kindPod:
+		var o corev1.Pod
+		return &o.Spec, yaml.Unmarshal(text, &o)
+	}
+
+	return nil, nil
+}
+
+// The kinds that run a pod beyond the workloads charts.Kind names.
+const (
+	kindJob     = "Job"
+	kindCronJob = "CronJob"
+	kindPod     = "Pod"
+)
