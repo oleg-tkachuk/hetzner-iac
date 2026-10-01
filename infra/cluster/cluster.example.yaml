@@ -94,12 +94,13 @@ talos:
   # generated for 1.14 — but runs it as a 1.13 contract. To move a running
   # cluster to 1.14, pin configVersion to the version it was created with
   # first, then raise this, bake, and run `task cluster:upgrade:talos`.
-  version: v1.13.10
+  version: v1.14.2
 
   # The Talos version the machine configuration and the secrets are generated
-  # for. Leave it unset on a new cluster; on a running one it stays where the
-  # cluster was created until the generator can write a newer contract.
-  # configVersion: v1.13.10
+  # for. Set, even on a new cluster, because the generator can write no newer
+  # contract than v1.13; unset, it would follow version above to v1.14. On a
+  # running cluster it stays where the cluster was created.
+  configVersion: v1.13.10
 
   # x86 or arm, and it decides three things at once: which image the factory
   # builds (amd64 or arm64), which server types can boot it, and which types
@@ -138,8 +139,9 @@ kubernetes:
   # first came up on v1.36.0, new enough that kube-apiserver had dropped a flag
   # the machine config was passing.
   #
-  # v1.36 is the minor Talos v1.13.10 defaults to, so this is the supported
-  # pairing. Bump it together with talos.version above, deliberately.
+  # v1.36 is the minor Talos v1.13.10 defaults to, and Talos v1.14 still runs
+  # it; v1.37 waits for the v1.14 contract. So this is the supported
+  # pairing. Bump it together with talos.configVersion above, deliberately.
   version: v1.36.4
 
 controlPlane:
