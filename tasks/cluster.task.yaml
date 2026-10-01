@@ -126,6 +126,10 @@ vars:
   # was only ever run against one node.
   _CL_RECOVER_TIMEOUT: '1200'
 
+  # How long a node may take to drain before an upgrade, and to come back
+  # Ready after it.
+  _CL_DRAIN_TIMEOUT: 5m
+
   # Where the Cilium chart puts the Hubble relay, and what it listens on.
   # Named because `hubble` is given the local end and kubectl the remote one,
   # and a mismatch between the two produces a connection refused with nothing
@@ -1480,7 +1484,7 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-    deps: [talosconfig]
+    deps: [talosconfig, kubeconfig]
     prompt: "Upgrade Talos on every node of {{._CL_STACK}}?"
     cmds:
       - cmd: |
@@ -1520,7 +1524,7 @@ tasks:
           # Read into a variable first. A command substitution in a `for`
           # list does not trip `set -e`: an unreachable endpoint or an
           # unhealthy etcd made this loop run zero times and report success.
-          members="$(talosctl get members -o json | jq -r '.spec.addresses[0]')"
+          members="$(talosctl get members -o json | jq -r '"\(.spec.hostname) \(.spec.addresses[0])"')"
           if [ -z "$members" ]; then
             printf '%s\n' "{{._ERR}} cluster · upgrade · talosctl reported no members, so no node was upgraded" >&2
             exit 1
@@ -1532,21 +1536,29 @@ tasks:
           # found", before anything changed.
           installer="$(go run "{{.ROOT}}/tools/image" installer "{{._CL_TOPOLOGY}}")"
 
-          for node in $members; do
-            printf '%s\n' "{{._RUN}} cluster · upgrade · ${node} → ${version} (${installer})"
+          # Drained here, through the operator's kubeconfig, not by talosctl.
+          # talosctl 1.14 cordons and evicts itself, with the kubeconfig it
+          # reads from the node — whose server is the cluster endpoint, the
+          # private API load balancer — and failed on the first node with
+          # `dial tcp 10.0.1.1:6443: i/o timeout`, before anything changed.
+          export KUBECONFIG="{{.ROOT}}/kubeconfig"
+
+          while read -r name node; do
+            printf '%s\n' "{{._RUN}} cluster · upgrade · ${name} (${node}) → ${version} (${installer})"
+            kubectl drain "${name}" --ignore-daemonsets --delete-emptydir-data \
+              --timeout="{{._CL_DRAIN_TIMEOUT}}"
+
             # --endpoints as well, for the reason etcd:restore carries at
             # length: `talosctl get members` reports each member's PUBLIC
             # address, and --nodes alone makes talosctl proxy through the
             # endpoint in talosconfig, which cannot route to a peer's public
             # address. Measured there as `dial tcp <peer>:50000: i/o timeout`.
-            #
-            # Unlike the restore, this one has not been run end to end: a
-            # Talos upgrade is blocked on the machine config that 1.14
-            # rejects, which docs/BACKLOG.md records. The mechanism is the
-            # same and the addresses are the same kind.
             talosctl --endpoints "${node}" --nodes "${node}" \
-              upgrade --image "${installer}" --wait
-          done
+              upgrade --image "${installer}" --drain=false --wait
+
+            kubectl wait --for=condition=Ready "node/${name}" --timeout="{{._CL_DRAIN_TIMEOUT}}"
+            kubectl uncordon "${name}"
+          done <<<"$members"
 
   upgrade:k8s:
     desc: "Upgrade Kubernetes in place. Set kubernetes.version in the topology first."
