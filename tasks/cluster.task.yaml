@@ -13,6 +13,11 @@ vars:
   # type the program registers by TestDestroy_KeepsTheSecretsBundleByType.
   _CL_SECRETS_URN: '**talos:machine/secrets:Secrets**'
   _CL_TOPOLOGY: '{{.ROOT}}/infra/cluster/cluster.{{.stack}}.yaml'
+  # The cluster's name from its topology — what its nodes, and so its etcd
+  # members, are named after. Above every variable that uses it: Task renders
+  # file-level vars top to bottom, and one naming a variable declared below it
+  # gets that one rendered without stack=, which built cluster..yaml.
+  _CL_CLUSTER_NAME: 'go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}"'
 
   # The control-plane nodes, from Hetzner rather than from the cluster.
   #
@@ -59,9 +64,6 @@ vars:
   # is among this stack's own. The name is a convenience, not the check:
   # tools/etcd reads which cluster took a snapshot from the snapshot itself.
   _CL_SNAPSHOT_PREFIX: 'etcd-{{.stack}}-'
-  # The cluster's name from its topology — what its nodes, and so its etcd
-  # members, are named after.
-  _CL_CLUSTER_NAME: 'go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}"'
 
   # The layer that owns the backup destination, and the five outputs it
   # publishes. The names are spelled in infra/backup/main.go as constants
@@ -142,6 +144,9 @@ vars:
   # and all of them.
   _CL_SELECTOR: 'cluster=$(go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}")'
 
+  # What Talos calls a control-plane node's machine type.
+  _CL_MACHINE_CONTROL_PLANE: controlplane
+
   # Every node of the cluster, as Talos itself lists them: `workers` and
   # `control_planes`, each a space-separated list of addresses.
   #
@@ -158,8 +163,6 @@ vars:
     workers="$(jq -r --arg cp "{{._CL_MACHINE_CONTROL_PLANE}}" 'select(.spec.machineType != $cp) | .spec.addresses[0]' <<<"$members_json")"
     control_planes="$(jq -r --arg cp "{{._CL_MACHINE_CONTROL_PLANE}}" 'select(.spec.machineType == $cp) | .spec.addresses[0]' <<<"$members_json")"
     test -n "$control_planes"
-  # What Talos calls a control-plane node's machine type.
-  _CL_MACHINE_CONTROL_PLANE: controlplane
 
   # The system volumes that carry secrets, and what a probe calls an encrypted
   # one. Named because encryption:check compares against them: a typo here
