@@ -102,7 +102,7 @@ and `destroy` does not take it — that is the point of it being a tier, and
 | `task cluster:encryption:check` | the system volumes are really encrypted, not just configured to be |
 | `task cluster:etcd:restore` | restore etcd from `snapshot=<path>`; wipes every control-plane node first, asks first |
 | `task cluster:etcd:snapshot` | snapshot etcd into `.backups/` |
-| `task cluster:etcd:upload` | upload a snapshot to the Storage Box with restic; keeps the last ten |
+| `task cluster:etcd:upload` | upload a snapshot to the Storage Box with restic; keeps the last ten, with the Talos secrets bundle beside it |
 | `task cluster:etcd:download` | fetch an etcd snapshot back from the Storage Box into `.backups/` (`id=`, default the newest), verified, for `etcd:restore` |
 | `task cluster:hubble` | print recent pod flows through Hubble; `last=<n>` to widen |
 | `task cluster:image:bake` | bake the Talos snapshot named by the topology, per version **and** architecture; idempotent |
@@ -118,6 +118,7 @@ and `destroy` does not take it — that is the point of it being a tier, and
 | `task cluster:reboot` | reboot the nodes through Talos; they come back by themselves |
 | `task cluster:secrets:destroy` | delete the cluster CA as well; unrecoverable |
 | `task cluster:secrets:export` | print the Talos secrets bundle — pipe it into a password store |
+| `task cluster:secrets:download` | print the secrets bundle stored beside the etcd snapshots on the Storage Box, to pipe into a password store |
 | `task cluster:state:export` | every tier's Pulumi state into `.backups/state/`, secrets left encrypted |
 | `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer — and that volumes holding data are on a class that retains them |
 | `task cluster:stacks` | every stack, with what the backend and its topology say about it; takes no `stack=` |

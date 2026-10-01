@@ -354,3 +354,32 @@ func TestEtcdDownload_IsUploadsOtherHalf(t *testing.T) {
 	assert.Contains(t, download, `cmp -s "$found" "$target"`,
 		"download overwrites a different local snapshot of the same name")
 }
+
+// TestSecretsBundle_TravelsWithEverySnapshot holds the Talos secrets bundle to
+// the etcd snapshots on the Storage Box.
+//
+// A snapshot restores only against the secrets it was taken under, and the
+// bundle lived in Pulumi's state alone, so an off-site snapshot was half a
+// backup. Upload sends the bundle beside every snapshot, through stdin so it
+// never touches the disk; secrets:download prints it back, and never to a
+// terminal, with everything but the bundle on stderr.
+func TestSecretsBundle_TravelsWithEverySnapshot(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	tasks := tasksIn(string(raw))
+
+	upload := tasks["etcd:upload"]
+	assert.Regexp(t, `tools/secrets" "\{\{\._CL_STACK\}\}" \|\s*\n\s*restic backup --stdin`, upload,
+		"etcd:upload does not send the secrets bundle, or writes it to disk first")
+	assert.Contains(t, upload, `--tag "{{._CL_SECRETS_TAG}}"`)
+
+	download, found := tasks["secrets:download"]
+	require.True(t, found, "no secrets:download task")
+	assert.Contains(t, download, "if [ -t 1 ]", "secrets:download prints the CA to a terminal")
+	assert.Contains(t, download, "} >&2", "the repository setup writes to the stdout that carries the bundle")
+	assert.Contains(t, download, `--host "$cluster" --tag "{{._CL_SECRETS_TAG}}"`,
+		"secrets:download reads another cluster's bundle")
+}

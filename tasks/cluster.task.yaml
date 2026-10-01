@@ -107,6 +107,10 @@ vars:
   # files — and it is restic's own retention, not a listing this repository
   # sorts and truncates.
   _CL_BACKUP_KEEP: "10"
+  # How the Talos secrets bundle is stored beside the etcd snapshots: the
+  # restic tag that is its series, and the file name inside each snapshot.
+  _CL_SECRETS_TAG: talos-secrets
+  _CL_SECRETS_FILE: talos-secrets.yaml
 
   # The known_hosts this upload trusts. Gitignored: it names the operator's own
   # box, and a host key is local trust rather than a property of the project.
@@ -1479,6 +1483,18 @@ tasks:
           # "$@" is the snapshot and, when it exists, its sidecar — set above.
           restic backup --host "$cluster" --tag etcd "$@"
 
+          # The Talos secrets bundle beside it, every time. A snapshot restores
+          # only against the secrets it was taken under, so either half stored
+          # alone is not a backup. Piped, never written to disk: restic reads
+          # it from stdin and stores it under the repository's key.
+          printf '%s\n' "{{._RUN}} cluster · etcd:upload · the Talos secrets bundle → the same repository"
+          go run "{{.ROOT}}/tools/secrets" "{{._CL_STACK}}" |
+            restic backup --stdin --stdin-filename "{{._CL_SECRETS_FILE}}" \
+              --host "$cluster" --tag "{{._CL_SECRETS_TAG}}"
+
+          restic forget --host "$cluster" --tag "{{._CL_SECRETS_TAG}}" --group-by host,tags \
+            --keep-last "{{._CL_BACKUP_KEEP}}" --prune
+
           # Scoped to this cluster's etcd snapshots. An unscoped forget in a
           # repository that later holds something else would apply this
           # cluster's retention to it.
@@ -1500,6 +1516,42 @@ tasks:
           restic snapshots --host "$cluster" --tag etcd --latest 3
           printf '\n'
           printf '%s\n' "{{._OK}} cluster · etcd:upload · uploaded, keeping the last {{._CL_BACKUP_KEEP}}"
+
+  secrets:download:
+    desc: "Print the Talos secrets bundle stored beside the etcd snapshots on the Storage Box (id=<restic snapshot>, default the newest) — pipe it into a password store"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._STACK_USAGE}}"
+      - sh: command -v restic >/dev/null
+        msg: "restic not installed — brew bundle, or brew install restic"
+      - sh: command -v rclone >/dev/null
+        msg: "rclone not installed — brew bundle, or brew install rclone"
+      - sh: command -v jq >/dev/null
+        msg: "jq not installed — brew bundle, or brew install jq"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+
+          # The same refusal tools/secrets makes: a certificate authority in
+          # scrollback is worse than no copy at all. Here rather than as a
+          # precondition, whose stdout is not this command's.
+          if [ -t 1 ]; then
+            printf '%s\n' "{{._ERR}} cluster · secrets:download · refusing to print the cluster CA to a terminal — pipe it:" >&2
+            printf '%s\n' "    task cluster:secrets:download stack={{._CL_STACK}} | pass insert -m <path>" >&2
+            exit 1
+          fi
+
+          # Everything but the bundle goes to stderr, so stdout is the bundle
+          # and nothing else. Braces, not a subshell: the snippet exports the
+          # repository's variables into this shell.
+          {
+          step=secrets:download
+          {{._CL_BACKUP_REPO}}
+          cluster="$({{._CL_CLUSTER_NAME}})"
+          } >&2
+
+          restic dump "{{.id | default "latest"}}" "/{{._CL_SECRETS_FILE}}" \
+            --host "$cluster" --tag "{{._CL_SECRETS_TAG}}"
 
   etcd:download:
     desc: "Download an etcd snapshot from the Storage Box into .backups/ (id=<restic snapshot>, default the newest) — what etcd:restore reads when this machine has none"

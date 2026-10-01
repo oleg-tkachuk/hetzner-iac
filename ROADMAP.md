@@ -24,9 +24,10 @@ remained, and smoke passed.
 
 ### The cluster's identity held in a second place
 
-The certificate authority the cluster is built around exists in exactly one
-place. It is also what makes a snapshot usable, so a copy of it elsewhere is
-the first half of any recovery.
+The certificate authority the cluster is built around existed in exactly one
+place, and it is what makes a snapshot usable. `task cluster:etcd:upload` now
+stores the Talos secrets bundle beside every snapshot in the restic repository
+on the Storage Box, and `task cluster:secrets:download` reads it back.
 
 ### Volume data
 
