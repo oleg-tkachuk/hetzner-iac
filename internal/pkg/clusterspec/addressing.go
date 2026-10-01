@@ -12,15 +12,17 @@ import (
 // configuration carries the node's address, so the address must be known at
 // plan time — and it must be STABLE, because a node whose address changes is
 // a node that gets replaced. Fixed per-pool slices are what make adding or
-// resizing a pool leave every existing node's address untouched.
+// resizing a pool leave every existing node's address untouched. A pool's
+// slice is its position in workerPools unless addressSlot pins it, and only a
+// pinned one survives removing or reordering the pools before it.
 //
 // Layout of the node subnet:
 //
 //	offset 0             network address (unusable)
 //	offset 1             gateway (Hetzner reserves it)
 //	offset 2..stride-1   control-plane nodes
-//	offset stride..      worker pool 0
-//	offset 2*stride..    worker pool 1, and so on
+//	offset stride..      worker slot 0
+//	offset 2*stride..    worker slot 1, and so on
 type Addressing struct {
 	subnet netip.Prefix
 	stride int

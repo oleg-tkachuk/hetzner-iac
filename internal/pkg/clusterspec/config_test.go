@@ -516,3 +516,68 @@ func TestEveryTopologyPresentPinsKubernetes(t *testing.T) {
 			"%s should pin Kubernetes explicitly", path)
 	}
 }
+
+// pool is a worker pool spec, pinned to a slot when slot is not nil.
+func pool(name string, slot *int) clusterspec.WorkerPoolSpec {
+	return clusterspec.WorkerPoolSpec{Name: name, Count: 1, ServerType: "cx33", AddressSlot: slot}
+}
+
+func slotAt(n int) *int { return &n }
+
+func TestPoolSlot_IsThePinnedSlotOrThePosition(t *testing.T) {
+	t.Parallel()
+
+	topology := clusterspectest.MustParse(t, clusterspectest.Valid)
+	topology.WorkerPools = []clusterspec.WorkerPoolSpec{pool("general", nil), pool("gpu", slotAt(3))}
+
+	assert.Equal(t, 0, topology.PoolSlot(0), "unpinned, a pool is addressed from its position")
+	assert.Equal(t, 3, topology.PoolSlot(1))
+	require.NoError(t, topology.Validate())
+}
+
+func TestValidate_RefusesTwoPoolsOnOneSlot(t *testing.T) {
+	t.Parallel()
+
+	for name, pools := range map[string][]clusterspec.WorkerPoolSpec{
+		"both pinned": {pool("a", slotAt(1)), pool("b", slotAt(1))},
+		// The case pinning creates: the first pool keeps its position, 0,
+		// and the second is pinned to it.
+		"a position and a pin": {pool("a", nil), pool("b", slotAt(0))},
+	} {
+		topology := clusterspectest.MustParse(t, clusterspectest.Valid)
+		topology.WorkerPools = pools
+
+		err := topology.Validate()
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), "already uses", name)
+	}
+}
+
+func TestValidate_RefusesANegativeSlot(t *testing.T) {
+	t.Parallel()
+
+	topology := clusterspectest.MustParse(t, clusterspectest.Valid)
+	topology.WorkerPools = []clusterspec.WorkerPoolSpec{pool("a", slotAt(-1))}
+
+	err := topology.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not be negative")
+}
+
+func TestValidate_CapacityCountsTheHighestSlot(t *testing.T) {
+	t.Parallel()
+
+	// One pool, but pinned past a gap: its slice starts at (slot+1)*stride,
+	// and that is what has to fit. A /24 holds the control plane's slice and
+	// slots 0 to 4; slot 5 would start at 240 and end past 255.
+	topology := clusterspectest.MustParse(t, clusterspectest.Valid)
+	topology.Network.NodeSubnet = "10.0.1.0/24"
+
+	topology.WorkerPools = []clusterspec.WorkerPoolSpec{pool("a", slotAt(4))}
+	require.NoError(t, topology.Validate())
+
+	topology.WorkerPools = []clusterspec.WorkerPoolSpec{pool("a", slotAt(5))}
+	err := topology.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "up to slot 5")
+}

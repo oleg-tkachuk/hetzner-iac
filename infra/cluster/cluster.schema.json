@@ -215,6 +215,11 @@
               "type": "string",
               "pattern": "^[^=:]+=[^:]*:(NoSchedule|PreferNoSchedule|NoExecute)$"
             }
+          },
+          "addressSlot": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Which slice of network.nodeSubnet the pool is addressed from, 0 being the first after the control plane's. Default: the pool's position in workerPools. Pin it before removing or reordering a pool: a node whose address moves is replaced."
           }
         }
       }

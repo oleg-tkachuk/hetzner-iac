@@ -194,6 +194,24 @@ type WorkerPoolSpec struct {
 	// Taints are applied as Kubernetes node taints, in the standard
 	// key=value:Effect spelling.
 	Taints []string `json:"taints,omitempty"`
+	// AddressSlot pins which slice of network.nodeSubnet the pool's nodes
+	// are addressed from, 0 being the first slice after the control plane's.
+	// Unset, it is the pool's position in workerPools — which is what every
+	// cluster had before this existed, and why that stays the default. A
+	// position moves when a pool before it is removed or the list is
+	// reordered, and every node whose address moves is replaced; a pinned
+	// slot does not move.
+	AddressSlot *int `json:"addressSlot,omitempty"`
+}
+
+// PoolSlot is the address slice worker pool i is addressed from: its pinned
+// AddressSlot, or its position when none is pinned.
+func (t *Topology) PoolSlot(i int) int {
+	if slot := t.WorkerPools[i].AddressSlot; slot != nil {
+		return *slot
+	}
+
+	return i
 }
 
 // NodeLabels are the Kubernetes labels every node of the pool carries: the
@@ -843,6 +861,7 @@ func (t *Topology) validateWorkerPools() []string {
 		problems = append(problems, validateTaints(field, pool.Taints)...)
 	}
 
+	problems = append(problems, t.validatePoolSlots()...)
 	problems = append(problems, t.validatePoolCapacity()...)
 
 	return problems
@@ -887,6 +906,10 @@ func validateTaints(field string, taints []string) []string {
 	return problems
 }
 
+// reservedSlices turns the highest slot into a slice count: slots count from
+// 0, and the control plane's slice comes before all of them.
+const reservedSlices = 2
+
 // maxHostBitsChecked is where the capacity arithmetic below stops asking.
 //
 // A subnet with more host bits than this holds over a million addresses, which
@@ -896,9 +919,53 @@ func validateTaints(field string, taints []string) []string {
 // because a bare 20 in a shift is the one literal a reader cannot infer.
 const maxHostBitsChecked = 20
 
+// validatePoolSlots refuses a negative slot and two pools on one slot. The
+// check is on the slot each pool actually gets, so an unpinned pool whose
+// position equals another pool's pinned slot is caught too: two pools on one
+// slice are two pools assigning the same addresses.
+func (t *Topology) validatePoolSlots() []string {
+	var problems []string
+
+	owner := make(map[int]int, len(t.WorkerPools))
+
+	for i := range t.WorkerPools {
+		slot := t.PoolSlot(i)
+		field := fmt.Sprintf("workerPools[%d]", i)
+
+		if slot < 0 {
+			problems = append(problems, fmt.Sprintf("%s.addressSlot is %d, must not be negative", field, slot))
+
+			continue
+		}
+
+		if first, taken := owner[slot]; taken {
+			problems = append(problems, fmt.Sprintf(
+				"%s is addressed from slot %d, which workerPools[%d] already uses: pin addressSlot on one of them",
+				field, slot, first))
+
+			continue
+		}
+
+		owner[slot] = i
+	}
+
+	return problems
+}
+
+// highestPoolSlot is the largest slot any pool uses, or -1 with no pools.
+func (t *Topology) highestPoolSlot() int {
+	highest := -1
+	for i := range t.WorkerPools {
+		highest = max(highest, t.PoolSlot(i))
+	}
+
+	return highest
+}
+
 // validatePoolCapacity checks that every pool's fixed address slice fits in
-// the node subnet. Control-plane nodes take the first slice, so pool N starts
-// at (N+1)*PoolAddressStride.
+// the node subnet. Control-plane nodes take the first slice, so the pool on
+// slot N starts at (N+1)*PoolAddressStride — and it is the highest slot that
+// must fit, not the number of pools, once a slot can be pinned past a gap.
 func (t *Topology) validatePoolCapacity() []string {
 	prefix, err := netip.ParsePrefix(t.Network.NodeSubnet)
 	if err != nil {
@@ -911,12 +978,13 @@ func (t *Topology) validatePoolCapacity() []string {
 	}
 
 	capacity := 1 << hostBits
-	needed := (len(t.WorkerPools) + 1) * PoolAddressStride
+	needed := (t.highestPoolSlot() + reservedSlices) * PoolAddressStride
 
 	if needed > capacity {
 		return []string{fmt.Sprintf(
-			"%d worker pools need %d addresses (%d per pool, plus one slice for the control plane) but network.nodeSubnet %s holds %d",
-			len(t.WorkerPools), needed, PoolAddressStride, t.Network.NodeSubnet, capacity)}
+			"worker pools up to slot %d need %d addresses (%d per slot, plus one slice for the control plane) "+
+				"but network.nodeSubnet %s holds %d",
+			t.highestPoolSlot(), needed, PoolAddressStride, t.Network.NodeSubnet, capacity)}
 	}
 
 	return nil

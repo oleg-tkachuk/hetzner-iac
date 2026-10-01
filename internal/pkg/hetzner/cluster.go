@@ -329,7 +329,7 @@ func newWorkerPools(
 		pool, err := NewWorkerPool(ctx, fmt.Sprintf("%s-%s", name, spec.Name), &WorkerPoolArgs{
 			ClusterName:         topology.Metadata.Name,
 			PoolName:            spec.Name,
-			PoolIndex:           i,
+			PoolIndex:           topology.PoolSlot(i),
 			Count:               spec.Count,
 			ServerType:          spec.ServerType,
 			Location:            topology.Placement.Location,
