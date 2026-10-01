@@ -18,6 +18,7 @@ under [layers/](../../layers), [infra/cluster/](../../infra/cluster) and
 | [clustersmoke/](clustersmoke) | can a cluster run a workload — the judgements behind `tools/smoke` |
 | [pulumilog/](pulumilog) | the output vocabulary, the same one the taskfiles print |
 | [stackstatus/](stackstatus) | the report behind `task platform:status`, without the Pulumi import that reads it |
+| [pulumilogin/](pulumilogin) | refuses to start against a backend this machine holds no credential for, before the CLI signs up a temporary account |
 | [pulumiopts/](pulumiopts) | one function, because appending to a shared option slice writes into the caller's array |
 
 Under `internal/` because nothing outside this module imports any of it, and

@@ -1,4 +1,6 @@
-package main
+// Package pulumilogin refuses to run against a Pulumi backend this machine
+// holds no credential for.
+package pulumilogin
 
 import (
 	"errors"
@@ -10,8 +12,8 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 )
 
-// projectFile is the Pulumi project file each project directory holds.
-const projectFile = "Pulumi.yaml"
+// ProjectFile is the Pulumi project file each project directory holds.
+const ProjectFile = "Pulumi.yaml"
 
 // loginSchemes are the backends a login stores a credential for: Pulumi
 // Cloud and its self-hosted form. A DIY backend — file://, s3://, gs:// —
@@ -20,9 +22,10 @@ func loginSchemes() map[string]bool {
 	return map[string]bool{"https": true, "http": true}
 }
 
-var errNotLoggedIn = errors.New("not logged in")
+// ErrNotLoggedIn is returned when a backend has no credential.
+var ErrNotLoggedIn = errors.New("not logged in")
 
-// requireLogin refuses to run against a backend this machine holds no
+// Require refuses to run against a backend this machine holds no
 // credential for, before the first CLI call.
 //
 // Run by an AI coding agent, the Pulumi CLI does not fail when it is not
@@ -30,7 +33,7 @@ var errNotLoggedIn = errors.New("not logged in")
 // account's empty backend, so the report says every stack is missing. The
 // check reads the credentials store the CLI itself reads, through the SDK, so
 // the CLI never gets the chance.
-func requireLogin(dirs []string) error {
+func Require(dirs []string) error {
 	if env.AccessToken.Value() != "" {
 		return nil
 	}
@@ -38,9 +41,9 @@ func requireLogin(dirs []string) error {
 	checked := map[string]bool{}
 
 	for _, dir := range dirs {
-		project, err := workspace.LoadProject(filepath.Join(dir, projectFile))
+		project, err := workspace.LoadProject(filepath.Join(dir, ProjectFile))
 		if err != nil {
-			return fmt.Errorf("read %s: %w", filepath.Join(dir, projectFile), err)
+			return fmt.Errorf("read %s: %w", filepath.Join(dir, ProjectFile), err)
 		}
 
 		if project.Backend == nil || checked[project.Backend.URL] || !needsLogin(project.Backend.URL) {
@@ -72,7 +75,7 @@ func loggedIn(backend string) error {
 
 	if !account.HasCredential() {
 		return fmt.Errorf("%w to %s. Log in first:\n\n  pulumi login %s\n\n"+
-			"or export %s", errNotLoggedIn, backend, backend, env.AccessToken.Var().Name())
+			"or export %s", ErrNotLoggedIn, backend, backend, env.AccessToken.Var().Name())
 	}
 
 	return nil
