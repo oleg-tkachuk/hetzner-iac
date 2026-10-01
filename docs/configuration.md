@@ -208,7 +208,9 @@ resources a program declares rather than the constructors it called:
 |---|---|
 | `hcloud-admin-ports-not-world-open` | `6443` or `50000` reachable from `0.0.0.0/0` or `::/0` |
 | `hcloud-server-joins-private-network` | a server with no network attachment — etcd and kubelet ride `network.nodeSubnet` |
+| `hcloud-server-deletes-before-replace` | a server replaced create-first, which Hetzner refuses on the unique name with the old server still standing |
 | `helm-release-pins-chart-version` | a release that resolves to whatever the repository serves today |
+| `cluster-tier-keeps-its-protections` | in the stack that holds the servers: anything but one protected Talos secrets bundle, or an unprotected control-plane server or API load balancer |
 
 ```bash
 task policy:check stack=dev
