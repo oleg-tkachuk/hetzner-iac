@@ -136,3 +136,14 @@ func TestGitignore_KeepsClaudeCodesWorkingStateOut(t *testing.T) {
 		assert.NoError(t, err, "%s is not ignored", path)
 	}
 }
+
+// TestGitignore_KeepsThePolicyPackBinaryOut: Pulumi's Go policy runtime
+// builds the pack in policy/ on every preview that loads it, and the binary
+// sat untracked after every task policy:check.
+func TestGitignore_KeepsThePolicyPackBinaryOut(t *testing.T) {
+	t.Parallel()
+
+	err := exec.CommandContext(t.Context(), "git", "-C", filepath.Join("..", ".."),
+		"check-ignore", "--quiet", "--no-index", "policy/policy").Run()
+	assert.NoError(t, err, "policy/policy is not ignored")
+}
