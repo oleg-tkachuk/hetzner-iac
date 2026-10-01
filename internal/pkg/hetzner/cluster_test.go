@@ -67,6 +67,9 @@ type recorder struct {
 	// creating everything else.
 	dependsOn map[string][]string
 
+	// replaceWith is the URNs each resource, by name, is replaced with.
+	replaceWith map[string][]string
+
 	// callProviders is the provider reference each function call was made
 	// through, by token. Empty when the call went to the default provider —
 	// the one configured from the ambient environment rather than the one a
@@ -82,6 +85,7 @@ func newRecorder() *recorder {
 		deleteFirst:    map[string]bool{},
 		replaceOn:      map[string][]string{},
 		dependsOn:      map[string][]string{},
+		replaceWith:    map[string][]string{},
 		callProviders:  map[string]string{},
 	}
 }
@@ -137,6 +141,10 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 
 		if urns := rpc.GetDependencies(); len(urns) > 0 {
 			r.dependsOn[args.TypeToken] = urns
+		}
+
+		if urns := rpc.GetReplaceWith(); len(urns) > 0 {
+			r.replaceWith[args.Name] = urns
 		}
 
 		r.mu.Unlock()
@@ -624,6 +632,50 @@ func TestCluster_BootstrapIsReplacedWhenTheNodeChanges(t *testing.T) {
 
 	assert.Equal(t, []string{"node"}, rec.replaceOn["talos:machine/bootstrap:Bootstrap"],
 		"a new node address must replace the bootstrap, or it is never performed")
+}
+
+// replacedWith is the one resource the named resource is replaced with.
+func (r *recorder) replacedWith(t *testing.T, name string) string {
+	t.Helper()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	require.Len(t, r.replaceWith[name], 1, "%s is not replaced with exactly one resource", name)
+
+	return r.replaceWith[name][0]
+}
+
+func TestCluster_TalosIsRedoneWhenItsServerIsReplaced(t *testing.T) {
+	t.Parallel()
+
+	// With no public address a node keeps its private IP across a
+	// replacement, so no input of the apply or the bootstrap changes. The
+	// new server would sit in maintenance mode, unconfigured and with no
+	// etcd, while the apply reported success.
+	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: false})
+
+	applies := 0
+	servers := map[string]bool{}
+
+	for name := range rec.replaceWith {
+		if !strings.Contains(name, "-config-") {
+			continue
+		}
+
+		server := rec.replacedWith(t, name)
+		assert.Contains(t, server, "hcloud:index/server:Server", name)
+		assert.False(t, servers[server], "two applies are tied to %s", server)
+
+		servers[server] = true
+		applies++
+	}
+
+	assert.Equal(t, len(rec.of("talos:machine/configurationApply:ConfigurationApply")), applies,
+		"every configuration apply is redone with its server")
+
+	assert.Equal(t, rec.replacedWith(t, "test-control-plane-config-0"), rec.replacedWith(t, "test-control-plane-bootstrap"),
+		"the bootstrap is redone with the first control-plane server")
 }
 
 func TestNewCluster_TheAPITargetWaitsForTheLoadBalancerToJoinTheNetwork(t *testing.T) {

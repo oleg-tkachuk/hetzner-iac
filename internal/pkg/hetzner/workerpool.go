@@ -146,7 +146,10 @@ func NewWorkerPool(ctx *pulumi.Context, name string, args *WorkerPoolArgs, opts 
 				MachineConfigurationInput: machineConfig.MachineConfiguration(),
 				Node:                      address,
 				ConfigPatches:             pulumi.StringArray{patch},
-			}, parent, pulumi.DependsOn(dependencies)); err != nil {
+			}, parent, pulumi.DependsOn(dependencies),
+			// A replaced server needs its configuration again, and with a
+			// private address no input changes to say so.
+			pulumi.ReplaceWith([]pulumi.Resource{server})); err != nil {
 			return nil, fmt.Errorf("talos configuration apply for %s: %w", hostname, err)
 		}
 

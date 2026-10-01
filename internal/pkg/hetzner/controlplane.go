@@ -139,7 +139,11 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 				MachineConfigurationInput: machineConfig.MachineConfiguration(),
 				Node:                      node.address,
 				ConfigPatches:             pulumi.StringArray{patch},
-			}, parent, pulumi.DependsOn([]pulumi.Resource{node.server}))
+			}, parent, pulumi.DependsOn([]pulumi.Resource{node.server}),
+			// A replaced server boots in maintenance mode and needs its
+			// configuration again. With a private address the inputs are
+			// identical, so nothing else would trigger that.
+			pulumi.ReplaceWith([]pulumi.Resource{node.server}))
 		if applyErr != nil {
 			return nil, fmt.Errorf("talos configuration apply for %s: %w", node.hostname, applyErr)
 		}
@@ -165,12 +169,18 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 	// and the cluster has no etcd. A replacement runs the create, and the
 	// create is the bootstrap.
 	//
+	// ReplaceOnChanges alone misses the case it was written for when the
+	// node has no public address: the replacement keeps its private IP, so
+	// `node` does not change. ReplaceWith ties the bootstrap to the server
+	// itself, whichever address it is reached on.
+	//
 	// The delete half is a no-op: there is no un-bootstrapping, and the
 	// provider returned in half a second when this was forced by hand.
 	bootstrap, err := talosmachine.NewBootstrap(ctx, name+"-bootstrap", &talosmachine.BootstrapArgs{
 		ClientConfiguration: clientConfig,
 		Node:                nodes[0].address,
-	}, parent, pulumi.DependsOn(applies), pulumi.ReplaceOnChanges([]string{"node"}))
+	}, parent, pulumi.DependsOn(applies), pulumi.ReplaceOnChanges([]string{"node"}),
+		pulumi.ReplaceWith([]pulumi.Resource{nodes[0].server}))
 	if err != nil {
 		return nil, fmt.Errorf("talos bootstrap: %w", err)
 	}
