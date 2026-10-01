@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource/sig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,7 +124,7 @@ func TestUnwrapSecrets_LeavesOtherEnvelopesAlone(t *testing.T) {
 	// Pulumi signs assets and output values the same way, with a different
 	// signature. Unwrapping one of those would corrupt it.
 	other := map[string]any{
-		secretSignatureKey: "d0e6a833031e9bbcd3f4e8bde6ca49a4", // gitleaks:allow
+		secretSignatureKey: sig.OutputValue,
 		"value":            "kept",
 	}
 
