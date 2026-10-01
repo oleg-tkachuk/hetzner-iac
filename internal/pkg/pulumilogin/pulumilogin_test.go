@@ -1,4 +1,4 @@
-package main
+package pulumilogin
 
 import (
 	"encoding/json"
@@ -25,7 +25,7 @@ func project(t *testing.T, backend string) string {
 		body += "backend:\n  url: " + backend + "\n"
 	}
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, projectFile), []byte(body), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ProjectFile), []byte(body), 0o600))
 
 	return dir
 }
@@ -53,15 +53,15 @@ func credentials(t *testing.T, backends ...string) {
 func TestRequireLogin_PassesALoggedInBackend(t *testing.T) {
 	credentials(t, cloud)
 
-	require.NoError(t, requireLogin([]string{project(t, cloud), project(t, cloud)}))
+	require.NoError(t, Require([]string{project(t, cloud), project(t, cloud)}))
 }
 
 func TestRequireLogin_RefusesABackendWithNoCredential(t *testing.T) {
 	credentials(t, "https://api.example.com")
 
-	err := requireLogin([]string{project(t, cloud)})
+	err := Require([]string{project(t, cloud)})
 
-	require.ErrorIs(t, err, errNotLoggedIn)
+	require.ErrorIs(t, err, ErrNotLoggedIn)
 	assert.Contains(t, err.Error(), "pulumi login "+cloud)
 	assert.Contains(t, err.Error(), env.AccessToken.Var().Name())
 }
@@ -70,23 +70,23 @@ func TestRequireLogin_AcceptsAnExportedToken(t *testing.T) {
 	credentials(t)
 	t.Setenv(env.AccessToken.Var().Name(), "pul-exported")
 
-	require.NoError(t, requireLogin([]string{project(t, cloud)}))
+	require.NoError(t, Require([]string{project(t, cloud)}))
 }
 
 func TestRequireLogin_SkipsWhatNeedsNoAccount(t *testing.T) {
 	credentials(t)
 
-	require.NoError(t, requireLogin([]string{project(t, "file://~"), project(t, "")}),
+	require.NoError(t, Require([]string{project(t, "file://~"), project(t, "")}),
 		"a DIY backend and a project naming none have no account to check")
 }
 
 func TestRequireLogin_ReportsAMissingProject(t *testing.T) {
 	credentials(t, cloud)
 
-	err := requireLogin([]string{t.TempDir()})
+	err := Require([]string{t.TempDir()})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), projectFile)
+	assert.Contains(t, err.Error(), ProjectFile)
 }
 
 func TestNeedsLogin(t *testing.T) {

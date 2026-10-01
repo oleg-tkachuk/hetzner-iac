@@ -37,6 +37,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilogin"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 )
 
@@ -87,7 +88,7 @@ func run(stack string, dirs []string) error {
 		return errNoProjects
 	}
 
-	if err := requireLogin(dirs); err != nil {
+	if err := pulumilogin.Require(dirs); err != nil {
 		return err
 	}
 
