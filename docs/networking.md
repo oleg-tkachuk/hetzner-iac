@@ -103,7 +103,7 @@ provoked, not waited for.** It was first written down for the Hetzner API,
 found again here by opening a URL, and a quiet Hubble window means only that
 nothing asked.
 
-With all of them, the deny is **on** in dev: twenty-two policies, every smoke
+With all of them, the deny is **on** in dev: twenty-four policies, every smoke
 check green, `kubectl top` answering, Hubble reaching all three agents, the
 Argo CD UI answering HTTP 200 from the internet, and no denials in sixteen
 minutes of flows.
@@ -128,6 +128,11 @@ and exits without it; its pods are not on the host network, so the request
 crosses the pod network and the deny dropped it. Pods started before the deny
 existed kept running, which is how a missing policy went unnoticed until a
 rollout. A flow that happens only at start is provoked by a restart.
+
+`47-allow-hubble-ui` is the same lesson a third time: the UI's backend dials
+the relay only when someone opens the UI, so no capture had it, and the UI
+loaded and showed no flows. A probe from the UI pod's own identity produced
+the denial at once.
 
 `70-allow-argocd-git` could not be measured at all — `gitops:repoURL` is
 unset, so the flow does not exist yet. It is written anyway, because the
