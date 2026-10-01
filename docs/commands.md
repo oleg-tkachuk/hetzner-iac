@@ -153,8 +153,9 @@ server name is unique in the project, which means each node is deleted before
 its replacement exists. etcd does not survive that; the way back is a snapshot.
 
 The API load balancer is protected for a different reason: its address **is**
-the cluster endpoint. Every certificate names it and both configs point at it,
-so a replacement hands back an address nothing is configured for.
+the cluster endpoint. Every certificate names it and every machine
+configuration points at it, so a replacement hands back an address nothing is
+configured for.
 
 `replace_control_plane=yes` passes `--ignore-protect` for that one run. Worker
 pools are not protected — they are replaceable by design, and a refusal that

@@ -10,6 +10,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
@@ -76,6 +77,37 @@ type recorder struct {
 	// layer built from its own token.
 	callProviders map[string]string
 }
+
+const (
+	// testLoadBalancerPublicIP is the address Hetzner gives a load balancer
+	// whether or not its public interface is enabled.
+	testLoadBalancerPublicIP = "203.0.113.200"
+	// testLoadBalancerPrivateIP is the load balancer's address in the network.
+	testLoadBalancerPrivateIP = "10.0.1.250"
+	// testFirstNodeIP is the public address every mock server reports.
+	testFirstNodeIP = "203.0.113.10"
+	// talosKubeconfig is a kubeconfig as Talos returns it, pointed at the
+	// cluster endpoint.
+	talosKubeconfig = `apiVersion: v1
+kind: Config
+clusters:
+- name: test
+  cluster:
+    server: https://` + testLoadBalancerPrivateIP + `:6443
+    certificate-authority-data: Y2E=
+users:
+- name: admin@test
+  user:
+    client-certificate-data: Y2VydA==
+    client-key-data: a2V5
+contexts:
+- name: admin@test
+  context:
+    cluster: test
+    user: admin@test
+current-context: admin@test
+`
+)
 
 func newRecorder() *recorder {
 	return &recorder{
@@ -157,11 +189,14 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 		// A real server reports its public address only after creation; the
 		// components turn that output into certificate SANs, so it has to be
 		// present for the graph to resolve.
-		outputs["ipv4Address"] = resource.NewStringProperty("203.0.113.10")
+		outputs["ipv4Address"] = resource.NewStringProperty(testFirstNodeIP)
 	case "hcloud:index/loadBalancer:LoadBalancer":
-		outputs["ipv4"] = resource.NewStringProperty("203.0.113.200")
+		outputs["ipv4"] = resource.NewStringProperty(testLoadBalancerPublicIP)
+	case "hcloud:index/loadBalancerNetwork:LoadBalancerNetwork":
+		outputs["ip"] = resource.NewStringProperty(testLoadBalancerPrivateIP)
 	case "talos:cluster/kubeconfig:Kubeconfig":
-		outputs["kubeconfigRaw"] = resource.NewStringProperty("apiVersion: v1\nkind: Config\n")
+		// What Talos writes: the server is the cluster endpoint.
+		outputs["kubeconfigRaw"] = resource.NewStringProperty(talosKubeconfig)
 	}
 
 	// Numeric ids: hcloud ids are always numeric and the components parse
@@ -676,6 +711,66 @@ func TestCluster_TalosIsRedoneWhenItsServerIsReplaced(t *testing.T) {
 
 	assert.Equal(t, rec.replacedWith(t, "test-control-plane-config-0"), rec.replacedWith(t, "test-control-plane-bootstrap"),
 		"the bootstrap is redone with the first control-plane server")
+}
+
+// TestNewCluster_TheAPILoadBalancerIsPrivate pins item 4 of the audit: a
+// Hetzner firewall cannot be attached to a load balancer, so a public
+// interface on it opened 6443 to everyone beside a firewall admitting only
+// network.adminCIDRs. The nodes use its private address; operators use a node.
+func TestNewCluster_TheAPILoadBalancerIsPrivate(t *testing.T) {
+	t.Parallel()
+
+	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: true})
+
+	attachments := rec.of("hcloud:index/loadBalancerNetwork:LoadBalancerNetwork")
+	require.Len(t, attachments, 1)
+
+	public := attachments[0]["enablePublicInterface"]
+	require.True(t, public.IsBool(), "the public interface is left at Hetzner's default, which is on")
+	assert.False(t, public.BoolValue())
+
+	privateEndpoint := "https://" + testLoadBalancerPrivateIP + ":6443"
+
+	configs := rec.callsOf("talos:machine/getConfiguration:getConfiguration")
+	require.NotEmpty(t, configs)
+
+	for _, config := range configs {
+		assert.Equal(t, privateEndpoint, config["clusterEndpoint"].StringValue(),
+			"the nodes reach the API through the load balancer's private address")
+	}
+}
+
+func TestNewCluster_TheKubeconfigReachesTheFirstNode(t *testing.T) {
+	t.Parallel()
+
+	clientEndpoint := "https://" + testFirstNodeIP + ":6443"
+
+	require.NoError(t, pulumi.RunErr(func(ctx *pulumi.Context) error {
+		cluster, err := hetzner.NewCluster(ctx, "test", &hetzner.ClusterArgs{
+			Topology:   haTopology(t),
+			PublicIPv4: true,
+		})
+		require.NoError(t, err)
+
+		kubeconfig, err := internals.UnsafeAwaitOutput(ctx.Context(), cluster.Kubeconfig)
+		require.NoError(t, err)
+
+		config, err := clientcmd.Load([]byte(kubeconfig.Value.(string)))
+		require.NoError(t, err)
+		require.NotEmpty(t, config.Clusters)
+
+		for name, entry := range config.Clusters {
+			assert.Equal(t, clientEndpoint, entry.Server,
+				"%s points at the load balancer's private address, which no operator can reach", name)
+			assert.Equal(t, []byte("ca"), entry.CertificateAuthorityData, "the CA is kept")
+		}
+
+		endpoint, err := internals.UnsafeAwaitOutput(ctx.Context(), cluster.Endpoint)
+		require.NoError(t, err)
+		assert.Equal(t, clientEndpoint, endpoint.Value, "the exported endpoint is the one the kubeconfig uses")
+
+		return nil
+	}, pulumi.WithMocks("hetzner-iac", "test", newRecorder())))
 }
 
 func TestNewCluster_TheAPITargetWaitsForTheLoadBalancerToJoinTheNetwork(t *testing.T) {

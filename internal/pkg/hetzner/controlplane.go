@@ -25,8 +25,12 @@ type ControlPlane struct {
 	Servers   []*hcloud.Server        `pulumi:"-"`
 	Bootstrap *talosmachine.Bootstrap `pulumi:"-"`
 
-	// Endpoint is the kube-apiserver URL clients use.
+	// Endpoint is the cluster endpoint in every machine configuration: the
+	// API load balancer's private address, or the only node's address.
 	Endpoint pulumi.StringOutput `pulumi:"endpoint"`
+	// ClientEndpoint is the URL the kubeconfig points at: the first node,
+	// through the firewall, because the load balancer has no public interface.
+	ClientEndpoint pulumi.StringOutput `pulumi:"clientEndpoint"`
 	// FirstNodeAddress is where talosctl and the kubeconfig resource connect.
 	FirstNodeAddress pulumi.StringOutput `pulumi:"firstNodeAddress"`
 	// Kubeconfig is as powerful as cluster-admin, so it is a secret output.
@@ -205,9 +209,15 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 	component.Servers = servers
 	component.Bootstrap = bootstrap
 	component.Endpoint = endpoint
+	component.ClientEndpoint = pulumi.Sprintf("https://%s:%d", nodes[0].address, clusterspec.PortKubeAPI)
 	component.FirstNodeAddress = nodes[0].address
 
-	kubeconfigSecret, err := asSecret("kubeconfig", kubeconfig.KubeconfigRaw)
+	// Talos writes the cluster endpoint into the kubeconfig, and on an HA
+	// cluster that is a private address no operator can reach.
+	clientKubeconfig := pulumix.Cast[pulumi.StringOutput](pulumix.Apply2Err(
+		kubeconfig.KubeconfigRaw, component.ClientEndpoint, pointKubeconfigAt))
+
+	kubeconfigSecret, err := asSecret("kubeconfig", clientKubeconfig)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +226,7 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 
 	if err := ctx.RegisterResourceOutputs(component, pulumi.Map{
 		"endpoint":         component.Endpoint,
+		"clientEndpoint":   component.ClientEndpoint,
 		"firstNodeAddress": component.FirstNodeAddress,
 		"kubeconfig":       component.Kubeconfig,
 	}); err != nil {
