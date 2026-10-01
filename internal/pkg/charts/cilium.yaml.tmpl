@@ -126,6 +126,33 @@ resources:
   limits:
     memory: 768Mi
 
+# One block for every agent init container except install-cni-binaries,
+# which reads cni.resources below. They run for seconds, so `kubectl top`
+# never sees them: measured instead as each container's own memory.peak, from
+# a pod built out of the live DaemonSet template on dev. config, which builds
+# the agent's configuration through the API, peaked at 84Mi; the sysctl and
+# bpffs ones at 5Mi. clean-cilium-state exposed no cgroup to read, and with
+# state cleaning off it runs a shell script that changes nothing.
+initResources:
+  requests:
+    cpu: 10m
+    memory: 96Mi
+  limits:
+    memory: 192Mi
+
+# install-cni-binaries copies the plugin binaries onto the host; 3Mi measured
+# the same way. The chart's default carries a 1-CPU limit, which this platform
+# does not set on anything, and a map merges with the default rather than
+# replacing it — so the key is removed with null rather than left out.
+cni:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: null
+      memory: 64Mi
+
 # 55Mi and 3m measured, also on every node.
 envoy:
   resources:
