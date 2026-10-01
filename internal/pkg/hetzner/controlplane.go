@@ -118,7 +118,7 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 		apiAddress = nodes[0].address
 	}
 
-	endpoint := pulumi.Sprintf("https://%s:%d", apiAddress, clusterspec.PortKubeAPI)
+	endpoint := apiAddress.ToStringOutput().ApplyT(clusterspec.APIURL).(pulumi.StringOutput)
 
 	machineConfig := talosmachine.GetConfigurationOutput(ctx, talosmachine.GetConfigurationOutputArgs{
 		ClusterName:       pulumi.String(args.ClusterName),
@@ -209,7 +209,7 @@ func NewControlPlane(ctx *pulumi.Context, name string, args *ControlPlaneArgs, o
 	component.Servers = servers
 	component.Bootstrap = bootstrap
 	component.Endpoint = endpoint
-	component.ClientEndpoint = pulumi.Sprintf("https://%s:%d", nodes[0].address, clusterspec.PortKubeAPI)
+	component.ClientEndpoint = nodes[0].address.ApplyT(clusterspec.APIURL).(pulumi.StringOutput)
 	component.FirstNodeAddress = nodes[0].address
 
 	// Talos writes the cluster endpoint into the kubeconfig, and on an HA
@@ -308,8 +308,9 @@ func controlPlaneNodePatch(node controlPlaneNode, apiAddress pulumi.StringInput)
 		node.address, apiAddress.ToStringOutput(),
 		func(address, endpointAddress string) (string, error) {
 			return clusterspec.BuildNodePatch(clusterspec.NodePatchArgs{
-				Hostname: node.hostname,
-				CertSANs: []string{address, node.privateIP, endpointAddress},
+				Hostname:             node.hostname,
+				CertSANs:             []string{address, node.privateIP, endpointAddress},
+				ServiceAccountIssuer: clusterspec.ServiceAccountIssuer,
 			})
 		}))
 }

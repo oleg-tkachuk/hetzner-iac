@@ -740,6 +740,60 @@ func TestNewCluster_TheAPILoadBalancerIsPrivate(t *testing.T) {
 	}
 }
 
+// serviceAccountIssuers is the issuer list in each node patch, by hostname.
+func serviceAccountIssuers(t *testing.T, rec *recorder) map[string]any {
+	t.Helper()
+
+	out := map[string]any{}
+
+	for _, apply := range rec.of("talos:machine/configurationApply:ConfigurationApply") {
+		for _, patch := range apply["configPatches"].ArrayValue() {
+			first, _, _ := strings.Cut(patch.StringValue(), "\n---\n")
+
+			var doc map[string]any
+			require.NoError(t, yaml.Unmarshal([]byte(first), &doc))
+
+			cluster, _ := doc["cluster"].(map[string]any)
+			apiServer, _ := cluster["apiServer"].(map[string]any)
+			extraArgs, _ := apiServer["extraArgs"].(map[string]any)
+
+			out[patch.StringValue()] = extraArgs["service-account-issuer"]
+		}
+	}
+
+	return out
+}
+
+func TestNewCluster_ControlPlanesSignWithAFixedIssuer(t *testing.T) {
+	t.Parallel()
+
+	// Talos derives the issuer from the cluster endpoint, so moving the
+	// endpoint off the public load balancer made every token in every pod
+	// fail with 401.
+	topology := haTopology(t)
+	rec := runCluster(t, topology, &hetzner.ClusterArgs{PublicIPv4: true})
+
+	want := clusterspec.ServiceAccountIssuer
+	controlPlanes, workers := 0, 0
+
+	for patch, issuers := range serviceAccountIssuers(t, rec) {
+		if strings.Contains(patch, clusterspec.RoleControlPlane) {
+			assert.Equal(t, want, issuers)
+
+			controlPlanes++
+
+			continue
+		}
+
+		assert.Nil(t, issuers, "a worker runs no kube-apiserver")
+
+		workers++
+	}
+
+	assert.Equal(t, topology.ControlPlane.Count, controlPlanes)
+	assert.Positive(t, workers)
+}
+
 func TestNewCluster_TheKubeconfigReachesTheFirstNode(t *testing.T) {
 	t.Parallel()
 

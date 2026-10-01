@@ -365,6 +365,40 @@ type NodePatchArgs struct {
 	// NodeLabels and NodeTaints are the Kubernetes node labels and taints.
 	NodeLabels map[string]string
 	NodeTaints []string
+
+	// ServiceAccountIssuer, on a control plane, replaces the issuer Talos
+	// derives from the cluster endpoint. Empty leaves Talos's default.
+	//
+	// One value, though kube-apiserver accepts several: the Talos provider
+	// refuses a list here ("unexpected type for yaml sequence:
+	// v1alpha1.ArgValue"), so the endpoint cannot stay accepted alongside.
+	ServiceAccountIssuer string
+}
+
+// ServiceAccountIssuer is the issuer every service account token is signed
+// with. Talos defaults it to the cluster endpoint, so moving the endpoint made
+// every token already in a pod fail with 401 until the pod restarted. A name
+// that is not an address cannot move.
+const ServiceAccountIssuer = "https://kubernetes.default.svc.cluster.local"
+
+// APIURL is the kube-apiserver URL at a host: the cluster endpoint, and the
+// address the kubeconfig points at.
+func APIURL(host string) string {
+	return fmt.Sprintf("https://%s:%d", host, PortKubeAPI)
+}
+
+// argServiceAccountIssuer is the kube-apiserver flag.
+const argServiceAccountIssuer = "service-account-issuer"
+
+// apiServer is the node's cluster.apiServer section.
+func apiServer(args NodePatchArgs) map[string]any {
+	section := map[string]any{"certSANs": dedupe(args.CertSANs)}
+
+	if args.ServiceAccountIssuer != "" {
+		section["extraArgs"] = map[string]any{argServiceAccountIssuer: args.ServiceAccountIssuer}
+	}
+
+	return section
 }
 
 // BuildNodePatch renders the per-node machine-config patch.
@@ -412,7 +446,7 @@ func BuildNodePatch(args NodePatchArgs) (string, error) {
 			// on its own, but not the individual node addresses. Setting both
 			// lists is what makes kubectl work through a node AND through the
 			// load balancer.
-			"apiServer": map[string]any{"certSANs": dedupe(args.CertSANs)},
+			"apiServer": apiServer(args),
 		},
 	}
 
