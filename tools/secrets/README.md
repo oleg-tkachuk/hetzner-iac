@@ -26,4 +26,7 @@ certificate authority is one sitting in scrollback.
 task cluster:secrets:export stack=dev | pass insert -m hetzner/dev/talos-secrets
 ```
 
-Run by `task cluster:secrets:export`.
+Run by `task cluster:secrets:export`, and by `task cluster:etcd:upload`, which
+pipes it into the restic repository on the Storage Box beside every snapshot —
+encrypted under the repository's key, never written to disk.
+`task cluster:secrets:download` prints it back.
