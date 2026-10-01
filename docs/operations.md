@@ -316,7 +316,9 @@ it prints the command that would.
 ### From a machine the firewall does not know
 
 The perimeter has exactly two ingress rules — the Kubernetes API and the Talos
-API — and both are sourced from `network.adminCIDRs`. Nothing else is open. So
+API — and both are sourced from `network.adminCIDRs`. Nothing else is open:
+the API load balancer has no public interface, and the kubeconfig and
+talosconfig both name the first control-plane node. So
 on a console at an address that list does not name, a correct kubeconfig still
 times out, and so does `talosctl`. The failure looks like a broken cluster and
 is a filtered port.

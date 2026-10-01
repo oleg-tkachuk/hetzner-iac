@@ -103,7 +103,7 @@ provoked, not waited for.** It was first written down for the Hetzner API,
 found again here by opening a URL, and a quiet Hubble window means only that
 nothing asked.
 
-With all of them, the deny is **on** in dev: twenty-one policies, every smoke
+With all of them, the deny is **on** in dev: twenty-two policies, every smoke
 check green, `kubectl top` answering, Hubble reaching all three agents, the
 Argo CD UI answering HTTP 200 from the internet, and no denials in sixteen
 minutes of flows.
@@ -121,6 +121,13 @@ for opposite reasons worth knowing before adding a third.
 only when a PersistentVolumeClaim provoked it: both clients call that API on
 demand, so a capture is a window rather than an inventory. A flow that happens
 on demand has to be provoked, not waited for.
+
+`61-allow-hcloud-metadata` was found by restarting a pod, not by a flow. The
+CSI node plugin asks the metadata service for its location once, at start,
+and exits without it; its pods are not on the host network, so the request
+crosses the pod network and the deny dropped it. Pods started before the deny
+existed kept running, which is how a missing policy went unnoticed until a
+rollout. A flow that happens only at start is provoked by a restart.
 
 `70-allow-argocd-git` could not be measured at all — `gitops:repoURL` is
 unset, so the flow does not exist yet. It is written anyway, because the
@@ -208,6 +215,51 @@ one: the load balancer reaches the nodes privately, and a wider range would
 accept a spoofed header from any pod. Nothing trusts `X-Forwarded-*` in
 addition — the client address arrives in the PROXY header, and trusting both
 would accept a forged one.
+
+## How the Kubernetes API is reached
+
+Two paths, and only one of them is public.
+
+```mermaid
+flowchart LR
+    %% Same palette as the diagram above.
+    classDef outside fill:#f6f8fa,stroke:#8c959f,stroke-width:1px,color:#1f2328
+    classDef edge fill:#fde8eb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
+    classDef inside fill:#e7effc,stroke:#326ce5,stroke-width:1px,color:#1f2328
+    classDef gate fill:#fff0e0,stroke:#ff7300,stroke-width:2px,color:#1f2328
+
+    operator(["operator<br/>kubectl, talosctl, pulumi"])
+    fw["Hetzner firewall<br/>tcp/6443, tcp/50000<br/>from network.adminCIDRs only"]
+
+    subgraph private["🔒 private network — network.nodeSubnet"]
+        direction LR
+        cp0["first control-plane node<br/>kube-apiserver, apid"]
+        nodes["every node<br/>kubelet, KubePrism"]
+        apilb["API load balancer<br/>no public interface<br/>the cluster endpoint"]
+        cps["control-plane nodes"]
+    end
+
+    operator -->|"kubeconfig, talosconfig"| fw
+    fw --> cp0
+    nodes -->|"tcp/6443"| apilb
+    apilb --> cps
+
+    class operator outside
+    class fw gate
+    class apilb edge
+    class cp0,nodes,cps inside
+
+    style private fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
+```
+
+A Hetzner firewall attaches to servers, not to a load balancer, and the load
+balancer reaches its targets over the private network, so nothing behind it
+sees the client's address. A public interface on it was tcp/6443 open to
+everyone beside a firewall that admitted only `network.adminCIDRs`. It has
+none now: the nodes reach the API through it, and an operator reaches the
+first control-plane node directly, where the firewall decides. If that node
+is down, point the kubeconfig at another one — every node's addresses are in
+the apiserver certificate.
 
 ## How pod traffic crosses a node boundary
 
