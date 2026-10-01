@@ -299,7 +299,7 @@ func generate(ctx context.Context, talosctl, workDir string, topology *clustersp
 		"gen", "config", topology.Metadata.Name, clusterEndpoint,
 		"--output-dir", workDir,
 		"--with-docs=false", "--with-examples=false",
-		"--talos-version", topology.Talos.Version,
+		"--talos-version", topology.ConfigContract(),
 		"--force",
 	}
 

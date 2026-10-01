@@ -136,6 +136,11 @@
           "description": "Talos version contract. Must match the baked snapshot: the image lookup keys off this, so bumping without re-baking fails at plan time.",
           "pattern": "^v\\d+\\.\\d+\\.\\d+$"
         },
+        "configVersion": {
+          "type": "string",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$",
+          "description": "The Talos version the machine configuration is generated for. Default: talos.version. Pin it to the version a running cluster was created with before raising talos.version: nodes run configuration generated for their own version or an older one."
+        },
         "architecture": {
           "enum": [
             "x86",
