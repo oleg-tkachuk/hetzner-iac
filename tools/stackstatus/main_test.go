@@ -115,10 +115,10 @@ func TestRootOutputs(t *testing.T) {
 	assert.Nil(t, rootOutputs(apitype.DeploymentV3{}))
 }
 
-// secretEnvelope is how a checkpoint holds a secret output: ciphertext in a
-// signed map, never the value.
+// secretEnvelope is how ExportStack returns a secret output: decrypted,
+// because it always passes --show-secrets, but still in its signed map.
 func secretEnvelope() map[string]any {
-	return map[string]any{resource.SigKey: resource.SecretSig, "ciphertext": "AAAB…"}
+	return map[string]any{resource.SigKey: resource.SecretSig, "plaintext": `"https://203.0.113.4:6443"`}
 }
 
 func TestOutputReaders(t *testing.T) {
