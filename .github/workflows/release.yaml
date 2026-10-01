@@ -119,6 +119,12 @@ jobs:
           # release that worked yesterday breaks on an upstream publish with no
           # commit of ours in between — and the failure reads as a missing
           # module rather than as a version mismatch.
+          #
+          # The preset stays on 9.x. 10.x needs conventional-changelog-writer 9,
+          # and release-notes-generator 14, the one semantic-release 25 ships,
+          # brings writer 8: 10.2.1 rendered empty notes and 10.4.0 refuses
+          # outright. The analyzer reads only the preset's parser and works
+          # with either.
           semantic_version: 25
           extra_plugins: |
-            conventional-changelog-conventionalcommits@10.2.1
+            conventional-changelog-conventionalcommits@9.3.1

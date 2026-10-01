@@ -7,7 +7,10 @@ module.exports = {
   repositoryUrl: "https://github.com/oleg-tkachuk/hetzner-iac.git",
   plugins: [
     ["@semantic-release/commit-analyzer", { preset: "conventionalcommits" }],
-    "@semantic-release/release-notes-generator",
+    // The same preset as the analyzer. Without one the generator falls back
+    // to angular, which does not parse `type!:`, so a breaking change was
+    // listed with no section heading.
+    ["@semantic-release/release-notes-generator", { preset: "conventionalcommits" }],
     // No changelog commit and no npm publish: this repository ships
     // infrastructure, not a package, so the GitHub release IS the artifact.
     ["@semantic-release/github", { successComment: false, failComment: false }],
