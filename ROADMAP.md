@@ -16,10 +16,11 @@ are committed. Three things are not, and those are what recovery means here.
 Taking a snapshot is not a backup until restoring one has been done. The goal
 is a written procedure, exercised on a throwaway cluster, that ends in a
 working cluster.
-`task cluster:etcd:restore` has been run on dev's three control-plane nodes:
-a ConfigMap written after the snapshot was gone, one written before it
-remained, and the platform planned clean. **Remaining:** restoring from the
-Storage Box copy rather than the local file.
+Done on dev's three control-plane nodes, from the off-site copy: a snapshot
+uploaded with `task cluster:etcd:upload`, the local file removed, fetched back
+with `task cluster:etcd:download` and restored with `task cluster:etcd:restore`.
+A ConfigMap written after the snapshot was gone, one written before it
+remained, and smoke passed.
 
 ### The cluster's identity held in a second place
 
