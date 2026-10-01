@@ -245,6 +245,7 @@ func newMachineConfig(ctx *pulumi.Context, name string, args *ClusterArgs, paren
 		// With no worker pool the control plane is the only place a pod can
 		// run, so scheduling has to be allowed there or nothing starts.
 		AllowSchedulingOnControlPlanes: topology.TotalWorkers() == 0,
+		PublicIPv4:                     args.PublicIPv4,
 	})
 	if err != nil {
 		return machineConfig{}, err

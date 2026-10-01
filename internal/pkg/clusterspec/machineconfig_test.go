@@ -619,7 +619,7 @@ func TestBuildClusterPatch_RoutesThePodNetworkThroughThePrivateGateway(t *testin
 	iface, ok := list[0].(map[string]any)
 	require.True(t, ok)
 
-	assert.Equal(t, clusterspec.PrivateInterface, iface["interface"])
+	assert.Equal(t, clusterspec.PrivateInterface(false), iface["interface"])
 
 	// DHCP stays on. Hetzner serves the private address over it, and declaring
 	// the interface without this turns it off — taking the private address,
@@ -749,4 +749,31 @@ func TestAPIURL(t *testing.T) {
 	assert.Equal(t, "https://10.0.1.1:6443", clusterspec.APIURL("10.0.1.1"))
 	assert.NotContains(t, clusterspec.ServiceAccountIssuer, "6443",
 		"the issuer is a name, not an endpoint that can move")
+}
+
+func TestPrivateInterface_IsTheOnlyNICWithoutAPublicOne(t *testing.T) {
+	t.Parallel()
+
+	// Hetzner attaches the public NIC first, so with one the private NIC is
+	// the second. A server with no Primary IP has no public interface, and
+	// IPv6 is never assigned here, so without public IPv4 it is the first.
+	assert.Equal(t, "eth1", clusterspec.PrivateInterface(true))
+	assert.Equal(t, "eth0", clusterspec.PrivateInterface(false))
+
+	for _, public := range []bool{true, false} {
+		patch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
+			PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12",
+			NodeSubnet: "10.0.1.0/24", IPRange: "10.0.0.0/16",
+			PublicIPv4: public,
+		})
+		require.NoError(t, err)
+
+		machine, _ := decode(t, patch)["machine"].(map[string]any)
+		network, _ := machine["network"].(map[string]any)
+		list, _ := network["interfaces"].([]any)
+		require.Len(t, list, 1)
+
+		iface, _ := list[0].(map[string]any)
+		assert.Equal(t, clusterspec.PrivateInterface(public), iface["interface"], "publicIPv4=%t", public)
+	}
 }

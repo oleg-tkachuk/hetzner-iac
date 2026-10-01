@@ -66,18 +66,39 @@ type ClusterPatchArgs struct {
 	// AllowSchedulingOnControlPlanes is required on a cluster with no worker
 	// pool, where the control plane is the only place a pod can run.
 	AllowSchedulingOnControlPlanes bool
+
+	// PublicIPv4 is whether the servers have a public interface, which
+	// decides the private NIC's name. See PrivateInterface.
+	PublicIPv4 bool
 }
+
+// The names Talos gives a Hetzner server's NICs, in the order Hetzner
+// attaches them: the public one first, when there is one.
+const (
+	nicFirst  = "eth0"
+	nicSecond = "eth1"
+)
 
 // PrivateInterface is the NIC a Hetzner server gets its private address on.
 //
-// Hardcoded, because Talos offers no way to say "the interface on the private
-// network": deviceSelector matches on hardware, and both NICs here are virtio.
-// Hetzner attaches the public one first, so the private one is the second.
+// Named, because Talos offers no way to say "the interface on the private
+// network": deviceSelector matches on hardware, and both NICs are virtio.
+// Hetzner attaches the public one first, so the private one is the second —
+// unless there is no public one. A server with no Primary IP has no public
+// interface at all (Hetzner's Primary IPs documentation says so), and this
+// repository never assigns IPv6, so with publicIPv4 off the private NIC is
+// the only one.
 //
-// If this is ever wrong the route below lands on the wrong interface and
-// pod-to-pod across nodes stops working — the exact failure this patch
-// exists to fix, which is why cluster:smoke now asks about it directly.
-const PrivateInterface = "eth1"
+// If this is ever wrong the route below lands on an interface that does not
+// exist and pod-to-pod across nodes stops working — the failure this patch
+// exists to fix, which is why cluster:smoke asks about it directly.
+func PrivateInterface(publicIPv4 bool) string {
+	if publicIPv4 {
+		return nicSecond
+	}
+
+	return nicFirst
+}
 
 // NetworkGateway is the gateway of a Hetzner private network: the first
 // address of its range.
@@ -190,7 +211,7 @@ func BuildClusterPatch(args ClusterPatchArgs) (string, error) {
 					// The private NIC. Named rather than selected, because
 					// Talos's deviceSelector cannot say "the one on the private
 					// network" and Hetzner presents the public NIC first.
-					"interface": PrivateInterface,
+					"interface": PrivateInterface(args.PublicIPv4),
 					// Kept, and load-bearing. Hetzner serves the private
 					// address over DHCP; declaring the interface without this
 					// turns it off and the node loses its private address —
