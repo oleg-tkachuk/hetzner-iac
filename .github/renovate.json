@@ -83,14 +83,16 @@
       "labels": ["tooling"]
     },
     {
-      "description": "A task library bump changes the commands this repository has, not what it deploys, so it releases nothing on its own. The note is the one step Renovate cannot take: Task names its trust files for the sha256 of the whole URL, ref included, so bumping the ref invalidates every checksum under .task/remote and TestTasklib_EveryRemoteTaskfileHasItsChecksum fails until they are replaced.",
+      "description": "A task library bump changes the commands this repository has, not what it deploys, so it releases nothing on its own. Task names its trust files for the sha256 of the whole URL, ref included, so bumping the ref invalidates every checksum under .task/remote; the post-upgrade task replaces them on the same branch. Its command must be in RENOVATE_ALLOWED_COMMANDS in .github/workflows/renovate.yaml, or Renovate skips it with a warning.",
       "matchDepNames": ["oleg-tkachuk/taskfiles"],
       "semanticCommitType": "chore",
       "semanticCommitScope": "tasklib",
       "labels": ["tooling"],
-      "prBodyNotes": [
-        "⚠️ This branch needs one manual step before it can go green: run any task with `--yes` once to re-trust the library at the new ref, then commit the replaced `.task/remote/*.checksum` files onto this branch. The checksums are named for the sha256 of the URL, so a bump invalidates all of them."
-      ]
+      "postUpgradeTasks": {
+        "commands": ["bash .github/renovate/trust-tasklib.sh"],
+        "fileFilters": [".task/remote/*.checksum"],
+        "executionMode": "branch"
+      }
     },
     {
       "description": "pulumi-kit is fetched by `go run` at the moment a task needs it, so a bump changes no artefact this repository produces. respectLatest is off for this one dependency, and only because of how the Go module proxy answers: `@latest` is a separately cached endpoint with its own TTL, so it lags the version list by a window — measured, it reported v0.1.1 while the list already held v0.1.2, and then v0.1.2 while the list held v0.1.3. With respectLatest on, Renovate refuses to go past `@latest` and therefore proposes the version before the current one, for ever one release behind. For a registry where `latest` is a maintainer's signal that is the right default; for the Go proxy it is a cache artefact, so the highest version in the list is the honest answer.",

@@ -184,9 +184,28 @@ jobs:
             exit 1
           fi
 
+      # The task library's post-upgrade task runs Task inside Renovate's
+      # container, which does not ship it. The release binary is static, so it
+      # is mounted in rather than installed there.
+      - name: Install Task
+        if: github.event_name != 'issues' || steps.tick.outputs.proceed == 'true'
+        uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
+        with:
+          version: 3.x
+          repo-token: ${{ github.token }}
+
+      - name: Locate Task
+        id: task
+        if: github.event_name != 'issues' || steps.tick.outputs.proceed == 'true'
+        run: printf 'path=%s\n' "$(command -v task)" >> "${GITHUB_OUTPUT}"
+
       - uses: renovatebot/github-action@6d26fcf0275dc65624cbc3d51fe78bc773f98321 # v46.3.6
         if: github.event_name != 'issues' || steps.tick.outputs.proceed == 'true'
         env:
+          # The only commands renovate.json's postUpgradeTasks may run. Each
+          # is a regex matched against the whole command; one that matches
+          # none is skipped with a warning and the branch stays red.
+          RENOVATE_ALLOWED_COMMANDS: '["^bash \\.github/renovate/trust-tasklib\\.sh$"]'
           # Repo configuration still comes from .github/renovate.json. Only
           # the settings that cannot live there — which repository to act on,
           # and who to act as — are here.
@@ -207,3 +226,5 @@ jobs:
           RENOVATE_FORCE: ${{ (github.event_name == 'workflow_dispatch' && inputs.ignoreSchedule) && '{"schedule":null}' || '' }}
         with:
           token: ${{ secrets.RENOVATE_TOKEN }}
+          # /tmp:/tmp is the action's default, which setting this replaces.
+          docker-volumes: "/tmp:/tmp;${{ steps.task.outputs.path }}:/usr/local/bin/task:ro"
