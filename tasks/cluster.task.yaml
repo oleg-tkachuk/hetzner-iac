@@ -606,7 +606,7 @@ tasks:
         msg: "{{._STACK_USAGE}}"
     deps: [kubeconfig]
     cmds:
-      # Three entries added through kubectl, not a merged file.
+      # Entries added through kubectl, not a merged file.
       #
       # `kubectl config view --flatten` was the obvious way and it is wrong
       # here: it rewrites the WHOLE target, and inlines every other cluster's
@@ -615,8 +615,8 @@ tasks:
       # came back as `certificate-authority-data: …`. That is somebody else's
       # entry changed to add ours.
       #
-      # set-cluster/set-credentials/set-context touch only the three names
-      # they are given, so an unrelated entry keeps its file reference.
+      # set-cluster/set-credentials/set-context touch only the names they are
+      # given, so an unrelated entry keeps its file reference.
       #
       # The credentials go in as files, never as arguments. `kubectl config set
       # users.<u>.client-key-data <base64>` put the cluster-admin key on the
@@ -642,26 +642,31 @@ tasks:
             kubectl --kubeconfig "$source" config view --raw -o "jsonpath=$1"
           }
 
-          context="$(kubectl --kubeconfig "$source" config current-context)"
-          cluster="$(read_source "{.contexts[?(@.name=='$context')].context.cluster}")"
-          user="$(read_source "{.contexts[?(@.name=='$context')].context.user}")"
-          server="$(read_source "{.clusters[?(@.name=='$cluster')].cluster.server}")"
-          authority="$(read_source "{.clusters[?(@.name=='$cluster')].cluster.certificate-authority-data}")"
-          certificate="$(read_source "{.users[?(@.name=='$user')].user.client-certificate-data}")"
-          key="$(read_source "{.users[?(@.name=='$user')].user.client-key-data}")"
+          # Every context, not just the current one: the cluster tier writes one
+          # per control-plane node, so that losing the first node is one
+          # `kubectl config use-context` from the next rather than a re-export.
+          current="$(kubectl --kubeconfig "$source" config current-context)"
+          contexts="$(kubectl --kubeconfig "$source" config get-contexts -o name)"
 
-          # Refuse a name that already means another cluster. set-cluster
-          # overwrites the entry it is given, so without this the operator's
-          # own `platform-dev` would become this one silently.
+          cluster_of() { read_source "{.contexts[?(@.name=='$1')].context.cluster}"; }
+          server_of() { read_source "{.clusters[?(@.name=='$1')].cluster.server}"; }
+
+          # Refuse a name that already means another cluster, before anything
+          # is written. set-cluster overwrites the entry it is given, so without
+          # this the operator's own `platform-dev` would become this one silently.
           if [ -f "$target" ]; then
-            existing="$(kubectl --kubeconfig "$target" config view \
-              -o "jsonpath={.clusters[?(@.name=='$cluster')].cluster.server}" 2>/dev/null || true)"
+            for context in $contexts; do
+              cluster="$(cluster_of "$context")"
+              server="$(server_of "$cluster")"
+              existing="$(kubectl --kubeconfig "$target" config view \
+                -o "jsonpath={.clusters[?(@.name=='$cluster')].cluster.server}" 2>/dev/null || true)"
 
-            if [ -n "$existing" ] && [ "$existing" != "$server" ]; then
-              printf '%s\n' "$target already has a cluster named $cluster at $existing," >&2
-              printf '%s\n' "and this stack's is $server. Rename one of them first." >&2
-              exit 1
-            fi
+              if [ -n "$existing" ] && [ "$existing" != "$server" ]; then
+                printf '%s\n' "$target already has a cluster named $cluster at $existing," >&2
+                printf '%s\n' "and this stack's is $server. Rename one of them first." >&2
+                exit 1
+              fi
+            done
 
             # kubectl re-serialises the whole document, so any comments in it
             # are lost either way. current-context survives.
@@ -677,25 +682,31 @@ tasks:
           # mktemp -d is owner-only, so the decoded credentials are too.
           credentials="$(mktemp -d)"
           trap 'rm -rf "$credentials"' EXIT
-          base64 -d <<<"$authority"   > "$credentials/ca.crt"
-          base64 -d <<<"$certificate" > "$credentials/client.crt"
-          base64 -d <<<"$key"         > "$credentials/client.key"
 
           add() { kubectl --kubeconfig "$target" config "$@" >/dev/null; }
 
-          add set-cluster "$cluster" --server="$server" \
-            --certificate-authority="$credentials/ca.crt" --embed-certs=true
-          add set-credentials "$user" \
-            --client-certificate="$credentials/client.crt" \
-            --client-key="$credentials/client.key" --embed-certs=true
-          add set-context "$context" --cluster="$cluster" --user="$user"
+          for context in $contexts; do
+            cluster="$(cluster_of "$context")"
+            user="$(read_source "{.contexts[?(@.name=='$context')].context.user}")"
+
+            base64 -d <<<"$(read_source "{.clusters[?(@.name=='$cluster')].cluster.certificate-authority-data}")" > "$credentials/ca.crt"
+            base64 -d <<<"$(read_source "{.users[?(@.name=='$user')].user.client-certificate-data}")" > "$credentials/client.crt"
+            base64 -d <<<"$(read_source "{.users[?(@.name=='$user')].user.client-key-data}")" > "$credentials/client.key"
+
+            add set-cluster "$cluster" --server="$(server_of "$cluster")" \
+              --certificate-authority="$credentials/ca.crt" --embed-certs=true
+            add set-credentials "$user" \
+              --client-certificate="$credentials/client.crt" \
+              --client-key="$credentials/client.key" --embed-certs=true
+            add set-context "$context" --cluster="$cluster" --user="$user"
+          done
 
           chmod 600 "$target"
 
           # Not switched to, deliberately. Repointing the operator's shell is
           # the hazard every --kubeconfig in this repository exists to avoid.
-          printf '%s\n' "{{._OK}} cluster · kubeconfig · added to $target"
-          printf '%s\n' "{{._SKIP}} cluster · kubeconfig · not switched to — kubectl config use-context $context"
+          printf '%s\n' "{{._OK}} cluster · kubeconfig · added to $target: ${contexts//$'\n'/ }"
+          printf '%s\n' "{{._SKIP}} cluster · kubeconfig · not switched to — kubectl config use-context $current"
 
   talosconfig:
     desc: "Write ./talosconfig from the cluster stack"

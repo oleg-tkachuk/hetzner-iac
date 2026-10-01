@@ -798,10 +798,11 @@ func TestNewCluster_TheKubeconfigReachesTheFirstNode(t *testing.T) {
 	t.Parallel()
 
 	clientEndpoint := "https://" + testFirstNodeIP + ":6443"
+	topology := haTopology(t)
 
 	require.NoError(t, pulumi.RunErr(func(ctx *pulumi.Context) error {
 		cluster, err := hetzner.NewCluster(ctx, "test", &hetzner.ClusterArgs{
-			Topology:   haTopology(t),
+			Topology:   topology,
 			PublicIPv4: true,
 		})
 		require.NoError(t, err)
@@ -811,12 +812,15 @@ func TestNewCluster_TheKubeconfigReachesTheFirstNode(t *testing.T) {
 
 		config, err := clientcmd.Load([]byte(kubeconfig.Value.(string)))
 		require.NoError(t, err)
-		require.NotEmpty(t, config.Clusters)
+
+		current := config.Contexts[config.CurrentContext]
+		require.NotNil(t, current)
+		assert.Equal(t, clientEndpoint, config.Clusters[current.Cluster].Server,
+			"the current context points at the load balancer's private address, which no operator can reach")
+		assert.Len(t, config.Contexts, topology.ControlPlane.Count, "one context per control-plane node")
 
 		for name, entry := range config.Clusters {
-			assert.Equal(t, clientEndpoint, entry.Server,
-				"%s points at the load balancer's private address, which no operator can reach", name)
-			assert.Equal(t, []byte("ca"), entry.CertificateAuthorityData, "the CA is kept")
+			assert.Equal(t, []byte("ca"), entry.CertificateAuthorityData, "%s keeps the CA", name)
 		}
 
 		endpoint, err := internals.UnsafeAwaitOutput(ctx.Context(), cluster.Endpoint)
