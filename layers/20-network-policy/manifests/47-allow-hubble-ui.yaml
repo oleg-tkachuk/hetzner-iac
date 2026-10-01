@@ -1,0 +1,58 @@
+# The Hubble UI reaching Hubble Relay, both halves.
+#
+# The UI's backend streams flows from the relay's gRPC port, 4245 in the
+# pinned chart (hubble.relay.listenPort). Nothing allowed it, so under the
+# default deny the UI loaded and showed nothing. It was not in any capture
+# because the backend dials the relay only when someone opens the UI; provoked
+# from the UI pod's own identity, Hubble showed
+#
+#   hubble-ui -> hubble-relay:4245 EGRESS DENIED
+#
+# The relay's ingress is written beside it, because the deny holds each
+# direction separately.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-hubble-ui
+spec:
+  description: the Hubble UI reaches Hubble Relay
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: kube-system
+      k8s:k8s-app: hubble-ui
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: hubble-relay
+      toPorts:
+        - ports:
+            - port: "4245"
+              protocol: TCP
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-hubble-relay-from-ui
+spec:
+  description: Hubble Relay answers the Hubble UI
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: kube-system
+      k8s:k8s-app: hubble-relay
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: hubble-ui
+      toPorts:
+        - ports:
+            - port: "4245"
+              protocol: TCP

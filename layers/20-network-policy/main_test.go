@@ -562,3 +562,59 @@ func TestCSINode_ReachesTheMetadataService(t *testing.T) {
 		"no policy lets the CSI node plugin reach %s:%s, so under the default deny it exits at start "+
 			"and no volume can be mounted", hcloudMetadataCIDR, hcloudMetadataPort)
 }
+
+const (
+	// hubbleRelayPort is the relay's gRPC port in the pinned cilium chart,
+	// hubble.relay.listenPort.
+	hubbleRelayPort = "4245"
+	hubbleUIApp     = "hubble-ui"
+	hubbleRelayApp  = "hubble-relay"
+)
+
+// allowsBetween reports whether some policy selecting `from` allows egress to
+// `to` on the port, and some policy selecting `to` allows ingress from `from`.
+func allowsBetween(t *testing.T, from, to, port string) (egress, ingress bool) {
+	t.Helper()
+
+	opens := func(r rule) bool {
+		for _, block := range r.ToPorts {
+			for _, p := range block.Ports {
+				if p.Port == port && p.Protocol == "TCP" {
+					return true
+				}
+			}
+		}
+
+		return false
+	}
+
+	for _, policies := range manifests(t) {
+		for _, p := range policies {
+			switch p.Spec.EndpointSelector.MatchLabels["k8s:k8s-app"] {
+			case from:
+				for _, r := range p.Spec.Egress {
+					for _, peer := range r.ToEndpoints {
+						egress = egress || (peer.MatchLabels["k8s:k8s-app"] == to && opens(r))
+					}
+				}
+			case to:
+				for _, r := range p.Spec.Ingress {
+					for _, peer := range r.FromEndpoints {
+						ingress = ingress || (peer.MatchLabels["k8s:k8s-app"] == from && opens(r))
+					}
+				}
+			}
+		}
+	}
+
+	return egress, ingress
+}
+
+func TestHubbleUI_ReachesTheRelayBothWays(t *testing.T) {
+	t.Parallel()
+
+	egress, ingress := allowsBetween(t, hubbleUIApp, hubbleRelayApp, hubbleRelayPort)
+
+	assert.True(t, egress, "the UI may not reach the relay on %s, so it loads and shows no flows", hubbleRelayPort)
+	assert.True(t, ingress, "the relay does not accept the UI on %s; the deny holds each direction", hubbleRelayPort)
+}
