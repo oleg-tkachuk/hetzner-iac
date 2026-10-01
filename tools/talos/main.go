@@ -197,6 +197,7 @@ func validateTopology(ctx context.Context, talosctl, path string, topology *clus
 		NodeSubnet:                     topology.Network.NodeSubnet,
 		IPRange:                        topology.Network.IPRange,
 		AllowSchedulingOnControlPlanes: len(topology.WorkerPools) == 0,
+		PublicIPv4:                     topology.PublicIPv4Enabled(),
 	})
 	if err != nil {
 		return err
