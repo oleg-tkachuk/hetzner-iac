@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/talossecrets"
 )
 
 // rule builds the property shape hcloud gives a firewall rule, so the cases
@@ -308,8 +309,120 @@ func TestPolicyPack_BuildsWithEveryPolicyRegistered(t *testing.T) {
 	}
 
 	assert.Equal(t, map[string]bool{
-		"hcloud-admin-ports-not-world-open":   true,
-		"hcloud-server-joins-private-network": true,
-		"helm-release-pins-chart-version":     true,
+		"hcloud-admin-ports-not-world-open":    true,
+		"hcloud-server-joins-private-network":  true,
+		"hcloud-server-deletes-before-replace": true,
+		"helm-release-pins-chart-version":      true,
+		"cluster-tier-keeps-its-protections":   true,
 	}, names)
+}
+
+// clusterResource builds a resource as the cluster tier declares it.
+func clusterResource(kind, name string, protect bool, labels map[string]string) policyx.AnalyzerResource {
+	props := map[string]property.Value{}
+
+	if labels != nil {
+		values := map[string]property.Value{}
+		for key, value := range labels {
+			values[key] = property.New(value)
+		}
+
+		props["labels"] = property.New(property.NewMap(values))
+	}
+
+	res := policyx.AnalyzerResource{Type: kind, URN: "urn:pulumi:dev::hetzner-cluster::" + kind + "::" + name}
+	res.Properties = property.NewMap(props)
+	res.Options.Protect = protect
+	res.Options.DeleteBeforeReplace = kind == typeHcloudServer
+
+	return res
+}
+
+func controlPlaneLabels() map[string]string {
+	return map[string]string{clusterspec.LabelRole: clusterspec.RoleControlPlane}
+}
+
+// clusterTier is the cluster stack as it is applied: every protection in place.
+func clusterTier() []policyx.AnalyzerResource {
+	return []policyx.AnalyzerResource{
+		clusterResource(talossecrets.SecretsResourceType, "secrets", true, nil),
+		clusterResource(typeHcloudServer, "cp-0", true, controlPlaneLabels()),
+		clusterResource(typeHcloudServer, "worker-0", false,
+			map[string]string{clusterspec.LabelRole: clusterspec.RoleWorker}),
+		clusterResource(typeHcloudLoadBalancer, "api", true, nil),
+	}
+}
+
+func TestClusterTier_TheAppliedShapePasses(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, clusterTierViolations(clusterTier()), "a false positive here blocks every apply")
+}
+
+func TestClusterTier_ReportsEachLostProtection(t *testing.T) {
+	t.Parallel()
+
+	for index, want := range map[int]string{
+		0: "secrets bundle is not protected",
+		1: "control-plane server is not protected",
+		3: "API load balancer is not protected",
+	} {
+		resources := clusterTier()
+		resources[index].Options.Protect = false
+
+		found := clusterTierViolations(resources)
+		require.Len(t, found, 1, want)
+		assert.Contains(t, found[0].message, want)
+		assert.Equal(t, resources[index].URN, found[0].urn)
+	}
+}
+
+func TestClusterTier_WantsExactlyOneSecretsBundle(t *testing.T) {
+	t.Parallel()
+
+	none := clusterTierViolations(clusterTier()[1:])
+	require.Len(t, none, 1)
+	assert.Contains(t, none[0].message, "holds 0 Talos secrets bundles")
+	assert.Equal(t, stackLevel, none[0].urn, "a missing resource has no URN")
+
+	two := clusterTierViolations(append(clusterTier(),
+		clusterResource(talossecrets.SecretsResourceType, "secrets-2", true, nil)))
+	require.Len(t, two, 1)
+	assert.Contains(t, two[0].message, "holds 2 Talos secrets bundles")
+}
+
+func TestClusterTier_IgnoresStacksWithNoServers(t *testing.T) {
+	t.Parallel()
+
+	// The backup tier and every layer: no server, so not the cluster tier,
+	// and neither a missing bundle nor an unprotected resource is its business.
+	assert.Empty(t, clusterTierViolations([]policyx.AnalyzerResource{
+		clusterResource(typeHcloudLoadBalancer, "ingress", false, nil),
+	}))
+}
+
+func TestClusterTier_TheStackPolicyReportsThroughTheManager(t *testing.T) {
+	t.Parallel()
+
+	resources := clusterTier()
+	resources[3].Options.Protect = false
+
+	manager := &recorder{}
+	require.NoError(t, clusterTierKeepsItsProtections().Validate(context.Background(),
+		policyx.StackValidationArgs{Manager: manager, Resources: resources}))
+
+	assert.Equal(t, []string{resources[3].URN}, manager.urns)
+}
+
+func TestServerPolicy_ReportsACreateFirstReplacement(t *testing.T) {
+	t.Parallel()
+
+	server := clusterResource(typeHcloudServer, "cp-0", true, controlPlaneLabels())
+	assert.Empty(t, validate(t, serverDeletesBeforeReplace(), server).violations)
+
+	server.Options.DeleteBeforeReplace = false
+	assert.Len(t, validate(t, serverDeletesBeforeReplace(), server).violations, 1)
+
+	other := clusterResource(typeHcloudLoadBalancer, "api", true, nil)
+	assert.Empty(t, validate(t, serverDeletesBeforeReplace(), other).violations)
 }

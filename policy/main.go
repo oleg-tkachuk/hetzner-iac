@@ -47,16 +47,22 @@ import (
 	// reach this: internal/pkg/clusterspec carries no Pulumi SDK — a gate
 	// refuses one — and this program already links it through policyx.
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/talossecrets"
 )
 
 // The resource type tokens the policies match on. Spelled once: a typo here is
 // a policy that inspects nothing and reports success, which is the one failure
 // mode a policy pack must not have.
 const (
-	typeHcloudFirewall = "hcloud:index/firewall:Firewall"
-	typeHcloudServer   = "hcloud:index/server:Server"
-	typeHelmRelease    = "kubernetes:helm.sh/v3:Release"
+	typeHcloudFirewall     = "hcloud:index/firewall:Firewall"
+	typeHcloudServer       = "hcloud:index/server:Server"
+	typeHcloudLoadBalancer = "hcloud:index/loadBalancer:LoadBalancer"
+	typeHelmRelease        = "kubernetes:helm.sh/v3:Release"
 )
+
+// stackLevel is the URN a stack policy reports against when the violation is
+// about the stack as a whole — a resource that is missing has no URN.
+const stackLevel = ""
 
 // worldCIDR is "the whole internet" in the only spelling hcloud accepts for
 // IPv4. The IPv6 form is checked beside it: a rule can be opened to either.
@@ -101,7 +107,9 @@ func newPolicyPack(_ *pulumi.Context) (policyx.PolicyPack, error) {
 		[]policyx.Policy{
 			firewallAdminPortsNotWorldOpen(),
 			serverJoinsPrivateNetwork(),
+			serverDeletesBeforeReplace(),
 			helmReleasePinsVersion(),
+			clusterTierKeepsItsProtections(),
 		},
 	)
 	if err != nil {
@@ -212,6 +220,138 @@ func serverJoinsPrivateNetwork() policyx.ResourceValidationPolicy {
 				return nil
 			},
 		})
+}
+
+// serverDeletesBeforeReplace holds the one replacement order a Hetzner server
+// allows. A server name is unique in the project, so Pulumi's default
+// create-before-delete has its create rejected — `server name is already used`
+// — with the old server still standing, measured on a deliberate replacement.
+//
+//nolint:ireturn // policyx.ResourceValidationPolicy IS the SDK's policy type.
+func serverDeletesBeforeReplace() policyx.ResourceValidationPolicy {
+	return policyx.NewResourceValidationPolicy(
+		"hcloud-server-deletes-before-replace",
+		policyx.ResourceValidationPolicyArgs{
+			ConfigSchema:     nil, // this policy takes no configuration
+			Description:      "hcloud servers must be replaced delete-first.",
+			EnforcementLevel: policyx.EnforcementLevelMandatory,
+			ValidateResource: func(_ context.Context, args policyx.ResourceValidationArgs) error {
+				if args.Resource.Type != typeHcloudServer || args.Resource.Options.DeleteBeforeReplace {
+					return nil
+				}
+
+				args.Manager.ReportViolation(
+					"server is replaced create-first. A Hetzner server name is unique in the project, "+
+						"so the create is refused while the old server stands and the replacement "+
+						"fails having changed nothing. Set pulumi.DeleteBeforeReplace.",
+					args.Resource.URN)
+
+				return nil
+			},
+		})
+}
+
+// clusterTierKeepsItsProtections holds, across the whole stack, the
+// protections a teardown task and the secrets export rely on.
+//
+// Each is already set by internal/pkg/hetzner and pinned by its tests. This
+// binds the resources rather than that code path, and it is the one place a
+// MISSING resource can be seen: a resource policy runs per resource, so
+// "exactly one secrets bundle" has nothing to run on when there are none.
+//
+//nolint:ireturn // policyx.StackValidationPolicy IS the SDK's policy type.
+func clusterTierKeepsItsProtections() policyx.StackValidationPolicy {
+	return policyx.NewStackValidationPolicy(
+		"cluster-tier-keeps-its-protections",
+		policyx.StackValidationPolicyArgs{
+			ConfigSchema: nil, // this policy takes no configuration
+			Description: "The cluster tier holds one protected Talos secrets bundle, and protects " +
+				"its control plane and its API load balancer.",
+			EnforcementLevel: policyx.EnforcementLevelMandatory,
+			ValidateStack: func(_ context.Context, args policyx.StackValidationArgs) error {
+				for _, found := range clusterTierViolations(args.Resources) {
+					args.Manager.ReportViolation(found.message, found.urn)
+				}
+
+				return nil
+			},
+		})
+}
+
+// violation is one report, separated from the manager so the judgement can be
+// tested on its own.
+type violation struct {
+	message string
+	urn     string
+}
+
+// clusterTierViolations is the judgement behind clusterTierKeepsItsProtections.
+//
+// A stack with no hcloud server is not the cluster tier — the backup tier and
+// the layers declare none — and nothing here applies to it.
+func clusterTierViolations(resources []policyx.AnalyzerResource) []violation {
+	var (
+		out     []violation
+		servers int
+		bundles int
+	)
+
+	for _, res := range resources {
+		if res.Type == typeHcloudServer {
+			servers++
+		}
+	}
+
+	if servers == 0 {
+		return nil
+	}
+
+	for _, res := range resources {
+		switch {
+		case res.Type == talossecrets.SecretsResourceType:
+			bundles++
+
+			if !res.Options.Protect {
+				out = append(out, violation{
+					"the Talos secrets bundle is not protected. It is the cluster CA, nothing " +
+						"regenerates it, and task cluster:destroy keeps it only because Protect refuses the delete.",
+					res.URN,
+				})
+			}
+		case res.Type == typeHcloudServer && isControlPlane(res) && !res.Options.Protect:
+			out = append(out, violation{
+				"control-plane server is not protected. etcd is on its disk, and a replacement " +
+					"planned by an innocent-looking edit takes the member with it.",
+				res.URN,
+			})
+		case res.Type == typeHcloudLoadBalancer && !res.Options.Protect:
+			out = append(out, violation{
+				"the API load balancer is not protected. Its address is the cluster endpoint in " +
+					"every certificate and machine configuration, and a replacement hands back another.",
+				res.URN,
+			})
+		}
+	}
+
+	if bundles != 1 {
+		out = append(out, violation{
+			fmt.Sprintf("the cluster tier holds %d Talos secrets bundles, not one. Every certificate "+
+				"descends from a single CA, and task cluster:secrets:export reads exactly one.", bundles),
+			stackLevel,
+		})
+	}
+
+	return out
+}
+
+// isControlPlane reads the role label the cluster tier puts on every server.
+func isControlPlane(res policyx.AnalyzerResource) bool {
+	labels, ok := res.Properties.GetOk("labels")
+	if !ok || !labels.IsMap() {
+		return false
+	}
+
+	return stringOf(labels.AsMap(), clusterspec.LabelRole) == clusterspec.RoleControlPlane
 }
 
 // helmReleasePinsVersion catches a chart that never went through internal/pkg/charts.
