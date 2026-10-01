@@ -8,11 +8,11 @@ runtime:
     # hashing still rebuilds when sources change.
     buildTarget: ../../.cache/pulumi-bin/cluster-services
 description: |
-  Core platform: cert-manager, external-secrets and metrics-server, and KEDA
-  when kedaEnabled is set.
+  Core platform: cert-manager, external-secrets, metrics-server, Sigstore
+  policy-controller, and KEDA when kedaEnabled is set.
 
-  Everything above assumes these exist: ingress wants certificates, workloads
-  want secrets, and the horizontal pod autoscaler wants metrics.
+  Ingress wants certificates, workloads want secrets, and the horizontal pod
+  autoscaler wants metrics.
 
 # State backend. Declared here rather than left to `pulumi login`, so the
 # backend is a property of the repository and not of whoever runs it.
