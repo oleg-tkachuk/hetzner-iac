@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -215,4 +216,44 @@ func TestTrustTasklib_FailsWhenTaskFails(t *testing.T) {
 
 	require.Error(t, runTrustTasklib(t, dir, bin),
 		"a library Task cannot load must fail the upgrade, not commit no checksums")
+}
+
+// TestRenovate_EveryPostUpgradeCommandIsAllowed holds every rule's post-upgrade
+// commands, not only the task library's, to the global allow-list. A command
+// that matches none is skipped with a warning in a log nobody reads, and the
+// branch it was meant to fix stays red.
+func TestRenovate_EveryPostUpgradeCommandIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "renovate.json"))
+	require.NoError(t, err)
+
+	var config struct {
+		PackageRules []struct {
+			PostUpgradeTasks *postUpgradeTasks `json:"postUpgradeTasks"`
+		} `json:"packageRules"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &config))
+
+	env, _ := renovateStep(t)
+
+	var allowed []string
+	require.NoError(t, json.Unmarshal([]byte(env[allowedCommandsEnv]), &allowed))
+
+	var commands []string
+
+	for _, rule := range config.PackageRules {
+		if rule.PostUpgradeTasks != nil {
+			commands = append(commands, rule.PostUpgradeTasks.Commands...)
+		}
+	}
+
+	require.NotEmpty(t, commands, "no post-upgrade command in any rule; this test checks nothing")
+
+	for _, command := range commands {
+		matched := slices.ContainsFunc(allowed, func(pattern string) bool {
+			return regexp.MustCompile(pattern).MatchString(command)
+		})
+		assert.True(t, matched, "%q matches nothing in %s, so Renovate skips it", command, allowedCommandsEnv)
+	}
 }

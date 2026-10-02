@@ -33,8 +33,10 @@ func main() {
 		err = renderAll()
 	case "appversions":
 		err = appversions()
+	case "repin":
+		err = repin(context.Background())
 	default:
-		err = fmt.Errorf("unknown command %q; use list, outdated, render or appversions", command)
+		err = fmt.Errorf("unknown command %q; use list, outdated, render, appversions or repin", command)
 	}
 
 	if err != nil {

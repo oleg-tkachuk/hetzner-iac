@@ -205,7 +205,7 @@ jobs:
           # The only commands renovate.json's postUpgradeTasks may run. Each
           # is a regex matched against the whole command; one that matches
           # none is skipped with a warning and the branch stays red.
-          RENOVATE_ALLOWED_COMMANDS: '["^bash \\.github/renovate/trust-tasklib\\.sh$"]'
+          RENOVATE_ALLOWED_COMMANDS: '["^bash \\.github/renovate/trust-tasklib\\.sh$", "^go run \\./tools/charts repin$"]'
           # Repo configuration still comes from .github/renovate.json. Only
           # the settings that cannot live there — which repository to act on,
           # and who to act as — are here.
