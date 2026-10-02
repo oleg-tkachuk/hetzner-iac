@@ -222,9 +222,11 @@ func main() {
 }
 
 // ImagePolicyMode is what the image policies do with an image that fails
-// them: warn, admitting it with a warning, until the warnings on a real
-// cluster have been read and the policies can enforce.
-const ImagePolicyMode = imagepolicy.ModeWarn
+// them: refuse it, and refuse an image no policy names. Bundle-signed
+// repositories stay at warn whatever this says — see imagepolicy.Policies.
+//
+// Enforced after a run at warn on dev showed every other image passing.
+const ImagePolicyMode = imagepolicy.ModeEnforce
 
 // ImagePoliciesComponent is the policies' name in the component set.
 const ImagePoliciesComponent = "image-policies"

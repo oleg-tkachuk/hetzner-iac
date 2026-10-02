@@ -77,11 +77,11 @@ grows while rendering manifests, and it has rendered none yet.
 
 Every image a chart installs has a ClusterImagePolicy generated from
 [`internal/pkg/imagepolicy`](internal/pkg/imagepolicy/images.yaml): a signer
-where the publisher signs, a digest where it does not. The policies warn, in
-every namespace but `kube-system` and the policy-controller's own; enforcing
-waits on the warnings a real cluster shows. Argo CD, Dex and KEDA sign only as
-Sigstore bundles, which policy-controller cannot verify, so their policies
-stay at warn until it can.
+where the publisher signs, a digest where it does not. They are enforced in
+every namespace but `kube-system` and the policy-controller's own, and an image
+no policy names is refused. Argo CD, Dex and KEDA sign only as Sigstore
+bundles, which policy-controller cannot verify, so their policies stay at warn
+until it can.
 
 ## Delivery
 
