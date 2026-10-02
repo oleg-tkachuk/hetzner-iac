@@ -205,7 +205,7 @@ change, and stays with whoever owns the organisation.
 | `<layer>:clusterStackRef` | every [layer](../layers) | `<org>/hetzner-cluster/<stack>`; written by `platform:init` |
 | `node-platform:hcloudToken` | [`10-node-platform`](../layers/10-node-platform) | optional; overrides the token the cluster stack exports (secret) |
 | `node-platform:cni` | [`10-node-platform`](../layers/10-node-platform) | which CNI to install; empty means `cilium`, the only one implemented |
-| `network-policy:enabled` | [`20-network-policy`](../layers/20-network-policy) | create the policies; `false` by default, see [networking.md](networking.md#the-default-deny-is-opt-in) |
+| `network-policy:enabled` | [`20-network-policy`](../layers/20-network-policy) | apply the default deny; the allow policies are always applied. `false` by default, see [networking.md](networking.md#the-default-deny-is-opt-in) |
 | `cluster-services:acmeEmail` | [`30-cluster-services`](../layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
 | `cluster-services:acmeStaging` | [`30-cluster-services`](../layers/30-cluster-services) | order from Let's Encrypt's staging endpoint: untrusted certificates, and where a new domain's first attempt belongs |
 | `cluster-services:kedaEnabled` | [`30-cluster-services`](../layers/30-cluster-services) | install KEDA, the event-driven autoscaler; it scales pods and not nodes, so it cannot grow past the pinned worker pools |

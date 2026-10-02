@@ -275,7 +275,7 @@ locally. On macOS `brew bundle` installs every one.
 | Tool | The check that wants it |
 |------|-------------------------|
 | `helm` | `charts:render-check` — renders each chart and compares it against what `internal/pkg/workloads` declares it produces |
-| `kubeconform` | `charts:validate` — validates what those charts render against the Kubernetes version the topology pins |
+| `kubeconform` | `charts:render-check` — validates what those charts render against `clusterspec.DefaultKubernetesVersion` |
 | `lychee` | `task -t Taskfile.dev.yaml docs:links` |
 | `golangci-lint` | `task -t Taskfile.dev.yaml lint`, which runs the version this workflow pins and refuses another — `task -t Taskfile.dev.yaml lint:install` writes it into `bin/` |
 | `gitleaks` | `security:secrets` |

@@ -25,7 +25,7 @@ boundaries. The cluster component runs under Pulumi's mock monitor, which is
 how the firewall rules, the addressing and "a single control plane creates no
 load balancer" are asserted with no Hetzner account and no cluster.
 
-**One module behind every project.** The cluster tier and the six layers share
+**One module behind every project.** The cluster tier, the five layers and the backup tier share
 `internal/pkg` — the components, the chart registry, the output contract and
 the tests ([ADR-0005](0005-internal-packages.md)).
 

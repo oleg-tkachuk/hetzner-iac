@@ -3,142 +3,80 @@
 What this repository intends to become, and in what order.
 
 No dates. The order is by dependency and by the cost of being wrong, not by
-calendar. Items marked **blocked** wait on a decision rather than on work, and
-the decision is named.
+calendar. Every open item is **blocked** on a decision or on someone else,
+and names which.
 
-## Recovery
+## Open
 
-The cluster itself is reproducible from a clone — the topology and every layer
-are committed. Three things are not, and those are what recovery means here.
+### Workloads arrive through GitOps
 
-### A restore that has been rehearsed
-
-Taking a snapshot is not a backup until restoring one has been done. The goal
-is a written procedure, exercised on a throwaway cluster, that ends in a
-working cluster.
-Done on dev's three control-plane nodes, from the off-site copy: a snapshot
-uploaded with `task cluster:etcd:upload`, the local file removed, fetched back
-with `task cluster:etcd:download` and restored with `task cluster:etcd:restore`.
-A ConfigMap written after the snapshot was gone, one written before it
-remained, and smoke passed.
-
-### The cluster's identity held in a second place
-
-The certificate authority the cluster is built around existed in exactly one
-place, and it is what makes a snapshot usable. `task cluster:etcd:upload` now
-stores the Talos secrets bundle beside every snapshot in the restic repository
-on the Storage Box, and `task cluster:secrets:download` reads it back.
-
-### Volume data
-
-Low priority: left to the cluster's users, since everything else is rebuilt
-from this repository and not every volume needs a backup.
-[ADR-0006](docs/adr/0006-volume-backup.md) records the options.
-
-## Availability
-
-### An Arm cluster is proven
-
-`talos.architecture: arm` is implemented: the factory builds the `arm64` image,
-the bake asks for it per architecture, the server types and their defaults
-follow the field, and every chart the platform installs publishes `linux/arm64`.
-None of it has run on real hardware.
-
-The region is not the obstacle. Hetzner sells the `cax` line in `fsn1`, `nbg1`
-and `hel1`, this cluster already lives in `hel1`, and the API reports `cax11`
-as available there — and refuses every create anyway. One pair of requests
-places the fault: in the same project and location, `cx23` creates and `cax11`
-is refused, so it follows the architecture rather than the location.
-**Blocked on:** a Hetzner support answer for why `cax` is refused where their
-own API advertises it. Not on work here, and not on waiting for capacity.
-
-## Security
-
-### Deny by default on the network
-
-The policies exist and are applied; the default deny that gives them meaning is
-off, because closing the network without knowing every legitimate flow breaks
-the cluster quietly. The goal is a closed network with its flows named.
-**Blocked on:** flows that do not exist yet — see Delivery.
-
-### Secrets come from a secret store
-
-Credentials live in stack configuration: workable for one operator, wrong for a
-cluster that outlives one.
-**Blocked on:** which store holds them.
+Adding a workload is a commit rather than a task once Argo CD is pointed at the
+repository holding them: `gitops:repoURL`, with `gitops:path` and
+`gitops:revision` beside it, public or private. Unset, Argo CD reconciles
+nothing and says so.
+**Blocked on:** which repository holds the workloads — a deployment decision.
 
 ### Every workload declares what it needs
 
 Every chart but Argo CD sets a memory request and limit, and `charts render`
-holds each container to it. Argo CD waits for its first real sync: repo-server
-grows while rendering manifests, and it has rendered none yet.
+holds each container to it. Argo CD's repo-server grows while rendering
+manifests and has rendered none yet.
+**Blocked on:** Argo CD's first real sync, to measure it.
 
-### What runs is verified
+### Secrets come from a secret store
 
-Every image a chart installs has a ClusterImagePolicy generated from
-[`internal/pkg/imagepolicy`](internal/pkg/imagepolicy/images.yaml): a signer
-where the publisher signs, a digest where it does not. They are enforced in
-every namespace but `kube-system` and the policy-controller's own, and an image
-no policy names is refused. Argo CD, Dex and KEDA sign only as Sigstore
-bundles, which policy-controller cannot verify, so their policies stay at warn
-until it can.
-
-## Delivery
+Credentials live in stack configuration: workable for one operator, wrong for a
+cluster that outlives one. External Secrets is deployed and has no store.
+**Blocked on:** which store holds them.
 
 ### Something is reachable from outside
 
 Nothing here is left to build. `40-ingress` creates the `A` and `AAAA` records
-for `metadata.domain`, looking the zone up rather than creating it — or says
-the records are somebody else's to write when the DNS is hosted elsewhere.
-`30-cluster-services` orders the certificate, staging or production by config.
-Argo CD, the only service so far worth exposing, has its Ingress.
+for `metadata.domain`, or says they are somebody else's when the zone is hosted
+elsewhere; `30-cluster-services` orders the certificate.
+**Blocked on:** a domain in the topology. [domain.md](docs/domain.md) is what
+to set.
 
-**Blocked on:** a domain in the topology. That is an input rather than work,
-which is what **blocked** means above, and it is listed because the cluster
-this repository describes has not been given one — not because anything is
-missing. [domain.md](docs/domain.md) is what to set,
-whether or not Hetzner serves the zone.
+### Every image is verified by signature
 
-### A server keeps its address when it is replaced
+Argo CD, Dex, Cilium and KEDA sign only as Sigstore bundles, which
+policy-controller cannot verify yet, so their policies stay at warn under
+enforce. See [operations.md](docs/operations.md#which-images-may-run).
+**Blocked on:** bundle verification upstream.
 
-Control-plane nodes hold explicit Primary IPs, so a replacement keeps the
-address the kubeconfig and talosconfig name. Workers keep implicit ones, and
-the ingress load balancer's address — the one DNS points at — is still the
-load balancer's own.
+### The configuration contract moves to Talos 1.14
 
-### Workloads arrive through GitOps
+Nodes run Talos v1.14.2 and Kubernetes v1.37.1 on the v1.13.10 machine-config
+contract, held by `talos.configVersion`: pulumi-talos 0.8.1 generates
+configuration with Talos machinery v1.13.
+**Blocked on:** a pulumi-talos release built on v1.14.
 
-Adding a workload is a commit rather than a task, once Argo CD is pointed at
-the repository holding them: `gitops:repoURL`, with `gitops:path` and
-`gitops:revision` beside it. Unset, Argo CD installs and reconciles nothing,
-and says so.
+### An Arm cluster is proven
 
-A private repository works too: `gitops:repoSSHPrivateKey`, or
-`gitops:repoUsername` with `gitops:repoPassword`, become the Secret Argo CD
-authenticates with. The layer refuses the combinations Argo CD would accept and
-then fail on — a key against an https:// URL, half of a username and password,
-a credential with no repository — because each of those surfaces as an
-authentication error in a UI minutes after a successful apply.
-**Blocked on:** nothing here — which repository is a deployment decision, and
-this layer no longer has an opinion about it.
+`talos.architecture: arm` is implemented and every chart publishes
+`linux/arm64`; none of it has run on real hardware. In the same project and
+location `cx23` creates and `cax11` is refused, although the API advertises
+it — the refusal follows the architecture, not the region.
+**Blocked on:** a Hetzner support answer.
 
-### Drift is reported, not discovered
+## Done
 
-A change made by hand outside this repository stays invisible until the next
-apply. `task platform:drift` says what differs, from each stack's refresh
-preview, and exits 1 on drift. It is run by hand, before a change, by
-decision: a refresh reads the Kubernetes and Talos APIs, which the firewall
-opens to network.adminCIDRs only, so a hosted CI runner cannot reach them.
-
-### Upgrades are exercised before they matter
-
-The goal is to run each one first on a cluster that can be discarded.
-Done on dev for both. Talos went from v1.13.10 to v1.14.2 one control-plane
-node at a time with `task cluster:upgrade:talos`, etcd healthy throughout.
-Kubernetes went from v1.36.4 to v1.37.1 with `task cluster:upgrade:k8s`, and
-smoke passed. The machine configuration stays on the v1.13.10 contract through
-`talos.configVersion`: pulumi-talos 0.8.1 generates it with Talos machinery
-v1.13, and moving the contract waits for a release built on v1.14.
+- **A rehearsed restore.** An etcd snapshot uploaded off-site, fetched back and
+  restored on dev's three control-plane nodes; see [recovery.md](docs/recovery.md).
+- **The cluster's identity in a second place.** `task cluster:etcd:upload`
+  stores the Talos secrets bundle beside every snapshot on the Storage Box.
+- **Deny by default.** The default deny runs on dev with every platform flow
+  named; a new stack opts in with `network-policy:enabled`.
+- **Image verification.** Every image a chart installs has a
+  ClusterImagePolicy, enforced in every namespace but `kube-system` and the
+  policy-controller's own.
+- **Drift is reported.** `task platform:drift` exits 1 on drift, run by hand:
+  a hosted CI runner cannot reach APIs the firewall opens to
+  `network.adminCIDRs` only.
+- **Upgrades rehearsed.** Talos v1.13.10 → v1.14.2 node by node and Kubernetes
+  v1.36.4 → v1.37.1, on dev, smoke passing.
+- **Stable control-plane addresses.** Control-plane nodes hold explicit Primary
+  IPs, so a replacement keeps the address the kubeconfig and talosconfig name.
 
 ## Not planned
 
@@ -146,6 +84,9 @@ v1.13, and moving the contract waits for a release built on v1.14.
   is not a goal and would cost the things that keep this simple.
 - **A managed control plane.** Hetzner offers none — that is why this exists.
 - **Observability.** Metrics, logs and alerting are for whoever runs workloads
-  on the cluster to choose and install. This repository stops at the cluster
-  and its platform; the smoke checks and `task platform:drift` verify those,
-  and are not monitoring.
+  on the cluster to choose and install. The smoke checks and
+  `task platform:drift` verify the cluster and its platform, and are not
+  monitoring.
+- **Volume backup.** Left to the cluster's users, since everything else is
+  rebuilt from this repository; [ADR-0006](docs/adr/0006-volume-backup.md)
+  records the options.
