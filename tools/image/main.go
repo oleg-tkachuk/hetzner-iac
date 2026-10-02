@@ -3,7 +3,7 @@
 //
 // It replaces a shell block that had grown to forty-eight lines and five
 // tools: `curl | jq` for the Image Factory, `hcloud image list | awk` for the
-// idempotence check, a `case` for the architecture, and a Taskfile `env:`
+// idempotence check — both now the vendors' own Go clients — a `case` for the architecture, and a Taskfile `env:`
 // stanza that resolved the token before the task's own preconditions could
 // run — the last one being a trap this repository walked into: Task evaluates
 // `env` first, so the precondition holding the remedy was unreachable.
@@ -15,19 +15,19 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
-	"net/http"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/siderolabs/image-factory/pkg/client"
+	"github.com/siderolabs/image-factory/pkg/schematic"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hcloudtoken"
@@ -119,7 +119,7 @@ func run(ctx context.Context) error {
 
 	selector := clusterspec.TalosImageSelector(version)
 
-	present, err := snapshotExists(ctx, token, selector, arch)
+	present, err := snapshotExists(ctx, &hcloud.NewClient(hcloud.WithToken(token)).Image, selector, arch)
 	if err != nil {
 		return err
 	}
@@ -133,12 +133,17 @@ func run(ctx context.Context) error {
 		return nil
 	}
 
-	schematic, err := schematicID(ctx)
+	factory, err := newFactory()
 	if err != nil {
 		return err
 	}
 
-	url := imageURL(schematic, version, factoryArch)
+	id, err := schematicID(ctx, factory)
+	if err != nil {
+		return err
+	}
+
+	url := imageURL(id, version, factoryArch)
 	location := topology.Placement.Location
 
 	fmt.Printf("baking %s (%s) in %s from %s\n", version, arch, location, url)
@@ -160,12 +165,17 @@ func printInstaller(ctx context.Context, topologyPath string) error {
 		return err
 	}
 
-	schematic, err := schematicID(ctx)
+	factory, err := newFactory()
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(installerImage(schematic, topology.Talos.Version))
+	id, err := schematicID(ctx, factory)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(installerImage(id, topology.Talos.Version))
 
 	return nil
 }
@@ -196,15 +206,15 @@ func factoryArchitecture(arch string) (string, error) {
 	return factoryArch, nil
 }
 
-// hcloudImage is the part of `hcloud image list -o json` this needs.
-type hcloudImage struct {
-	ID          int64  `json:"id"`
-	Description string `json:"description"`
+// imageLister is the part of hcloud-go's image client this needs, so the check
+// can be tested without the API.
+type imageLister interface {
+	AllWithOpts(ctx context.Context, opts hcloud.ImageListOpts) ([]*hcloud.Image, error)
 }
 
-// listArgs is the hcloud invocation that answers "is it already baked?".
+// snapshotQuery is the list request that answers "is it already baked?".
 //
-// --architecture is the load-bearing part, and it was missing. The labels
+// The architecture is the load-bearing part, and it was missing. The labels
 // carry the Talos version but not the architecture, so the selector alone
 // matched a snapshot of EITHER, and an Arm topology found the x86 one:
 //
@@ -220,128 +230,69 @@ type hcloudImage struct {
 // just refused to run, so the two steps pointed at each other and no Arm
 // image could ever be baked.
 //
-// Filtered by the API rather than over the decoded list: architecture is a
-// field Hetzner indexes, and a flag it validates against x86|arm is one fewer
-// place to spell the pair.
-func listArgs(selector, arch string) []string {
-	return []string{
-		"image", "list",
-		"--type", "snapshot",
-		"--selector", selector,
-		"--architecture", arch,
-		"-o", "json",
+// Filtered by the API rather than over the returned list: architecture is a
+// field Hetzner indexes and validates, one fewer place to spell the pair.
+func snapshotQuery(selector, arch string) hcloud.ImageListOpts {
+	return hcloud.ImageListOpts{
+		ListOpts:     hcloud.ListOpts{LabelSelector: selector},
+		Type:         []hcloud.ImageType{hcloud.ImageTypeSnapshot},
+		Architecture: []hcloud.Architecture{hcloud.Architecture(arch)},
 	}
 }
 
 // snapshotExists asks whether the selector already matches a snapshot of this
 // architecture.
 //
-// `-o json` and encoding/json rather than `-o noheader` piped into awk: the
-// pipeline could not tell an empty list from a failed call, because grep and
-// awk both answer "no rows" with exit 1.
-func snapshotExists(ctx context.Context, token, selector, arch string) (bool, error) {
-	// #nosec G204 -- the arguments are built here from the committed topology,
-	// and passed as a vector rather than a shell string.
-	cmd := exec.CommandContext(ctx, "hcloud", listArgs(selector, arch)...)
-
-	cmd.Env = append(os.Environ(), "HCLOUD_TOKEN="+token)
-
-	var stderr bytes.Buffer
-
-	cmd.Stderr = &stderr
-
-	out, err := cmd.Output()
+// Through hcloud-go, which this repository already uses, rather than the
+// hcloud CLI and its JSON: the SDK moves with the API, and a decoded list of
+// the CLI's output was a second reader of Hetzner's format kept here.
+func snapshotExists(ctx context.Context, images imageLister, selector, arch string) (bool, error) {
+	found, err := images.AllWithOpts(ctx, snapshotQuery(selector, arch))
 	if err != nil {
-		return false, fmt.Errorf("hcloud image list: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return false, fmt.Errorf("list snapshots: %w", err)
 	}
 
-	return snapshotMatched(out)
+	return len(found) > 0, nil
 }
 
-// snapshotMatched answers the question the awk pipeline answered, separated
-// from the call so it can be tested without hcloud.
+// schematicCreator is the part of the Image Factory client this needs, so the
+// call can be tested without the factory.
+type schematicCreator interface {
+	SchematicCreate(ctx context.Context, sc schematic.Schematic) (string, *schematic.Schematic, error)
+}
+
+// newFactory is Sidero's own Image Factory client.
 //
-// An unparseable list is an error rather than "no snapshot": reported as
-// absent, a broken response would bake an image that already exists and leave
-// two candidates behind for the Pulumi lookup's mostRecent to choose between.
-func snapshotMatched(raw []byte) (bool, error) {
-	var images []hcloudImage
-	if err := json.Unmarshal(raw, &images); err != nil {
-		return false, fmt.Errorf("hcloud image list returned no usable json: %w", err)
+// It replaced a POST written here by hand, which demanded a 200 the factory
+// never sends — it answers 201 Created, even for a repeat of an identical
+// body — and so could not bake anything at all until the first bake for a
+// second architecture found it. The client is the factory's own reading of
+// its API, and moves with it.
+func newFactory() (*client.Client, error) {
+	factory, err := client.New(factoryURL)
+	if err != nil {
+		return nil, fmt.Errorf("image factory client: %w", err)
 	}
 
-	return len(images) > 0, nil
+	return factory, nil
 }
 
-// createdSchematic accepts any 2xx from POST /schematics.
-//
-// It used to demand exactly 200, and the factory answers 201 Created — which
-// is correct for a POST that creates a resource, and is what it returns even
-// for a repeat of an identical body, the id being content-addressed. So
-// `cluster:image:bake` could not bake anything at all:
-//
-//	error: image factory returned 201 Created
-//
-// Hidden for as long as the project had a snapshot, because the check for one
-// returns before the factory is ever called. The first thing to reach this
-// line in weeks was the first bake for a second architecture.
-//
-// A range rather than 200 or 201 spelled out: the status is the transport's
-// verdict on whether a schematic came back, and decodeSchematic is what
-// decides whether the body actually holds one.
-func createdSchematic(status int) bool {
-	return status >= http.StatusOK && status < http.StatusMultipleChoices
-}
-
-// schematicID posts the customisation and returns the content-addressed id.
-func schematicID(ctx context.Context) (string, error) {
+// schematicID registers the customisation — none: the stock Hetzner image —
+// and returns its content-addressed id.
+func schematicID(ctx context.Context, factory schematicCreator) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, factoryTimeout)
 	defer cancel()
 
-	body := bytes.NewReader([]byte(`{"customization":{}}`))
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, factoryURL+"/schematics", body)
-	if err != nil {
-		return "", err
-	}
-
-	request.Header.Set("Content-Type", "application/json")
-
-	response, err := http.DefaultClient.Do(request)
+	id, _, err := factory.SchematicCreate(ctx, schematic.Schematic{})
 	if err != nil {
 		return "", fmt.Errorf("image factory: %w", err)
 	}
-	// The body is read below and this only releases the connection. A Close
-	// error here would say nothing about whether the read succeeded, which
-	// is the only question this function answers.
-	defer func() { _ = response.Body.Close() }()
 
-	if !createdSchematic(response.StatusCode) {
-		return "", fmt.Errorf("image factory returned %s", response.Status)
-	}
-
-	return decodeSchematic(response.Body)
-}
-
-// decodeSchematic reads the schematic id out of the factory's response.
-//
-// An empty id is refused rather than passed on: it builds a URL the factory
-// serves nothing at, and that surfaces minutes later inside
-// hcloud-upload-image as a download error.
-func decodeSchematic(body io.Reader) (string, error) {
-	var decoded struct {
-		ID string `json:"id"`
-	}
-
-	if err := json.NewDecoder(body).Decode(&decoded); err != nil {
-		return "", fmt.Errorf("image factory response: %w", err)
-	}
-
-	if decoded.ID == "" {
+	if id == "" {
 		return "", errors.New("image factory returned no schematic id")
 	}
 
-	return decoded.ID, nil
+	return id, nil
 }
 
 // uploadArgs is the hcloud-upload-image invocation that bakes the snapshot.

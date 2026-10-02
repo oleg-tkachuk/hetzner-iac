@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"maps"
-	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/siderolabs/image-factory/pkg/schematic"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
@@ -46,39 +49,6 @@ func TestImageURL_IsWhatTheFactoryServes(t *testing.T) {
 		imageURL("abc123", "v1.13.10", "amd64"))
 }
 
-func TestListArgs_ScopesTheCheckToTheArchitecture(t *testing.T) {
-	t.Parallel()
-
-	// The bug this pins: the labels carry the Talos version but not the
-	// architecture, so without --architecture the check matched a snapshot of
-	// either. An Arm topology found the x86 one, image:bake reported "already
-	// present" and exited 0, and apply then failed telling the operator to run
-	// image:bake — the two steps pointing at each other with no way through.
-	assert.Equal(t, []string{
-		"image", "list",
-		"--type", "snapshot",
-		"--selector", "os=talos,talos-version=v1.13.10",
-		"--architecture", "arm",
-		"-o", "json",
-	}, listArgs("os=talos,talos-version=v1.13.10", "arm"))
-}
-
-func TestListArgs_AsksForTheArchitectureItWasGiven(t *testing.T) {
-	t.Parallel()
-
-	// Separate from the vector above so a reordering of the flags does not
-	// hide the one property that matters: whatever architecture came from the
-	// topology is the one Hetzner filters on.
-	for _, arch := range []string{"x86", "arm"} {
-		args := listArgs("os=talos,talos-version=v1.13.10", arch)
-
-		position := slices.Index(args, "--architecture")
-		require.NotEqual(t, -1, position, "no --architecture flag for %s", arch)
-		require.Less(t, position+1, len(args), "--architecture is the last argument")
-		assert.Equal(t, arch, args[position+1])
-	}
-}
-
 func TestUploadArgs_BakesInTheTopologysLocation(t *testing.T) {
 	t.Parallel()
 
@@ -114,37 +84,6 @@ func TestUploadArgs_LabelsWithTheSelectorTheLookupUses(t *testing.T) {
 	assert.Equal(t, clusterspec.TalosImageSelector("v1.13.10"), args[position+1])
 }
 
-func TestCreatedSchematic_AcceptsTheStatusTheFactoryActuallySends(t *testing.T) {
-	t.Parallel()
-
-	// 201 is the regression. Demanding exactly 200 made every bake fail with
-	// "image factory returned 201 Created", invisibly, for as long as the
-	// project already had a snapshot — the presence check returns before the
-	// factory is called.
-	for _, status := range []int{
-		http.StatusOK,
-		http.StatusCreated,
-		http.StatusAccepted,
-	} {
-		assert.True(t, createdSchematic(status), status)
-	}
-
-	// Everything that is not the factory handing back a schematic: a redirect
-	// to a login page, a rejected body, a broken factory. decodeSchematic
-	// cannot tell these apart from a valid response, so the status must.
-	for _, status := range []int{
-		http.StatusMultipleChoices,
-		http.StatusFound,
-		http.StatusBadRequest,
-		http.StatusUnauthorized,
-		http.StatusTooManyRequests,
-		http.StatusInternalServerError,
-		http.StatusBadGateway,
-	} {
-		assert.False(t, createdSchematic(status), status)
-	}
-}
-
 func TestRun_RejectsTheWrongNumberOfArguments(t *testing.T) {
 	t.Parallel()
 
@@ -166,65 +105,6 @@ func TestRun_RejectsTheWrongNumberOfArguments(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "usage:")
 		})
-	}
-}
-
-func TestSnapshotMatched_PresentAbsentAndBroken(t *testing.T) {
-	t.Parallel()
-
-	for name, tc := range map[string]struct {
-		raw     string
-		want    bool
-		wantErr string
-	}{
-		"one snapshot":  {`[{"id":1,"description":"talos v1.13.10"}]`, true, ""},
-		"two snapshots": {`[{"id":1},{"id":2}]`, true, ""},
-		// The ordinary first-run state, and not an error.
-		"none": {`[]`, false, ""},
-		// The distinction awk could not make: it answered "no rows" with exit
-		// 1 for both an empty list and a failed call.
-		"not json":   {"talos v1.13.10", false, "no usable json"},
-		"empty body": {"", false, "no usable json"},
-	} {
-		got, err := snapshotMatched([]byte(tc.raw))
-
-		if tc.wantErr != "" {
-			require.Error(t, err, name)
-			assert.Contains(t, err.Error(), tc.wantErr, name)
-
-			continue
-		}
-
-		require.NoError(t, err, name)
-		assert.Equal(t, tc.want, got, name)
-	}
-}
-
-func TestDecodeSchematic(t *testing.T) {
-	t.Parallel()
-
-	id, err := decodeSchematic(strings.NewReader(`{"id":"abc123"}`))
-	require.NoError(t, err)
-	assert.Equal(t, "abc123", id)
-}
-
-func TestDecodeSchematic_Errors(t *testing.T) {
-	t.Parallel()
-
-	for name, tc := range map[string]struct {
-		body string
-		want string
-	}{
-		// Both would build a URL the factory serves nothing at, and that
-		// failure arrives minutes later from hcloud-upload-image.
-		"no id":    {`{}`, "no schematic id"},
-		"empty id": {`{"id":""}`, "no schematic id"},
-		"not json": {`<html>502</html>`, "image factory response"},
-	} {
-		_, err := decodeSchematic(strings.NewReader(tc.body))
-
-		require.Error(t, err, name)
-		assert.Contains(t, err.Error(), tc.want, name)
 	}
 }
 
@@ -272,4 +152,89 @@ func TestFactoryRegistry_IsTheFactorysHost(t *testing.T) {
 	parsed, err := url.Parse(factoryURL)
 	require.NoError(t, err)
 	assert.Equal(t, parsed.Host, factoryRegistry, "images and installers come from one factory")
+}
+
+// fakeImages answers a snapshot list the way hcloud-go would, and records the
+// request it was given.
+type fakeImages struct {
+	found []*hcloud.Image
+	err   error
+	asked hcloud.ImageListOpts
+}
+
+func (f *fakeImages) AllWithOpts(_ context.Context, opts hcloud.ImageListOpts) ([]*hcloud.Image, error) {
+	f.asked = opts
+
+	return f.found, f.err
+}
+
+// The bug this pins: the labels carry the Talos version but not the
+// architecture, so without it the check matched a snapshot of either. An Arm
+// topology found the x86 one, image:bake reported "already present" and
+// exited 0, and apply then failed telling the operator to run image:bake.
+func TestSnapshotQuery_ScopesTheCheckToTheArchitecture(t *testing.T) {
+	t.Parallel()
+
+	for _, arch := range []hcloud.Architecture{hcloud.ArchitectureX86, hcloud.ArchitectureARM} {
+		query := snapshotQuery("os=talos,talos-version=v1.13.10", string(arch))
+
+		assert.Equal(t, []hcloud.Architecture{arch}, query.Architecture)
+		assert.Equal(t, []hcloud.ImageType{hcloud.ImageTypeSnapshot}, query.Type)
+		assert.Equal(t, "os=talos,talos-version=v1.13.10", query.LabelSelector)
+	}
+}
+
+func TestSnapshotExists(t *testing.T) {
+	t.Parallel()
+
+	present := &fakeImages{found: []*hcloud.Image{{ID: 430516130}}}
+	exists, err := snapshotExists(context.Background(), present, "os=talos", "arm")
+	require.NoError(t, err)
+	assert.True(t, exists)
+	assert.Equal(t, []hcloud.Architecture{hcloud.ArchitectureARM}, present.asked.Architecture,
+		"the architecture reaches the API")
+
+	exists, err = snapshotExists(context.Background(), &fakeImages{}, "os=talos", "arm")
+	require.NoError(t, err)
+	assert.False(t, exists)
+
+	// A failed list is an error, not "absent": reported as absent, it would
+	// bake an image that already exists and leave two candidates for the
+	// Pulumi lookup's mostRecent to choose between.
+	_, err = snapshotExists(context.Background(), &fakeImages{err: errors.New("unauthorized")}, "os=talos", "arm")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unauthorized")
+}
+
+// fakeFactory answers SchematicCreate the way the client would.
+type fakeFactory struct {
+	id    string
+	err   error
+	asked *schematic.Schematic
+}
+
+func (f *fakeFactory) SchematicCreate(_ context.Context, sc schematic.Schematic) (string, *schematic.Schematic, error) {
+	f.asked = &sc
+
+	return f.id, &sc, f.err
+}
+
+func TestSchematicID(t *testing.T) {
+	t.Parallel()
+
+	factory := &fakeFactory{id: "376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba"}
+
+	id, err := schematicID(context.Background(), factory)
+	require.NoError(t, err)
+	assert.Equal(t, factory.id, id)
+	require.NotNil(t, factory.asked)
+	assert.Empty(t, factory.asked.Customization.SystemExtensions.OfficialExtensions,
+		"the stock image: no customisation is asked for")
+
+	_, err = schematicID(context.Background(), &fakeFactory{err: errors.New("503")})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "image factory")
+
+	_, err = schematicID(context.Background(), &fakeFactory{})
+	require.Error(t, err, "an empty id would build a URL with no schematic in it")
 }
