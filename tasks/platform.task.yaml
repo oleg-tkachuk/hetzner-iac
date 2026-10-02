@@ -216,6 +216,12 @@ tasks:
       vars:
         - name: layer
           enum: *layers
+    # The plan first, as a dependency: Task runs a task's deps, then its
+    # prompt, then its cmds. The prompt used to come first, so an apply was
+    # confirmed before anybody had seen what it would change.
+    deps:
+      - task: plan
+        vars: {layer: '{{.layer}}', target: '{{.target}}'}
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_LAYER_USAGE}}"

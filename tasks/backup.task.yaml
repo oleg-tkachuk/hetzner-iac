@@ -82,6 +82,7 @@ tasks:
     # on the first apply. A second apply does not rotate them — RandomPassword
     # keeps its value — so this is safe to repeat, which is what the prompt is
     # NOT about. It is about creating a paid resource.
+    deps: [plan]
     prompt: "Apply the backup tier on {{._BK_STACK}}? This creates a billable Storage Box."
     cmds:
       - cmd: |
