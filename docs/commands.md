@@ -1,40 +1,25 @@
 # Command reference
 
-There are two entry points, and which one a command is on decides how it is
-typed. `task` is the cluster: provisioning, upgrades, teardown, and everything
-that reads a running one. The checks, the scanners, the formatters and the
-chart pins are on the second, and every command for them says so:
+There are two entry points. `task` is the cluster: provisioning, upgrades,
+teardown, and everything that reads a running one. The checks, the scanners,
+the formatters and the chart pins are on the second, and every command for
+them carries the flag, which is not optional:
 
     task -t Taskfile.dev.yaml verify
 
-Task finds `Taskfile.yaml` by itself and has no environment variable for a
-second file, so the flag is not optional. What it buys is the list `task`
-prints on its own: cluster operations, and none of the work somebody bringing
-up a cluster never runs.
-
-`task` on its own lists the first of those. Every cluster and layer task takes
-`stack=<name>`, and there is no default. A task that assumed one is a task
-that can be aimed at the wrong environment by forgetting a word, so running
-one without it prints the usage instead:
+`task` on its own lists the first. Every cluster and layer task takes
+`stack=<name>`, and there is no default, so a forgotten word cannot aim a
+command at the wrong environment. Running one without it prints the usage
+instead:
 
     $ task platform:plan layer=all
     task: platform:plan needs a stack and a layer, and neither has a default.
 
         task platform:plan stack=dev layer=40-ingress
 
-There is no default because an empty one is not an error. `pulumi --stack ""`
-ignores the empty value and uses the stack selected in the workspace — local,
-invisible state left by the last `pulumi stack select` — so without the guard a
-forgotten word aims the command at whatever that happens to be rather than
-failing.
-
 It is the only deployment parameter: where a cluster lives and how it is
-shaped comes from its topology file.
-
-The suggestion names both, because a message that named only the missing
-argument handed over a command that failed on the one already passed. `layer=`
-is also checked against the list of layers rather than merely for being
-present, so a typo is caught before anything runs:
+shaped comes from its topology file. `layer=` is checked against the list of
+layers, so a typo is caught before anything runs:
 
     $ task platform:plan stack=dev layer=30-cor
     task: ... layer has an invalid value : '30-cor'
@@ -44,38 +29,26 @@ present, so a typo is caught before anything runs:
 from `infra/cluster` and writes that into every layer. `ref=` overrides it, for
 a cluster in another organization or one shared by several layer stacks.
 
-Every task that runs `pulumi up` or `pulumi destroy` asks before it does —
-applying is not the safe half of the pair, because `pulumi up` replaces a
-resource for any input that forces a replacement, and replacing the only
-control-plane server takes the cluster down. `--yes` skips the question, which
-is what a script should have to say out loud:
-
-    $ task platform:apply layer=all stack=dev
-    Apply every platform layer on dev? [y/N]
-
-`task up` asks twice rather than three times — once for the servers, once for
-everything on them — because Task prompts per task it runs and `up` adds none
-of its own.
+Every task that runs `pulumi up` or `pulumi destroy` asks before it does,
+because `pulumi up` replaces a resource for any input that forces a
+replacement, and replacing the only control-plane server takes the cluster
+down. `platform:apply`, `cluster:apply` and `backup:apply` show the plan first,
+then ask. `--yes` skips the question, which is what a script should have to
+say out loud. `task up` asks twice — once for the servers, once for everything
+on them.
 
 Tasks from the shared library
 ([oleg-tkachuk/taskfiles](https://github.com/oleg-tkachuk/taskfiles), pinned)
-are trimmed with `excludes:` to what works here. Four modules are included,
-split by entry point: `hcloud` and `helm` act on a live cluster and are on the
-first; `go` and `security` answer questions about this repository and are on
-the second. A module task that cannot succeed in this repository is worse than
-a missing one: it is a command someone runs once, in an emergency, and gets a
-confusing failure from.
+are trimmed with `excludes:` to what works here: `hcloud` and `helm` act on a
+live cluster and are on the first entry point; `go` and `security` answer
+questions about this repository and are on the second.
 
 Tasks marked **†** are the ones a workflow runs itself, so a green local run
-of one is a green pull request for that check and nobody has to type it by
-hand. The other checks CI performs it runs directly rather than through a task
-— the unit suite, `go vet`, and golangci-lint through its own action — and
-`task -t Taskfile.dev.yaml verify` and `… scan` are the local aggregates that
-mirror those. `internal/ci` holds the repository's own gates, which run as
-part of the unit suite. TestGateMarkers_MatchTheWorkflows keeps this marker
-equal to what the workflows actually invoke, and
-TestWorkflows_CallTasksThroughTheDevTaskfile keeps every workflow step on the
-entry point that has the task.
+of one is a green pull request for that check. CI runs the unit suite,
+`go vet` and golangci-lint directly; `task -t Taskfile.dev.yaml verify` and
+`… scan` are the local aggregates that mirror them. `internal/ci` holds the
+repository's own gates, which run as part of the unit suite and keep the **†**
+markers equal to what the workflows invoke.
 
 ## Whole platform
 
@@ -96,7 +69,7 @@ and `destroy` does not take it — that is the point of it being a tier, and
 
 | Task | Does |
 |------|------|
-| `task cluster:apply` | provision or converge the cluster; asks first, and cannot replace the control plane — see [what an apply cannot do](#what-an-apply-cannot-do) |
+| `task cluster:apply` | provision or converge the cluster; shows the plan, asks, and cannot replace the control plane — see [what an apply cannot do](#what-an-apply-cannot-do) |
 | `task cluster:audit` | who did what to the API, from every control-plane node; `last=<n>` to widen |
 | `task cluster:destroy` | delete the servers; asks first. Keeps the cluster CA |
 | `task cluster:encryption:check` | the system volumes are really encrypted, not just configured to be |
@@ -147,12 +120,9 @@ $ task cluster:apply stack=dev          # after editing placement.location
 
 The prompt cannot cover this case, because the plan does not look like the thing
 it is. Editing `placement.location` reads like a move; what it plans is a
-replacement of all **three** control-plane nodes. They have no dependency on
-each other — measured on the live stack, each depends on the network and the
-placement group and nothing else — and `pulumi up --parallel` defaults to 56, so
-they go at once. `DeleteBeforeReplace` is set deliberately, because a Hetzner
-server name is unique in the project, which means each node is deleted before
-its replacement exists. etcd does not survive that; the way back is a snapshot.
+replacement of all **three** control-plane nodes, at once, and each is deleted
+before its replacement exists, because a Hetzner server name is unique in the
+project. etcd does not survive that; the way back is a snapshot.
 
 The API load balancer is protected for a different reason: its address **is**
 the cluster endpoint. Every certificate names it and every machine
@@ -166,8 +136,7 @@ fires on ordinary work is one that gets bypassed by habit.
 `task cluster:destroy` uses the same flag, because a teardown IS meant to take
 them, and keeps the cluster CA with one `--exclude`. It checks that the exclusion
 matches exactly one resource first: an `--exclude` that matches nothing is
-silent, and measured on this stack a bogus one previewed "22 to delete" — the
-whole cluster, CA included.
+silent, and the destroy would take the CA with everything else.
 
 ### Policy
 
@@ -179,10 +148,6 @@ whole cluster, CA included.
 
 Why a policy pack when the components validate: see
 [configuration.md](configuration.md#what-the-policy-pack-enforces).
-
-`policy:check` walks every tier and every layer; `policy:tier` and
-`policy:layer` narrow to one of either. There used to be a task that could only
-mean the cluster tier, which left the backup tier with no narrowing at all.
 
 ## Backup
 
@@ -196,37 +161,27 @@ the three credentials that reach it, into its own state.
 |------|------|
 | `task backup:init` | create the tier's stack and point it at the cluster; `ref=` overrides the derived reference |
 | `task backup:plan` | preview it; changes nothing |
-| `task backup:apply` | create the Storage Box and its credentials; asks first, because the box is billable |
+| `task backup:apply` | create the Storage Box and its credentials; shows the plan, then asks, because the box is billable |
 | `task backup:destroy ignore_protect=yes` | destroy it; refuses without that argument, then asks |
 | `task backup:outputs` | the sftp destination, secrets redacted |
 
-`backup:destroy` is the only command that can take the Storage Box, and it
-takes three things to say so: the argument, the prompt, and the fact that the
-task is not in any walk.
+`backup:destroy` is the only command that can take the Storage Box, and every
+snapshot on it: it needs the argument and the prompt, and the task is not in
+any walk. `task destroy` and a plain `pulumi destroy` cannot take it.
 
 The box is `pulumi.Protect(true)`, so Pulumi itself refuses to delete **or
-replace** it. Measured on a scratch stack: the destroy fails during PREVIEW, so
-nothing in the stack is deleted — not even the unprotected resources beside it.
-That is the state Hetzner's own delete protection cannot produce; it guards the
-console, the API and the hcloud CLI, and the provider clears it before its own
-delete, measured as 17 seconds to remove a box with a snapshot on it.
+replace** it, and the destroy fails in preview with nothing in the stack
+deleted. Hetzner's own delete protection does not stop Pulumi: the provider
+clears it before deleting. `ignore_protect=yes` passes `--ignore-protect` for
+that one operation, rather than `pulumi state unprotect`, which would leave the
+state unprotected if the teardown failed half way.
 
-`ignore_protect=yes` passes `--ignore-protect`, scoped to that one operation.
-`pulumi state unprotect` would do it too and is deliberately not used:
-it edits the state and leaves it edited, so a teardown that fails half way
-leaves the destination unprotected with nothing saying so.
-`cluster:secrets:destroy` made the same choice for the cluster CA.
+A change that forces replacement — the box type, its location — fails the same
+way, and is fixed only by removing the option in code and applying.
 
-The price of the protection is named in the code: a change that forces
-replacement — the box type, its location — fails the same way, and that one is
-fixed only by removing the option and applying. Resizing the backup destination
-is a code change, which is the right cost for a resource whose deletion takes
-every snapshot with it.
-
-The restic repository password is generated into this tier's state and nothing
-types it, so re-applying the tier after destroying it produces a password that
-does not open the existing repository — see
-[recovery.md](recovery.md#the-three-parts-of-a-backup).
+The restic repository password is kept in this tier's state, so destroying the
+tier and applying it again produces a password that does not open the existing
+repository — see [recovery.md](recovery.md#the-three-parts-of-a-backup).
 
 ## Hetzner instances
 
@@ -258,15 +213,14 @@ From the shared library's `hcloud` module, not this repository. `console` takes
 | `task platform:plan layer=10-node-platform` | preview one layer, or `layer=all` for every one in order |
 | `task platform:plan layer=30-cluster-services target=group:Ingress` | preview one component or group |
 | `task platform:refresh layer=40-ingress` | reconcile one layer's state with the cloud, or `layer=all`; asks first, and writes state |
-| `task platform:status` | every tier's and layer's stack: last run, resources, interrupted updates, and whether each references this cluster at its contract |
+| `task platform:status` | every tier's and layer's stack: last run, resources, interrupted updates and the refresh that clears one, and whether each references this cluster at its contract |
 | `task platform:drift` | every resource the cloud no longer agrees with, from each stack's refresh preview; exits 1 on drift, writes nothing |
 
 ### Narrowing to one component
 
 `task platform:targets stack=<stack> layer=<layer>` prints what a layer's stack
 holds, as the selectors below accept — `layer=all` walks every layer and labels
-each. It exists because that list was otherwise reachable only through a
-refusal: finding a name meant mistyping one on purpose.
+each.
 
 `plan`, `apply` and `destroy` take an optional `target=`, which becomes
 `pulumi --target`:
@@ -284,27 +238,21 @@ exact: `group:Ingress` when two Ingress components exist is refused, naming both
 as `group:Ingress:<name>`, rather than taking the first and one of the other's
 children.
 
-A comma-separated list is one `pulumi` run rather than one per component, which
-is worth more than the typing: two runs are two chances for the second to act
-on a cluster the first one changed. Every selector in the list has to resolve
-or the whole list is refused — resolving the good half would be exactly the
-apply-that-did-less-than-asked this validation exists to prevent.
+A comma-separated list is one `pulumi` run rather than one per component, so
+the second cannot act on a cluster the first one changed. Every selector in the
+list has to resolve or the whole list is refused.
 
 `layer=all` is refused with a target, because a URN names one stack.
 
-**The name is checked before Pulumi runs**, and that is the reason
-[`pulumi-kit/cmd/target`](https://github.com/oleg-tkachuk/pulumi-kit) exists rather than the taskfile passing
-`--target` straight through. A `--target` that matches nothing SUCCEEDS —
-measured on this repository's dev stack, `preview --target
-'**::Release::does-not-exist'` reported `24 unchanged` and exited zero. So a
-mistyped component would be an apply that claims to have worked. A refusal
-lists what the stack holds instead.
+**The name is checked before Pulumi runs**, by
+[`pulumi-kit/cmd/target`](https://github.com/oleg-tkachuk/pulumi-kit), because
+a `--target` that matches nothing succeeds and changes nothing, so a mistyped
+component would be an apply that claims to have worked. A refusal lists what
+the stack holds instead.
 
 **A targeted apply leaves the rest of the layer on its last full apply's
-inputs.** Pulumi's own documentation says so — "the targeted resource may end
-up with stale input values" — and neither the state nor the output looks
-different afterwards. So the task says it, with `▲`, which is the one glyph that
-survives a Pulumi run:
+inputs**, and neither the state nor the output looks different afterwards. So
+the task says it, with `▲`:
 
 ```
 ▲ platform · 30-cluster-services · targeted: everything else kept its last-applied inputs
@@ -320,21 +268,13 @@ when it is. The task therefore shows the plan first, with `--preview-only`, and
 keeps the flag behind a separate `dependents=yes` — removing more than was asked
 for should be something an operator typed.
 
-`--exclude` is deliberately absent. It fails in the safe direction: a mistyped
-exclusion applies MORE than intended, which is a full apply, while a mistyped
-target applies nothing. It needs none of the validation above, and belongs in
-its own change if the need arises.
+`--exclude` is deliberately not offered.
 
 ## Working on this repository
 
-Everything below is on the second entry point, so every command carries
-`-t Taskfile.dev.yaml`. They live in
-[`Taskfile.dev.yaml`](../Taskfile.dev.yaml) rather than beside the cluster
-tasks for two reasons: `task` on its own should list operations rather than
-checks, and two of these read a pinned version out of
-`.github/workflows/ci.yaml` — a clone that only wants to apply a cluster
-should not need a pipeline's configuration to do it.
-TestRootTaskfile_HoldsNoCheck keeps them here.
+Everything below is on the second entry point,
+[`Taskfile.dev.yaml`](../Taskfile.dev.yaml), so every command carries
+`-t Taskfile.dev.yaml`.
 
 ### Checks
 
