@@ -158,12 +158,12 @@ func TestKubeconformArgs_NeverIgnoresMissingSchemas(t *testing.T) {
 	//
 	// Named kinds instead: a chart that starts emitting a new custom resource
 	// fails loudly and somebody adds it on purpose.
-	args := kubeconformArgs("1.36.4")
+	args := kubeconformArgs("1.37.1")
 
 	assert.NotContains(t, args, "-ignore-missing-schemas",
 		"a removed api version has no schema either, so this flag hides exactly what the check is for")
 	assert.Contains(t, args, "-strict")
-	assert.Contains(t, args, "1.36.4")
+	assert.Contains(t, args, "1.37.1")
 }
 
 func TestSkippedKinds_AreCustomResourcesOnly(t *testing.T) {

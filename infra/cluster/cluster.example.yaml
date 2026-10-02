@@ -139,10 +139,10 @@ kubernetes:
   # first came up on v1.36.0, new enough that kube-apiserver had dropped a flag
   # the machine config was passing.
   #
-  # v1.36 is the minor Talos v1.13.10 defaults to, and Talos v1.14 still runs
-  # it; v1.37 waits for the v1.14 contract. So this is the supported
-  # pairing. Bump it together with talos.configVersion above, deliberately.
-  version: v1.36.4
+  # Talos v1.14 supports v1.33 to v1.37. Bump it deliberately, and read the
+  # minor's urgent upgrade notes against the extraArgs internal/pkg/clusterspec
+  # passes.
+  version: v1.37.1
 
 controlPlane:
   # Three, and three is the smallest number that means anything. Validation
