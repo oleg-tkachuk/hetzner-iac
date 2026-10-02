@@ -41,7 +41,5 @@ flag the machine config was passing.
   snapshot matches the selector".
 - Debugging a node is `talosctl` and nothing else.
 - The generator and the node have to agree: `pulumi-talos` embeds the
-  machinery that GENERATES machine configuration, so the Talos version in the
-  topology cannot move past the machinery the pinned provider carries. That is
-  a version pin holding two things at once, and it is why a newer Talos is not
-  simply a bump.
+  machinery that GENERATES machine configuration, so it caps the configuration
+  contract (`talos.configVersion`), not the Talos the nodes run.

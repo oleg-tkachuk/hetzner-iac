@@ -160,7 +160,7 @@ func TestRun_PassesOnAHealthyClusterAndSkipsWhatItCannotJudge(t *testing.T) {
 	// runner has no dynamic client, and the image admission check, because no
 	// namespace is labelled. The cross-node check must NOT be skipping here: a
 	// cluster of three nodes with DNS on two is exactly where it runs.
-	assert.Equal(t, 6, report.Skipped())
+	assert.Equal(t, 6, report.Count(clustersmoke.StatusSkipped))
 	assert.Equal(t, clustersmoke.StatusPassed,
 		resultFor(t, report, "another node").Status)
 

@@ -263,7 +263,7 @@ Tools for building and running a cluster. The checks' own tools are in
 | [Task](https://taskfile.dev/installation/) 3.53+ | the entry points; the [remote Taskfiles](https://github.com/oleg-tkachuk/taskfiles) it includes need 3.53 |
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
-| [talosctl](https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl) | validates the machine config before anything exists; then upgrades, etcd snapshots, clean shutdown |
+| [talosctl](https://docs.siderolabs.com/talos/v1.14/getting-started/talosctl) | validates the machine config before anything exists; then upgrades, etcd snapshots, clean shutdown |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | the status tasks, `task cluster:kubeconfig:add` and `task cluster:orphans` |
 | [jq](https://github.com/jqlang/jq) | reads single fields out of `pulumi stack output --json` and `hcloud -o json` |
 | `restic`, `rclone` | `task cluster:etcd:upload`: restic uploads, prunes and verifies; rclone is its transport, since a Storage Box credential is a password and restic's sftp backend takes only keys |
@@ -307,18 +307,7 @@ in `Taskfile.dev.yaml`, for working on this repository:
 Everything that shapes a cluster is in `infra/cluster/cluster.<stack>.yaml`,
 copied from [cluster.example.yaml](infra/cluster/cluster.example.yaml) and
 validated as you type it. Stack config holds the Hetzner token and what each
-layer deploys:
-
-| Key | Where | Meaning |
-|-----|-------|---------|
-| `hcloud:token` | [`infra/cluster`](infra/cluster) | Hetzner API token (secret) |
-| `<layer>:clusterStackRef` | every [layer](layers) | `<org>/hetzner-cluster/<stack>`; written by `platform:init` |
-| `node-platform:cni` | [`10-node-platform`](layers/10-node-platform) | which CNI to install, default `cilium` |
-| `network-policy:enabled` | [`20-network-policy`](layers/20-network-policy) | create the policies; off by default, because the first one to select an endpoint denies what it does not name |
-| `cluster-services:acmeEmail` | [`30-cluster-services`](layers/30-cluster-services) | enables the Let's Encrypt ClusterIssuer; omit it and none is created |
-| `cluster-services:acmeStaging` | [`30-cluster-services`](layers/30-cluster-services) | order from Let's Encrypt's staging endpoint: untrusted certificates, and where a new domain's first attempt belongs |
-| `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | [Hetzner load balancer](https://www.hetzner.com/cloud/load-balancer) type, default `lb11` |
-| `backup:storageBoxType` | [`backup`](infra/backup) | [Storage Box](https://www.hetzner.com/storage/storage-box) type, default `bx11` |
+layer deploys: [configuration.md](docs/configuration.md#stack-config).
 
 The domain, and Argo CD's hostname with it, is `metadata.domain` in the
 topology, not stack config: [domain.md](docs/domain.md).
