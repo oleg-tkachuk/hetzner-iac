@@ -275,8 +275,6 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-      - sh: command -v hcloud >/dev/null
-        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
       - sh: command -v hcloud-upload-image >/dev/null
         msg: "hcloud-upload-image not installed — go install github.com/apricote/hcloud-upload-image@latest"
       - sh: test -f "{{._CL_TOPOLOGY}}"
