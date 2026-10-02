@@ -224,6 +224,7 @@ rather than merely installed:
 | a claim on `hcloud-volumes` reaches `Bound` | the CSI driver, end to end through the Hetzner API |
 | every LoadBalancer Service has an address and somewhere to send it | the cloud controller manager |
 | the external metrics API answers | KEDA's aggregated API group, when `kedaEnabled` is set — skipped when it is not |
+| an image outside the inventory is refused | the image policies are enforced: a dry-run pod running `busybox`, which [`images.yaml`](../internal/pkg/imagepolicy/images.yaml) does not list, is refused by the policy-controller in a labelled namespace |
 
 The last one is the odd one out: it can be skipped, because `kedaEnabled` is
 off by default and a cluster that never asked for KEDA is not a broken cluster.

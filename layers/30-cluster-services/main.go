@@ -239,6 +239,7 @@ func PolicyControllerData() charts.PolicyControllerValues {
 		NoMatchPolicy: ImagePolicyMode.NoMatchPolicy(),
 		IncludeLabel:  charts.PolicyControllerIncludeLabel,
 		IncludeValue:  charts.PolicyControllerIncludeValue,
+		WebhookName:   charts.PolicyControllerWebhookName,
 	}
 }
 

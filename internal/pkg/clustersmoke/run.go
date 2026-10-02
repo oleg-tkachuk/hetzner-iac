@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
@@ -149,6 +152,81 @@ func (r *Runner) Run(ctx context.Context) Report {
 		r.checkNetworkPolicies(ctx),
 		r.checkLoadBalancers(ctx),
 		r.checkExternalMetrics(),
+		r.checkImageAdmission(ctx),
+	}
+}
+
+// admissionProbeName is the dry-run pod's name. Nothing is created: the API
+// server runs admission and stops.
+const admissionProbeName = "cluster-smoke-image-admission"
+
+// webhookDenial reads which admission webhook refused a request out of the API
+// server's message, the only place it is given.
+var webhookDenial = regexp.MustCompile(`admission webhook "([^"]+)" denied the request`)
+
+// checkImageAdmission submits a pod running an image outside the inventory to
+// the first namespace labelled for the policy-controller, as a server-side dry
+// run, and reports who refused it.
+func (r *Runner) checkImageAdmission(ctx context.Context) Result {
+	namespaces, err := r.client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+		LabelSelector: charts.PolicyControllerIncludeLabel + "=" + charts.PolicyControllerIncludeValue,
+	})
+	if err != nil {
+		return Result{Name: CheckImageAdmission, Status: StatusFailed, Detail: "listing namespaces: " + err.Error()}
+	}
+
+	names := make([]string, 0, len(namespaces.Items))
+	for _, namespace := range namespaces.Items {
+		names = append(names, namespace.Name)
+	}
+
+	sort.Strings(names)
+
+	var attempt AdmissionAttempt
+
+	if len(names) > 0 {
+		attempt.Namespace = names[0]
+
+		_, err = r.client.CoreV1().Pods(attempt.Namespace).Create(ctx, admissionProbe(), metav1.CreateOptions{
+			DryRun: []string{metav1.DryRunAll},
+		})
+		attempt.DeniedBy, attempt.Err = deniedBy(err)
+	}
+
+	return ImageAdmission(attempt, charts.PolicyControllerWebhookName)
+}
+
+// deniedBy splits an admission error into the webhook that refused the
+// request, or any other error.
+func deniedBy(err error) (string, error) {
+	if err == nil {
+		return "", nil
+	}
+
+	if match := webhookDenial.FindStringSubmatch(err.Error()); match != nil {
+		return match[1], nil
+	}
+
+	return "", err
+}
+
+// admissionProbe is the pod the admission check submits: the prober image, which
+// the image inventory does not list, in a spec Pod Security admits.
+func admissionProbe() *corev1.Pod {
+	noEscalation := false
+
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: admissionProbeName},
+		Spec: corev1.PodSpec{
+			RestartPolicy: corev1.RestartPolicyNever,
+			Containers: []corev1.Container{{
+				Name:  admissionProbeName,
+				Image: ProberImage,
+				SecurityContext: &corev1.SecurityContext{
+					AllowPrivilegeEscalation: &noEscalation,
+				},
+			}},
+		},
 	}
 }
 
