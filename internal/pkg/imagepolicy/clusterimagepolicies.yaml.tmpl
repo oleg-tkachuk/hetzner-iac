@@ -1,0 +1,51 @@
+{{- /*
+One ClusterImagePolicy per repository in images.yaml, for Sigstore's
+policy-controller. Rendered by Policies; every value comes from the inventory.
+
+The globs are matched against the image the admission webhook sees after it
+has resolved the tag to a digest, in go-containerregistry's spelling — so
+Docker Hub is index.docker.io, and a digest reference drops the tag.
+*/ -}}
+{{- range .Policies }}
+---
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: {{ .Name }}
+spec:
+  mode: {{ $.Mode }}
+  images:
+{{- range .Globs }}
+    - glob: {{ json . }}
+{{- end }}
+  authorities:
+{{- if .Pin }}
+    # No signature exists; the inventory's digest is the one image admitted.
+    - name: pinned-digest
+      static:
+        action: pass
+{{- else if .Signer.Key }}
+    - name: key
+      key:
+        hashAlgorithm: {{ .HashAlgorithm }}
+        data: |
+{{ indent 10 .KeyPEM }}
+{{- if .TransparencyLog }}
+      ctlog:
+        url: {{ .TransparencyLog }}
+{{- end }}
+{{- else }}
+    - name: keyless
+{{- if .Signer.Format }}
+      signatureFormat: {{ .Signer.Format }}
+{{- end }}
+      keyless:
+        identities:
+          - issuer: {{ json .Signer.Issuer }}
+{{- if .Signer.Subject }}
+            subject: {{ json .Signer.Subject }}
+{{- else }}
+            subjectRegExp: {{ json .Signer.SubjectRegExp }}
+{{- end }}
+{{- end }}
+{{- end }}

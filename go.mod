@@ -19,6 +19,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/distribution/reference v0.6.0
+	github.com/google/go-containerregistry v0.22.1
 	github.com/hetznercloud/hcloud-go/v2 v2.49.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/pulumi/pulumi-hcloud/sdk v1.42.0

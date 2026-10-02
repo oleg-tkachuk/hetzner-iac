@@ -9,6 +9,15 @@
 # by digest instead: the tag the chart renders by default, and the index digest
 # `crane digest <repository>:<tag>` returned for it. A chart upgrade that moves
 # the tag fails tools/charts until the digest is moved with it.
+#
+# `format: bundle` marks a publisher that stores Sigstore bundles through the
+# OCI referrers API instead of cosign's `.sig` tag — found by verifying with
+# `cosign verify --new-bundle-format` true and false and keeping the one that
+# passed. Argo CD, Dex, Cilium and KEDA verify only as bundles — and
+# policy-controller cannot verify a bundle-signed image at all: cosign's
+# library, v2 and v3 alike, answers "bundle support for image signatures is not
+# yet implemented". Measured on dev. Their policies are written anyway, and
+# warn on every admission until upstream verifies bundles.
 
 images:
   # Argo CD and its two dependencies.
@@ -16,10 +25,12 @@ images:
     signed:
       issuer: &github https://token.actions.githubusercontent.com
       subjectRegExp: ^https://github\.com/argoproj/argo-cd/\.github/workflows/.+@refs/tags/.+$
+      format: bundle
   - repository: ghcr.io/dexidp/dex
     signed:
       issuer: *github
       subjectRegExp: ^https://github\.com/dexidp/dex/\.github/workflows/.+@refs/tags/.+$
+      format: bundle
   - repository: ecr-public.aws.com/docker/library/redis
     unsigned:
       reason: Docker Official Images publish no cosign signature.
@@ -47,6 +58,7 @@ images:
     signed: &cilium
       issuer: *github
       subjectRegExp: ^https://github\.com/cilium/cilium/\.github/workflows/.+@refs/tags/.+$
+      format: bundle
   - repository: quay.io/cilium/hubble-relay
     signed: *cilium
   - repository: quay.io/cilium/operator-generic
@@ -55,6 +67,7 @@ images:
     signed:
       issuer: *github
       subjectRegExp: ^https://github\.com/cilium/proxy/\.github/workflows/.+@.+$
+      format: bundle
   - repository: quay.io/cilium/hubble-ui
     unsigned:
       reason: Cilium signs no Hubble UI image.
@@ -87,6 +100,7 @@ images:
     signed: &keda
       issuer: *github
       subjectRegExp: ^https://github\.com/kedacore/keda/\.github/workflows/.+@refs/tags/.+$
+      format: bundle
   - repository: ghcr.io/kedacore/keda-admission-webhooks
     signed: *keda
   - repository: ghcr.io/kedacore/keda-metrics-apiserver

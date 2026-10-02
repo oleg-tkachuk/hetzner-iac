@@ -1,6 +1,26 @@
 # Sigstore policy-controller.
 
+# What the webhook does with an image no ClusterImagePolicy names. Follows the
+# policies' own mode — warn beside warn, deny beside enforce — so an image
+# missing from internal/pkg/imagepolicy/images.yaml is held to the standard the
+# listed ones are. Rendered into the config-policy-controller ConfigMap.
+#
+# The chart reads this from webhook.configData, which is easy to mistake for
+# the logging configuration beside it.
+
 webhook:
+  configData:
+    no-match-policy: {{ .NoMatchPolicy }}
+
+  # The namespaces the webhooks admit, written out although it is the chart's
+  # default: internal/pkg/layer labels namespaces with the same key, and a
+  # default changed upstream would leave every label selecting nothing.
+  namespaceSelector:
+    matchExpressions:
+      - key: {{ .IncludeLabel }}
+        operator: In
+        values: ["{{ .IncludeValue }}"]
+
   # Two, because the chart's PodDisruptionBudget keeps one available: with one
   # replica the budget can never be met, and a drain of the node holding it
   # waits out its whole timeout. The chart already spreads the replicas across
@@ -35,11 +55,10 @@ webhook:
 
   # Resources. Requests are measured, limits are memory-only.
   #
-  # Measured on the dev cluster with `kubectl top pods --containers`, with no
-  # namespace enforced yet: 6m and 43-52Mi per replica. The request is that,
-  # rounded up; the limit stays at the chart's 512Mi until a namespace is
-  # enforced, because verifying signatures is the load nobody has measured and
-  # a limit guessed low shows up as an OOMKill in the admission path.
+  # Measured on the dev cluster with `kubectl top pods --containers`: 6m and
+  # 43-52Mi per replica at rest, 36m and 71-75Mi while five namespaces were
+  # restarted and every pod in them verified. The request covers the second;
+  # the limit leaves room for its signature cache to grow with the policies.
   #
   # `cpu: null`, not an absent key: Helm merges this file into the chart's
   # defaults, and the chart ships `limits: {cpu: 200m}`. Leaving the key out
@@ -47,10 +66,10 @@ webhook:
   resources:
     requests:
       cpu: 10m
-      memory: 64Mi
+      memory: 96Mi
     limits:
       cpu: null
-      memory: 512Mi
+      memory: 384Mi
 
 # The post-delete Job that removes the webhook's leader-election leases.
 #

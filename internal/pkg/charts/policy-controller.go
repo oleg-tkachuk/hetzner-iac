@@ -3,6 +3,7 @@ package charts
 import (
 	"strconv"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/imagepolicy"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
 
@@ -34,6 +35,47 @@ const PolicyControllerNamespace = "cosign-system"
 // waits out its whole drain timeout on the node that holds it.
 const PolicyControllerReplicas = 2
 
+// The label that puts a namespace under the webhook, in the chart's spelling.
+// The values template writes it into the webhooks' namespaceSelector and
+// internal/pkg/layer puts it on every namespace VerifiesImages names.
+const (
+	PolicyControllerIncludeLabel = "policy.sigstore.dev/include"
+	PolicyControllerIncludeValue = "true"
+)
+
+// VerifiesImages reports whether the pods in a chart's namespace are admitted
+// through the policy-controller.
+//
+// Every namespace a chart here installs into, but two:
+//
+//   - kube-system, because the CNI, the cloud controller manager and the CSI
+//     driver run there, and the webhook fails closed: with both its replicas
+//     down, a Cilium agent that cannot be admitted means a node with no
+//     network, and so no webhook to admit it.
+//   - the policy-controller's own, for the same loop one step shorter.
+func VerifiesImages(namespace string) bool {
+	return namespace != NamespaceKubeSystem && namespace != PolicyControllerNamespace
+}
+
+// PolicyControllerValues is what policy-controller.yaml.tmpl is executed
+// against.
+type PolicyControllerValues struct {
+	// NoMatchPolicy is what the webhook does with an image no policy names.
+	NoMatchPolicy string
+	// IncludeLabel and IncludeValue select the namespaces it admits.
+	IncludeLabel string
+	IncludeValue string
+}
+
+// policyControllerProbe renders the template offline.
+func policyControllerProbe() any {
+	return PolicyControllerValues{
+		NoMatchPolicy: imagepolicy.ModeWarn.NoMatchPolicy(),
+		IncludeLabel:  PolicyControllerIncludeLabel,
+		IncludeValue:  PolicyControllerIncludeValue,
+	}
+}
+
 // The values keys this file's settings write, in the chart's own spelling.
 const (
 	policyControllerReplicas = "webhook.replicaCount"
@@ -54,6 +96,7 @@ func init() {
 		Workloads: []Object{
 			{Kind: Deployment, Name: "policy-controller-webhook"},
 		},
+		Probe: policyControllerProbe,
 		Settings: []Setting{
 			{
 				Set:    []string{policyControllerReplicas + "=" + strconv.Itoa(PolicyControllerReplicas)},

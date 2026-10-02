@@ -40,7 +40,17 @@ type Signer struct {
 	// NoTransparencyLog is set for a publisher that does not record its
 	// signatures in Rekor, so a policy must not demand an entry there.
 	NoTransparencyLog bool `json:"noTransparencyLog,omitempty"`
+
+	// Format is FormatBundle for a publisher that stores its signatures as
+	// Sigstore bundles beside the image, through the OCI referrers API, rather
+	// than under cosign's `.sig` tag. A verifier looking in the other place
+	// finds no signature at all, so this is measured per publisher, not chosen.
+	Format string `json:"format,omitempty"`
 }
+
+// FormatBundle is the Sigstore bundle signature format, in policy-controller's
+// spelling; empty is cosign's legacy `.sig` tag.
+const FormatBundle = "bundle"
 
 //go:embed keys/*.pem
 var keys embed.FS
@@ -137,20 +147,34 @@ func (i Image) validate() error {
 		return errors.New("both signed and unsigned")
 	case i.Signed == nil:
 		return i.Unsigned.validate()
-	case i.Signed.Key != "":
-		if i.Signed.Issuer != "" || i.Signed.Subject != "" || i.Signed.SubjectRegExp != "" {
+	}
+
+	return i.Signed.validate()
+}
+
+func (s Signer) validate() error {
+	switch {
+	case s.Format != "" && s.Format != FormatBundle:
+		return fmt.Errorf("signature format %q is neither empty nor %q", s.Format, FormatBundle)
+	case s.Key != "":
+		if s.Format == FormatBundle {
+			// policy-controller verifies bundles for keyless signers only.
+			return errors.New("signed by a key in the bundle format")
+		}
+
+		if s.Issuer != "" || s.Subject != "" || s.SubjectRegExp != "" {
 			return errors.New("signed by a key and keylessly at once")
 		}
 
-		_, err := PublicKey(i.Signed.Key)
+		_, err := PublicKey(s.Key)
 
 		return err
-	case i.Signed.Issuer == "":
+	case s.Issuer == "":
 		return errors.New("signed keylessly with no issuer")
-	case (i.Signed.Subject == "") == (i.Signed.SubjectRegExp == ""):
+	case (s.Subject == "") == (s.SubjectRegExp == ""):
 		return errors.New("signed keylessly needs exactly one of subject and subjectRegExp")
-	case i.Signed.SubjectRegExp != "":
-		if _, err := regexp.Compile(i.Signed.SubjectRegExp); err != nil {
+	case s.SubjectRegExp != "":
+		if _, err := regexp.Compile(s.SubjectRegExp); err != nil {
 			return fmt.Errorf("subjectRegExp: %w", err)
 		}
 	}

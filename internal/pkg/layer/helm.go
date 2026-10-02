@@ -5,7 +5,9 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 
+	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	helm "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/helm/v3"
+	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -129,5 +131,41 @@ func (r *Runner) Release(args ReleaseArgs, opts ...pulumi.ResourceOption) (*helm
 		return nil, fmt.Errorf("helm release %q (chart %s %s): %w", name, chart.Name, chart.Version, err)
 	}
 
+	if charts.VerifiesImages(namespace) {
+		if err := r.verifyImages(name, namespace, release); err != nil {
+			return nil, err
+		}
+	}
+
 	return release, nil
+}
+
+// verifyImagesSuffix names the label patch after the release it follows.
+const verifyImagesSuffix = "-verify-images"
+
+// verifyImages labels a release's namespace for the policy-controller, so its
+// pods are admitted against the image policies.
+//
+// A patch rather than the Namespace itself, because Helm creates the namespace
+// and owns it; a server-side apply patch adds one label beside Helm's and
+// removes only that label when it is destroyed.
+//
+// After the release, not before. Its first pods are admitted without a check;
+// the label holds every pod after them, which is every pod from the next
+// rollout on. Before it, a namespace labelled ahead of the webhook's first
+// start would refuse the release's pods for as long as the webhook is not up.
+func (r *Runner) verifyImages(release, namespace string, after pulumi.Resource) error {
+	_, err := corev1.NewNamespacePatch(r.Ctx, release+verifyImagesSuffix, &corev1.NamespacePatchArgs{
+		Metadata: &metav1.ObjectMetaPatchArgs{
+			Name: pulumi.String(namespace),
+			Labels: pulumi.StringMap{
+				charts.PolicyControllerIncludeLabel: pulumi.String(charts.PolicyControllerIncludeValue),
+			},
+		},
+	}, r.With(pulumi.DependsOn([]pulumi.Resource{after}))...)
+	if err != nil {
+		return fmt.Errorf("label namespace %q for image verification: %w", namespace, err)
+	}
+
+	return nil
 }
