@@ -1,386 +1,223 @@
 # Running it day to day
 
-A cluster that already exists: stopping it, starting it, asking whether it
-works, and reaching it with a plain kubectl. Upgrades, snapshots and restores
-are [recovery.md](recovery.md) — a different question, asked at a different
-moment. How a cluster is built is [the command reference](commands.md); why it
-is shaped this way is [design.md](design.md).
+A cluster that already exists: stopping it, starting it, checking it, and
+reaching it with a plain kubectl. Upgrades, snapshots and restores are
+[recovery.md](recovery.md); building a cluster is
+[the command reference](commands.md); why it is shaped this way is
+[design.md](design.md).
 
 ## Stopping and starting
-
-Two levels, not two halves. The namespace says which API answers, and each is
-complete on its own terms:
 
 | | Soft | Hard | Back on |
 |---|---|---|---|
 | the **instance** | `hcloud:shutdown` | `hcloud:poweroff` | `hcloud:poweron` |
 | the **cluster** | `cluster:stop` | — | `hcloud:poweron` |
 
-Restarting has three rungs rather than two, and which one to use is a question
-about what is still answering:
-
-| Rung | Needs | Use when |
+| Restart | Needs | Use when |
 |------|-------|----------|
 | `cluster:reboot` | Talos answering | normally — etcd closes its log |
-| `hcloud:reboot` | the kernel running | apid has stopped answering, the machine has not stopped |
-| `hcloud:reset` | nothing | the node is gone; etcd recovers its log on the way back |
+| `hcloud:reboot` | the kernel running | apid has stopped answering |
+| `hcloud:reset` | nothing | the node is gone; etcd recovers its log on boot |
 
-Which to reach for follows from the level. Stopping the **cluster** is a Talos
-operation: `talosctl shutdown` brings etcd down cleanly and can cordon and
-evict first. Halting the machine is its consequence, so the instance then
-needs `hcloud:poweron` — not because the pair is split, but because a stopped
-machine runs no apid and nothing but the provider can power it back on.
+Prefer `cluster:stop`: Talos shuts etcd down cleanly. The `hcloud:` variants say
+nothing to Kubernetes — `poweroff` cuts power mid-write. A stopped machine runs
+no apid, so only `hcloud:poweron` brings it back.
 
-Stopping the **instance** says nothing to Kubernetes at all. `hcloud:shutdown`
-presses the power button and Talos acts on the ACPI event; `hcloud:poweroff`
-cuts power mid-write, and etcd recovers on the next boot instead of starting
-clean. Prefer `cluster:stop` whenever Talos is answering; reach for these when
-it is not.
+**Stopping does not save money.** Hetzner bills a server until it is deleted
+([billing](https://docs.hetzner.com/cloud/billing/)); to stop paying,
+`task cluster:destroy`. Encrypted volumes unlock on their own after a power
+cycle — the key derives from the node's UUID
+([design.md](design.md#what-the-cluster-encrypts-and-what-it-does-not)).
 
-**Stopping does not save money.** A Hetzner server is billed while it exists,
-not while it runs — [their billing
-documentation](https://docs.hetzner.com/cloud/billing/) is explicit that
-servers are billed until they are deleted regardless of state. To stop paying,
-destroy: `task cluster:destroy`. What stopping buys is a cluster that is
-unreachable and unchanging, with its disks at rest.
+### The `hcloud:` tasks
 
-Encrypted volumes do not complicate a power cycle. The LUKS key derives from
-the node's own UUID, which survives one, so the disks unlock with no operator
-— see [design.md](design.md#what-the-cluster-encrypts-and-what-it-does-not).
+They come from the shared library's
+[`hcloud` module](https://github.com/oleg-tkachuk/taskfiles/blob/main/hcloud/README.md)
+and act on every server carrying the cluster's `cluster=<name>` label, which is
+what makes them safe on a shared project. `hcloud:console` takes
+`HCLOUD_SERVER=<name>` and refuses a server outside the selector; what it prints
+is a short-lived root console credential, so keep it out of logs.
 
-### These are conveniences, not a management interface
-
-The `hcloud:` tasks are the shared library's
-[`hcloud` module](https://github.com/oleg-tkachuk/taskfiles/blob/main/hcloud/README.md),
-not this repository's own. They act on every server of the cluster at once,
-selected by the `cluster=<name>` label that `internal/pkg/hetzner` stamps — the label is
-why they are safe on a shared project and why they work unchanged on three
-control planes.
-
-The module knows nothing about Pulumi or the topology, so the two things it
-cannot know are passed as commands rather than values: `HCLOUD_SELECTOR_CMD`
-reads the cluster name through the real parser, `HCLOUD_TOKEN_CMD` decrypts the
-token out of stack config. Both run inside the task, which is what keeps
-`task --list` from reaching for a credential.
-
-One exception to the fleet-wide rule: `hcloud:console` takes
-`HCLOUD_SERVER=<name>`, because a console for five nodes at once is not a
-thing. It refuses a name the selector does not cover, and prints what it has
-instead — the project may hold servers this repository did not create, and the
-API will happily open a console on one of them. What it prints is a short-lived
-credential giving root-level console access, so keep it out of anything that
-logs.
-
-Everything else Hetzner offers is deliberately not wrapped — `hcloud server`
-alone has rebuild, change-type, rescue mode, ISO attachment, backups,
-snapshots, RDNS and per-server metrics. Each of those either fights Pulumi for
-ownership of the server or means nothing against Talos, and metrics is marked
-ALPHA upstream. Use the CLI directly for those:
+Anything else — rebuild, rescue, resize, snapshots — fights Pulumi for the
+server or means nothing to Talos, so it is not wrapped. Use the CLI:
 
 ```bash
 export HCLOUD_TOKEN="$(go run ./tools/token dev)"
-hcloud server --help
 hcloud server describe platform-dev-control-plane-0
 ```
 
-A wrapper per API call would be a second, worse CLI to keep in step with the
-first.
-
 ## Who did what
 
-The API server writes an audit log, and Talos is what turns it on: it sets
-`--audit-policy-file`, `--audit-log-path` and the three rotation flags itself,
-so the log exists on every control-plane node from the first boot, at
-`/var/log/audit/kube/kube-apiserver.log`, rotated at 100 MB and kept for 30
-days or 10 files.
-
-What it records is this repository's: the cluster patch replaces Talos's
-default policy with [`internal/pkg/clusterspec/auditpolicy.yaml`](../internal/pkg/clusterspec/auditpolicy.yaml).
+The API server writes an audit log on every control-plane node, at
+`/var/log/audit/kube/kube-apiserver.log`, rotated at 100 MB and kept 30 days or
+10 files. The policy is
+[`internal/pkg/clusterspec/auditpolicy.yaml`](../internal/pkg/clusterspec/auditpolicy.yaml).
 
 ```bash
-task cluster:audit stack=dev            # last 200 events per node
+task cluster:audit stack=dev            # last 200 events per node, merged
 task cluster:audit stack=dev last=5000
 ```
 
-All three nodes, sorted into one stream. That is not tidiness: each API server
-writes its own log and the load balancer spreads requests, so a question about
-one request is answered by whichever node happened to serve it.
+- **Most events are `Metadata`** — who, when, verb, resource, code, no body.
+  RBAC changes, `pods/exec`, `attach`, `portforward` and admission webhook
+  changes record their request body. Health checks, discovery, kubelet reads
+  and leases are dropped.
+- **Secrets are never recorded with a body.** `secrets`, `configmaps` and
+  `serviceaccounts/token` are pinned at `Metadata` by the first rule, so no
+  later rule can raise or drop them.
+- **The log lives on EPHEMERAL.** `talosctl reset`, a replaced node and
+  `cluster:etcd:restore` all take it, so recovering from an incident destroys
+  its record. Shipping it off the node is not built.
 
-Two things about it are worth knowing before an incident rather than during
-one.
+## Changing one component
 
-**Most events are `Metadata`: who, when, verb, resource, response code — and
-no bodies.** Four kinds of event are recorded with their request body instead,
-because metadata alone does not answer the question anybody asks about them:
-changes to RBAC (what was granted, and to whom), `pods/exec`, `pods/attach`
-and `pods/portforward` (which command), and admission webhooks (what was
-configured). And the noise is dropped rather than recorded: health and
-discovery endpoints, the control plane reading its own state, kubelet reads,
-and leader-election leases — which in an idle cluster is most of the volume.
+`plan`, `apply` and `destroy` take `target=` — see
+[commands.md](commands.md#narrowing-to-one-component).
 
-`secrets`, `configmaps` and `serviceaccounts/token` are pinned at `Metadata`,
-and their rule is deliberately the FIRST one. That placement does both jobs a
-comment cannot: nothing can raise them, because a rule that did would have to
-be placed above it; and nothing can drop them, because the rule dropping
-kubelet reads comes later — a node reading somebody else's secret stays
-recorded. The level above `Metadata` writes the request body, and for a Secret
-the body is the secret.
-
-Talos does not check any of this — its own reference calls the policy an
-unstructured object, and the API server ignores fields it does not recognise,
-so a misspelt selector silently matches nobody. The file is decoded strictly
-in Go, and every claim above is a test.
-
-**The directory is on Talos's EPHEMERAL partition**, which is its own word for
-it. `talosctl reset` takes the log, a replaced control-plane server takes it,
-and `cluster:etcd:restore` wipes every control-plane node — so the procedure
-for recovering from an incident destroys the record of it. Thirty days is what
-the API server rotates to, not what survives. Getting it off the node needs
-somewhere to put it, and that is still open.
-
-## When to change one component and when not to
-
-`plan`, `apply` and `destroy` take a `target=`, and the whole of what it does
-is documented in [commands.md](commands.md#narrowing-to-one-component). What
-belongs here is when to reach for it.
-
-**Reach for it** when a chart's values changed and nothing else did — bumping
-Traefik's replica count, putting a resource limit on cert-manager — and the rest
-of the layer is slow enough that previewing it is the reason you have not run
-the change yet.
-
-**Do not reach for it** to make an apply less frightening. A targeted apply is
-not a smaller version of the same operation: everything it did not touch keeps
-the inputs of the last FULL apply, so the layer is no longer a thing the program
-describes. Two applies later, the next full one shows a diff nobody wrote, and
-the person reading it has no way to know which targeted run left it.
-
-That is the trade, and the task says so with `▲` every time:
+Use it when only one chart's values changed. Everything it does not touch
+keeps its last full apply's inputs, so the task marks the run:
 
 ```
 ▲ platform · 30-cluster-services · targeted: everything else kept its last-applied inputs
 ```
 
-**After a run of targeted applies, do a full one.** It costs a preview and it
-puts the layer back to being described by its program. Nothing enforces this,
-which is precisely why it is written down.
-
-**A targeted destroy needs the plan read, not skimmed.** The task shows it
-first — `pulumi destroy --preview-only` — because `--target` on a resource with
-dependents either refuses or, with `dependents=yes`, takes them too. Reading
-that list is the difference between removing a chart and removing a chart plus
-the issuer every Certificate in the cluster points at.
+After targeted applies, run a full one so the layer matches its program again.
+A targeted **destroy** shows its plan first; read it — `dependents=yes` takes
+every resource that depends on the target too.
 
 ## Checks worth running
 
 | Task | Answers |
 |------|---------|
-| `task cluster:encryption:check` | are the system volumes really encrypted, or only configured to be |
-| `task cluster:hubble` | what is the cluster's traffic, as flows |
-| `task cluster:machine-config:check` | does Talos accept the machine-config patches |
-| `task cluster:orphans` | is anything being billed that nothing claims |
+| `task cluster:smoke` | can the cluster run a workload — see below |
 | `task cluster:status` | are the nodes Ready, and is anything not Running |
+| `task platform:status` | every stack's last run, interrupted updates and the `refresh` that clears them |
+| `task platform:drift` | which resources the cloud no longer agrees with |
+| `task cluster:encryption:check` | are the system volumes encrypted on disk, not only in config |
+| `task cluster:orphans` | is anything billed that nothing claims |
+| `task cluster:hubble` | the cluster's traffic, as flows |
+| `task cluster:machine-config:check` | does Talos accept the machine-config patches |
 
-Two of them exist because the failure they catch is silent.
-
-`encryption:check` compares the configuration with the disk. Talos encrypts a
-system volume only when the partition is empty, so applying the VolumeConfig
-to a node that already exists is accepted, reports nothing, and leaves the
-disk in plaintext. The probe's answer is the evidence: `luks` on an encrypted
-volume, the filesystem itself on a plaintext one.
-
-`orphans` compares the Hetzner project with the cluster. A StatefulSet's
-claims outlive their Helm release by design, and destroying a cluster destroys
-the API server that would have told the CSI driver to delete a volume — 160
-GiB were found that way. It prints what it examined as well as what it found,
-so "nothing to report" cannot read the same as "nothing was read".
-
-It also answers when the cluster is already gone, which is when it is usually
-wanted. No server carrying the cluster's label means no cluster, so an empty
-set of claims is the truth rather than a failure to ask, and the report says
-so before listing what the teardown left behind. While the servers are still
-there, an unreachable cluster is still an error — empty claims would then be a
-lie that invites deleting live volumes.
+`encryption:check` exists because Talos encrypts a volume only when its
+partition is empty: config applied to an existing node is accepted and changes
+nothing. `orphans` finds volumes a destroyed cluster could no longer delete; it
+also works when the cluster is gone.
 
 ## Does the cluster actually work?
 
-`pulumi up` going green is a different claim from "this cluster can run a
-workload", and the gap is not hypothetical here: it went green on a three-node
-cluster whose hcloud CSI controller was in CrashLoopBackOff. Every resource
-created, every pod Running, and no volume obtainable — because nothing had
-asked for one.
+`pulumi up` succeeding does not mean a workload can run — it once went green
+with the CSI controller crash-looping.
 
 ```bash
-task cluster:smoke stack=dev
+task cluster:smoke stack=dev              # verbose=yes also prints each probe
 ```
-
-Each check proves a different piece of the cluster or the platform is working
-rather than merely installed:
 
 | Check | Proves |
 |---|---|
-| every node is `Ready` | the CNI is installed — Talos leaves a node `NotReady` until one is |
-| a pod reaches a pod on another node | the CNI actually **routes** |
-| a claim on `hcloud-volumes` reaches `Bound` | the CSI driver, end to end through the Hetzner API |
-| volumes holding data are on a class that retains them | a namespace labelled `hetzner-iac/holds-data` loses nothing when a claim is deleted — skipped when none is labelled |
-| every secret store is ready | the External Secrets Operator reaches Pulumi ESC — skipped when no store exists |
-| every network policy is valid | Cilium accepted every policy, rather than ignoring one the API server stored |
+| every node is `Ready` | the CNI is installed |
+| a pod reaches a pod on another node | the CNI routes between nodes |
+| a claim on `hcloud-volumes` reaches `Bound` | the CSI driver, through the Hetzner API |
+| volumes holding data are on a class that retains them | a namespace labelled `hetzner-iac/holds-data` loses nothing when a claim is deleted |
+| every secret store is ready | the External Secrets Operator reaches Pulumi ESC |
+| every network policy is valid | Cilium accepted every policy the API server stored |
 | every LoadBalancer Service has an address and somewhere to send it | the cloud controller manager |
-| the external metrics API answers | KEDA's aggregated API group, when `kedaEnabled` is set — skipped when it is not |
-| an image outside the inventory is refused | the image policies are enforced: a dry-run pod running `busybox`, which [`images.yaml`](../internal/pkg/imagepolicy/images.yaml) does not list, is refused by the policy-controller in a labelled namespace |
+| the external metrics API answers | KEDA, when `kedaEnabled` is set |
+| an image outside the inventory is refused | the image policies are enforced (see [below](#which-images-may-run)) |
 
-The last one is the odd one out: it can be skipped, because `kedaEnabled` is
-off by default and a cluster that never asked for KEDA is not a broken cluster.
-It exists because KEDA's `APIService` is created with no CA bundle — the
-operator patches it in afterwards — and Helm waits for workloads rather than
-for `APIService`s. So the release reports success either way, and a group that
-stays unanswerable shows up much later, as an autoscaler that never acts.
-
-The second one was added after the failure it would have caught. Pod-to-pod
-traffic across nodes had no route at all for thirteen hours, and nothing said
-so: every node `Ready`, every pod `Running`, and about a third of DNS queries
-timing out. It surfaced as the CSI controller crash-looping — see
-[networking.md](networking.md#how-pod-traffic-crosses-a-node-boundary) for the chain.
-
-It works by asking the cluster's DNS from a node that runs **no** DNS replica,
-so every backend it can reach is on another node and the query has to cross a
-boundary to be answered. Choosing that node is the load-bearing part: ask from
-a node with a local replica and the check passes on a cluster whose cross-node
-traffic is dead, which is worse than not having it. On a single-node cluster
-there is no such path, so it reports skipped — which is exactly why a
-single-node cluster could not have exhibited the original failure.
-
-The storage check applies a claim and a pod, waits for `Bound`, and deletes
-both — including when the wait fails, which is when cleanup is usually
-forgotten. It schedules a pod because `hcloud-volumes` is
-`WaitForFirstConsumer`: a bare claim stays `Pending` forever on a perfectly
-healthy cluster, so a check that applied only a claim would report a working
-driver as broken.
-
-### Skipped is not passed
-
-A check that cannot run reports `○ skipped`, never a green tick. With no
-LoadBalancer Service in the cluster there is nothing for the controller manager
-to have done, and calling that success would be a green line that inspected an
-empty list. The summary counts them apart:
+The cross-node check asks cluster DNS from a node with no DNS replica, so the
+answer must cross a node boundary. The storage check schedules a pod because
+`hcloud-volumes` binds on first consumer, and deletes both probes even when it
+fails.
 
 ```
-✔ every node is Ready — 3 Ready
-✖ a claim on hcloud-volumes reaches Bound — claim is Pending after 2m0s. Last event: …
-○ every LoadBalancer Service has an address and somewhere to send it — no Service of type LoadBalancer exists…
+  ✔ every node is Ready
+      3 Ready
+  ✖ a claim on hcloud-volumes reaches Bound
+      claim is Pending after 2m0s. Last event: …
+  ○ every LoadBalancer Service has an address and somewhere to send it
+      no Service of type LoadBalancer exists, so this proves nothing about the cloud controller manager
 
-3 checks, 1 skipped
+  1 passed · 1 skipped · 1 failed
 ```
 
-That is real output from the dev cluster, and the middle line is the open CSI
-fault.
+**Skipped is not passed:** `○` means there was nothing to check. Exit code `2`
+means the checks ran and failed, `1` that they could not run; `go run` and
+`task` flatten both to `1`, so build the binary (`go build -o smoke
+./tools/smoke`) if the difference matters.
 
-Exit codes are `2` for "the checks ran and the cluster failed" and `1` for "the
-checks could not run" — a missing kubeconfig, an unreachable API server. Both
-`go run` and `task` flatten any non-zero child to their own `1`, so a caller
-that needs the difference has to build the binary:
-`go build -o smoke ./tools/smoke`.
+## Which images may run
+
+[`internal/pkg/imagepolicy/images.yaml`](../internal/pkg/imagepolicy/images.yaml)
+lists every image repository the charts run, with who signs it or, for an
+unsigned one, the tag and digest it is pinned to. `30-cluster-services`
+generates a ClusterImagePolicy per entry for the Sigstore policy-controller.
+
+- **Enforced** in every namespace a chart installs into, except `kube-system`
+  and `cosign-system` — a webhook outage there would stop the CNI or the webhook
+  itself. An image with no entry is refused.
+- **Argo CD, Dex, KEDA and Cilium stay at warn.** They sign only as Sigstore
+  bundles, which policy-controller cannot verify yet.
+- **A chart bump that moves an unsigned image's tag** fails `charts render`
+  until the pin follows. Renovate runs `go run ./tools/charts repin` on every
+  chart bump; run it by hand otherwise.
+- **A new image in a chart** needs an entry before `charts render` passes:
+  verify its signature with `cosign verify`, or pin it.
 
 ## Reaching the cluster with a plain kubectl
 
-Every task here passes `--kubeconfig` explicitly, and so does Pulumi, so none
-of them depends on what the shell points at — a resource created against the
-ambient config lands on whatever cluster that happens to be. A bare `kubectl`
-is the exception, and there are two ways to give it this cluster.
-
-Without touching any file, which is the safer one:
+Tasks and Pulumi pass `--kubeconfig` explicitly; a bare `kubectl` does not.
+Either merge at read time, touching no file:
 
 ```bash
 export KUBECONFIG=$HOME/.kube/config:$PWD/kubeconfig
 ```
 
-kubectl merges at read time, so both sets of contexts appear.
-
-Or add it once:
+or add the cluster to `~/.kube/config` once:
 
 ```bash
 task cluster:kubeconfig:add stack=dev
 ```
 
-Three entries through `kubectl config set-*`, not a merged file. The obvious
-`kubectl config view --flatten` is wrong here: it rewrites the whole target
-and inlines every other cluster's `certificate-authority` file into the
-document — measured on a config holding an unrelated cluster, whose
-`certificate-authority: /path/ca.crt` came back as `certificate-authority-data`.
-That is somebody else's entry changed in order to add ours.
-
-The certificate data is passed as base64 with `--set-raw-bytes=false`, which
-is what keeps a cluster-admin key off the disk: the `--embed-certs` route
-needs the key written to a temporary file first.
-
-It backs the target up with a timestamp, refuses outright if a cluster of that
-name already points somewhere else, and does not switch the current context —
-it prints the command that would.
+It backs the file up, refuses if a cluster of that name already points
+elsewhere, keeps the client key off disk, and leaves the current context alone.
 
 ### From a machine the firewall does not know
 
-The perimeter has exactly two ingress rules — the Kubernetes API and the Talos
-API — and both are sourced from `network.adminCIDRs`. Nothing else is open:
-the API load balancer has no public interface, and the kubeconfig and
-talosconfig both name the first control-plane node — the kubeconfig with a
-context for each of the others too. So
-on a console at an address that list does not name, a correct kubeconfig still
-times out, and so does `talosctl`. The failure looks like a broken cluster and
-is a filtered port.
+Only two ports are open — the Kubernetes API and the Talos API — and only from
+`network.adminCIDRs`. From any other address both time out, which looks like a
+broken cluster and is a filtered port.
 
-Reaching it again means widening that list, which means having the topology
-file: `infra/cluster/cluster.<stack>.yaml` is gitignored, because it names the
-networks an operator administers from and this repository is public. It is the
-one thing the stack does not hand back as a file — the credentials, the token
-and the Talos secrets all come out of `pulumi stack output`, and the topology
-does not. Keep a copy where the Hetzner token lives.
+Widening the list needs the topology file, `infra/cluster/cluster.<stack>.yaml`,
+which is gitignored and is the one input the stack does not give back. Keep a
+copy with the Hetzner token. If it is lost, rebuild it from
+`cluster.example.yaml` and `pulumi stack export`, then check with
+`task cluster:plan`: the only change should be the firewall.
 
-If it is gone, `pulumi stack export` holds the inputs every resource was
-created with, which is what the file has to agree with. Rebuild it from
-`cluster.example.yaml`, then let `task cluster:plan` judge: the only change you
-want is the firewall, and anything that reads as a replacement means a value
-does not match what the cluster was built with.
-
-When the address is not a stable one, the choices are the ordinary ones and
-each has a cost. A `/32` added per move keeps the list exact and makes every
-move a firewall update. An ISP range keeps it quiet and admits everyone else on
-that range. A jump host or a VPN endpoint with an address of its own is the one
-that stays honest, and it is a resource this repository does not create.
-
-Note what still works while the list is wrong: `task hcloud:*` acts through the
-Hetzner API rather than through the cluster, so power state, a VNC console and
-the inventory all answer — those need the topology too, for the cluster label
-they select on. Tasks that only read the Pulumi backend need neither.
+`task hcloud:*` works regardless — it goes through the Hetzner API.
 
 ## Control-plane addresses
 
-Each control-plane node holds an explicit Hetzner Primary IP with auto-delete
-off, so a replaced node comes back on the address the kubeconfig and the
-talosconfig already name. Workers keep implicit addresses: nothing connects to
-them by address, and they are replaceable by design.
+Each control-plane node holds a Hetzner Primary IP with auto-delete off, so a
+replaced node keeps the address the kubeconfig and talosconfig name. Workers
+keep implicit addresses.
 
-The server's public network is set when it is created and never updated. The
-hcloud provider updates one by powering the server off, unassigning its
-address and — when the old state named no address — deleting that address
-before assigning the new one. On dev it got as far as the power-off, and
-refused the rest only because the node was a load balancer target.
+A server's public network is never updated after creation: the hcloud provider
+does that by powering the server off and, in some states, deleting its address.
 
 ### Moving a cluster that predates this
 
-A cluster built before v7 has implicit addresses, and a plain apply would
-create three new ones and leave them unassigned, billed and unused. Adopt the
-addresses it has instead; no server is touched.
+A cluster built before v7 has implicit addresses; a plain apply would create
+three new unassigned ones. Adopt the existing ones instead — no server is
+touched.
 
-1. Find each control-plane node's address id:
+1. Find each control-plane node's address id and match `assignee_id` to the
+   server ids in `pulumi stack export`:
 
    ```bash
    bash -c 'cd infra/cluster && HCLOUD_TOKEN="$(pulumi config get hcloud:token --stack <stack>)" hcloud primary-ip list -o json | jq -r ".[] | \"\(.id) \(.ip) server \(.assignee_id)\""'
    ```
 
-   and match `assignee_id` to the server ids in `pulumi stack export`.
-
-2. Import them under the names the program uses, `<node>-ipv4`, with the
-   control plane component as the parent:
+2. Import them as `<node>-ipv4` under the control-plane component:
 
    ```json
    {
@@ -395,13 +232,12 @@ addresses it has instead; no server is touched.
    bash -c 'cd infra/cluster && pulumi import --stack <stack> --file <that file> --generate-code=false --protect'
    ```
 
-3. Import records the address's current `assigneeId` as an input, and the
-   provider refuses an address with both that and a `location`. Remove it from
-   the inputs — the outputs keep it, and nothing in Hetzner changes:
+3. Drop the imported `assigneeId` input, which the provider refuses beside a
+   `location`:
 
    ```bash
    bash -c 'cd infra/cluster && pulumi stack export --stack <stack> > state.json && jq "(.deployment.resources[] | select(.type==\"hcloud:index/primaryIp:PrimaryIp\") | .inputs) |= del(.assigneeId)" state.json > state.new.json && pulumi stack import --stack <stack> --file state.new.json'
    ```
 
-4. `task cluster:plan stack=<stack>` now shows the three addresses renamed,
-   labelled and switched to auto-delete off, and nothing else. Apply it.
+4. `task cluster:plan stack=<stack>` should show the three addresses renamed,
+   labelled and set to auto-delete off, and nothing else. Apply it.
