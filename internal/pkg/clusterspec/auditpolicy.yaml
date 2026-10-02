@@ -131,15 +131,25 @@ rules:
           - pods/attach
           - pods/portforward
 
-  # Admission webhooks intercept every write in the cluster, so one added
-  # quietly is a cluster-wide backdoor. Request rather than RequestResponse:
-  # what matters is the configuration sent, and the response only echoes it.
+  # Admission intercepts every write in the cluster, so a hook added quietly
+  # is a cluster-wide backdoor. Request rather than RequestResponse: what
+  # matters is the configuration sent, and the response only echoes it.
+  #
+  # Webhooks and CEL policies alike. MutatingAdmissionPolicy is GA and on by
+  # default since Kubernetes v1.36, and a policy rewrites objects in the API
+  # server itself — no Service to notice, nothing in a pod list — so it is the
+  # quieter backdoor of the two. The binding is half of it: a policy binds to
+  # nothing until one names it, and a binding is where its scope is widened.
   - level: Request
     resources:
       - group: admissionregistration.k8s.io
         resources:
           - mutatingwebhookconfigurations
           - validatingwebhookconfigurations
+          - mutatingadmissionpolicies
+          - mutatingadmissionpolicybindings
+          - validatingadmissionpolicies
+          - validatingadmissionpolicybindings
 
   # ─── Everything else ───────────────────────────────────────────────────────
   #

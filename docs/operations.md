@@ -59,8 +59,8 @@ task cluster:audit stack=dev last=5000
 ```
 
 - **Most events are `Metadata`** — who, when, verb, resource, code, no body.
-  RBAC changes, `pods/exec`, `attach`, `portforward` and admission webhook
-  changes record their request body. Health checks, discovery, kubelet reads
+  RBAC changes, `pods/exec`, `attach`, `portforward` and changes to admission
+  webhooks and admission policies record their request body. Health checks, discovery, kubelet reads
   and leases are dropped.
 - **Secrets are never recorded with a body.** `secrets`, `configmaps` and
   `serviceaccounts/token` are pinned at `Metadata` by the first rule, so no

@@ -82,6 +82,45 @@ func TestAuditPolicy_SecretsAreACeilingAndAFloor(t *testing.T) {
 			"node reading somebody else's secret is not recorded", SecretResources)
 }
 
+// TestAuditPolicy_AdmissionIsRecordedWithItsBody holds every way of
+// intercepting writes to a level that keeps the configuration sent.
+//
+// The list is the point. The rule named the two webhook configurations and not
+// the CEL policies beside them in the same group, so after Kubernetes v1.36
+// made MutatingAdmissionPolicy GA and on by default, a policy rewriting every
+// object in the cluster was recorded as a name and a verb. The first rule to
+// mention a resource decides its level, so that is the one checked.
+func TestAuditPolicy_AdmissionIsRecordedWithItsBody(t *testing.T) {
+	t.Parallel()
+
+	raw, err := auditPolicyFS.ReadFile(auditPolicyFile)
+	require.NoError(t, err)
+
+	var policy auditPolicy
+	require.NoError(t, yaml.UnmarshalStrict(raw, &policy))
+
+	request := slices.Index(auditLevels, "Request")
+
+	for _, resource := range []string{
+		"mutatingwebhookconfigurations",
+		"validatingwebhookconfigurations",
+		"mutatingadmissionpolicies",
+		"mutatingadmissionpolicybindings",
+		"validatingadmissionpolicies",
+		"validatingadmissionpolicybindings",
+	} {
+		first := slices.IndexFunc(policy.Rules, func(rule auditRule) bool {
+			return rule.mentions([]string{resource})
+		})
+		require.GreaterOrEqual(t, first, 0,
+			"no rule names %s, so the catch-all records it without its body", resource)
+
+		assert.GreaterOrEqual(t, slices.Index(auditLevels, policy.Rules[first].Level), request,
+			"rule %d records %s at %s, which drops the configuration sent",
+			first, resource, policy.Rules[first].Level)
+	}
+}
+
 // TestCheckAuditPolicy_RejectsWhatItClaims proves each check by breaking the
 // policy in the way it exists to catch.
 //
