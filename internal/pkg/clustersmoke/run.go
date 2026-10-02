@@ -104,6 +104,11 @@ func New(opts Options) (*Runner, error) {
 		return nil, fmt.Errorf("kubeconfig: %w", err)
 	}
 
+	// The API server's warnings go to Logf with the rest of the progress.
+	// client-go's default handler writes them through klog, as a timestamped
+	// line in the middle of the results.
+	config.WarningHandler = warnings{logf: opts.Logf}
+
 	client, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes client: %w", err)
@@ -135,6 +140,16 @@ func NewWithClient(client kubernetes.Interface, custom dynamic.Interface, opts O
 	}
 
 	return &Runner{client: client, custom: custom, opts: opts}
+}
+
+// warnings is a client-go WarningHandler that hands each warning to Logf.
+type warnings struct {
+	logf func(string, ...any)
+}
+
+// HandleWarningHeader implements rest.WarningHandler.
+func (w warnings) HandleWarningHeader(_ int, _ string, message string) {
+	w.logf("api warning: %s", message)
 }
 
 // Run executes every check and returns the whole report.
@@ -213,18 +228,15 @@ func deniedBy(err error) (string, error) {
 // admissionProbe is the pod the admission check submits: the prober image, which
 // the image inventory does not list, in a spec Pod Security admits.
 func admissionProbe() *corev1.Pod {
-	noEscalation := false
-
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: admissionProbeName},
 		Spec: corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyNever,
+			RestartPolicy:   corev1.RestartPolicyNever,
+			SecurityContext: restrictedPod(),
 			Containers: []corev1.Container{{
-				Name:  admissionProbeName,
-				Image: ProberImage,
-				SecurityContext: &corev1.SecurityContext{
-					AllowPrivilegeEscalation: &noEscalation,
-				},
+				Name:            admissionProbeName,
+				Image:           ProberImage,
+				SecurityContext: restrictedContainer(),
 			}},
 		},
 	}
@@ -810,47 +822,66 @@ func replicaContainer(i int) string {
 // nodeName rather than an affinity rule: the choice is already made and an
 // affinity the scheduler could satisfy elsewhere would silently move the probe
 // onto a node where the answer means nothing.
-func proberFor(node string, replicas []DNSReplica) *corev1.Pod {
-	noEscalation := false
-	nonRoot := true
-	// busybox's own user. runAsNonRoot needs a numeric id, because the image
-	// declares no USER and the kubelet refuses to guess.
-	var user int64 = 65534
+// proberUser is busybox's own unprivileged user. runAsNonRoot needs a numeric
+// id, because the image declares no USER and the kubelet refuses to guess.
+const proberUser int64 = 65534
 
+// restrictedPod is the pod half of what Pod Security's restricted level asks,
+// which Talos warns on in every namespace but kube-system. Every pod this
+// check submits carries it, so a run prints its results and not the API
+// server's objections to its probes.
+func restrictedPod() *corev1.PodSecurityContext {
+	nonRoot := true
+	user := proberUser
+
+	return &corev1.PodSecurityContext{
+		RunAsNonRoot:   &nonRoot,
+		RunAsUser:      &user,
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+}
+
+// restrictedContainer is the container half.
+func restrictedContainer() *corev1.SecurityContext {
+	noEscalation := false
+
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: &noEscalation,
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{dropAll}},
+	}
+}
+
+// dropAll is the capability name that drops every capability.
+const dropAll corev1.Capability = "ALL"
+
+func proberFor(node string, replicas []DNSReplica) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: proberPod},
 		Spec: corev1.PodSpec{
-			NodeName:      node,
-			RestartPolicy: corev1.RestartPolicyNever,
-			SecurityContext: &corev1.PodSecurityContext{
-				RunAsNonRoot:   &nonRoot,
-				RunAsUser:      &user,
-				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-			},
+			NodeName:        node,
+			RestartPolicy:   corev1.RestartPolicyNever,
+			SecurityContext: restrictedPod(),
 			Tolerations: []corev1.Toleration{{
 				Key:      "node-role.kubernetes.io/control-plane",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
 			}},
-			Containers: proberContainers(replicas, &noEscalation),
+			Containers: proberContainers(replicas),
 		},
 	}
 }
 
 // proberContainers asks each DNS replica by its own address, one container
 // apiece. nslookup's exit code is the whole result, so nothing parses output.
-func proberContainers(replicas []DNSReplica, noEscalation *bool) []corev1.Container {
+func proberContainers(replicas []DNSReplica) []corev1.Container {
 	containers := make([]corev1.Container, 0, len(replicas))
 
 	for i, replica := range replicas {
 		containers = append(containers, corev1.Container{
-			Name:    replicaContainer(i),
-			Image:   ProberImage,
-			Command: []string{"nslookup", proberName, replica.IP},
-			SecurityContext: &corev1.SecurityContext{
-				AllowPrivilegeEscalation: noEscalation,
-				Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-			},
+			Name:            replicaContainer(i),
+			Image:           ProberImage,
+			Command:         []string{"nslookup", proberName, replica.IP},
+			SecurityContext: restrictedContainer(),
 		})
 	}
 

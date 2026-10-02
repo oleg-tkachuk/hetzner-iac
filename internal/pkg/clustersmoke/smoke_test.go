@@ -709,3 +709,44 @@ func TestProberImage_IsOutsideTheImageInventory(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, found)
 }
+
+func TestRender_PutsEachObservationUnderItsCheck(t *testing.T) {
+	t.Parallel()
+
+	report := clustersmoke.Report{
+		{Name: "every node is Ready", Status: clustersmoke.StatusPassed, Detail: "3 Ready"},
+		{Name: "every secret store is ready", Status: clustersmoke.StatusSkipped, Detail: "no store"},
+		{Name: "a claim reaches Bound", Status: clustersmoke.StatusFailed, Detail: "Pending"},
+	}
+
+	var out strings.Builder
+	require.NoError(t, clustersmoke.Render(&out, report, clustersmoke.Plain))
+
+	assert.Equal(t, `  ✔ every node is Ready
+      3 Ready
+  ○ every secret store is ready
+      no store
+  ✖ a claim reaches Bound
+      Pending
+
+  1 passed · 1 skipped · 1 failed
+`, out.String())
+}
+
+func TestANSI_ColoursEachVerdict(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "\x1b[32mok\x1b[0m", clustersmoke.ANSI(clustersmoke.StatusPassed, "ok"))
+	assert.Equal(t, "\x1b[31mok\x1b[0m", clustersmoke.ANSI(clustersmoke.StatusFailed, "ok"))
+	assert.Equal(t, "\x1b[2mok\x1b[0m", clustersmoke.ANSI(clustersmoke.StatusSkipped, "ok"))
+}
+
+func TestReport_Count(t *testing.T) {
+	t.Parallel()
+
+	report := clustersmoke.Report{{Status: clustersmoke.StatusPassed}, {Status: clustersmoke.StatusPassed}, {Status: clustersmoke.StatusSkipped}}
+
+	assert.Equal(t, 2, report.Count(clustersmoke.StatusPassed))
+	assert.Equal(t, 1, report.Count(clustersmoke.StatusSkipped))
+	assert.Zero(t, report.Count(clustersmoke.StatusFailed))
+}

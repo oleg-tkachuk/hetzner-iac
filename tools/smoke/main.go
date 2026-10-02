@@ -19,6 +19,8 @@ import (
 	"os"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clustersmoke"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
@@ -35,10 +37,11 @@ func main() {
 		"the class the probe claim asks for")
 	timeout := flag.Duration("bind-timeout", clustersmoke.DefaultBindTimeout,
 		"how long to wait for the probe claim to reach Bound")
+	verbose := flag.Bool("v", false, "print each probe as it is applied, and the API server's warnings")
 
 	flag.Parse()
 
-	err := run(*kubeconfig, *kubeContext, *storageClass, *timeout)
+	err := run(*kubeconfig, *kubeContext, *storageClass, *timeout, *verbose)
 
 	// Exiting here rather than inside run, so run's deferred cancel actually
 	// runs. os.Exit does not unwind defers, and the first version called it
@@ -57,6 +60,12 @@ func main() {
 
 // errChecksFailed means the checks ran and the cluster did not pass, as
 // distinct from the checks not running at all.
+// colour is whether stdout is a terminal that has not asked for none —
+// https://no-color.org.
+func colour() bool {
+	return os.Getenv("NO_COLOR") == "" && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
 var errChecksFailed = errors.New("cluster failed the smoke checks")
 
 // exitFailed is the status for "the checks ran and the cluster did not pass",
@@ -76,13 +85,20 @@ var errChecksFailed = errors.New("cluster failed the smoke checks")
 // costs nothing — rather than flattened to match the wrappers.
 const exitFailed = 2
 
-func run(kubeconfig, kubeContext, storageClass string, timeout time.Duration) error {
+func run(kubeconfig, kubeContext, storageClass string, timeout time.Duration, verbose bool) error {
+	// Progress only when asked for: the probes it names are the check's own
+	// machinery, and the report below says what each one found.
+	var logf func(string, ...any)
+	if verbose {
+		logf = func(format string, args ...any) { fmt.Fprintf(os.Stderr, "  · "+format+"\n", args...) }
+	}
+
 	runner, err := clustersmoke.New(clustersmoke.Options{
 		Kubeconfig:   kubeconfig,
 		Context:      kubeContext,
 		StorageClass: storageClass,
 		BindTimeout:  timeout,
-		Logf:         func(format string, args ...any) { fmt.Printf("  "+format+"\n", args...) },
+		Logf:         logf,
 	})
 	if err != nil {
 		return err
@@ -93,14 +109,17 @@ func run(kubeconfig, kubeContext, storageClass string, timeout time.Duration) er
 
 	report := runner.Run(ctx)
 
-	for _, result := range report {
-		fmt.Printf("%s %s — %s\n", result.Status.Glyph(), result.Name, result.Detail)
+	paint := clustersmoke.Plain
+	if colour() {
+		paint = clustersmoke.ANSI
 	}
 
-	// The summary counts skipped separately: "2 passed, 1 skipped" is three
-	// checks and two answers, and rounding that to "passed" is the failure
-	// this whole tool exists to avoid.
-	fmt.Printf("\n%d checks, %d skipped\n", len(report), report.Skipped())
+	// Rendered with a count of each verdict, skipped apart from passed:
+	// "2 passed, 1 skipped" is three checks and two answers, and rounding that
+	// to "passed" is the failure this whole tool exists to avoid.
+	if err := clustersmoke.Render(os.Stdout, report, paint); err != nil {
+		return err
+	}
 
 	if report.Failed() {
 		return errChecksFailed
