@@ -48,7 +48,7 @@ carry them.
 | `taskguards_test.go` | the arguments a task takes and what it refuses without them: the stack, the layer, the usage it prints, the question before it changes anything |
 | `tasklib_test.go` | every remote taskfile has the checksum Task will look for, ref included |
 | `taskoutput_test.go` | what a task prints: the glyph vocabulary it shares with `internal/pkg/pulumilog`, and naming the layer when an operation finishes |
-| `tasks_test.go` | — reading the taskfiles and cutting one into its tasks, which the five above share |
+| `tasks_test.go` | — reading the taskfiles and cutting one into its tasks, which the task tests above share |
 | `vendored_test.go` | each vendored manifest against its recorded digest; the half that asks upstream what it serves runs in the nightly workflow, which is the only place with a network |
 | `workflows_test.go` | the workflows' own logic: relevance, caching, job wiring |
 
@@ -57,20 +57,13 @@ carry them.
 The go tool ignores any path element beginning with `.` or `_`. In a `.ci/`
 directory `go test ./...` skips every gate here and `./.ci/...` matches no
 packages at all — so the suite would stay green while checking nothing.
-Measured before choosing, with a deliberately failing test in each place.
-
-## Why these exist at all
-
-Each one is a failure that already happened here and reported nothing. A
-storage class spelled two ways leaves every claim Pending with nothing saying
-why. A renamed stack output makes `jq` return `null`, which the caller reads as
-an empty password. A Renovate regex that stops matching opens no pull request,
-for ever, silently. Two halves and nothing comparing them is the shape; these
-are the comparisons.
 
 ## What earns a gate, and what does not
 
-All three have to hold, or the check costs more than it returns:
+Each gate compares two halves that sit apart and whose drift reports nothing:
+a storage class spelled two ways leaves every claim Pending, a renamed stack
+output makes `jq` return `null`. All three have to hold, or the check costs
+more than it returns:
 
 1. **The two halves sit in different files or different languages**, so no
    compiler compares them.
@@ -80,12 +73,7 @@ All three have to hold, or the check costs more than it returns:
 
 That leaves three things out on purpose. A gate over the SPELLING of the
 implementation — a regex across Go source — fixes where the code is written
-rather than what it does, and it breaks on a refactor that changed nothing: one
-here read an awk program out of a workflow by regex, and moving that program
-into its own file broke the test while the rule stayed identical. A gate over
-TASTE is the author's preference, and belongs in a review or a linter. A gate
-over NAVIGATION — an index of the documents, a table describing these gates —
-protects a reader from ten seconds of `ls`.
-
-Three were removed the day this section was written, for one of those reasons
-each. Subtracting is the same work as adding.
+rather than what it does, and breaks on a refactor that changed nothing. A gate
+over TASTE belongs in a review or a linter. A gate over NAVIGATION — an index
+of the documents, a table describing these gates — protects a reader from ten
+seconds of `ls`.
