@@ -1,7 +1,8 @@
 # Why it is shaped this way
 
-Four decisions explain most of the repository. Each one has a cost, and the
-cost is named.
+Each decision below has a cost, and the cost is named. How packets move —
+ingress, the API path, pod routing, network policy — is
+[networking.md](networking.md).
 
 ## What lives inside what
 
@@ -91,29 +92,24 @@ through a Hetzner provider it builds from the token the cluster tier publishes.
 A third, [layers/10-node-platform](../layers/10-node-platform), writes that
 token into a Kubernetes Secret, because the hcloud charts read it from there.
 
+The ingress load balancer is not the cloud controller manager's: a CCM-managed
+load balancer is invisible to `plan` and `destroy`, and the CCM will not target
+a node carrying `node.kubernetes.io/exclude-from-external-load-balancers`,
+which Talos puts on every control-plane node.
+`internal/pkg/hetzner.NewIngressLoadBalancer` records the details.
+
 So the seam is narrower than "only the cluster tier touches Hetzner". What it
 actually holds is that **the token lives in one stack's config** —
 `infra/cluster`'s — and reaches another project only as a secret output of that
 stack. Nothing else is configured with a credential of its own, and destroying
-the cluster tier takes the only copy that was configured anywhere. That is the
-half `internal/ci/tiers_test.go` asserts, rather than this document being the
-only place it is written down.
+the cluster tier takes the only copy that was configured anywhere.
+`internal/ci/tiers_test.go` asserts it.
 
-This paragraph used to say that the load balancer came from the cloud
-controller manager and that "no layer holds a Hetzner credential to do it
-with". That was true and stopped being true: a CCM-managed load balancer is
-invisible to `plan` and `destroy` and refuses to target a control-plane node at
-all, so it was replaced by one this repository creates. Both arrangements were
-tried against a live cluster; `internal/pkg/hetzner.NewIngressLoadBalancer`
-records what the CCM route cost. The document kept the old claim for four
-months, which is the ordinary way a design note goes wrong — nothing fails when
-prose stops matching code.
-
-The box outside all three is the one worth staring at. Every certificate in
-the cluster descends from a secrets bundle that exists only in Pulumi's state:
-`Protect` stops a destroy from taking it, which is not the same as a second
-copy existing anywhere. It is also what makes an etcd snapshot restorable at
-all, so `task cluster:secrets:export` writes it somewhere else — see
+The box outside all three is the one to watch. Every certificate in the cluster
+descends from a secrets bundle that exists only in Pulumi's state: `Protect`
+stops a destroy from taking it, which is not the same as a second copy existing
+anywhere. It is also what makes an etcd snapshot restorable at all, so
+`task cluster:secrets:export` writes it somewhere else — see
 [recovery.md](recovery.md#the-three-parts-of-a-backup).
 
 ## Each layer is its own Pulumi project
@@ -122,12 +118,12 @@ A layer can be previewed, applied and destroyed on its own, and reads the
 cluster's kubeconfig through a `StackReference` rather than sharing state with
 it. Upgrading Cilium does not mean planning a change to Argo CD.
 
-Independence has a boundary worth stating: layers are independently
-*appliable*, not order-free. On an empty cluster nothing schedules before the
-cloud controller manager clears Talos's `uninitialized` taint, and nothing
-networks before the CNI. `task platform:apply layer=all` walks them in order; the
-order lives once, in the root Taskfile, and CI derives its matrix from the
-same list through `task -t Taskfile.dev.yaml layers`.
+Layers are independently *appliable*, not order-free. On an empty cluster
+nothing schedules before the cloud controller manager clears Talos's
+`uninitialized` taint, and nothing networks before the CNI.
+`task platform:apply layer=all` walks them in order; the order lives once, in
+the root Taskfile, and CI derives its matrix from the same list through
+`task -t Taskfile.dev.yaml layers`.
 
 ## What decides a layer boundary
 
@@ -149,37 +145,26 @@ list is the only thing membership buys, and it is also the only thing it costs
    bumped. A destination changes when somebody decides to keep backups
    somewhere else, which is years apart from the rest.
 
-`infra/backup` answers yes three times, and had been a layer — `60-backup` —
-answering yes three times all along. It creates nothing in Kubernetes and never
-used the Kubernetes provider the layer runner built for it; it depended on no
-layer, so its number said "last" about an ordering it was not part of; and
-`layer=all` destroyed it **first**, ahead of the layers it did not depend on.
-The Storage Box's `DeleteProtection` does not make that safe, which was
-measured after this paragraph first claimed it would: the provider disables the
-protection before deleting, so a destroy takes the box and the snapshots on it
-rather than failing. What does make it safe is `pulumi.Protect(true)`, which
-the box now carries — the engine refuses the delete in preview — and
-`backup:destroy` asks for `ignore_protect=yes` before overriding it. The argument for the move is stronger than it was — the
-teardown would not have stopped at step one, it would have succeeded. It is a
-tier now, with
-[tasks/backup.task.yaml](../tasks/backup.task.yaml) of its own, and `task
-destroy` leaves it standing — which is what a backup destination is for.
+`infra/backup` answers yes to all three: it creates nothing in Kubernetes,
+depends on no layer, and must outlive the cluster. As a layer, `layer=all`
+would destroy it along with everything else. As a tier, with
+[tasks/backup.task.yaml](../tasks/backup.task.yaml) of its own, `task destroy`
+leaves it standing — which is what a backup destination is for.
 
-The middle question is also the one with a test behind it.
-`internal/ci/tiers_test.go` holds the token seam in two halves:
-`TestOnlyTheClusterTierIsConfiguredWithTheToken` requires exactly one project
-to declare `hcloud:token` in its own config, and
+The middle question has a test behind it. `internal/ci/tiers_test.go` holds the
+token seam in two halves: `TestOnlyTheClusterTierIsConfiguredWithTheToken`
+requires exactly one project to declare `hcloud:token` in its own config, and
 `TestOnlyNamedProjectsWriteToHetzner` reads every project's source for a call
 to `hetzner.NewProvider` and fails on one this document does not account for.
 Adding a Hetzner writer is allowed; adding one silently is not.
 
-What the questions deliberately do not ask is whether two projects depend on
-each other. Argo CD's ingress in `50-gitops` is annotated with the
-ClusterIssuer that `30-cluster-services` creates — `platform.IssuerName`, one
-constant both import — and the two layers stay separate, because the ordered
-walk is what makes cert-manager arrive first and a shared constant is what
-makes the name agree. Dependency is an argument about order, and order is what
-the walk already provides; membership is a question about destroy scope.
+The questions deliberately do not ask whether two projects depend on each
+other. Argo CD's ingress in `50-gitops` is annotated with the ClusterIssuer
+that `30-cluster-services` creates — `platform.IssuerName`, one constant both
+import — and the two layers stay separate, because the ordered walk is what
+makes cert-manager arrive first and a shared constant is what makes the name
+agree. Dependency is an argument about order, and order is what the walk
+already provides; membership is a question about destroy scope.
 
 ## The repository's own name is written once
 
@@ -187,14 +172,13 @@ the walk already provides; membership is a question about destroy scope.
 each pair of them has to agree exactly while nothing compares them at run time:
 the Pulumi type token of every component resource, which every URN beneath it
 carries; the `group:` prefix `cmd/target` resolves those tokens by, passed to it
-as `COMPONENT_PACKAGE`; the
-`managed-by` label `cluster:orphans` selects on; the `apiVersion` a topology is
-validated against, in Go **and** in the JSON Schema an editor reads; and the
-CrossGuard pack's name, in its manifest and in its program.
+as `COMPONENT_PACKAGE`; the `managed-by` label `cluster:orphans` selects on;
+the `apiVersion` a topology is validated against, in Go **and** in the JSON
+Schema an editor reads; and the CrossGuard pack's name, in its manifest and in
+its program.
 
 So it lives in one constant, `clusterspec.Name`, and everything else is built
-from it. Not because five literals are untidy — because the four failures are
-not alike, and a rename meets them one at a time otherwise:
+from it, because a rename fails differently in each place:
 
 | Contract | What a rename does |
 |----------|--------------------|
@@ -208,51 +192,46 @@ literals rather than file text so that a comment quoting a URN is not mistaken
 for a second definition. Two more hold the halves Go cannot reach: the schema's
 `apiVersion` and the policy manifest's name.
 
-It is deliberately not derived from the module path. `go.mod` says
-`github.com/oleg-tkachuk/hetzner-iac`, and taking the last element of it would
-tie the state contract to where the repository is hosted.
+It is deliberately not derived from the module path: that would tie the state
+contract to where the repository is hosted.
 
 ## Every stack output is a named constant
 
 A stack output is an interface, and half its consumers are not Go. The tier's
 `kubeconfig` and `talosconfig` are read by `cluster:kubeconfig` and
-`cluster:talosconfig`; the backup tier's five are read by `cluster:etcd:upload`
-through jq. Those callers cannot import a constant, so they spell the name
-again — and when the two spellings drift nothing errors: `pulumi stack output`
-prints nothing, jq answers `null`, and the task reports the layer as unapplied,
-which points the operator at an apply that will not fix it.
+`cluster:talosconfig`; the backup tier's outputs are read by
+`cluster:etcd:upload` through jq. Those callers cannot import a constant, so
+they spell the name again — and when the two spellings drift nothing errors:
+`pulumi stack output` prints nothing, jq answers `null`, and the task reports
+the layer as unapplied, which points the operator at an apply that will not fix
+it.
 
 So every export in every project names a constant, whether or not a machine
-reads it today. Uniform rather than "name the ones that matter", because who
-reads an output changes: `ingressIp` is read by a person now and by whatever
-writes DNS records later, and a rename at that point is a rename in two
-languages. It also makes the published set greppable —
-`grep Output internal/pkg/clusterref layers` is the whole list.
+reads it today, because who reads an output changes. It also makes the
+published set greppable — `grep Output internal/pkg/clusterref layers` is the
+whole list.
 
-Two tests hold it, and they catch different halves.
 `TestLayers_ExportOnlyNamedOutputs` refuses an export written as a literal.
 `TestOutputs_ReadByShellAreDeclaredInGo` takes every name a taskfile reads and
 requires a constant to publish it, which catches a rename on either side.
-`internal/pkg/clusterref` additionally pins each constant's value, and
+`internal/pkg/clusterref` pins each constant's value, and
 `TestOutputNames_ArePinnedWithoutException` counts the pins against the
-constants, because that list had gone stale by three.
+constants.
 
 ## What Pulumi owns, and what it deliberately does not
 
-The `pulumi-hcloud` provider offers 32 resource types. This repository uses
-eleven, and the gap is not all oversight — three quarters of it is a decision.
-
 Owned here: the network and its subnet, the firewall, the placement group, the
-servers, the API load balancer with its network attachment, service and
-label-selector target, the ingress load balancer with the same four, its `A`
-and `AAAA` records, and the Storage Box with its subaccount.
+servers and the control-plane nodes' Primary IPs, the API load balancer with
+its network attachment, service and label-selector target, the ingress load
+balancer with the same four, its `A` and `AAAA` records, and the Storage Box
+with its subaccount.
 
 **Not owned, and not to be.** Each of these has one reason:
 
 | Thing | Who owns it | Why not Pulumi |
 |---|---|---|
 | Volumes behind a `PersistentVolumeClaim` | the CSI driver | dynamic provisioning is the point; Pulumi owning them means abandoning claims. `cluster:orphans` covers the gap, and the reclaim policy below decides what a deleted claim costs |
-| A load balancer for a workload's `Service` | the CCM | the workload's Service owns it. The *ingress* one moved because the platform owns that one |
+| A load balancer for a workload's `Service` | the CCM | the workload's Service owns it. The *ingress* one is Pulumi's because the platform owns that one |
 | Objects inside a Helm release | Helm | Pulumi owns the Release. Owning both puts two reconcilers on one object |
 | The Talos snapshot | `task cluster:image:bake` | Hetzner has no image-upload API. `hcloud.Snapshot` takes a `ServerId`, so Pulumi could take the snapshot but not write the disk — the imperative half stays either way |
 | A Talos or Kubernetes upgrade | `talosctl` | a procedure with an order, not a desired state |
@@ -271,39 +250,32 @@ authoritative DNS, and `metadata.dnsZone` may be left empty when it is not —
 the layer then says the records are somebody else's to write rather than
 staying silent.
 
-One thing could still move and has not, and it is measured:
+Workers keep implicit addresses, deleted with the server. The address DNS
+points at is the load balancer's, which is neither a primary nor a floating IP.
 
-- **Primary IPs.** Every public address today is implicit and carries
-  `auto_delete: true`, so a server replacement takes its address with it — and
-  servers here are `DeleteBeforeReplace`, so that happens on any replacing
-  change, not only on a teardown. An explicit `hcloud.PrimaryIp` survives it,
-  at the same cost while attached, and keeps billing while it is not. It does
-  **not** help the address DNS would point at: that is a load balancer's, and
-  an LB IPv4 is neither a primary nor a floating IP — `floatingIpAssignment`
-  takes a `ServerId` and nothing else.
-
-One API note worth keeping, because it costs an afternoon otherwise: Hetzner
-serves these from two bases. Storage Boxes are on the unified API —
+Hetzner serves these from two API bases. Storage Boxes are on the unified API —
 `api.hetzner.com/v1/storage_boxes` — and answer `api route not found` on
 `api.hetzner.cloud/v1`. Zones are the other way round. The same project token
 reaches both.
 
 ## What a delete takes with it
 
-Four things cannot be deleted or replaced by an ordinary command, and each
-needs a different word said out loud:
+These cannot be deleted or replaced by an ordinary command, and each needs a
+different word said out loud:
 
 | Resource | What stops it | Override |
 |---|---|---|
 | Talos secrets bundle — the cluster CA | `pulumi.Protect` | `task cluster:secrets:destroy` |
-| Control-plane servers — etcd is on their disks | `pulumi.Protect` | `replace_control_plane=yes` |
+| Control-plane servers and their Primary IPs — etcd is on their disks | `pulumi.Protect` | `replace_control_plane=yes` |
 | API load balancer — its address is the endpoint | `pulumi.Protect` | `replace_control_plane=yes` |
 | Storage Box — the uploaded etcd snapshots | `pulumi.Protect`, plus Hetzner's own flag for the console | `ignore_protect=yes` |
 
 `pulumi.Protect` is the mechanism in every case, and it refuses a **replacement**
 as well as a delete — so resizing a Storage Box or moving a cluster's location
 is a code change, not an argument. Hetzner's `deleteProtection` guards the
-console, the API and the CLI and not Pulumi, which clears it before deleting.
+console, the API and the CLI and not Pulumi: the provider clears it before
+deleting, so on its own it would let a destroy take the box and the snapshots
+on it.
 
 A teardown is different from an accident, and the commands say which they are.
 `task destroy` takes the servers and the API load balancer, because that is
@@ -318,17 +290,15 @@ that is decided per workload rather than once:
 | scratch — caches, builds, drainable queues | `hcloud-volumes`, the default | `Delete` | nothing, on purpose: it is rebuilt from git |
 | a database's data directory | `hcloud-volumes-db`, named explicitly | `Retain` | the database, to object storage, with point-in-time recovery |
 
-`Retain` is not a backup and is not sold as one. What it buys is that the
-volume survives a deleted `PersistentVolumeClaim`, which is the accident that
-actually happens — an Argo CD prune of a directory somebody moved. A database
-is still backed up by the database: a filesystem copy taken under a running one
-is crash-consistent, which is a property you find out about during a restore.
+`Retain` is not a backup. What it buys is that the volume survives a deleted
+`PersistentVolumeClaim`, which is the accident that actually happens — an
+Argo CD prune of a directory somebody moved. A database is still backed up by
+the database: a filesystem copy taken under a running one is only
+crash-consistent.
 
-`Delete` stays the default because the dangerous case is no longer "somebody
-forgot". A chart that names no class gets the default, and the rule is that a
-claim holding data names the other one — so `task cluster:smoke` refuses a
-claim on a `Delete` class in a namespace labelled `hetzner-iac/holds-data`, and
-without that check the table above is a paragraph rather than a rule.
+`Delete` stays the default, and the rule is that a claim holding data names the
+other class — so `task cluster:smoke` refuses a claim on a `Delete` class in a
+namespace labelled `hetzner-iac/holds-data`.
 
 The cost of `Retain` is a volume nobody is looking at. `cluster:orphans` reports
 a `Released` PersistentVolume for that reason: the claim is gone, nothing will
@@ -348,32 +318,18 @@ audit policy. It imports the standard library and a YAML parser, and nothing
 else. [internal/pkg/hetzner](../internal/pkg/hetzner) is the cluster as Pulumi
 resources, and it reads the first one.
 
-They were one package, which made every command-line tool expensive. Nine
-programs under `tools/` imported it and not one of them used a resource: they
-wanted a topology, a label, a patch or a token. `tools/topology`, whose whole
-job is to validate a YAML file, linked 816 packages into a 44 MB binary.
+The command-line tools under `tools/` want a topology, a label, a patch or a
+token, not a resource, so they import `clusterspec` and stay an order of
+magnitude smaller. The weight is not the provider SDKs but Pulumi's own SDK
+underneath them, so one import into `clusterspec` would undo the split with
+nothing failing — `TestClusterSpec_PullsNoPulumi` is what notices.
 
-The weight is not the provider SDKs. hcloud, Talos and Kubernetes add three
-packages each; what they sit on is Pulumi's own SDK, which is 768. So the split
-is worth what it is worth only while `clusterspec` keeps importing none of it,
-and one import would undo it with nothing failing —
-`TestClusterSpec_PullsNoPulumi` is what notices.
-
-| tool | before | after |
-|------|--------|-------|
-| `topology` | 44.0 MB | 4.7 MB |
-| `stack` | 44.0 MB | 5.0 MB |
-| `talos` | 44.1 MB | 5.3 MB |
-| `secrets` | 43.6 MB | 4.6 MB |
-| `recoverykit` | 43.7 MB | 4.6 MB |
-
-Three tools stay large — `token`, `image` and `orphans` — and that is not an
-oversight. Each reads the Hetzner token out of an encrypted stack, which needs
-Pulumi's automation API, and the automation API needs the SDK underneath it.
-That is [internal/pkg/hcloudtoken](../internal/pkg/hcloudtoken), kept apart so
-that the cost lands only on the programs that cannot avoid it —
+`token`, `image` and `orphans` stay large on purpose: each reads the Hetzner
+token out of an encrypted stack, which needs Pulumi's automation API, and that
+needs the SDK. That is [internal/pkg/hcloudtoken](../internal/pkg/hcloudtoken),
+kept apart so the cost lands only on the programs that cannot avoid it.
 [internal/pkg/talossecrets](../internal/pkg/talossecrets) reads a stack too, by
-running the `pulumi` binary, and is 4.6 MB for it.
+running the `pulumi` binary, and stays small.
 
 ## The cluster is a committed file
 
@@ -435,35 +391,25 @@ a second member tolerates no more failures than one while costing twice as
 much. The three land in a spread placement group, so they are three failure
 domains rather than three processes on one machine.
 
-The load balancer is not a convenience. It is the endpoint signed into every
-certificate, which is what makes a member replaceable — with a node's own
-address there, replacing that node reissues everything that named it.
-
-It has no public interface. A Hetzner firewall attaches to servers, not to a
-load balancer, and the load balancer reaches its targets over the private
-network, so a public one was tcp/6443 open to anyone beside a firewall that
-admits only `network.adminCIDRs`. The nodes use its private address. The
-kubeconfig points at the first control-plane node, through the firewall, as
-the talosconfig already did.
+The load balancer is the endpoint signed into every certificate, which is what
+makes a member replaceable — with a node's own address there, replacing that
+node reissues everything that named it. It has no public interface; the
+reason, and how an operator reaches the API instead, are in
+[networking.md](networking.md#how-the-kubernetes-api-is-reached).
 
 Service account tokens are signed with a fixed issuer,
-`https://kubernetes.default.svc.cluster.local`, not the one Talos derives from
-the cluster endpoint. With the derived one, moving the endpoint made every
-token already in a pod fail with 401 until the pod restarted — measured when
-the load balancer went private.
+`https://kubernetes.default.svc.cluster.local`
+(`clusterspec.ServiceAccountIssuer`), not the one Talos derives from the
+cluster endpoint. With the derived one, moving the endpoint makes every token
+already in a pod fail with 401 until the pod restarts.
 
-One thing HA needs that a single node never did: **etcd has to advertise
-inside the private network.** Left alone it advertises whichever address the
-node has first, and on Hetzner that is the public one — where the perimeter
-firewall opens tcp/6443 and tcp/50000 and nothing else, so the members cannot
-reach each other's tcp/2380. Measured on the first three-member cluster built
-here: two members, one of them a learner for ever, and the third never
-joining. `internal/pkg/clusterspec.BuildEtcdPatch` pins it, in a document applied to
-control planes only — Talos refuses the section on a worker, which
-`task cluster:machine-config:check` says out loud.
-
-Verified by turning a member off: the API kept answering through the load
-balancer and Kubernetes kept accepting writes on the remaining two.
+**etcd has to advertise inside the private network.** Left alone it advertises
+whichever address the node has first, and on Hetzner that is the public one —
+where the perimeter firewall opens tcp/6443 and tcp/50000 and nothing else, so
+the members cannot reach each other's tcp/2380 and the cluster never reaches
+three voting members. `internal/pkg/clusterspec.BuildEtcdPatch` pins it, in a
+document applied to control planes only — Talos refuses the section on a
+worker, which `task cluster:machine-config:check` says out loud.
 
 ## What the cluster encrypts, and what it does not
 
@@ -507,9 +453,9 @@ here only add what a chart does not already do.
 
 Argo CD deliberately asks for nothing. It reconciles rather than serves, and a
 cluster whose Argo CD has been evicted keeps running everything it was told to
-run. Each chart's file holds the reasoning and the render check
-proves each value reaches the rendered pod spec, quoting included — three of
-the four charts quote it and Traefik does not.
+run. Each chart's file holds the reasoning, and the render check proves each
+value reaches the rendered pod spec, quoting included — charts differ in
+whether they quote it.
 
 ## Every chart version is pinned in one place
 
@@ -523,13 +469,10 @@ upstream repository, and Renovate opens one pull request per chart — see
 Both the Talos and the Kubernetes version are pinned in the topology, and
 neither derives from the other. An empty `kubernetes.version` takes
 `DefaultKubernetesVersion` — also pinned — rather than whatever the configured
-Talos release happens to ship.
-
-That is not caution for its own sake. Deriving one from the other made a Talos
-patch bump able to move Kubernetes a whole minor with no diff and no decision,
-and it did: the first bring-up landed on v1.36.0, new enough that
-`kube-apiserver` had removed a flag the machine config was passing, and the
-control plane never started.
+Talos release happens to ship. Deriving one from the other lets a Talos patch
+bump move Kubernetes a whole minor with no diff and no decision — far enough to
+remove a `kube-apiserver` flag the machine config passes, so the control plane
+never starts.
 
 Upgrading Talos means bumping `talos.version` in the topology, re-running
 `task cluster:image:bake`, then `task cluster:upgrade:talos`. Nodes are
@@ -556,46 +499,30 @@ that channel, both strictly more powerful than an API token.
 
 ## What Pulumi does that its documentation does not say
 
-Three things were measured on the way to a refactor that was then abandoned.
-The refactor is gone; the measurements are not, because each one would have to
-be paid for again by whoever tries something similar next.
-
 **Re-parenting a resource is free only with an alias.** Putting existing
 resources under a new component resource changes their URNs, and Pulumi reads
-that as the old ones gone and new ones arrived. Measured against a live stack,
-the same code with and without `pulumi.Aliases([]pulumi.Alias{{NoParent:
-pulumi.Bool(true)}})`:
-
-| | to create | to delete | unchanged |
-|---|---|---|---|
-| with the alias | 10 | 0 | **15** |
-| without it | 23 | **13** | 2 |
-
-Thirteen deletes for a change meant to move nothing. For Helm releases that is
-an uninstall and a reinstall of everything the cluster runs.
+that as the old ones gone and new ones arrived — for Helm releases, an
+uninstall and a reinstall. With `pulumi.Aliases([]pulumi.Alias{{NoParent:
+pulumi.Bool(true)}})` the same change deletes nothing.
 
 **`dependsOn` a component resource does not reach its children.** The
 documentation says the option "applies to both custom resources and component
-resources" and says nothing further. Asked through a mock that records the
-dependency URNs the SDK actually sends, a resource made to depend on a component
-had no dependency on that component's children at all — the edge stopped at an
-empty node. Anything that needs a group of resources to wait for another group
-has to say so on each member.
+resources" and says nothing further. The dependency URNs the SDK actually
+sends stop at the component; anything that needs a group of resources to wait
+for another group has to say so on each member.
 
-**`pulumi state move` handles providers by itself, and the provider-id
-collision is fixed.** Moving resources between two stacks that each hold a
-`pulumi:providers:kubernetes::k8s` with the same name and a different id is
-exactly [pulumi#16983](https://github.com/pulumi/pulumi/issues/16983),
-"provider already exists in destination stack". On the pinned CLI the
+**`pulumi state move` handles providers by itself.** Moving resources between
+two stacks that each hold a `pulumi:providers:kubernetes::k8s` with the same
+name and a different id —
+[pulumi#16983](https://github.com/pulumi/pulumi/issues/16983), "provider
+already exists in destination stack" — is fixed on the pinned CLI: the
 destination keeps its own provider and the moved resources' references are
 rewritten onto it; providers the destination lacks are moved in. Everything
 lands parented at the destination's stack node, which is what the `NoParent`
 alias above describes — so a move and a re-parenting compose.
 
-Rehearsed on copies imported into a `file://` backend under the same project and
-stack names, never on the live stacks. A state export belongs outside the
-working tree either way: it carries every resource's inputs, the ciphertext of
-the Hetzner token and of the kubeconfig among them.
+A state export belongs outside the working tree: it carries every resource's
+inputs, the ciphertext of the Hetzner token and of the kubeconfig among them.
 
 ## Asking the real tool
 
@@ -612,23 +539,11 @@ proves nothing about what Helm or Talos will accept:
 `task -t Taskfile.dev.yaml verify` runs all three. They need `helm`, a `talosctl` matching the
 pinned Talos minor, and a running Docker.
 
-What they have caught, none of which would have failed a `pulumi up`:
-
-- `kubeProxyReplacment` — one letter short. Helm accepts an unknown key
-  silently, even for a chart shipping a `values.schema.json`, so the default
-  stayed and the rendered output read `kube-proxy-replacement: "false"`. Talos
-  runs with kube-proxy disabled, so that is a cluster where every ClusterIP
-  blackholes, started successfully.
-- A DaemonSet needing host access in a namespace Talos does not exempt from
-  Pod Security Admission — its pods are never created, and Helm waits out its
-  whole timeout with nothing to show.
-- `machine.network.hostname`, which Talos rejects outright.
-- A Talos version pinned ahead of what the provider's generator knows.
-
-The first is why each chart's file names its settings: the handful
-of values whose misspelling fails silently are constants there, and
-`render-check` asserts the **effect** each one has on the rendered chart rather
-than that the key was set.
+Helm accepts an unknown key silently, even for a chart shipping a
+`values.schema.json`, so a misspelt value keeps its default and `pulumi up`
+succeeds. That is why each chart's file names its settings: the values whose
+misspelling fails silently are constants there, and `render-check` asserts the
+**effect** each one has on the rendered chart rather than that the key was set.
 
 ## What a run prints
 
@@ -655,10 +570,8 @@ lines go to Pulumi's permanent diagnostics and are still on screen when the run
 ends. Progress lines are ephemeral, or the summary is one line per release and
 nobody reads it.
 
-`TestTaskGlyphs_MatchThePulumiLogger` holds the two halves equal. The Go side
-had said its glyphs match the taskfiles "exactly" since it was written, and
-nothing checked it.
+`TestTaskGlyphs_MatchThePulumiLogger` holds the two halves equal.
 
 `NO_COLOR` drops the escape codes and keeps the glyphs. A TTY check would be
-wrong rather than merely unhelpful: a Pulumi program's output is captured by
-the CLI over gRPC, so stdout is never a terminal.
+wrong: a Pulumi program's output is captured by the CLI over gRPC, so stdout is
+never a terminal.

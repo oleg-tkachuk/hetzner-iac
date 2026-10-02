@@ -16,12 +16,12 @@ reaching Let's Encrypt, the CSI driver and the cloud controller manager
 reaching `api.hetzner.cloud`, and Argo CD reaching the repositories and charts
 it reconciles — and one default deny, separately.
 
-`network-policy:enabled` is `false` by default, and that is not timidity. In
-Cilium, *any* policy that selects an endpoint puts that endpoint into
-default-deny for the direction the policy mentions — so there is no such thing
-as an allow rule that changes nothing, and a missing rule is a silent
-connection timeout rather than a rejected apply. The allow policies therefore
-set `enableDefaultDeny: {ingress: false, egress: false}`, which makes them
+`network-policy:enabled` is `false` by default. In Cilium, *any* policy that
+selects an endpoint puts that endpoint into default-deny for the direction the
+policy mentions — so there is no such thing as an allow rule that changes
+nothing, and a missing rule is a silent connection timeout rather than a
+rejected apply. The allow policies therefore set
+`enableDefaultDeny: {ingress: false, egress: false}`, which makes them
 genuinely additive, and the deny is the one resource the flag gates.
 
 With the allow policies applied and the deny still off, Cilium reports
@@ -44,123 +44,63 @@ endpoint; what the map contains is the question, and it contains a wildcard:
 The first two lines are `enableDefaultDeny: false` doing its job. A default
 deny is precisely the absence of those wildcards, so their presence — not the
 word Enabled — is what says nothing is being dropped. `hubble observe
---verdict DROPPED` answers the same question from the other end, and needs no
-interpreting.
+--verdict DROPPED` answers the same question from the other end.
 
 Turn it on with the flows in front of you: `task cluster:hubble` prints what
 the cluster is doing now.
 
-### What turning it on actually found
+### The shape of the deny
 
-It was turned on against the live dev cluster, and off again, twice. Three
-things came out of that, and none of them was visible from the repository.
+An empty rule list — `ingress: []`, `egress: []` — is accepted by the API
+server and rejected by Cilium in a status nothing reads, so it enforces
+nothing. The shape that works is an empty *list of selectors*,
+`ingress: [{fromEndpoints: []}]`: the section exists, so the endpoint
+enforces, and it permits nobody. `task cluster:smoke` reports any policy
+Cilium rejected, because an apply that creates one says success.
 
-**The deny had never worked.** The policy was written with `ingress: []` and
-`egress: []`, the API server accepted it, `pulumi up` reported success, and
-Cilium rejected it in a status nothing read — `Valid=False: rule must have at
-least one of Ingress, IngressDeny, Egress, EgressDeny`. Every flow kept the
-verdict `policy-verdict:none`, which is no enforcement at all. The shape that
-works is an empty *list of selectors*, `ingress: [{fromEndpoints: []}]`: the
-section exists, so the endpoint enforces, and it permits nobody. `task
-cluster:smoke` now reports a policy Cilium rejected, because an apply that
-creates one says success.
+### Writing an allow policy
 
-**The allow set was one-directional.** A Hubble capture shows the side of a
-flow that appeared in it, and a default deny enforces both. Five permissions
-were half-written, and not one of the failures looked like policy: `kubectl
-top` silently empty, every load balancer target unhealthy, Argo CD serving from
-an empty cache, `task cluster:hubble` itself unable to reach the agents, and a
-volume claim stuck on `DeadlineExceeded` because the CSI controller could not
-resolve a name. The five rules are `35-allow-kubelet-clients`,
-`45-allow-ingress-loadbalancer`, `46-allow-argocd-cache-egress`,
-`47-allow-hubble-relay` and the second document in `10-allow-dns`.
+**Write the client's egress and the server's ingress together.** A Hubble
+capture shows the side of a flow that appeared in it, and a default deny
+enforces both. A half-written rule rarely looks like policy: `kubectl top`
+empty, load balancer targets unhealthy, a volume claim stuck on
+`DeadlineExceeded` because the CSI controller could not resolve a name.
 
-**The last two flows were DNS, on both sides of it.** CoreDNS's own egress to
-the resolver Talos runs on the node — every query for a name outside the
-cluster — and egress to kube-dns's ClusterIP for the clients that are not
-translated to a backend before policy is evaluated. Neither is written as the
-address Hubble prints: the first is `toEntities: host`, because
-`169.254.116.108` is a Talos implementation detail, and the second is
-`toServices`, because the service CIDR is per-environment and a literal would
-be right on one cluster and quietly wrong on the next. Both carry the same L7
-block as the rule they sit beside, so DNS still goes through the proxy that
-`toFQDNs` policies depend on — a plain L3 rule for port 53 would be the more
-permissive one and Cilium would take it.
+**Provoke a flow; do not wait for it.** A capture is a window, not an
+inventory. A flow that happens on demand — the CSI driver calling the Hetzner
+API (`60-allow-hcloud-api`), the Hubble UI dialling the relay
+(`47-allow-hubble-ui`) — appears only when something asks for it. A flow that
+happens only at start — the CSI node plugin reading its location from the
+metadata service (`61-allow-hcloud-metadata`) — appears only on a restart, and
+pods started before the deny keep running without it until a rollout.
 
-**And an eighth gap that sixteen minutes of watching did not show.** Traefik
-had no egress to the workloads it routes to. Nothing reported it, because
-nobody opened the Argo CD UI in those sixteen minutes — one request produced it
-at once. From outside it looked like this: `curl https://argocd.<domain>/`
-returning HTTP 000 while the TLS handshake completed and `openssl s_client`
-printed a valid certificate, because Traefik terminates TLS and only then
-cannot reach the backend. That rule is `48-allow-ingress-backends`, and it
-permits every endpoint on purpose: an ingress controller's function is to reach
-whatever an Ingress object names, so a rule listing today's backends breaks the
-next one silently.
+**DNS is allowed on both sides.** CoreDNS's egress to the resolver Talos runs
+on the node is `toEntities: host`, because that resolver's link-local address
+is a Talos implementation detail. Egress to kube-dns's ClusterIP, for clients
+not translated to a backend before policy is evaluated, is `toServices`,
+because the service CIDR is per-environment. Both carry the same L7 block as
+the rule beside them, so DNS still goes through the proxy that `toFQDNs`
+policies depend on — a plain L3 rule for port 53 would be the more permissive
+one, and Cilium would take it.
 
-The lesson that keeps arriving: **a flow that happens on demand has to be
-provoked, not waited for.** It was first written down for the Hetzner API,
-found again here by opening a URL, and a quiet Hubble window means only that
-nothing asked.
+**Three policies are wider or narrower than the rest, on purpose:**
 
-With all of them, the deny is **on** in dev: twenty-four policies, every smoke
-check green, `kubectl top` answering, Hubble reaching all three agents, the
-Argo CD UI answering HTTP 200 from the internet, and no denials in sixteen
-minutes of flows.
-
-The general lesson is cheaper than the way it was learned: when adding an
-allow policy, write the client's egress and the server's ingress together, and
-assume a capture showed you one of them.
-
-### What each allow policy cost to write
-
-Most of them were measured from Hubble on a live cluster, and two were not,
-for opposite reasons worth knowing before adding a third.
-
-`60-allow-hcloud-api` was missed entirely by the first two captures and found
-only when a PersistentVolumeClaim provoked it: both clients call that API on
-demand, so a capture is a window rather than an inventory. A flow that happens
-on demand has to be provoked, not waited for.
-
-`61-allow-hcloud-metadata` was found by restarting a pod, not by a flow. The
-CSI node plugin asks the metadata service for its location once, at start,
-and exits without it; its pods are not on the host network, so the request
-crosses the pod network and the deny dropped it. Pods started before the deny
-existed kept running, which is how a missing policy went unnoticed until a
-rollout. A flow that happens only at start is provoked by a restart.
-
-`47-allow-hubble-ui` is the same lesson a third time: the UI's backend dials
-the relay only when someone opens the UI, so no capture had it, and the UI
-loaded and showed no flows. A probe from the UI pod's own identity produced
-the denial at once.
-
-`70-allow-argocd-git` could not be measured at all — `gitops:repoURL` is
-unset, so the flow does not exist yet. It is written anyway, because the
-alternative is that the first apply which sets that key looks like a broken
-repository. It is also the one policy here that permits `toEntities: world`
-rather than named hosts, and deliberately: Argo CD reaches the forge that key
-names and every chart registry any child Application references, which is not
-a set anybody can list in advance.
-
-`80-allow-keda` is the third, and it is unmeasured for a third reason:
-`kedaEnabled` is off, so the operator that would produce the flows is not
-installed. Its ports come from the rendered chart rather than from Hubble — the
-`metricsservice` port of the keda-operator Service is tcp/9666 — and its shape
-from what KEDA's architecture requires: the operator polls the sources and the
-metrics API server reads the values from it over gRPC. Verify it with
-`task cluster:hubble` on the first cluster that sets the key.
-
-It is also the one policy written narrower than it could be. KEDA can scale on
-an external source, and a cluster that did would need `toEntities: world` here
-for the same reason Argo CD has it. This one stops at `toEndpoints` inside the
-cluster, so a ScaledObject pointed at the internet fails with a connection
-error rather than working by accident — and widening it costs a commit that
-says why.
-
-The flow this was once also waiting for — Alertmanager reaching a receiver —
-is not a gap today: no observability is installed, so there is nothing to
-drop. It becomes one again the moment that arrives, which is why it is written
-down here rather than only in a backlog.
+- `48-allow-ingress-backends` lets Traefik reach every endpoint. An ingress
+  controller reaches whatever an Ingress object names, so a rule listing
+  today's backends breaks the next one silently. Without it, TLS completes and
+  the request then fails, because Traefik terminates TLS before it dials the
+  backend.
+- `70-allow-argocd-git` permits `toEntities: world`: Argo CD reaches the forge
+  `gitops:repoURL` names and every chart registry any child Application
+  references, which nobody can list in advance. It is unmeasured — the key is
+  unset, so the flow does not exist yet — and written anyway so the first apply
+  that sets it does not look like a broken repository.
+- `80-allow-keda` stops at `toEndpoints` inside the cluster, so a ScaledObject
+  pointed at an external source fails with a connection error rather than
+  working by accident; widening it is a commit that says why. Its ports come
+  from the rendered chart (the keda-operator Service's `metricsservice` port,
+  tcp/9666), not from Hubble, because `kedaEnabled` is off. Verify it with
+  `task cluster:hubble` on the first cluster that sets the key.
 
 ## How a request reaches a pod
 
@@ -170,12 +110,9 @@ Traefik accepts one only from addresses it is told to trust, and its default is
 to trust nobody.
 
 The load balancer is created by `layers/40-ingress` through the Hetzner
-provider, not by the cloud controller manager. A Service of type LoadBalancer
-would hand the job to the CCM, and that was measured to cost two things: the load balancer was invisible to `plan` and `destroy` and showed
-up only in the bill, and it had no targets at all — the CCM will not target a
-node carrying `node.kubernetes.io/exclude-from-external-load-balancers`, which
-Talos puts on every control-plane node. So the Service is a `NodePort` on
-pinned ports and the load balancer selects its targets by cluster label.
+provider, not by the cloud controller manager — why is in
+[design.md](design.md#what-lives-inside-what). So the Service is a `NodePort`
+on pinned ports and the load balancer selects its targets by cluster label.
 
 ```mermaid
 flowchart LR
@@ -257,12 +194,14 @@ flowchart LR
     style private fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
 ```
 
-A Hetzner firewall attaches to servers, not to a load balancer, and the load
-balancer reaches its targets over the private network, so nothing behind it
-sees the client's address. A public interface on it was tcp/6443 open to
-everyone beside a firewall that admitted only `network.adminCIDRs`. It has
-none now: the nodes reach the API through it, and an operator reaches the
-first control-plane node directly, where the firewall decides.
+The API load balancer has no public interface. A Hetzner firewall attaches to
+servers, not to a load balancer, and the load balancer reaches its targets over
+the private network, so a public interface on it would be tcp/6443 open to
+everyone beside a firewall that admits only `network.adminCIDRs`. The nodes
+reach the API through its private address; an operator reaches the first
+control-plane node directly, where the firewall decides. Why the load balancer
+is the cluster endpoint at all is in
+[design.md](design.md#three-control-planes-and-etcd-on-the-private-network).
 
 kubectl does not fail over, so the kubeconfig carries a context per
 control-plane node, every one signed into the apiserver certificate. When the
@@ -273,14 +212,13 @@ kubectl config use-context admin@<cluster>-control-plane-1
 talosctl -e <another node's address> -n <another node's address> version
 ```
 
-The talosconfig keeps one endpoint. Listing every node was tried: with the
-first one silent, as a powered-off server is, talosctl timed out rather than
-moving to the next.
+The talosconfig keeps one endpoint: with several listed and the first one
+silent, as a powered-off server is, talosctl times out rather than moving to
+the next.
 
 ## How pod traffic crosses a node boundary
 
-This is the one piece of the design that a single-node cluster cannot test, and
-it was wrong for as long as there was only one node to hide it.
+A single-node cluster cannot test this.
 
 A Hetzner private network is **routed, not switched**. Each server's private NIC
 carries a `/32`, and the only on-link peer is the gateway:
@@ -327,8 +265,7 @@ The gateway is derived from `network.ipRange` rather than written as
 
 `routingMode: tunnel` wraps pod packets in VXLAN, addressed node to node. It
 needs nothing from the private network's routing and nothing from the CCM's
-route controller — only that nodes can reach each other, which is the property
-that stayed true throughout the failure below.
+route controller — only that nodes can reach each other.
 
 That makes it the right choice in two situations: when the private network's
 routing is itself under suspicion, and on any provider whose network does not
@@ -357,21 +294,16 @@ Unable to install direct node route
 Failed to apply node handler during background sync.
 ```
 
-It was set to `true`, and the result was that pod-to-pod traffic across nodes
-had **no route at all**. What that looked like, in order: CoreDNS on two nodes
-unreachable from the third, so roughly a third of DNS queries timed out; the
-hcloud CSI controller — scheduled on the node without a CoreDNS replica — unable
-to resolve `api.hetzner.cloud`, hanging before it opened its gRPC socket; its
-liveness probe therefore refused; kubelet killing it every twenty seconds
-(`initialDelaySeconds: 10` plus `periodSeconds: 2` × `failureThreshold: 5`);
-and its three sidecars exiting behind it with "Lost connection to CSI driver".
-706 restarts, and the only visible symptom was that no volume could be
-provisioned.
+With it on, pod-to-pod traffic across nodes has **no route at all**, while
+every node stays `Ready` and every pod `Running`. The signature is DNS: queries
+time out from any node without a local CoreDNS replica, so a pod there that
+resolves a name at start — the hcloud CSI controller resolving
+`api.hetzner.cloud` — never opens its socket, fails its liveness probe and
+crash-loops. The visible symptom is that no volume can be provisioned.
 
 The flag the error message suggests, `direct-routing-skip-unreachable`, is not
 a fix. It stops Cilium retrying a route that cannot work and leaves the traffic
 with nowhere to go — quieter logs, same broken cluster.
 
-The cheapest check that would have caught all of it is `cilium-health status`,
-which reported `1/3 reachable` with node-level reachability at `1/1` and
-endpoint-level at `0/1` for both peers — host paths fine, pod paths dead.
+The cheapest check is `cilium-health status`: host paths reachable and
+endpoint paths not means pod routing is dead.
