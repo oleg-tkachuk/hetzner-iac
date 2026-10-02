@@ -707,6 +707,34 @@ func TestTaskLoops_DoNotIterateOverACommandSubstitution(t *testing.T) {
 			"first and refuse an empty one:\n  %s", strings.Join(offences, "\n  "))
 }
 
+// TestApply_ShowsThePlanBeforeItAsks holds every apply to the order destroy
+// keeps: the plan as a dependency, which Task runs before the prompt. With the
+// prompt first, an apply was confirmed before anybody had seen what it would
+// change.
+func TestApply_ShowsThePlanBeforeItAsks(t *testing.T) {
+	t.Parallel()
+
+	for _, file := range []string{"platform.task.yaml", "cluster.task.yaml", "backup.task.yaml"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", file))
+		require.NoError(t, err)
+
+		apply, found := tasksIn(string(raw))["apply"]
+		require.True(t, found, "%s has no apply task to check", file)
+
+		deps := strings.Index(apply, "deps:")
+		prompt := strings.Index(apply, "prompt:")
+
+		plan := strings.Index(apply, "task: plan")
+		if plan < 0 {
+			plan = strings.Index(apply, "deps: [plan]")
+		}
+
+		require.Positive(t, prompt, "%s apply no longer asks", file)
+		assert.True(t, deps >= 0 && plan >= deps && plan < prompt,
+			"%s apply does not run its plan as a dependency, which is what runs before the prompt", file)
+	}
+}
+
 // TestPlatformDestroy_ShowsThePlanBeforeItAsks holds the order of a targeted
 // destroy.
 //
