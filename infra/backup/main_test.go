@@ -151,27 +151,64 @@ func TestPasswordSpecialCharacters_RejectTheCharactersThatFailedTheApply(t *test
 }
 
 // keyRegistration is what the mock monitor saw when the restic key was
-// registered: the inputs sent, and the two options that keep the key.
+// registered: the generator, and the stash that keeps its first value.
 type keyRegistration struct {
-	mu        sync.Mutex
-	inputs    []string
-	protected bool
-	ignored   []string
+	mu sync.Mutex
+
+	generatorProtected bool
+	generatorIgnored   []string
+	generatorInputs    []string
+
+	stashed         bool
+	stashProtected  bool
+	stashSecrets    []string
+	stashInputIsKey bool
 }
+
+// generatedKey is the value the mock generator produces.
+const generatedKey = "generated-key"
 
 func (k *keyRegistration) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	if args.Name == repositoryKeyName {
+	rpc := args.RegisterRPC
+
+	switch args.Name {
+	case repositoryKeyName:
 		for key := range args.Inputs {
-			k.inputs = append(k.inputs, string(key))
+			k.generatorInputs = append(k.generatorInputs, string(key))
 		}
 
-		if rpc := args.RegisterRPC; rpc != nil {
-			k.protected = rpc.GetProtect()
-			k.ignored = rpc.GetIgnoreChanges()
+		if rpc != nil {
+			k.generatorProtected = rpc.GetProtect()
+			k.generatorIgnored = rpc.GetIgnoreChanges()
 		}
+
+		outputs := args.Inputs.Copy()
+		outputs["result"] = resource.MakeSecret(resource.NewStringProperty(generatedKey))
+
+		return args.Name + "-id", outputs, nil
+	case repositoryKeyStash:
+		k.stashed = args.TypeToken == "pulumi:index:Stash"
+
+		if rpc != nil {
+			k.stashProtected = rpc.GetProtect()
+			k.stashSecrets = rpc.GetAdditionalSecretOutputs()
+		}
+
+		input := args.Inputs[stashInput]
+		if input.IsSecret() {
+			input = input.SecretValue().Element
+		}
+
+		k.stashInputIsKey = input.IsString() && input.StringValue() == generatedKey
+
+		// What the engine does on create: the output is the input.
+		return args.Name + "-id", resource.PropertyMap{
+			stashInput:  args.Inputs[stashInput],
+			stashOutput: args.Inputs[stashInput],
+		}, nil
 	}
 
 	return args.Name + "-id", args.Inputs, nil
@@ -181,41 +218,78 @@ func (*keyRegistration) Call(args pulumi.MockCallArgs) (resource.PropertyMap, er
 	return args.Args, nil
 }
 
-func registerRepositoryKey(t *testing.T) *keyRegistration {
+func registerRepositoryKey(t *testing.T) (*keyRegistration, string) {
 	t.Helper()
 
 	registered := &keyRegistration{}
+	resolved := make(chan string, 1)
 
 	require.NoError(t, pulumi.RunErr(func(ctx *pulumi.Context) error {
-		_, err := newRepositoryKey(ctx)
+		key, err := newRepositoryKey(ctx)
+		if err != nil {
+			return err
+		}
 
-		return err
+		key.ApplyT(func(value string) string {
+			resolved <- value
+
+			return value
+		})
+
+		return nil
 	}, pulumi.WithMocks("backup", "dev", registered)))
 
-	return registered
+	return registered, <-resolved
 }
 
-// TestRepositoryKey_IsProtected keeps a replace or a delete of the key from
-// going through: either one discards the only thing that decrypts the
-// snapshots already on the box.
-func TestRepositoryKey_IsProtected(t *testing.T) {
+// TestRepositoryKey_IsTheStashedValue: the key is what the stash kept, so a
+// replaced generator — a change to passwordArgs, which the box passwords
+// share — leaves it where it was.
+func TestRepositoryKey_IsTheStashedValue(t *testing.T) {
 	t.Parallel()
 
-	assert.True(t, registerRepositoryKey(t).protected,
-		"the restic key is not pulumi.Protect-ed, so a rename or a replace drops it and every "+
-			"snapshot on the box becomes unreadable")
+	registered, key := registerRepositoryKey(t)
+
+	require.True(t, registered.stashed, "the key is not kept in a pulumi:index:Stash")
+	assert.True(t, registered.stashInputIsKey, "the stash is not given the generator's result")
+	assert.Equal(t, generatedKey, key, "the key is not read from the stash's output")
 }
 
-// TestRepositoryKey_IgnoresEveryInputItIsGiven is the bug: the key shares
-// passwordArgs with the box passwords, so changing that alphabet for Hetzner
-// replaced it too. Held against the inputs actually sent, so a field added to
-// passwordArgs later fails here rather than rotating the key.
-func TestRepositoryKey_IgnoresEveryInputItIsGiven(t *testing.T) {
+// TestRepositoryKey_StashIsProtectedAndSecret keeps a rename or a destroy of
+// the stash from discarding the key, and the key out of state in plaintext.
+func TestRepositoryKey_StashIsProtectedAndSecret(t *testing.T) {
 	t.Parallel()
 
-	registered := registerRepositoryKey(t)
+	registered, _ := registerRepositoryKey(t)
 
-	require.NotEmpty(t, registered.inputs, "the key was registered with no inputs, so this proved nothing")
-	assert.Subset(t, registered.ignored, registered.inputs,
-		"an input of the restic key is not ignored, so changing it draws a new key")
+	assert.True(t, registered.stashProtected,
+		"the stash is not pulumi.Protect-ed, so a rename drops the key and every snapshot "+
+			"on the box becomes unreadable")
+	assert.ElementsMatch(t, []string{stashInput, stashOutput}, registered.stashSecrets,
+		"both of the stash's properties hold the key and must be secret in state")
+}
+
+// TestRepositoryKey_GeneratorIsNotProtected: the stash is what is protected.
+// A protected generator would turn a harmless replacement into a refused
+// preview.
+func TestRepositoryKey_GeneratorIsNotProtected(t *testing.T) {
+	t.Parallel()
+
+	registered, _ := registerRepositoryKey(t)
+
+	assert.False(t, registered.generatorProtected)
+}
+
+// TestRepositoryKey_GeneratorIgnoresEveryInput: the stash adopts whatever the
+// generator holds when it is created, and existing state holds a key drawn
+// with an older alphabet. Measured on dev: without the ignore, the change that
+// added the stash replaced the generator in the same apply.
+func TestRepositoryKey_GeneratorIgnoresEveryInput(t *testing.T) {
+	t.Parallel()
+
+	registered, _ := registerRepositoryKey(t)
+
+	require.NotEmpty(t, registered.generatorInputs, "the generator was registered with no inputs, so this proved nothing")
+	assert.Subset(t, registered.generatorIgnored, registered.generatorInputs,
+		"an input of the generator is not ignored, so the stash would adopt a new key")
 }
