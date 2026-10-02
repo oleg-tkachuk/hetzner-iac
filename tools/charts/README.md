@@ -9,6 +9,7 @@ go run ./tools/charts list          # every pin, with namespace and repo
 go run ./tools/charts outdated      # each pin against the latest upstream
 go run ./tools/charts render        # the pins still produce their workloads
 go run ./tools/charts appversions   # each AppVersion is what the pin ships
+go run ./tools/charts repin         # move each unsigned image's digest pin to its chart's tag
 ```
 
 `render` is the one with teeth. A chart upgrade that renames a Deployment does
@@ -21,7 +22,8 @@ turns the check red, while `helm template` renders the typo and exits zero.
 It also holds every image to [the image inventory](../../internal/pkg/imagepolicy/images.yaml),
 and every unsigned image to its digest pin. A chart bump that moves an
 unsigned image's default tag fails here until the pin's tag and digest are
-moved with it: `crane digest <repository>:<new tag>`.
+moved with it — which `repin` does, and which Renovate runs on every chart
+bump so the pull request arrives with the pin already moved.
 
 It renders with `--repo` rather than `helm repo add`, so a read-only check does
 not mutate the operator's Helm configuration.

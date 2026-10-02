@@ -47,17 +47,7 @@ func checkPins(ctx context.Context) int {
 			continue
 		}
 
-		// No values key: the chart's own defaults, which is where its tag is.
-		output, err := renderRaw(ctx, chart, key, chart.Namespace, "", defaultRenderSets[key]...)
-		if err != nil {
-			fmt.Printf("MISS  %-14s default render failed: %v\n", key, err)
-
-			failures++
-
-			continue
-		}
-
-		images, err := renderedImages(output)
+		images, err := defaultImages(ctx, key, chart)
 		if err != nil {
 			fmt.Printf("MISS  %-14s %v\n", key, err)
 
@@ -89,6 +79,17 @@ func checkPins(ctx context.Context) int {
 	}
 
 	return failures
+}
+
+// defaultImages is every image a chart renders on its own defaults — no values
+// file — which is where the tag a pin must follow comes from.
+func defaultImages(ctx context.Context, key string, chart charts.Chart) ([]string, error) {
+	output, err := renderRaw(ctx, chart, key, chart.Namespace, "", defaultRenderSets[key]...)
+	if err != nil {
+		return nil, fmt.Errorf("default render failed: %w", err)
+	}
+
+	return renderedImages(output)
 }
 
 // stalePins compares the images a chart renders on its defaults with the

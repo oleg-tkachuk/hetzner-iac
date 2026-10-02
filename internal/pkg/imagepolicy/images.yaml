@@ -8,7 +8,8 @@
 # the repository at all — not one that failed to verify — and those are pinned
 # by digest instead: the tag the chart renders by default, and the index digest
 # `crane digest <repository>:<tag>` returned for it. A chart upgrade that moves
-# the tag fails tools/charts until the digest is moved with it.
+# the tag fails tools/charts until the digest is moved with it; `go run
+# ./tools/charts repin` moves it, and Renovate runs that on every chart bump.
 #
 # `format: bundle` marks a publisher that stores Sigstore bundles through the
 # OCI referrers API instead of cosign's `.sig` tag — found by verifying with

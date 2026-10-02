@@ -103,12 +103,18 @@
       "labels": ["tooling"]
     },
     {
-      "description": "A chart upgrade changes what this repository deploys, so it belongs in a release: semantic-release cuts a patch from fix.",
+      "description": "A chart upgrade changes what this repository deploys, so it belongs in a release: semantic-release cuts a patch from fix. A chart that moves an unsigned image's default tag leaves its digest pin behind, and `charts render` fails until the pin follows; the post-upgrade task moves it on the same branch, from the chart's own render and the registry. Its command must be in RENOVATE_ALLOWED_COMMANDS in .github/workflows/renovate.yaml, or Renovate skips it with a warning.",
       "matchDatasources": ["helm"],
       "semanticCommitType": "fix",
       "semanticCommitScope": "charts",
       "labels": ["charts"],
-      "additionalBranchPrefix": "chart-"
+      "additionalBranchPrefix": "chart-",
+      "postUpgradeTasks": {
+        "installTools": {"golang": {}, "helm": {}},
+        "commands": ["go run ./tools/charts repin"],
+        "fileFilters": ["internal/pkg/imagepolicy/images.yaml"],
+        "executionMode": "branch"
+      }
     },
     {
       "description": "A major chart jump becomes a minor release rather than hiding in a patch.",

@@ -21,6 +21,10 @@ import (
 // File is the inventory, beside this package.
 const File = "images.yaml"
 
+// Dir is this package's directory from the repository root, for a tool that
+// rewrites File rather than reading the embedded copy.
+const Dir = "internal/pkg/imagepolicy"
+
 //go:embed images.yaml
 var raw []byte
 
