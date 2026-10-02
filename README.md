@@ -26,18 +26,18 @@ StackReference rather than a copy.
 
 ```mermaid
 flowchart LR
-    classDef actor fill:#f6f8fa,stroke:#57606a,stroke-width:1px,color:#1f2328
-    classDef state fill:#f6ecf7,stroke:#8a3391,stroke-width:1px,color:#1f2328
-    classDef secret fill:#fff8c5,stroke:#9a6700,stroke-width:1px,color:#1f2328
+    classDef actor fill:#E0F2FE,stroke:#0284C7,stroke-width:1px,color:#0C4A6E
+    classDef state fill:#EDE9FE,stroke:#7C3AED,stroke-width:1px,color:#3B0764
+    classDef secret fill:#FEF3C7,stroke:#D97706,stroke-width:1px,color:#78350F
 
-    operator(["👤 operator<br/>task · pulumi"])
+    operator(["<b>👤 operator</b><br/>task · pulumi"])
 
     subgraph cloud["Pulumi Cloud — one stack per project and environment"]
         direction LR
-        cluster[("infra/cluster<br/>network · servers · Talos")]
-        backup[("infra/backup<br/>Storage Box")]
-        layers[("layers/10 … 50<br/>the platform")]
-        secrets["stack secrets<br/>hcloud token · Talos CA<br/>kubeconfig · talosconfig"]
+        cluster[("<b>infra/cluster</b><br/>network · servers · Talos")]
+        backup[("<b>infra/backup</b><br/>Storage Box")]
+        layers[("<b>layers/10 … 50</b><br/>the platform")]
+        secrets["<b>stack secrets</b><br/>hcloud token · Talos CA<br/>kubeconfig · talosconfig"]
     end
 
     operator ==>|"pulumi up, per project"| cloud
@@ -49,7 +49,7 @@ flowchart LR
     class cluster,backup,layers state
     class secrets secret
 
-    style cloud fill:#fbf6fc,stroke:#8a3391,stroke-width:2px,color:#1f2328
+    style cloud fill:#F5F3FF,stroke:#7C3AED,stroke-width:2px,color:#3B0764
 ```
 
 **Hetzner Cloud.** The firewall is the only way in for an operator, the API
@@ -58,35 +58,35 @@ the ingress load balancer.
 
 ```mermaid
 flowchart LR
-    classDef actor fill:#f6f8fa,stroke:#57606a,stroke-width:1px,color:#1f2328
-    classDef hetzner fill:#fde8eb,stroke:#d50c2d,stroke-width:1px,color:#1f2328
-    classDef gate fill:#fff0e0,stroke:#ff7300,stroke-width:2px,color:#1f2328
-    classDef talos fill:#fff0e0,stroke:#ff7300,stroke-width:1px,color:#1f2328
+    classDef actor fill:#E0F2FE,stroke:#0284C7,stroke-width:1px,color:#0C4A6E
+    classDef hetzner fill:#FFE4E6,stroke:#E11D48,stroke-width:1px,color:#881337
+    classDef gate fill:#FFEDD5,stroke:#EA580C,stroke-width:2px,color:#7C2D12
+    classDef talos fill:#FFEDD5,stroke:#EA580C,stroke-width:1px,color:#7C2D12
 
-    operator(["👤 operator<br/>kubectl · talosctl"])
-    users(["🌐 users"])
+    operator(["<b>👤 operator</b><br/>kubectl · talosctl"])
+    users(["<b>🌐 users</b>"])
 
     subgraph hcloud["☁️ Hetzner Cloud"]
         direction LR
-        fw{{"firewall<br/>tcp/6443 · tcp/50000<br/>network.adminCIDRs only"}}
-        inglb(["ingress load balancer<br/>public · tcp/80 · tcp/443"])
+        fw{{"<b>firewall</b><br/>tcp/6443 · tcp/50000<br/>network.adminCIDRs only"}}
+        inglb(["<b>ingress load balancer</b><br/>public · tcp/80 · tcp/443"])
 
         subgraph net["🔒 private network"]
             direction TB
-            apilb(["API load balancer<br/>private · the cluster endpoint"])
+            apilb(["<b>API load balancer</b><br/>private · the cluster endpoint"])
 
             subgraph nodes["Talos nodes"]
                 direction TB
                 subgraph cp["control plane × 3 · own Primary IPs"]
                     direction LR
-                    api["kube-apiserver"]
-                    etcd[("etcd")]
+                    api["<b>kube-apiserver</b>"]
+                    etcd[("<b>etcd</b>")]
                 end
-                workers["worker pools · optional"]
+                workers["<b>worker pools · optional</b>"]
             end
         end
 
-        box[("Storage Box<br/>etcd snapshots")]
+        box[("<b>Storage Box</b><br/>etcd snapshots")]
     end
 
     operator --> fw --> cp
@@ -99,23 +99,23 @@ flowchart LR
     class fw gate
     class api,etcd talos
 
-    style hcloud fill:#fffafb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
-    style net fill:#fff5f6,stroke:#d50c2d,stroke-dasharray:4 3,color:#1f2328
-    style nodes fill:#fffdfb,stroke:#ff7300,stroke-dasharray:3 3,color:#1f2328
-    style cp fill:#fffbf5,stroke:#ff7300,stroke-width:1px,color:#1f2328
+    style hcloud fill:#FFF1F2,stroke:#E11D48,stroke-width:2px,color:#881337
+    style net fill:#FFF1F2,stroke:#E11D48,stroke-dasharray:4 3,color:#881337
+    style nodes fill:#FFF7ED,stroke:#EA580C,stroke-dasharray:3 3,color:#7C2D12
+    style cp fill:#FFF7ED,stroke:#EA580C,stroke-width:1px,color:#7C2D12
 ```
 
 **The platform**, applied in order, each layer independent and idempotent.
 
 ```mermaid
 flowchart LR
-    classDef kube fill:#e7effc,stroke:#326ce5,stroke-width:1px,color:#1f2328
+    classDef kube fill:#DBEAFE,stroke:#2563EB,stroke-width:1px,color:#1E3A8A
 
-    l10["10-node-platform<br/>Cilium · hcloud CCM · CSI"]
-    l20["20-network-policy<br/>default deny, opt-in"]
-    l30["30-cluster-services<br/>cert-manager · ESO · metrics-server<br/>policy-controller"]
-    l40["40-ingress<br/>Traefik · ingress load balancer"]
-    l50["50-gitops<br/>Argo CD"]
+    l10["<b>10-node-platform</b><br/>Cilium · hcloud CCM · CSI"]
+    l20["<b>20-network-policy</b><br/>default deny, opt-in"]
+    l30["<b>30-cluster-services</b><br/>cert-manager · ESO · metrics-server<br/>policy-controller"]
+    l40["<b>40-ingress</b><br/>Traefik · ingress load balancer"]
+    l50["<b>50-gitops</b><br/>Argo CD"]
 
     l10 --> l20 --> l30 --> l40 --> l50
 
