@@ -290,19 +290,13 @@ jobs:
     name: Tests and vet
     # Both events, and this is the one job that runs on a push to main.
     #
-    # Branch protection no longer requires a branch to be current before it
-    # merges. That requirement cost a full second run of everything on every
-    # pull request — update the branch, the checks start again — and bought
-    # only the guarantee that the pull request had compiled against the exact
-    # main it landed on.
-    #
-    # This job buys the same guarantee at a quarter of the price. Without
-    # `strict`, the tree on main after a merge is a combination no pull request
-    # ever compiled: one renames a function, another adds a caller, both green
-    # apart and broken together. So the merged tree is compiled and tested
-    # here, once, warm. The rest of the checks stay pull-request-only because
-    # they read one tree rather than a combination — the layer list, the chart
-    # pins, the topology and the commit subjects cannot break by merging.
+    # Branch protection requires a branch to be current before it merges, so
+    # a pull request is tested against the main it lands on. This job also
+    # tests the merged tree on main, warm, as the backstop for anything that
+    # reaches main another way. The rest of the checks stay pull-request-only
+    # because they read one tree rather than a combination — the layer list,
+    # the chart pins, the topology and the commit subjects cannot break by
+    # merging.
     if: >-
       needs.changes.outputs.relevant == 'true' &&
       (github.event_name == 'pull_request' ||
