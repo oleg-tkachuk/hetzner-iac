@@ -135,45 +135,40 @@ flowchart LR
 
 ## Quick start
 
-You need three things: a [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud) token with read+write scope
-([how to create one](https://docs.hetzner.com/cloud/api/getting-started/generating-api-token/)), a
-[Pulumi Cloud](https://app.pulumi.com/signup) account for state — free for an
-individual — and the tools in [Prerequisites](#prerequisites). State can live
-in your own S3 bucket instead, which changes step 1 and nothing else:
-[configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
+You need:
 
-A **domain** is the fourth thing, and it is needed only for the step none of
-the commands below is: reaching the cluster from outside. `40-ingress` creates
-the DNS records and `30-cluster-services` orders the certificate, both from
-`metadata.domain` in the topology — `platform.example.com`, with
-`metadata.dnsZone: example.com` when Hetzner serves that zone. A domain hosted
-anywhere else works the same way: leave `metadata.dnsZone` empty and two
-records are yours to write, which is the only difference. Leave it out and every command below still works; the ingress layer writes
-no records, `50-gitops` no Ingress, and the Argo CD UI is reached with
-`kubectl port-forward`. What the domain has to be, and the order to obtain the
-certificate in: [domain.md](docs/domain.md).
+- a [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud) token with
+  read+write scope ([how to create one](https://docs.hetzner.com/cloud/api/getting-started/generating-api-token/));
+- a [Pulumi Cloud](https://app.pulumi.com/signup) account for state, or your
+  own S3 bucket, which changes step 1 only:
+  [configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket);
+- the tools in [Prerequisites](#prerequisites);
+- optionally, a **domain**, needed only to reach the cluster from outside.
+  `metadata.domain` in the topology (`platform.example.com`, with
+  `metadata.dnsZone: example.com` when Hetzner serves the zone) drives the DNS
+  records `40-ingress` writes and the certificate `30-cluster-services` orders;
+  with the zone hosted elsewhere, leave `metadata.dnsZone` empty and write the
+  two records yourself.
+  Without it every command below still works, and the Argo CD UI is reached
+  with `kubectl port-forward`. See [domain.md](docs/domain.md).
 
 Everything below creates **billable**
 [Hetzner resources](https://www.hetzner.com/cloud#pricing);
 `task destroy` removes them — every layer, then the cluster.
 
 ```bash
-# 1. The repository, and the backend that will hold the state: Pulumi Cloud,
-#    named explicitly — the URL every Pulumi.yaml declares, and the one the
-#    credential is stored under. An S3 bucket is the same command with its
-#    URL, and then PULUMI_CONFIG_PASSPHRASE has to be in the environment.
+# 1. The repository, and the backend that holds the state. An S3 bucket is the
+#    same command with its URL, plus PULUMI_CONFIG_PASSPHRASE in the environment.
 git clone https://github.com/oleg-tkachuk/hetzner-iac.git && cd hetzner-iac
 pulumi login https://api.pulumi.com
 
 # 2. Describe the cluster. Set network.adminCIDRs to the address you apply
-#    from: Talos configuration goes over the Talos API, and a host outside
-#    that list hangs with the port filtered.
+#    from, or Talos configuration hangs on a filtered port.
 cp infra/cluster/cluster.example.yaml infra/cluster/cluster.dev.yaml
 $EDITOR infra/cluster/cluster.dev.yaml
 
-# 3. Create the stack and store the token, encrypted. Typed once: every
-#    task and both Pulumi tiers read it back from here. Never as a task
-#    argument — argv is visible to `ps` and lands in the shell history.
+# 3. Create the stack and store the token, encrypted. Never pass it as a task
+#    argument: argv is visible to `ps` and lands in the shell history.
 task cluster:token stack=dev
 
 # 4. Bake the Talos snapshot. Once per Talos version; idempotent.
@@ -183,9 +178,8 @@ task cluster:image:bake stack=dev
 task cluster:plan stack=dev
 task cluster:apply stack=dev
 
-# 6. Point every layer at it, then apply them in order. No token here — the
-#    CCM and the CSI driver read the one from step 3, through the same stack
-#    reference that carries the kubeconfig.
+# 6. Point every layer at it, then apply them in order. The layers read the
+#    token from step 3 through the stack reference.
 task platform:init stack=dev
 task platform:apply layer=all stack=dev
 
@@ -195,50 +189,39 @@ task cluster:status stack=dev
 task e2e
 ```
 
-Step 3 prompts and hides the input. It reads standard input too, so a secret
-manager can supply it without the value ever appearing in a terminal:
+Step 3 prompts with hidden input, or reads standard input so a secret manager
+can supply it:
 
 ```bash
 pass hetzner/token | task cluster:token stack=dev
 ```
 
-The stack is required in both forms — without it the task prints its usage and
-never reads stdin, which reads as the pipe having failed.
+Without `stack=` the task prints its usage and never reads stdin.
 
-The token lands in `infra/cluster/Pulumi.dev.yaml` as ciphertext, encrypted by
-that stack's secrets provider, and that file is gitignored — so no plaintext
-copy exists anywhere. The task is a wrapper around `pulumi config set --secret
-hcloud:token` run in `infra/cluster`, which is the same thing by hand. Only the
-cluster tier holds a token; the layers reach it through the stack reference. An
-exported `HCLOUD_TOKEN` wins over the stored one, which is how CI and a shell
-already holding a token for another project keep working.
-
-Nodes stay `NotReady` between steps 5 and 6. That is the handover point, not a
-failure: the cluster tier installs no CNI, and `layers/10-node-platform` does.
-
-`task up stack=dev` does steps 5 and 6 in one go, once the stacks exist.
+- The token is stored as ciphertext in the gitignored
+  `infra/cluster/Pulumi.dev.yaml` — the same as `pulumi config set --secret
+  hcloud:token` in `infra/cluster`. Only the cluster tier holds it.
+- An exported `HCLOUD_TOKEN` wins over the stored one.
+- Nodes stay `NotReady` between steps 5 and 6: the cluster tier installs no
+  CNI, `layers/10-node-platform` does.
+- `task up stack=dev` does steps 5 and 6 in one go, once the stacks exist.
 
 ## Getting back in
 
-A new machine, or a new console, needs nothing from the old shell. Everything
-about the cluster is in the Pulumi stack: its state, the Hetzner token
-encrypted in its config, the kubeconfig, the talosconfig and the Talos secrets
-bundle. `./kubeconfig` and `./talosconfig` are gitignored working copies, and
-both are written from the stack rather than kept.
+Everything about the cluster is in the Pulumi stack: state, the encrypted
+token, kubeconfig, talosconfig and the Talos secrets bundle. `./kubeconfig` and
+`./talosconfig` are gitignored copies written from it.
 
 ```bash
-# 1. The same first step as above: the repository, and the backend that holds
-#    the state. Nothing is created here — the stack already exists.
+# 1. The repository and the backend. Nothing is created.
 git clone https://github.com/oleg-tkachuk/hetzner-iac.git && cd hetzner-iac
 pulumi login https://api.pulumi.com
 
-# 2. What stacks exist, and which of them this clone can describe. First,
-#    because it reports a stack whose topology file is missing here rather
-#    than failing three commands later.
+# 2. The stacks, and any whose topology file is missing from this clone.
 task cluster:stacks
 
-# 3. The credentials, out of the stack. No token, no topology file and no
-#    network path to the cluster: this reads the backend, not the servers.
+# 3. The credentials, read from the backend; no token, topology or network
+#    path to the cluster needed.
 task cluster:kubeconfig stack=dev
 task cluster:talosconfig stack=dev
 
@@ -246,19 +229,14 @@ task cluster:talosconfig stack=dev
 task cluster:status stack=dev
 ```
 
-If the state is in your own S3 bucket rather than Pulumi Cloud, step 1 is
-`pulumi login 's3://…'` and the secrets need the passphrase that encrypted
-them — `export PULUMI_CONFIG_PASSPHRASE=…` before step 3, or `pulumi stack
-output` cannot decrypt:
+With state in your own S3 bucket, step 1 is `pulumi login 's3://…'` and
+`PULUMI_CONFIG_PASSPHRASE` must be exported before step 3:
 [configuration.md](docs/configuration.md#keeping-state-in-your-own-s3-bucket).
 
-**Step 4 hangs if the address you are on is not in `network.adminCIDRs`.** The
-firewall opens the Kubernetes API and the Talos API to those CIDRs and to
-nothing else, so a console on a different network reaches neither — the
-credentials are right and the packets never arrive. That is the one case that
-needs the topology file back, and `infra/cluster/cluster.<stack>.yaml` is
-gitignored: it names the networks you administer from, and this repository is
-public. So it comes from wherever you kept it.
+**Step 4 hangs if your address is not in `network.adminCIDRs`.** The firewall
+opens the Kubernetes and Talos APIs to those CIDRs only. Fixing it needs the
+topology file, which is gitignored because it names the networks you administer
+from and this repository is public — so restore it from wherever you kept it:
 
 ```bash
 # Restore the topology, add the address, then read the diff before applying.
@@ -267,18 +245,16 @@ task cluster:plan stack=dev     # the only change you want is the firewall
 task cluster:apply stack=dev
 ```
 
-Why the plan and not just the apply: a topology rebuilt from
-`cluster.example.yaml` instead of restored can differ from what the cluster
-was built with, and a value that forces a replacement replaces a server.
+Read the plan: a topology rebuilt from `cluster.example.yaml` can differ from
+the one the cluster was built with, and a value that forces a replacement
+replaces a server.
 [operations.md](docs/operations.md#from-a-machine-the-firewall-does-not-know)
-has the rest, including what to do when the address is not a stable one.
+covers addresses that are not stable.
 
 ## Prerequisites
 
-What building and running a cluster needs. The tools the checks use — linters,
-scanners, chart rendering, link checking — are not here: CI installs them, and
-a clone needs them only to run the same checks locally.
-[ci.md](docs/ci.md#tools-the-checks-need) lists those.
+Tools for building and running a cluster. The checks' own tools are in
+[ci.md](docs/ci.md#tools-the-checks-need).
 
 | Tool | Why |
 |------|-----|
@@ -290,41 +266,28 @@ a clone needs them only to run the same checks locally.
 | [talosctl](https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl) | validates the machine config before anything exists; then upgrades, etcd snapshots, clean shutdown |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | the status tasks, `task cluster:kubeconfig:add` and `task cluster:orphans` |
 | [jq](https://github.com/jqlang/jq) | reads single fields out of `pulumi stack output --json` and `hcloud -o json` |
+| `restic`, `rclone` | `task cluster:etcd:upload`: restic uploads, prunes and verifies; rclone is its transport, since a Storage Box credential is a password and restic's sftp backend takes only keys |
+| [`hubble`](https://github.com/cilium/hubble) | `task cluster:hubble`, which reads the flows `layers/20-network-policy` is built from |
 
-On macOS, `brew bundle` installs all of it but one: `hcloud-upload-image` is
-not in Homebrew, so `go install github.com/apricote/hcloud-upload-image@latest`
-— the [Brewfile](Brewfile) says the same at the bottom, and
-`task cluster:image:bake` refuses to start without it.
+On macOS, `brew bundle` installs all of it except `hcloud-upload-image`:
+`go install github.com/apricote/hcloud-upload-image@latest`.
 
-One extra step for `talosctl`:
-Homebrew carries only the newest, which is a minor ahead of what the topology
-pins, and `task cluster:machine-config:check` declines a mismatched binary
-rather than trusting it. Run
+Then install the `talosctl` the topology pins — Homebrew's is usually a minor
+ahead, and `task cluster:machine-config:check` refuses a mismatched binary:
 
     task cluster:talosctl:install
 
-once — it needs no stack and works on a fresh clone, because it reads the
-version from the committed topologies. It writes that version into `bin/`,
-which the check prefers, so Homebrew's copy can stay on PATH for everything
-else.
+It needs no stack, reads the version from the committed topologies and writes
+the binary into `bin/`, which the check prefers over `PATH`.
 
-Three more for one task each. `task cluster:etcd:upload` needs `restic`, which
-does the upload, the retention and the integrity check, and `rclone`, which is
-only its transport — restic's own sftp backend speaks key authentication and a
-Storage Box credential is a generated password. `task cluster:hubble` needs
-[`hubble`](https://github.com/cilium/hubble), the CLI that reads the flows
-`layers/20-network-policy` is built from.
-
-Every task says what to install rather than skipping itself silently, so a
-clone missing one of these is not a broken clone.
+A task whose tool is missing says what to install.
 
 ## Commands
 
 `task` on its own lists every command for operating a cluster. Each cluster
-and layer task takes `stack=<name>`, and there is no default — a task that
-assumed one is a task that can be aimed at the wrong environment by forgetting
-a word. It is the only deployment parameter: where a cluster lives and how it
-is shaped comes from its topology file.
+and layer task takes `stack=<name>`, with no default, so a forgotten word
+cannot aim a task at the wrong environment. Everything else comes from the
+topology file.
 
 | Task | Does |
 |------|------|
@@ -335,9 +298,9 @@ is shaped comes from its topology file.
 | `task platform:drift` | every resource changed outside Pulumi |
 | `task e2e` | verify a running cluster; read-only |
 
-Full reference: [commands.md](docs/commands.md). The checks and scanners are a
-separate entry point, `Taskfile.dev.yaml`, and are for working on this
-repository rather than running it: [commands.md](docs/commands.md#working-on-this-repository).
+Full reference: [commands.md](docs/commands.md). The checks and scanners live
+in `Taskfile.dev.yaml`, for working on this repository:
+[commands.md](docs/commands.md#working-on-this-repository).
 
 ## Configuration
 
@@ -357,15 +320,9 @@ layer deploys:
 | `ingress:loadBalancerType` | [`40-ingress`](layers/40-ingress) | [Hetzner load balancer](https://www.hetzner.com/cloud/load-balancer) type, default `lb11` |
 | `backup:storageBoxType` | [`backup`](infra/backup) | [Storage Box](https://www.hetzner.com/storage/storage-box) type, default `bx11` |
 
-Argo CD's hostname is **not** stack config, and neither is the cluster's
-domain: both come from `metadata.domain` in the topology, so `40-ingress` and
-`50-gitops` cannot spell it differently. It is a prerequisite of being
-reachable rather than of installing —
-[domain.md](docs/domain.md) has the two fields, the delegation and the
-staging-first order for the certificate.
-
-Details, including where the encrypted token lives and how to keep state
-at Hetzner instead: [configuration.md](docs/configuration.md).
+The domain, and Argo CD's hostname with it, is `metadata.domain` in the
+topology, not stack config: [domain.md](docs/domain.md).
+Everything else: [configuration.md](docs/configuration.md).
 
 ## Documentation
 
@@ -399,14 +356,10 @@ at Hetzner instead: [configuration.md](docs/configuration.md).
 
 ### Not a Go library
 
-`go get` on this module does not resolve, and that is not a defect to report.
-The module path carries no `/vN` suffix while the release tags are at v2 and
-above, which Go requires for a module meant to be imported — and nothing here
-is meant to be. Everything outside `internal/` is a `main` package, and Go
-itself refuses an import of `internal/` from another module.
-
-The tags exist for the repository, not for a consumer: they are what
-semantic-release writes release notes against. Clone it and run the tasks.
+`go get` on this module does not resolve, by design: the module path has no
+`/vN` suffix while release tags are v2+, everything outside `internal/` is a
+`main` package, and `internal/` cannot be imported from another module. The
+tags are for semantic-release notes. Clone it and run the tasks.
 
 ## License
 
