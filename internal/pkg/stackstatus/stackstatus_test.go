@@ -430,3 +430,47 @@ func TestRenderPaintsNoTextGrey(t *testing.T) {
 		assert.Equal(t, stackstatus.MarkNone, painted, "text painted grey")
 	}
 }
+
+const serverURN = "urn:pulumi:dev::cluster::hcloud:index/server:Server::cp-3"
+
+func TestRecovery(t *testing.T) {
+	t.Parallel()
+
+	project := stackstatus.Project{Name: "cluster", Dir: "infra/cluster", HasStack: true}
+
+	assert.Empty(t, stackstatus.Recovery(project, "dev"), "nothing interrupted, nothing to say")
+
+	project.State = stackstatus.State{PendingOperations: 2, PendingCreates: []string{serverURN}}
+	text := strings.Join(stackstatus.Recovery(project, "dev"), "\n")
+
+	assert.Contains(t, text, "recover cluster — 2 pending operation(s)")
+	assert.Contains(t, text, serverURN, "each create is named, so it can be looked up")
+	assert.Contains(t, text, "pulumi -C infra/cluster --stack dev refresh --import-pending-creates <urn> <id>")
+	assert.Contains(t, text, "pulumi -C infra/cluster --stack dev refresh --clear-pending-creates")
+	assert.Contains(t, text, "1 interrupted update(s) or delete(s) clear on: pulumi -C infra/cluster --stack dev refresh")
+
+	project.State = stackstatus.State{PendingOperations: 1}
+	text = strings.Join(stackstatus.Recovery(project, "dev"), "\n")
+
+	assert.NotContains(t, text, "--clear-pending-creates",
+		"clearing is offered only for creates: on anything else it is the wrong command")
+	assert.Contains(t, text, "refresh")
+
+	project.Err = errors.New("unreadable")
+	assert.Empty(t, stackstatus.Recovery(project, "dev"), "an unreadable stack has no state to recover from")
+}
+
+func TestRender_ShowsRecoveryUnderTheTable(t *testing.T) {
+	t.Parallel()
+
+	var out strings.Builder
+
+	projects := []stackstatus.Project{{
+		Name: "cluster", Dir: "infra/cluster", IsCluster: true, HasStack: true,
+		State: stackstatus.State{PendingOperations: 1, PendingCreates: []string{serverURN}},
+	}}
+
+	require.NoError(t, stackstatus.Render(&out, stackstatus.Header{Stack: "dev"}, projects, time.Now(), stackstatus.Plain))
+	assert.Contains(t, out.String(), "recover cluster")
+	assert.Contains(t, out.String(), serverURN)
+}

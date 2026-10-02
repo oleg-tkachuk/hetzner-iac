@@ -155,6 +155,10 @@ type State struct {
 	// the end of — an update that was killed. Pulumi refuses the next update
 	// until they are resolved.
 	PendingOperations int
+	// PendingCreates are the URNs of the pending operations that were creates.
+	// Each names a resource that may exist in the cloud or may not, and only
+	// somebody looking can say which — see Recovery.
+	PendingCreates []string
 	// PendingDeletion are resources a create-before-delete replacement left
 	// behind: the new one exists, the old one is still billed.
 	PendingDeletion int
@@ -194,6 +198,8 @@ func (s State) Problems() []string {
 // Project is one row of the report: a tier or a layer, and its stack.
 type Project struct {
 	Name string
+	// Dir is the project's directory, as Pulumi's -C takes it.
+	Dir string
 	// IsCluster marks the cluster tier, which every other project references.
 	IsCluster  bool
 	HasStack   bool
@@ -337,6 +343,46 @@ func Notes(project Project, header Header) []string {
 	return notes
 }
 
+// Recovery is how to clear an interrupted update from a stack, as commands to
+// run: nothing when there is nothing to clear.
+//
+// Pulumi refuses the next update while a pending operation remains. A pending
+// update or delete clears on a refresh. A pending create does not, because
+// the engine cannot know whether the cloud finished it: if the resource
+// exists, clearing the create orphans it — billed, and in no state — so it is
+// imported by its ID instead, and only one that does not exist is cleared.
+// That is a judgement this report cannot make, so it names each URN and both
+// commands rather than choosing.
+func Recovery(project Project, stack string) []string {
+	if project.Err != nil || project.State.PendingOperations == 0 {
+		return nil
+	}
+
+	pulumi := fmt.Sprintf("pulumi -C %s --stack %s refresh", project.Dir, stack)
+
+	lines := []string{fmt.Sprintf("recover %s — %d pending operation(s) from an interrupted update:",
+		project.Name, project.State.PendingOperations)}
+
+	if creates := len(project.State.PendingCreates); creates > 0 {
+		lines = append(lines,
+			fmt.Sprintf("  %d interrupted create(s); look each one up in the cloud before choosing:", creates))
+
+		for _, urn := range project.State.PendingCreates {
+			lines = append(lines, "    "+urn)
+		}
+
+		lines = append(lines,
+			"  it exists  "+pulumi+" --import-pending-creates <urn> <id>",
+			"  it does not "+pulumi+" --clear-pending-creates")
+	}
+
+	if others := project.State.PendingOperations - len(project.State.PendingCreates); others > 0 {
+		lines = append(lines, fmt.Sprintf("  %d interrupted update(s) or delete(s) clear on: %s", others, pulumi))
+	}
+
+	return lines
+}
+
 // contractOf reads an absent contract as version zero, the way
 // internal/pkg/clusterref does: a stack applied before versioning existed.
 func contractOf(version *int) int {
@@ -370,6 +416,19 @@ func Render(out io.Writer, header Header, projects []Project, now time.Time, pai
 
 	renderTable(&report, rows, paint)
 	report.WriteString("\n" + indent + summary(header, projects, paint) + "\n")
+
+	for _, project := range projects {
+		lines := Recovery(project, header.Stack)
+		if len(lines) == 0 {
+			continue
+		}
+
+		report.WriteString("\n")
+
+		for _, line := range lines {
+			report.WriteString(indent + line + "\n")
+		}
+	}
 
 	if _, err := io.WriteString(out, report.String()); err != nil {
 		return fmt.Errorf("write status report: %w", err)
