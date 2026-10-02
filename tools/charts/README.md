@@ -24,6 +24,10 @@ and every unsigned image to its digest pin. A chart bump that moves an
 unsigned image's default tag fails here until the pin moves with it, which
 `repin` does; Renovate runs it on every chart bump.
 
+`render` also holds every network-policy selector that names a pod to a pod
+some chart renders: a selector matching nothing is accepted and does nothing,
+so a renamed chart label would leave its pods outside their policy.
+
 It renders with `--repo` rather than `helm repo add`, so a read-only check does
 not mutate the operator's Helm configuration. `render` needs `helm` and
 `kubeconform` in PATH, and network: kubeconform fetches the schemas.

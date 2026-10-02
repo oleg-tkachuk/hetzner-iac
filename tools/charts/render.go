@@ -123,6 +123,7 @@ func run() (int, error) {
 	failures += checkResources(ctx)
 	failures += checkImages(ctx)
 	failures += checkPins(ctx)
+	failures += checkPolicySelectors(ctx)
 
 	return failures, nil
 }
