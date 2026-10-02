@@ -1,11 +1,13 @@
 // Package clustersmoke answers one question about a cluster this repository
 // built: can it actually run a workload?
 //
-// Four checks, each proving that a different piece of cluster-tier wiring is
-// not merely installed but working — nodes Ready proves the CNI is installed, a
+// Four checks prove that a different piece of cluster-tier wiring is not
+// merely installed but working — nodes Ready proves the CNI is installed, a
 // pod reaching a pod on another node proves it actually routes, a claim
 // reaching Bound proves the CSI, an address on a LoadBalancer Service proves
-// the cloud controller manager.
+// the cloud controller manager. The rest hold the platform's layers to the
+// same standard: data volumes, secret stores, network policies, the external
+// metrics API and image admission.
 //
 // A cluster can report every component Running and fail all four, and this
 // repository has now watched it happen twice. `pulumi up` went green on a

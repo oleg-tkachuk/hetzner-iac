@@ -2,7 +2,9 @@
 
 Asks whether a cluster this repository built can actually run a workload, and
 exits non-zero when it cannot: nodes Ready, a volume obtainable, a load
-balancer reachable.
+balancer reachable — and whether the platform's layers hold, from network
+policies to image admission. [operations.md](../../docs/operations.md#does-the-cluster-actually-work)
+lists every check.
 
 ```bash
 go run ./tools/smoke --kubeconfig ./kubeconfig

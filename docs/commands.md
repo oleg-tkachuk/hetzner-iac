@@ -120,7 +120,7 @@ and `destroy` does not take it — that is the point of it being a tier, and
 | `task cluster:secrets:export` | print the Talos secrets bundle — pipe it into a password store |
 | `task cluster:secrets:download` | print the secrets bundle stored beside the etcd snapshots on the Storage Box, to pipe into a password store |
 | `task cluster:state:export` | every tier's Pulumi state into `.backups/state/`, secrets left encrypted |
-| `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer — and that volumes holding data are on a class that retains them |
+| `task cluster:smoke` | ask whether the cluster can run a workload — nodes, a volume, a load balancer — and whether the platform's layers hold, from network policies to image admission |
 | `task cluster:stacks` | every stack, with what the backend and its topology say about it; takes no `stack=` |
 | `task cluster:status` | nodes, then anything not Running |
 | `task cluster:stop` | bring the cluster down cleanly through Talos; the instances keep existing |
