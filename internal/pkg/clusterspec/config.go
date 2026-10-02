@@ -354,10 +354,10 @@ const (
 	// v1.36.0: new enough that kube-apiserver had already removed a flag the
 	// machine config was passing, and the control plane would not start.
 	//
-	// v1.36 is the minor Talos v1.13.10 defaults to, so this is the supported
-	// pairing; .4 is the newest patch in that line. Bumping Talos means
+	// Talos v1.14 supports v1.33 to v1.37, and the configuration contract
+	// pinned in the topology does not narrow that. Bumping Talos means
 	// revisiting this line deliberately — which is the point.
-	DefaultKubernetesVersion = "v1.36.4"
+	DefaultKubernetesVersion = "v1.37.1"
 
 	// PoolAddressStride is how many addresses of the node subnet each worker
 	// pool owns. Pools are placed at fixed, non-overlapping offsets so that
@@ -805,7 +805,7 @@ func (t *Topology) validateVersions() []string {
 
 	if t.Kubernetes.Version != "" && !semverish.MatchString(t.Kubernetes.Version) {
 		problems = append(problems, fmt.Sprintf(
-			"kubernetes.version %q must look like v1.36.4, or be empty to take the pinned default",
+			"kubernetes.version %q must look like v1.37.1, or be empty to take the pinned default",
 			t.Kubernetes.Version))
 	}
 

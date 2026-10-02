@@ -26,7 +26,7 @@ network:
 talos:
   version: v1.13.10
 kubernetes:
-  version: v1.36.4
+  version: v1.37.1
 controlPlane:
   count: 3
 `
@@ -46,7 +46,7 @@ talos:
   version: v1.13.10
   architecture: arm
 kubernetes:
-  version: v1.36.4
+  version: v1.37.1
 controlPlane:
   count: 1
 workerPools:

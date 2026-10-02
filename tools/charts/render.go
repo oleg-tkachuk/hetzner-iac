@@ -509,7 +509,7 @@ func kubeconformArgs(version string) []string {
 // the two cannot disagree anyway — TestEveryTopologyPresentPinsKubernetes
 // asserts every topology states exactly this value.
 func pinnedKubernetesVersion() string {
-	// kubeconform wants 1.36.4, the constant says v1.36.4.
+	// kubeconform wants 1.37.1, the constant says v1.37.1.
 	return strings.TrimPrefix(clusterspec.DefaultKubernetesVersion, "v")
 }
 
