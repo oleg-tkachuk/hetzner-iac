@@ -11,7 +11,8 @@ it changed, how many resources the stack holds, and the commit it was applied
 from. Beyond that, what no single `pulumi stack` says:
 
 - **an interrupted checkpoint** — pending operations, resources awaiting
-  deletion or replacement, tainted ones, ones with init errors;
+  deletion or replacement, tainted ones, ones with init errors — and, under
+  the table, the `refresh` that clears each pending operation;
 - **a reference elsewhere** — a `clusterStackRef` that does not end in this
   environment's `<cluster project>/<stack>`;
 - **contract skew** — a consumer applied against a `contractVersion` the

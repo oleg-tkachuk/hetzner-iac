@@ -191,6 +191,7 @@ type reading struct {
 func readProject(ctx context.Context, dir, stack string) reading {
 	read := reading{project: stackstatus.Project{
 		Name:      filepath.Base(dir),
+		Dir:       dir,
 		IsCluster: filepath.Clean(dir) == clusterspec.ClusterDir,
 	}}
 
@@ -361,6 +362,12 @@ func unreadableFeatures(features []string) []string {
 // stateOf counts what the checkpoint says did not finish cleanly.
 func stateOf(deployment apitype.DeploymentV3) stackstatus.State {
 	state := stackstatus.State{PendingOperations: len(deployment.PendingOperations)}
+
+	for _, operation := range deployment.PendingOperations {
+		if operation.Type == apitype.OperationTypeCreating {
+			state.PendingCreates = append(state.PendingCreates, string(operation.Resource.URN))
+		}
+	}
 
 	for _, res := range deployment.Resources {
 		if res.Delete {

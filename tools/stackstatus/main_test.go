@@ -104,7 +104,8 @@ func TestStateOf(t *testing.T) {
 
 	state := stateOf(apitype.DeploymentV3{
 		PendingOperations: []apitype.OperationV2{
-			{Type: apitype.OperationTypeCreating}, {Type: apitype.OperationTypeDeleting},
+			{Type: apitype.OperationTypeCreating, Resource: apitype.ResourceV3{URN: "urn:pulumi:dev::cluster::hcloud:index/server:Server::cp-3"}},
+			{Type: apitype.OperationTypeDeleting},
 		},
 		Resources: []apitype.ResourceV3{
 			{Type: resource.RootStackType},
@@ -116,7 +117,8 @@ func TestStateOf(t *testing.T) {
 	})
 
 	assert.Equal(t, stackstatus.State{
-		PendingOperations: 2, PendingDeletion: 1, PendingReplacement: 1, Tainted: 1, InitErrors: 1,
+		PendingOperations: 2, PendingCreates: []string{"urn:pulumi:dev::cluster::hcloud:index/server:Server::cp-3"},
+		PendingDeletion: 1, PendingReplacement: 1, Tainted: 1, InitErrors: 1,
 	}, state)
 	assert.Equal(t, stackstatus.State{}, stateOf(apitype.DeploymentV3{}))
 }
