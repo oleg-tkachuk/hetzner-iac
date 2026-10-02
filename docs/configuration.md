@@ -1,7 +1,6 @@
 # Configuration
 
-Three places hold the configuration of a DEPLOYMENT, and the split is
-deliberate.
+Three places hold the configuration of a DEPLOYMENT:
 
 | Where | Holds |
 |-------|-------|
@@ -11,8 +10,7 @@ deliberate.
 
 ## Where configuration lives
 
-Everything configurable in this repository, and what it decides. Read this to
-find the file; read the sections below for what its fields mean.
+Read this to find the file; read the sections below for what its fields mean.
 
 **A deployment — what an operator edits**
 
@@ -32,7 +30,6 @@ find the file; read the sections below for what its fields mean.
 | [internal/pkg/clusterspec](../internal/pkg/clusterspec) | the topology's schema in Go, its defaults, and the Talos machine-config patches |
 | [internal/pkg/clusterspec/auditpolicy.yaml](../internal/pkg/clusterspec/auditpolicy.yaml) | what the API server audit log records |
 | [internal/pkg/platform](../internal/pkg/platform) | names two layers must agree on: storage classes, the ingress class, the issuer, node ports |
-
 | [internal/pkg/clusterref](../internal/pkg/clusterref) | the cluster tier's stack outputs, by name — the contract every layer reads |
 | [layers/20-network-policy/manifests](../layers/20-network-policy/manifests) | the cluster-wide network policy, one file per rule |
 | [layers/30-cluster-services/manifests](../layers/30-cluster-services/manifests) | the manifests that layer applies alongside its charts |
@@ -65,14 +62,11 @@ Everything that shapes a cluster lives in
 `infra/cluster/cluster.<stack>.yaml`, validated by `cluster.schema.json` as you
 type it and by the same Go code the Pulumi program runs when you apply.
 
-It is sparse: anything omitted keeps the default in `internal/pkg/clusterspec`. Start from
-[cluster.example.yaml](../infra/cluster/cluster.example.yaml), which is
-committed with an RFC 5737 placeholder in
-`network.adminCIDRs` — set that to the address you will apply from, because
-Talos configuration is pushed over the Talos API and a host outside the list
-hangs with the port filtered.
-
-The stack files themselves are **not** committed, for that one field.
+It is sparse: anything omitted keeps the default in `internal/pkg/clusterspec`.
+Start from [cluster.example.yaml](../infra/cluster/cluster.example.yaml), which
+carries an RFC 5737 placeholder in `network.adminCIDRs` — replace it with the
+address you will apply from, or Talos configuration cannot be pushed and the
+apply hangs with the port filtered.
 
 ### What goes in `network.adminCIDRs`
 
@@ -86,18 +80,16 @@ balancer has no public interface, so this list is the whole of the perimeter.
 curl -s https://api.ipify.org
 ```
 
-prints the address a machine is seen from. Use it as a `/32` when it is
-fixed. When it moves — a VPN, a mobile connection, an ISP that reassigns —
-choose between a `/32` added each time it changes and the provider's range,
-which stays quiet and admits everyone else on it.
+prints the address a machine is seen from. Use it as a `/32` when it is fixed.
+When it moves, choose between a `/32` added each time it changes and the
+provider's range, which admits everyone else on it —
 [operations.md](operations.md#from-a-machine-the-firewall-does-not-know) has
 that trade-off and the way back in when the list is wrong.
 
 Never commit it. `infra/cluster/cluster.*.yaml` is ignored except the example,
 and `TestTrackedFiles_NameNoRealAddressOfTheirOwn` fails CI on a real address
-in any tracked file; placeholders come from the RFC 5737 documentation ranges.
-A change reaches Hetzner through `task cluster:apply`, which updates the
-firewall in place.
+in any tracked file. A change reaches Hetzner through `task cluster:apply`,
+which updates the firewall in place.
 
 ## How pod traffic crosses nodes
 
@@ -115,18 +107,15 @@ Pick `tunnel` when the private network's routing is what you are debugging, or
 on a provider whose network does not route pod CIDRs. Otherwise `native`.
 
 Switching is a **maintenance operation**: every Cilium agent restarts and pod
-traffic breaks while they do. It is one value and no Talos apply, because the
-gateway route goes into the machine config in both modes — under `tunnel` it is
-never used, Cilium's own routes being more specific.
-
-`docs/design.md` has the mechanism, and the failure that made this a field
-rather than a constant: `autoDirectNodeRoutes` cannot work on a Hetzner private
-network in either mode, and while it was set, pod-to-pod traffic across nodes
-had no route at all.
+traffic breaks while they do. It is one value and no Talos apply — the gateway
+route is in the machine config in both modes.
+[networking.md](networking.md#how-pod-traffic-crosses-a-node-boundary) has the
+mechanism.
 
 ## CPU architecture
 
-`talos.architecture` is `x86` or `arm`, and one field decides three things:
+`talos.architecture` is `x86` (the default) or `arm`, and one field decides
+three things:
 
 | | `x86` | `arm` |
 |---|---|---|
@@ -142,67 +131,33 @@ cx23 is x86, but the baked Talos image is arm — a mismatched type will not boo
 ```
 
 Switching the field means re-baking: `task cluster:image:bake`. A snapshot is
-one architecture, and the bake scopes its "already baked?" question to the
-architecture the topology asks for — so switching finds no snapshot and bakes
-one, rather than finding the other architecture's and doing nothing.
+one architecture, and the bake looks only for a snapshot of the architecture
+the topology asks for.
 
-**Arm is not the cheaper option on this provider.** From the API in `hel1`,
-monthly gross:
-
-| | cores | memory | arch | EUR/month |
-|---|---|---|---|---|
-| `cx23` | 2 | 4 GB | x86 | 5.49 |
-| `cax11` | 2 | 4 GB | arm | 5.99 |
-| `cx33` | 4 | 8 GB | x86 | 8.49 |
-| `cax21` | 4 | 8 GB | arm | 10.49 |
-
-Every image the platform installs publishes `linux/arm64` at the versions
-pinned in [`internal/pkg/charts`](../internal/pkg/charts) — Cilium, both hcloud drivers,
-cert-manager, external-secrets, metrics-server, policy-controller, Traefik and
-Argo CD, all checked. So nothing in the platform is the obstacle; the reason to pick
-`arm` is wanting Arm nodes, not saving money.
+**Arm is not the cheaper option on Hetzner**: a `cax` type costs more than the
+`cx` type with the same cores and memory. Every image the platform installs
+publishes `linux/arm64` at the versions pinned in
+[`internal/pkg/charts`](../internal/pkg/charts), so the reason to pick `arm` is
+wanting Arm nodes, not saving money.
 
 ### Which locations have Arm, and why that is not the blocker here
 
-Arm is regional. Hetzner's own
-[locations table](https://docs.hetzner.com/cloud/general/locations/) lists
-**Cloud Shared `AMPERE`** — the `cax` line — in three locations only:
+Hetzner's [locations table](https://docs.hetzner.com/cloud/general/locations/)
+lists **Cloud Shared `AMPERE`** — the `cax` line — in three locations only:
 
 | | `fsn1` | `nbg1` | `hel1` | `ash` | `hil` | `sin` |
 |---|---|---|---|---|---|---|
 | Cloud Shared `AMPERE` | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
 
-So an Arm topology has to sit in Falkenstein, Nuremberg or Helsinki. Anything in
-`ash`, `hil` or `sin` cannot be Arm at all, and that is a property of the
-location rather than of an account.
+Even there the API can refuse every `cax` create with
+`unsupported location for server type (invalid_input)` while an `x86` create in
+the same project and location succeeds. The refusal follows the architecture,
+not the location or capacity, and the API's own availability data does not
+predict it: **it needs a support ticket, not a wait.**
 
-The live API agrees about the region and then refuses anyway. It reports `cax11`
-as *available* in `hel1-dc2` and `nbg1-dc3`, and *supported but not available*
-in `fsn1-dc14` — yet every create in all three is refused:
-
-```
-unsupported location for server type (invalid_input)
-```
-
-That is not a mismatched image and not the CLI: it comes back the same from the
-raw API with an Arm image by id. Nor is it the location or the project's
-standing, which one pair of requests settles — same project, same location, same
-request shape:
-
-```
-cx23  nbg1  CREATED
-cax11 nbg1  unsupported location for server type
-```
-
-So the refusal follows the architecture, not the region. Hetzner's API is
-contradicting its own availability data, and nothing outside the account can
-say whether that is an entitlement or a defect — `/v1/locations` carries no
-per-type availability, and `/v1/datacenters` has been deprecated since 2025-12-16.
-**It needs a support ticket, not a wait for capacity.**
-
-Before planning an Arm cluster, probe one server by hand — an Arm image by id,
-not by name, because Hetzner answers an x86 image on an Arm type with the *same*
-message and a name resolves to whichever architecture the CLI picks:
+Before planning an Arm cluster, probe one server by hand — with an Arm image by
+id, not by name, because Hetzner answers an x86 image on an Arm type with the
+*same* message:
 
 ```bash
 hcloud image list --type system --architecture arm -o columns=id,name
@@ -211,23 +166,14 @@ hcloud server create --name arch-probe --type cax11 --image <id> --location hel1
 
 Delete the probe if it succeeds — a server costs from the moment it exists.
 
-The Arm **dedicated** line is a different product and out of scope here: RX170
-and RX220 are Ampere Altra machines on Hetzner's robot side, not the Cloud API
-this repository provisions through.
-
 ## What the policy pack enforces
 
-Component validation binds only the callers that go through the component, and
-this repository has a measured example of the gap.
-`internal/pkg/clusterspec.BuildFirewallRules` refuses an empty `network.adminCIDRs` — that is
-what `ErrEmptyAdminCIDRs` is for — and then appends `FirewallRuleOptions.Extra`
-verbatim. Its per-rule check looks at the protocol, the port, and that the
-source list is non-empty. It never looks at what the sources *are*, so an extra
-rule opening `6443` to `0.0.0.0/0` is accepted by the validator whose entire
-purpose is to refuse one.
-
-[`policy/`](../policy) closes that with CrossGuard, which runs over the
-resources a program declares rather than the constructors it called:
+Validation inside a component binds only callers that go through it:
+`internal/pkg/clusterspec.BuildFirewallRules` refuses an empty
+`network.adminCIDRs`, then appends `FirewallRuleOptions.Extra` without looking
+at the sources, so an extra rule opening `6443` to `0.0.0.0/0` passes it.
+[`policy/`](../policy) closes that with CrossGuard, which checks the resources
+a program declares:
 
 | Policy | Refuses |
 |---|---|
@@ -241,19 +187,15 @@ resources a program declares rather than the constructors it called:
 task policy:check stack=dev
 ```
 
-It previews the cluster tier and every layer, changes nothing, and is written
-in Go so CI needs no Node or Python runtime for it.
+It previews the cluster tier and every layer and changes nothing.
 
 ### It is a gate, not yet a control
 
-`pulumi preview --policy-pack` is **local** enforcement: a policy is skipped by
-omitting the flag, so this catches mistakes rather than preventing them.
-
-Unlike a `file://` backend, this repository's state is in Pulumi Cloud, so the
-mode that cannot be skipped *is* available — organisation policy groups, which
-apply to every stack in the organisation with no flag to forget. Turning that on
-is an account setting rather than a repository change, which is why the pack
-ships as a task here and the decision stays with whoever owns the organisation.
+`pulumi preview --policy-pack` is **local** enforcement: omitting the flag
+skips it, so it catches mistakes rather than preventing them. The mode that
+cannot be skipped is a Pulumi Cloud organisation policy group, which applies to
+every stack in the organisation. That is an account setting, not a repository
+change, and stays with whoever owns the organisation.
 
 ## Stack config
 
@@ -278,26 +220,16 @@ ships as a task here and the decision stays with whoever owns the organisation.
 | `gitops:repoSSHPrivateKey` | [`50-gitops`](../layers/50-gitops) | SSH private key for a private repository, in place of the two above — a read-only deploy key is enough (secret) |
 | `backup:storageBoxType` | [`backup`](../infra/backup) | Hetzner Storage Box type, default `bx11` |
 
-The three switches above — `network-policy:enabled`, `cluster-services:acmeStaging`
-and `cluster-services:kedaEnabled` — take `true` or `false` and refuse anything
-else, including YAML's own `yes` and `on`. A value that cannot be read as a
-boolean is an error rather than a silent `false`: a layer that was never asked
-for a feature and one whose request was dropped look identical from outside,
-and for `acmeStaging` the dropped request is the expensive direction — it sends
-the order to Let's Encrypt's production endpoint.
+The switches — `network-policy:enabled`, `cluster-services:acmeStaging` and
+`cluster-services:kedaEnabled` — take `true` or `false` and refuse anything
+else, including YAML's own `yes` and `on`, rather than reading it as a silent
+`false`. For `acmeStaging` a dropped value would send the order to Let's
+Encrypt's production endpoint.
 
-Layer config is about what a layer deploys, not about the cluster. The three
-cluster switches that used to sit here are in the topology now.
-
-The **domain** is one of them, and it used to be listed above as
-`gitops:domain`. It never was a stack config key: `50-gitops` reads
-`metadata.domain` from the cluster tier, because `40-ingress` points DNS at its
-load balancer and this layer gives Argo CD a hostname — two copies of one name
-drift, and an Ingress for one name behind a record for another is accepted by
-everything and serves nothing. `TestConfigKeys_TheTablesNameKeysThatExist`
-holds these tables to the keys the layers actually declare, which is what a
-documented key nothing reads escaped before. What the domain is and what it
-needs is [domain.md](domain.md).
+Layer config is about what a layer deploys, not about the cluster. The domain
+is not a stack config key: `50-gitops` reads `metadata.domain` from the cluster
+tier, so `40-ingress` and `50-gitops` cannot spell one hostname two ways — see
+[domain.md](domain.md#one-name-spelled-once).
 
 ## State, and where the token lives
 
@@ -306,22 +238,20 @@ so it is a property of the repository rather than of whoever last ran
 `pulumi login`.
 
 `task cluster:token` writes the Hetzner token into `Pulumi.<stack>.yaml` as a
-`secure:` ciphertext. It takes no `token=` argument on purpose: a credential
-passed as one lands in the shell history and in the process arguments, where
-`ps` shows it to every other user on the machine. Pulumi prompts for a value
-that is not on the command line and hides the input, and reads standard input
-when something is piped — so `pass hetzner/token | task cluster:token` works
-without the value ever reaching argv.
+`secure:` ciphertext. It takes no `token=` argument: a credential passed as one
+lands in the shell history and in the process arguments, where `ps` shows it.
+Pulumi prompts for the value with the input hidden, or reads standard input
+when something is piped:
+
+```bash
+pass hetzner/token | task cluster:token
+```
 
 `Pulumi.<stack>.yaml` is gitignored. The ciphertext is safe to publish — the
-key is the backend's, not the repository's — but the file is one operator's
-environment: their token, their org, the stack their layers point at. A public
-repository should not ship it, and a clone should not start by pointing at
-somebody else's cluster.
-
-So a fresh clone runs `task cluster:token` and `task platform:init`, which
-write those files locally. Nothing here reads a plaintext secrets file, and
-none should be created.
+key is the backend's — but the file is one operator's environment: their
+token, their org, the stack their layers point at. So a fresh clone runs
+`task cluster:token` and `task platform:init`, which write those files locally.
+Nothing here reads a plaintext secrets file, and none should be created.
 
 An exported `HCLOUD_TOKEN` takes priority over the stack config, which is how
 CI passes a token it holds as a GitHub secret.
@@ -338,24 +268,22 @@ pulumi config set --secret cluster-services:pulumiAccessToken <token>
 task platform:apply stack=dev layer=30-cluster-services
 ```
 
-Neither the organization nor the stack is configured: both are what the program
-is already running as, and the project is this repository's own name. An
+The organization and stack are the ones the program runs as, and the project is
+this repository's own name; none of them is configured. Use an
 **organization** token scoped to reading those environments, not a personal
-one — it is copied into a Kubernetes Secret, so whatever it can do, anything
-able to read that Secret can do.
+one — it is copied into a Kubernetes Secret, so anything able to read that
+Secret can do whatever the token can.
 
 What belongs there is a secret a **workload** reads. What Pulumi needs to build
 the cluster — the Hetzner token, the Talos bundle, the Storage Box passwords —
 stays in stack config and state, because it is needed before a cluster exists.
 
-`task cluster:smoke` reports whether the store is ready. It matters because the
-failure is quiet: a store with a bad token stops every `ExternalSecret` from
-syncing, and the Secret it would have written is **absent** rather than stale —
-so the pod that mounts it fails to start with a message about a Secret, three
-steps from the token that is wrong.
+`task cluster:smoke` reports whether the store is ready. A store with a bad
+token stops every `ExternalSecret` from syncing, and the Secret it would have
+written is **absent** rather than stale — so the pod that mounts it fails to
+start with a message about a Secret, not about the token.
 
-The environment itself is worth exporting with the rest of what lives nowhere
-else:
+Export the environment with the rest of what lives nowhere else:
 
 ```bash
 pulumi env get <org>/<project>/<stack> --value json
@@ -363,9 +291,9 @@ pulumi env get <org>/<project>/<stack> --value json
 
 ## Keeping state in your own S3 bucket
 
-One vendor, one bill, and no Pulumi account. Pulumi calls this a DIY
-backend: it stores state under a `.pulumi` directory in the bucket, and
-backing it up and coordinating access across a team becomes yours to do.
+Pulumi calls this a DIY backend: it stores state under a `.pulumi` directory in
+the bucket, and backing it up and coordinating access across a team becomes
+yours to do.
 
 Hetzner Object Storage is S3-compatible, so the form is the one Pulumi
 documents for any S3-compatible server — `endpoint`, `s3ForcePathStyle` and,
@@ -382,15 +310,14 @@ export AWS_REGION=fsn1
 pulumi login 's3://<bucket>?endpoint=fsn1.your-objectstorage.com&s3ForcePathStyle=true'
 ```
 
-`PULUMI_BACKEND_URL` holds the same URL if you would rather not log in, and
-every `Pulumi.yaml` here declares `backend:` so the choice is a property of
-the repository rather than of whoever last ran `pulumi login` — point that at
-the bucket to make it the default for everyone.
+`PULUMI_BACKEND_URL` holds the same URL if you would rather not log in. To make
+the bucket the default for everyone, point the `backend:` in every
+`Pulumi.yaml` at it.
 
 The bucket has to exist first: a bucket managed by the state it holds cannot
-create itself. Enable versioning on it. State is the one file whose loss
+create itself. Enable versioning on it — state is the one file whose loss
 cannot be recovered from the cloud it describes, and a half-written checkpoint
-is indistinguishable from a correct one until the next apply.
+looks like a correct one until the next apply.
 
 ### One rule changes with it
 
@@ -402,12 +329,11 @@ export PULUMI_CONFIG_PASSPHRASE=...
 ```
 
 That makes the `secure:` ciphertext in `Pulumi.<stack>.yaml` offline-
-attackable — anyone with the file can grind the passphrase. **Do not commit
-those files on a DIY backend in a public repository.** Add them to
-`.gitignore` and keep the secrets somewhere else.
+attackable — anyone with the file can grind the passphrase. **Never publish
+those files on a DIY backend with a passphrase.**
 
-Committing them is safe *here* only because Pulumi Cloud holds the key. If you
-would rather keep the files committed and the state in your own bucket, use a
-cloud KMS as the secrets provider instead of a passphrase — the CLI documents
+The ciphertext is safe to publish on Pulumi Cloud only because the service
+holds the key. To get the same property with your own bucket, use a cloud KMS
+as the secrets provider instead of a passphrase — the CLI documents
 `awskms://`, `azurekeyvault://` and `gcpkms://` for
 `pulumi stack init --secrets-provider`, and those work with any backend.
