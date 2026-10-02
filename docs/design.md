@@ -12,13 +12,13 @@ everything above it; destroying a layer takes only its own namespaces.
 
 ```mermaid
 flowchart TB
-    %% Palette from the README badges: Hetzner red, Talos orange, Kubernetes
-    %% blue, so the header and the diagrams read as one thing and the colour
-    %% says whose territory a box is in. Light fills with dark text of the same
+    %% The colour says whose territory a box is in: Hetzner green, Talos amber,
+    %% Kubernetes blue, Pulumi state violet; pink marks the few gates and
+    %% secrets that deserve the eye. Light fills with dark text of the same
     %% hue, spelled out: GitHub renders this in both themes, and a colour left
     %% to the theme is unreadable in one of them.
-    classDef hetzner fill:#FFE4E6,stroke:#E11D48,stroke-width:1px,color:#881337
-    classDef talos fill:#FFEDD5,stroke:#EA580C,stroke-width:1px,color:#7C2D12
+    classDef hetzner fill:#DCFCE7,stroke:#16A34A,stroke-width:1px,color:#14532D
+    classDef talos fill:#FEF3C7,stroke:#D97706,stroke-width:1px,color:#78350F
     classDef kube fill:#DBEAFE,stroke:#2563EB,stroke-width:1px,color:#1E3A8A
     classDef derived fill:#F1F5F9,stroke:#64748B,stroke-width:1px,stroke-dasharray:4 3,color:#334155
     classDef state fill:#EDE9FE,stroke:#7C3AED,stroke-width:2px,color:#3B0764
@@ -75,9 +75,9 @@ flowchart TB
     class trust state
     class op derived
 
-    style hetzner fill:#FFF1F2,stroke:#E11D48,stroke-width:2px,color:#881337
-    style servers fill:#FFF1F2,stroke:#E11D48,stroke-dasharray:3 3,color:#881337
-    style talos fill:#FFF7ED,stroke:#EA580C,stroke-width:2px,color:#7C2D12
+    style hetzner fill:#F0FDF4,stroke:#16A34A,stroke-width:2px,color:#14532D
+    style servers fill:#F0FDF4,stroke:#16A34A,stroke-dasharray:3 3,color:#14532D
+    style talos fill:#FFFBEB,stroke:#D97706,stroke-width:2px,color:#78350F
     style k8s fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#1E3A8A
 ```
 

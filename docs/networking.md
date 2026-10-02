@@ -119,9 +119,9 @@ flowchart LR
     %% Same palette as the diagram above, and the same reason for spelling the
     %% colours out rather than inheriting the theme's.
     classDef outside fill:#F1F5F9,stroke:#64748B,stroke-width:1px,color:#334155
-    classDef edge fill:#FFE4E6,stroke:#E11D48,stroke-width:2px,color:#881337
+    classDef edge fill:#DCFCE7,stroke:#16A34A,stroke-width:2px,color:#14532D
     classDef inside fill:#DBEAFE,stroke:#2563EB,stroke-width:1px,color:#1E3A8A
-    classDef gate fill:#FFEDD5,stroke:#EA580C,stroke-width:2px,color:#7C2D12
+    classDef gate fill:#FCE7F3,stroke:#DB2777,stroke-width:2px,color:#831843
 
     client(["<b>client</b>"])
     lb["<b>Hetzner load balancer</b><br/>public IPv4 and IPv6<br/>created by Pulumi, targets by cluster label"]
@@ -149,7 +149,7 @@ flowchart LR
 
     %% The one edge worth pointing at: it is the hop that carries the PROXY
     %% header. Indexed by edge order, so adding an edge above this one moves it.
-    linkStyle 1 stroke:#d50c2d,stroke-width:3px
+    linkStyle 1 stroke:#DB2777,stroke-width:3px
 ```
 
 The trusted range is the node subnet the cluster tier publishes, not a wider
@@ -166,9 +166,9 @@ Two paths, and only one of them is public.
 flowchart LR
     %% Same palette as the diagram above.
     classDef outside fill:#F1F5F9,stroke:#64748B,stroke-width:1px,color:#334155
-    classDef edge fill:#FFE4E6,stroke:#E11D48,stroke-width:2px,color:#881337
+    classDef edge fill:#DCFCE7,stroke:#16A34A,stroke-width:2px,color:#14532D
     classDef inside fill:#DBEAFE,stroke:#2563EB,stroke-width:1px,color:#1E3A8A
-    classDef gate fill:#FFEDD5,stroke:#EA580C,stroke-width:2px,color:#7C2D12
+    classDef gate fill:#FCE7F3,stroke:#DB2777,stroke-width:2px,color:#831843
 
     operator(["<b>operator</b><br/>kubectl, talosctl, pulumi"])
     fw["<b>Hetzner firewall</b><br/>tcp/6443, tcp/50000<br/>from network.adminCIDRs only"]
