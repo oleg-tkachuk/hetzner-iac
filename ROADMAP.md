@@ -44,6 +44,16 @@ policy-controller cannot verify yet, so their policies stay at warn under
 enforce. See [operations.md](docs/operations.md#which-images-may-run).
 **Blocked on:** bundle verification upstream.
 
+### Image policies cannot be deleted through the API
+
+Image verification is a webhook and its ClusterImagePolicies, both API
+objects: anyone who may delete them turns enforcement off, and the audit log
+is all that would say so. Kubernetes v1.37 loads admission webhooks and
+policies from files on the control-plane nodes, out of reach of the API, with
+`ManifestBasedAdmissionControlConfig` — Beta, on by default.
+**Blocked on:** that gate reaching GA, so the machine config does not carry a
+format that may still change.
+
 ### The configuration contract moves to Talos 1.14
 
 Nodes run Talos v1.14.2 and Kubernetes v1.37.1 on the v1.13.10 machine-config
