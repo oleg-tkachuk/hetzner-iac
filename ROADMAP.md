@@ -31,9 +31,9 @@ on the Storage Box, and `task cluster:secrets:download` reads it back.
 
 ### Volume data
 
-Persistent volumes hold the only state no layer can recreate. The goal is both
-a point-in-time copy of a volume and a way to bring back one workload's data
-without touching the rest.
+Low priority: left to the cluster's users, since everything else is rebuilt
+from this repository and not every volume needs a backup.
+[ADR-0006](docs/adr/0006-volume-backup.md) records the options.
 
 ## Availability
 

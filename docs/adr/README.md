@@ -11,3 +11,4 @@ current state and are the starting point for whatever changes it.
 | [0003](0003-state-and-secrets.md) | Pulumi Cloud state; Pulumi's own encryption for secrets, SOPS + age when one lands outside it | Accepted |
 | [0004](0004-repository-structure.md) | A Pulumi project per concern; an environment is a stack, and `stack=` has no default | Accepted |
 | [0005](0005-internal-packages.md) | The implementation is `internal/pkg/`; the tags are tree releases, not module versions | Accepted |
+| [0006](0006-volume-backup.md) | Backing up volume data is the platform user's responsibility | Accepted |
