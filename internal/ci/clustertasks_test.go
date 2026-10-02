@@ -11,8 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/siderolabs/talos/pkg/machinery/config/machine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 // TestSnapshotSidecar_IsSpelledOnce holds the writer and the reader of a
@@ -382,4 +384,26 @@ func TestSecretsBundle_TravelsWithEverySnapshot(t *testing.T) {
 	assert.Contains(t, download, "} >&2", "the repository setup writes to the stdout that carries the bundle")
 	assert.Contains(t, download, `--host "$cluster" --tag "{{._CL_SECRETS_TAG}}"`,
 		"secrets:download reads another cluster's bundle")
+}
+
+// TestClusterTasks_SpellTheControlPlaneAsTalosDoes holds the machine type the
+// cluster tasks split nodes by to Talos's own spelling. `talosctl get members`
+// reports each node's machine type; misspelt, no node matches and every one is
+// treated as a worker, with nothing failing.
+func TestClusterTasks_SpellTheControlPlaneAsTalosDoes(t *testing.T) {
+	t.Parallel()
+
+	const controlPlaneVar = "_CL_MACHINE_CONTROL_PLANE"
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	var taskfile struct {
+		Vars map[string]any `json:"vars"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &taskfile))
+
+	value, found := taskfile.Vars[controlPlaneVar]
+	require.True(t, found, "tasks/cluster.task.yaml declares no %s", controlPlaneVar)
+	assert.Equal(t, machine.TypeControlPlane.String(), value)
 }
