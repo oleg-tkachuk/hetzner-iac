@@ -18,21 +18,16 @@ awk -f tools/lines/main.awk -v op=reverse-words <<<"$layers"
 | `reverse-words` | the words in reverse, for destroying layers in reverse order |
 | `staged-binaries` | the staged paths git considers binary, non-zero if any |
 
-It replaces pipelines. `df --output=avail -BM / | tail -1 | tr -dc '0-9'` is
-three processes and three chances to return the wrong thing quietly; `avail-mb`
-is one. The same argument retires every `grep | grep -c` pair, because awk
-counts while it matches. `staged-binaries` asks **git** what is binary rather
-than the `file -b | grep -qE 'ELF|Mach-O'` it replaced, which knew two formats
-and let a PNG, a gzip and an ar archive through.
+One process per question instead of a pipeline, so there is one place to be
+wrong and a test for it. `staged-binaries` asks **git** what is binary rather
+than guessing from `file` output.
 
-What it deliberately does not do is read YAML: that is
-[topology get](../topology), which asks the parser the cluster is built from.
-An awk program with an indentation state machine would still be a hand-rolled
-YAML reader — wrong on a quoted value, an anchor, or a nested key of the same
-name.
+It does not read YAML: that is [topology get](../topology), which asks the
+parser the cluster is built from. An awk indentation state machine would be a
+hand-rolled YAML reader.
 
-A missing or unknown op exits 2 rather than printing nothing, which is the
-failure mode the pipelines had. Every op is covered by `main_test.go` beside it.
+A missing or unknown op exits 2 rather than printing nothing. Every op is
+covered by `main_test.go` beside it.
 
 Run by CI, the `free-disk` composite action, the pre-commit hook, and
 `task platform:destroy layer=all`.

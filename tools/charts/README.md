@@ -13,20 +13,20 @@ go run ./tools/charts repin         # move each unsigned image's digest pin to i
 ```
 
 `render` is the one with teeth. A chart upgrade that renames a Deployment does
-not fail `pulumi up` — the release installs, and the e2e suite fails against a
-real cluster hours later. This runs `helm template` at the pinned versions and
-compares, offline, in seconds. It also checks that the values took effect,
-which was proven by breaking it: shortening `kubeProxyReplacement` by a letter
-turns the check red, while `helm template` renders the typo and exits zero.
+not fail `pulumi up`; it fails the e2e suite against a real cluster later. This
+runs `helm template` at the pinned versions, compares the workloads, checks
+that the values took effect — `helm template` renders a misspelt value and
+exits zero — and validates the output with `kubeconform` against the
+Kubernetes version the topology pins.
 
 It also holds every image to [the image inventory](../../internal/pkg/imagepolicy/images.yaml),
 and every unsigned image to its digest pin. A chart bump that moves an
-unsigned image's default tag fails here until the pin's tag and digest are
-moved with it — which `repin` does, and which Renovate runs on every chart
-bump so the pull request arrives with the pin already moved.
+unsigned image's default tag fails here until the pin moves with it, which
+`repin` does; Renovate runs it on every chart bump.
 
 It renders with `--repo` rather than `helm repo add`, so a read-only check does
-not mutate the operator's Helm configuration.
+not mutate the operator's Helm configuration. `render` needs `helm` and
+`kubeconform` in PATH, and network: kubeconform fetches the schemas.
 
 Run by `charts:list`, `charts:outdated`, `charts:render-check`,
 `charts:appversions`, and by CI.

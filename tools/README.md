@@ -23,12 +23,6 @@ implementation.
 | [token/](token) | the Hetzner token for a stack, on stdout |
 | [topology/](topology) | validate every committed topology, and read one field out of one |
 
-Several of them replaced a shell pipeline that was wrong in a way nothing
-reported: a `grep -A3` that returned empty once a comment grew past its window,
-a `file | grep` that knew two binary formats out of many, an `init || select`
-that hid the real error behind a misleading one. The rest exist because
-something went green while being broken. Either way the reason is the same: a
-tool has tests beside it, and a pipeline has none.
-
-The repository's own gates are not here. They are
-[internal/ci](../internal/ci), because they are test files with nothing to run.
+Each is a tool rather than a shell pipeline because a tool has tests beside it.
+The repository's own gates are not here; they are
+[internal/ci](../internal/ci), test files with nothing to run.

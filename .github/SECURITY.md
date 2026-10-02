@@ -12,14 +12,13 @@ Include what you would need yourself: the affected file or task, what an
 attacker gains, and the shortest way to observe it. A proof of concept helps
 more than a severity score.
 
-This is a solo-maintained repository, so the honest expectation is a first
-reply within a week. If a report goes unanswered for longer, open a public
+Expect a first reply within a week. If a report goes unanswered for longer, open a public
 issue saying only that a private report is waiting — no detail.
 
 ## What is in scope
 
-This repository is infrastructure code. The interesting failures are in what it
-builds, not in a running service:
+This repository is infrastructure code, so the failures that matter are in what
+it builds:
 
 - a default that exposes a cluster — an open firewall rule, a permissive Pod
   Security setting, a credential reachable by a workload that should not have
@@ -36,8 +35,8 @@ version here carries a known vulnerability, that *is* in scope — say which pin
 
 ## What is already assumed public
 
-Two things look like findings and are not, so a report about them will be
-closed:
+Two things look like findings and are not; a report about either will be
+closed.
 
 **The `secure:` ciphertext in `Pulumi.<stack>.yaml`.** Stack secrets are
 encrypted by the Pulumi Cloud backend, which holds the key; the repository does
