@@ -62,8 +62,9 @@ from `GITHUB_TOKEN`.
 **Nothing waits for the scanners.** They are required checks, so a red scanner
 still blocks the merge; only `Release` lists `security` in its `needs:`.
 
-`Tests and vet` runs on `main` because branch protection does not require a
-branch to be current before it merges. The other checks stay
+Branch protection requires a branch to be current before it merges, so pull
+requests merge one at a time and each is rebased onto the last. `Tests and vet`
+also runs on `main`, to test the merged tree itself; the other checks stay
 pull-request-only because they read one tree rather than a combination of
 merged ones.
 

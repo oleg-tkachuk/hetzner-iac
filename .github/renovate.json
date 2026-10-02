@@ -129,7 +129,7 @@
       "matchDatasources": ["helm"],
       "prBodyNotes": [
         "`AppVersion` in `internal/pkg/charts/registry.go` is **not** updated by this pull request, and the `Chart pins` check will fail until it is.",
-        "Run `task charts:appversions` for the value to set, and update the `// app <version>` comment beside `Version` to match."
+        "Run `task -t Taskfile.dev.yaml charts:appversions` for the value to set, and update the `// app <version>` comment beside `Version` to match."
       ]
     },
     {
