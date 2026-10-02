@@ -713,6 +713,59 @@ func NetworkPoliciesAreValid(policies []NetworkPolicy) Result {
 	return result
 }
 
+// CheckImageAdmission is the name of the check below.
+const CheckImageAdmission = "an image outside the inventory is refused"
+
+// AdmissionAttempt is what happened when a pod running an image outside the
+// image inventory was submitted, as a server-side dry run, to a namespace
+// labelled for the policy-controller.
+type AdmissionAttempt struct {
+	// Namespace is where it was submitted; empty when no namespace is
+	// labelled, so there was nowhere to try.
+	Namespace string
+	// DeniedBy is the admission webhook that refused it, empty if none did.
+	DeniedBy string
+	// Err is any other failure — the webhook unreachable, a timeout.
+	Err error
+}
+
+// ImageAdmission is the judgement on that attempt.
+//
+// The policies are generated, the namespaces labelled and the webhook running,
+// and none of that says a pod is checked: a label the selector does not match,
+// a policy left at warn, a no-match policy of allow — each admits everything
+// with nothing reporting it. This asks the webhook the one question that
+// covers all of them.
+//
+// An attempt that ERRORS is a failure, not a skip. The webhook fails closed,
+// so the error this check saw is the one every new pod in that namespace sees.
+func ImageAdmission(attempt AdmissionAttempt, webhook string) Result {
+	result := Result{Name: CheckImageAdmission}
+
+	switch {
+	case attempt.Namespace == "":
+		result.Status = StatusSkipped
+		result.Detail = "no namespace is labelled for the policy-controller, so no image is checked"
+	case attempt.DeniedBy == webhook:
+		result.Status = StatusPassed
+		result.Detail = ProberImage + " refused in " + attempt.Namespace + " by " + webhook
+	case attempt.Err != nil:
+		result.Status = StatusFailed
+		result.Detail = "submitting a pod to " + attempt.Namespace + " failed: " + attempt.Err.Error() +
+			" — the webhook fails closed, so every new pod there fails the same way"
+	case attempt.DeniedBy != "":
+		result.Status = StatusFailed
+		result.Detail = ProberImage + " was refused in " + attempt.Namespace + " by " + attempt.DeniedBy +
+			", not by " + webhook + ", so this says nothing about the image policies"
+	default:
+		result.Status = StatusFailed
+		result.Detail = ProberImage + " was admitted into " + attempt.Namespace +
+			" — the image policies are not enforced there"
+	}
+
+	return result
+}
+
 // orNone names an empty class as such in a message.
 func orNone(class string) string {
 	if class == "" {

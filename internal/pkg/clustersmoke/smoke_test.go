@@ -1,6 +1,7 @@
 package clustersmoke_test
 
 import (
+	"errors"
 	"os"
 	"regexp"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clustersmoke"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/imagepolicy"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/stretchr/testify/assert"
@@ -671,4 +673,39 @@ func TestNetworkPoliciesAreValid_SaysSoWithNoConditionYet(t *testing.T) {
 
 	require.Equal(t, clustersmoke.StatusFailed, result.Status)
 	assert.Contains(t, result.Detail, "no Valid condition yet")
+}
+
+func TestImageAdmission(t *testing.T) {
+	t.Parallel()
+
+	const webhook = "policy.sigstore.dev"
+
+	for name, tc := range map[string]struct {
+		attempt clustersmoke.AdmissionAttempt
+		want    clustersmoke.Status
+		detail  string
+	}{
+		"nowhere to try":    {clustersmoke.AdmissionAttempt{}, clustersmoke.StatusSkipped, "no namespace"},
+		"refused":           {clustersmoke.AdmissionAttempt{Namespace: "traefik", DeniedBy: webhook}, clustersmoke.StatusPassed, "refused in traefik"},
+		"admitted":          {clustersmoke.AdmissionAttempt{Namespace: "traefik"}, clustersmoke.StatusFailed, "not enforced"},
+		"another webhook":   {clustersmoke.AdmissionAttempt{Namespace: "traefik", DeniedBy: "other.example"}, clustersmoke.StatusFailed, "says nothing"},
+		"webhook not there": {clustersmoke.AdmissionAttempt{Namespace: "traefik", Err: errors.New("deadline exceeded")}, clustersmoke.StatusFailed, "fails closed"},
+	} {
+		result := clustersmoke.ImageAdmission(tc.attempt, webhook)
+		assert.Equal(t, tc.want, result.Status, name)
+		assert.Contains(t, result.Detail, tc.detail, name)
+	}
+}
+
+// The admission probe is only a probe while its image is outside the
+// inventory; listing it would turn a refusal into an admission.
+func TestProberImage_IsOutsideTheImageInventory(t *testing.T) {
+	t.Parallel()
+
+	inventory, err := imagepolicy.Load()
+	require.NoError(t, err)
+
+	_, found, err := inventory.Lookup(clustersmoke.ProberImage)
+	require.NoError(t, err)
+	assert.False(t, found)
 }

@@ -43,6 +43,12 @@ const (
 	PolicyControllerIncludeValue = "true"
 )
 
+// PolicyControllerWebhookName is the admission webhook that refuses an image,
+// as an API server's denial names it. The values template writes it, so the
+// smoke check that looks for it in a denial is reading the name the chart was
+// given.
+const PolicyControllerWebhookName = "policy.sigstore.dev"
+
 // VerifiesImages reports whether the pods in a chart's namespace are admitted
 // through the policy-controller.
 //
@@ -65,6 +71,8 @@ type PolicyControllerValues struct {
 	// IncludeLabel and IncludeValue select the namespaces it admits.
 	IncludeLabel string
 	IncludeValue string
+	// WebhookName is the admission webhook's name.
+	WebhookName string
 }
 
 // policyControllerProbe renders the template offline.
@@ -73,6 +81,7 @@ func policyControllerProbe() any {
 		NoMatchPolicy: imagepolicy.ModeWarn.NoMatchPolicy(),
 		IncludeLabel:  PolicyControllerIncludeLabel,
 		IncludeValue:  PolicyControllerIncludeValue,
+		WebhookName:   PolicyControllerWebhookName,
 	}
 }
 

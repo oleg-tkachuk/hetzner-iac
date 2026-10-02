@@ -3,6 +3,7 @@ package clustersmoke_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clustersmoke"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -132,7 +135,7 @@ func TestRun_ReportsEveryCheckEvenWhenOneFails(t *testing.T) {
 
 	report := r.Run(context.Background())
 
-	require.Len(t, report, 8, "a check that returns nothing is a check nobody notices")
+	require.Len(t, report, 9, "a check that returns nothing is a check nobody notices")
 	assert.True(t, report.Failed())
 
 	assert.Equal(t, clustersmoke.StatusPassed, resultFor(t, report, "node is Ready").Status)
@@ -150,13 +153,14 @@ func TestRun_PassesOnAHealthyClusterAndSkipsWhatItCannotJudge(t *testing.T) {
 	report := r.Run(context.Background())
 
 	assert.False(t, report.Failed())
-	// Five skips: the load balancer check, which has nothing to look at, the
+	// Six skips: the load balancer check, which has nothing to look at, the
 	// external metrics check, because this fixture serves no aggregated group,
-	// the data-volume check, because no namespace claims to hold data, and the
+	// the data-volume check, because no namespace claims to hold data, the
 	// two dynamic checks — secret stores and network policies — because this
-	// runner has no dynamic client. The cross-node check must NOT be skipping
-	// here: a cluster of three nodes with DNS on two is exactly where it runs.
-	assert.Equal(t, 5, report.Skipped())
+	// runner has no dynamic client, and the image admission check, because no
+	// namespace is labelled. The cross-node check must NOT be skipping here: a
+	// cluster of three nodes with DNS on two is exactly where it runs.
+	assert.Equal(t, 6, report.Skipped())
 	assert.Equal(t, clustersmoke.StatusPassed,
 		resultFor(t, report, "another node").Status)
 
@@ -801,6 +805,87 @@ func TestCheckExternalMetrics_FailsAGroupThatIsRegisteredAndNotAnswering(t *test
 			result := resultFor(t, smoke.Run(context.Background()), clustersmoke.CheckExternalMetrics)
 
 			assert.Equal(t, tc.want, result.Status, result.Detail)
+		})
+	}
+}
+
+// labelledNamespace is a namespace the policy-controller admits.
+func labelledNamespace(name string) *corev1.Namespace {
+	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   name,
+		Labels: map[string]string{charts.PolicyControllerIncludeLabel: charts.PolicyControllerIncludeValue},
+	}}
+}
+
+// admissionAnswers makes a pod create return what the API server would, and
+// records where it was tried and whether it was a dry run.
+func admissionAnswers(err error, seen *[]string, dryRun *bool) func(*fake.Clientset) {
+	return func(client *fake.Clientset) {
+		client.PrependReactor("create", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			create, ok := action.(k8stesting.CreateActionImpl)
+			if !ok {
+				return false, nil, nil
+			}
+
+			*seen = append(*seen, create.GetNamespace())
+			*dryRun = len(create.CreateOptions.DryRun) == 1 && create.CreateOptions.DryRun[0] == metav1.DryRunAll
+
+			return true, create.GetObject(), err
+		})
+	}
+}
+
+func TestCheckImageAdmission(t *testing.T) {
+	t.Parallel()
+
+	denied := apierrors.NewBadRequest(`admission webhook "` + charts.PolicyControllerWebhookName +
+		`" denied the request: validation failed: no matching policies: spec.containers[0].image`)
+
+	for name, tc := range map[string]struct {
+		objects []runtime.Object
+		answer  error
+		want    clustersmoke.Status
+		tried   []string
+	}{
+		"refused by the policy-controller": {
+			objects: []runtime.Object{labelledNamespace("traefik"), labelledNamespace("argocd")},
+			answer:  denied,
+			want:    clustersmoke.StatusPassed,
+			tried:   []string{"argocd"},
+		},
+		"admitted": {
+			objects: []runtime.Object{labelledNamespace("traefik")},
+			want:    clustersmoke.StatusFailed,
+			tried:   []string{"traefik"},
+		},
+		"webhook unreachable": {
+			objects: []runtime.Object{labelledNamespace("traefik")},
+			answer:  apierrors.NewInternalError(errors.New(`failed calling webhook "policy.sigstore.dev": context deadline exceeded`)),
+			want:    clustersmoke.StatusFailed,
+			tried:   []string{"traefik"},
+		},
+		"no namespace labelled": {
+			objects: []runtime.Object{&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "traefik"}}},
+			want:    clustersmoke.StatusSkipped,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				tried  []string
+				dryRun bool
+			)
+
+			r := runner(t, tc.objects, admissionAnswers(tc.answer, &tried, &dryRun))
+			result := resultFor(t, r.Run(context.Background()), "outside the inventory")
+
+			assert.Equal(t, tc.want, result.Status, result.Detail)
+			assert.Equal(t, tc.tried, tried, "the first labelled namespace, by name")
+
+			if len(tried) > 0 {
+				assert.True(t, dryRun, "the probe must be a dry run, or it creates a pod")
+			}
 		})
 	}
 }

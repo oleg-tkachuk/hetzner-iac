@@ -8,6 +8,11 @@
 # The chart reads this from webhook.configData, which is easy to mistake for
 # the logging configuration beside it.
 
+# The webhook's name, which an API server's denial quotes. Written out although
+# it is the chart's default: the cluster smoke check recognises a refusal by it.
+cosign:
+  webhookName: {{ .WebhookName }}
+
 webhook:
   configData:
     no-match-policy: {{ .NoMatchPolicy }}
