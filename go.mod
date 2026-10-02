@@ -29,6 +29,7 @@ require (
 	github.com/pulumiverse/pulumi-talos/sdk v0.8.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/siderolabs/image-factory v1.7.2
+	github.com/siderolabs/talos/pkg/machinery v1.14.1
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/bbolt v1.5.0
 	go.yaml.in/yaml/v3 v3.0.5
@@ -146,7 +147,6 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/siderolabs/gen v0.8.8 // indirect
-	github.com/siderolabs/talos/pkg/machinery v1.14.1 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect

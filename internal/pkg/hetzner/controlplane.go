@@ -10,11 +10,14 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
 	taloscluster "github.com/pulumiverse/pulumi-talos/sdk/go/talos/cluster"
 	talosmachine "github.com/pulumiverse/pulumi-talos/sdk/go/talos/machine"
+	"github.com/siderolabs/talos/pkg/machinery/config/machine"
 )
 
-const (
-	machineTypeControlPlane = "controlplane"
-	machineTypeWorker       = "worker"
+// The machine types a configuration is generated for, in Talos's own
+// spelling from its machinery package rather than a copy of it.
+var (
+	machineTypeControlPlane = machine.TypeControlPlane.String()
+	machineTypeWorker       = machine.TypeWorker.String()
 )
 
 // ControlPlane is the set of control-plane nodes plus the Talos bootstrap
