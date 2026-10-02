@@ -1720,11 +1720,17 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-    deps: [talosconfig]
+    deps: [talosconfig, kubeconfig]
     prompt: "Upgrade Kubernetes on {{._CL_STACK}}?"
     cmds:
       - cmd: |
           set -euo pipefail
           version="$(go run "{{.ROOT}}/tools/topology" get kubernetes-version "{{._CL_TOPOLOGY}}")"
           export TALOSCONFIG="{{.ROOT}}/talosconfig"
-          talosctl upgrade-k8s --to "${version}"
+
+          # --endpoint is the operator kubeconfig's API server. Left out,
+          # talosctl reads the kubeconfig on the node, whose server is the
+          # private API load balancer, and fails before changing anything.
+          endpoint="$(kubectl --kubeconfig "{{.ROOT}}/kubeconfig" config view --minify \
+            -o jsonpath='{.clusters[0].cluster.server}')"
+          talosctl upgrade-k8s --to "${version}" --endpoint "${endpoint}"

@@ -407,3 +407,17 @@ func TestClusterTasks_SpellTheControlPlaneAsTalosDoes(t *testing.T) {
 	require.True(t, found, "tasks/cluster.task.yaml declares no %s", controlPlaneVar)
 	assert.Equal(t, machine.TypeControlPlane.String(), value)
 }
+
+// TestUpgradeK8s_NamesTheAPIEndpoint keeps talosctl off the node's own
+// kubeconfig, whose server is the private API load balancer: without
+// --endpoint the upgrade fails from any machine outside the private network.
+func TestUpgradeK8s_NamesTheAPIEndpoint(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "cluster.task.yaml"))
+	require.NoError(t, err)
+
+	body, found := tasksIn(string(raw))["upgrade:k8s"]
+	require.True(t, found, "no upgrade:k8s task to check")
+	assert.Contains(t, strings.Join(strings.Fields(body), " "), "talosctl upgrade-k8s --to \"${version}\" --endpoint")
+}
