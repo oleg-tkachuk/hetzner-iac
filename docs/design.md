@@ -12,55 +12,53 @@ everything above it; destroying a layer takes only its own namespaces.
 
 ```mermaid
 flowchart TB
-    %% Palette from the README badges: Hetzner red, Talos orange, Kubernetes
-    %% blue, so the header and the diagrams read as one thing and the colour
-    %% says whose territory a box is in.
-    %%
-    %% Fills are pale and text is near-black explicitly. GitHub renders this in
-    %% both themes, and a colour left to the theme picks one of them and is
-    %% unreadable in the other.
-    classDef hetzner fill:#fde8eb,stroke:#d50c2d,stroke-width:1px,color:#1f2328
-    classDef talos fill:#fff0e0,stroke:#ff7300,stroke-width:1px,color:#1f2328
-    classDef kube fill:#e7effc,stroke:#326ce5,stroke-width:1px,color:#1f2328
-    classDef derived fill:#f6f8fa,stroke:#8c959f,stroke-width:1px,stroke-dasharray:4 3,color:#1f2328
-    classDef state fill:#f6ecf7,stroke:#8a3391,stroke-width:2px,color:#1f2328
+    %% The colour says whose territory a box is in: Hetzner green, Talos amber,
+    %% Kubernetes blue, Pulumi state violet; pink marks the few gates and
+    %% secrets that deserve the eye. Light fills with dark text of the same
+    %% hue, spelled out: GitHub renders this in both themes, and a colour left
+    %% to the theme is unreadable in one of them.
+    classDef hetzner fill:#DCFCE7,stroke:#16A34A,stroke-width:1px,color:#14532D
+    classDef talos fill:#FEF3C7,stroke:#D97706,stroke-width:1px,color:#78350F
+    classDef kube fill:#DBEAFE,stroke:#2563EB,stroke-width:1px,color:#1E3A8A
+    classDef derived fill:#F1F5F9,stroke:#64748B,stroke-width:1px,stroke-dasharray:4 3,color:#334155
+    classDef state fill:#EDE9FE,stroke:#7C3AED,stroke-width:2px,color:#3B0764
 
     subgraph hetzner["☁️ Hetzner Cloud project — infra/cluster and infra/backup, plus one layer that owns one resource"]
         direction TB
-        net["private network<br/>+ subnet"]
-        fw["firewall"]
-        pg["placement group"]
-        snap[("Talos snapshot<br/>task cluster:image:bake")]
+        net["<b>private network</b><br/>+ subnet"]
+        fw["<b>firewall</b>"]
+        pg["<b>placement group</b>"]
+        snap[("<b>Talos snapshot</b><br/>task cluster:image:bake")]
 
         subgraph servers["servers"]
             direction LR
-            cp["control plane"]
-            wk["worker pools"]
+            cp["<b>control plane</b>"]
+            wk["<b>worker pools</b>"]
         end
 
-        apilb(["load balancer for the API<br/>private only — the nodes' endpoint"])
-        inglb(["load balancer for ingress<br/>layers/40-ingress"])
-        box[("Storage Box + subaccount<br/>infra/backup")]
+        apilb(["<b>load balancer for the API</b><br/>private only — the nodes' endpoint"])
+        inglb(["<b>load balancer for ingress</b><br/>layers/40-ingress"])
+        box[("<b>Storage Box + subaccount</b><br/>infra/backup")]
     end
 
     subgraph talos["Talos on those servers"]
         direction LR
-        etcd[("etcd")]
-        api["kube-apiserver"]
+        etcd[("<b>etcd</b>")]
+        api["<b>kube-apiserver</b>"]
     end
 
     subgraph k8s["Kubernetes — every layer writes only here"]
         direction TB
-        ks["kube-system<br/>layers/10-node-platform"]
-        pol["cluster-wide policy<br/>layers/20-network-policy"]
-        cmns["cert-manager, external-secrets, cosign-system<br/>layers/30-cluster-services"]
-        kedans["keda<br/>layers/30-cluster-services, when kedaEnabled"]
-        tns["traefik<br/>layers/40-ingress"]
-        argons["argocd<br/>layers/50-gitops"]
+        ks["<b>kube-system</b><br/>layers/10-node-platform"]
+        pol["<b>cluster-wide policy</b><br/>layers/20-network-policy"]
+        cmns["<b>cert-manager, external-secrets, cosign-system</b><br/>layers/30-cluster-services"]
+        kedans["<b>keda</b><br/>layers/30-cluster-services, when kedaEnabled"]
+        tns["<b>traefik</b><br/>layers/40-ingress"]
+        argons["<b>argocd</b><br/>layers/50-gitops"]
     end
 
-    trust[("Pulumi state<br/>the cluster CA lives only here")]
-    op(["operator<br/>network.adminCIDRs"])
+    trust[("<b>Pulumi state</b><br/>the cluster CA lives only here")]
+    op(["<b>operator</b><br/>network.adminCIDRs"])
 
     trust -.->|"every certificate descends from it"| talos
     servers ==> talos
@@ -77,10 +75,10 @@ flowchart TB
     class trust state
     class op derived
 
-    style hetzner fill:#fffafb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
-    style servers fill:#fde8eb,stroke:#d50c2d,stroke-dasharray:3 3,color:#1f2328
-    style talos fill:#fffbf5,stroke:#ff7300,stroke-width:2px,color:#1f2328
-    style k8s fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
+    style hetzner fill:#F0FDF4,stroke:#16A34A,stroke-width:2px,color:#14532D
+    style servers fill:#F0FDF4,stroke:#16A34A,stroke-dasharray:3 3,color:#14532D
+    style talos fill:#FFFBEB,stroke:#D97706,stroke-width:2px,color:#78350F
+    style k8s fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#1E3A8A
 ```
 
 Two projects other than the cluster tier cross that seam, and both do it on

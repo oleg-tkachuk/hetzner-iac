@@ -118,20 +118,20 @@ on pinned ports and the load balancer selects its targets by cluster label.
 flowchart LR
     %% Same palette as the diagram above, and the same reason for spelling the
     %% colours out rather than inheriting the theme's.
-    classDef outside fill:#f6f8fa,stroke:#8c959f,stroke-width:1px,color:#1f2328
-    classDef edge fill:#fde8eb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
-    classDef inside fill:#e7effc,stroke:#326ce5,stroke-width:1px,color:#1f2328
-    classDef gate fill:#fff0e0,stroke:#ff7300,stroke-width:2px,color:#1f2328
+    classDef outside fill:#F1F5F9,stroke:#64748B,stroke-width:1px,color:#334155
+    classDef edge fill:#DCFCE7,stroke:#16A34A,stroke-width:2px,color:#14532D
+    classDef inside fill:#DBEAFE,stroke:#2563EB,stroke-width:1px,color:#1E3A8A
+    classDef gate fill:#FCE7F3,stroke:#DB2777,stroke-width:2px,color:#831843
 
-    client(["client"])
-    lb["Hetzner load balancer<br/>public IPv4 and IPv6<br/>created by Pulumi, targets by cluster label"]
+    client(["<b>client</b>"])
+    lb["<b>Hetzner load balancer</b><br/>public IPv4 and IPv6<br/>created by Pulumi, targets by cluster label"]
 
     subgraph private["🔒 private network — network.nodeSubnet"]
         direction LR
-        node["node<br/>private address only<br/>nodePort 30080 / 30443"]
-        traefik["Traefik<br/>entry points: web, websecure<br/>trusts the PROXY header from network.nodeSubnet"]
-        svc["Service"]
-        pod(["pod"])
+        node["<b>node</b><br/>private address only<br/>nodePort 30080 / 30443"]
+        traefik["<b>Traefik</b><br/>entry points: web, websecure<br/>trusts the PROXY header from network.nodeSubnet"]
+        svc["<b>Service</b>"]
+        pod(["<b>pod</b>"])
     end
 
     client -->|"tcp/80, tcp/443"| lb
@@ -145,11 +145,11 @@ flowchart LR
     class traefik gate
     class node,svc,pod inside
 
-    style private fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
+    style private fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#1E3A8A
 
     %% The one edge worth pointing at: it is the hop that carries the PROXY
     %% header. Indexed by edge order, so adding an edge above this one moves it.
-    linkStyle 1 stroke:#d50c2d,stroke-width:3px
+    linkStyle 1 stroke:#DB2777,stroke-width:3px
 ```
 
 The trusted range is the node subnet the cluster tier publishes, not a wider
@@ -165,20 +165,20 @@ Two paths, and only one of them is public.
 ```mermaid
 flowchart LR
     %% Same palette as the diagram above.
-    classDef outside fill:#f6f8fa,stroke:#8c959f,stroke-width:1px,color:#1f2328
-    classDef edge fill:#fde8eb,stroke:#d50c2d,stroke-width:2px,color:#1f2328
-    classDef inside fill:#e7effc,stroke:#326ce5,stroke-width:1px,color:#1f2328
-    classDef gate fill:#fff0e0,stroke:#ff7300,stroke-width:2px,color:#1f2328
+    classDef outside fill:#F1F5F9,stroke:#64748B,stroke-width:1px,color:#334155
+    classDef edge fill:#DCFCE7,stroke:#16A34A,stroke-width:2px,color:#14532D
+    classDef inside fill:#DBEAFE,stroke:#2563EB,stroke-width:1px,color:#1E3A8A
+    classDef gate fill:#FCE7F3,stroke:#DB2777,stroke-width:2px,color:#831843
 
-    operator(["operator<br/>kubectl, talosctl, pulumi"])
-    fw["Hetzner firewall<br/>tcp/6443, tcp/50000<br/>from network.adminCIDRs only"]
+    operator(["<b>operator</b><br/>kubectl, talosctl, pulumi"])
+    fw["<b>Hetzner firewall</b><br/>tcp/6443, tcp/50000<br/>from network.adminCIDRs only"]
 
     subgraph private["🔒 private network — network.nodeSubnet"]
         direction LR
-        cp0["first control-plane node<br/>kube-apiserver, apid"]
-        nodes["every node<br/>kubelet, KubePrism"]
-        apilb["API load balancer<br/>no public interface<br/>the cluster endpoint"]
-        cps["control-plane nodes"]
+        cp0["<b>first control-plane node</b><br/>kube-apiserver, apid"]
+        nodes["<b>every node</b><br/>kubelet, KubePrism"]
+        apilb["<b>API load balancer</b><br/>no public interface<br/>the cluster endpoint"]
+        cps["<b>control-plane nodes</b>"]
     end
 
     operator -->|"kubeconfig, talosconfig"| fw
@@ -191,7 +191,7 @@ flowchart LR
     class apilb edge
     class cp0,nodes,cps inside
 
-    style private fill:#f7faff,stroke:#326ce5,stroke-width:2px,color:#1f2328
+    style private fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#1E3A8A
 ```
 
 The API load balancer has no public interface. A Hetzner firewall attaches to
