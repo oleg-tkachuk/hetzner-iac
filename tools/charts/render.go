@@ -687,8 +687,10 @@ func writeValues(key string) (string, error) {
 // StorageClassKind is the kind a class is declared as.
 const StorageClassKind = "StorageClass"
 
-// storageClassProvisioner is the chart whose classes this checks.
-const storageClassProvisioner = "hcloud-csi"
+// storageClassProvisioner is the chart whose classes this checks: the
+// registry's own key. A literal here could drift from it, and the check would
+// then skip every chart and pass having read no class at all.
+const storageClassProvisioner = charts.HcloudCSI
 
 // expectedStorageClasses is the reclaim policy each class must render with,
 // and the check exists because a reclaim policy is invisible until it acts.
