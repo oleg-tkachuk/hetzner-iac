@@ -36,10 +36,11 @@ import (
 const (
 	// CredentialsSecret is the name both charts default to reading.
 	CredentialsSecret = "hcloud"
-	// CCMChart and CSIChart are the registry keys, spelled once each so the
-	// component table, the values and the namespace below cannot disagree.
-	CCMChart = "hcloud-ccm"
-	CSIChart = "hcloud-csi"
+	// CCMChart and CSIChart are the registry keys, from the charts' own
+	// declarations, so the component table, the values and the namespace
+	// below cannot disagree with the registry.
+	CCMChart = charts.HcloudCCM
+	CSIChart = charts.HcloudCSI
 	// StorageClass is re-exported for convenience; internal/pkg/platform owns the name
 	// because every claim in the cluster has to ask for the same one, and a
 	// mismatch is not rejected — it leaves the volume Pending with nothing
