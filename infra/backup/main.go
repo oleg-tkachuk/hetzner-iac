@@ -87,9 +87,20 @@ func passwordArgs() *random.RandomPasswordArgs {
 	}
 }
 
-// repositoryKeyName is the restic key's resource name. Renaming it is a delete
-// and a create, which is what the options below exist to refuse.
-const repositoryKeyName = "restic"
+// repositoryKeyName is the generator's resource name, and repositoryKeyStash
+// the name of the stash that keeps what it first generated. Renaming the stash
+// is a delete and a create, which its Protect refuses.
+const (
+	repositoryKeyName  = "restic"
+	repositoryKeyStash = "restic-key"
+)
+
+// The stash's two properties, in the engine's spelling: the value it was last
+// given, and the one it keeps.
+const (
+	stashInput  = "input"
+	stashOutput = "output"
+)
 
 // newRepositoryKey generates the restic repository's encryption key, once.
 //
@@ -100,21 +111,54 @@ const repositoryKeyName = "restic"
 // once, would have drawn a new key and left every snapshot already on the box
 // unreadable.
 //
-// So its inputs are ignored after the first apply, and it is protected: a
-// replace or a delete — a rename, a refactor, `pulumi destroy` — stops at
-// preview instead of discarding the key. backup:destroy passes
-// --ignore-protect already, for the Storage Box.
-func newRepositoryKey(ctx *pulumi.Context) (*random.RandomPassword, error) {
-	return random.NewRandomPassword(ctx, repositoryKeyName, passwordArgs(),
+// So the key is the value a Stash kept, not the generator's current one. A
+// stash's output is fixed when it is created and an update carries it over,
+// so a replaced generator — a preview shows it — leaves the key where it was.
+//
+// The generator still ignores its inputs, and that is not belt and braces.
+// The stash is created from whatever the generator holds at that apply, and
+// the generator in existing state predates the current alphabet: lifting the
+// ignore in the same change replaced it, on dev, and the stash would have kept
+// the new key and lost the one the snapshots are encrypted with. Ignored, the
+// stash adopts the key that exists. From then on the list only spares a
+// pointless replacement; a field missing from it no longer costs the key.
+//
+// The stash is protected: a rename or `pulumi destroy` stops at preview
+// instead of discarding the key, and backup:destroy passes --ignore-protect
+// already, for the Storage Box. Both properties are declared secret rather
+// than trusted to inherit it from the generator, because a stash holds the
+// key in state.
+func newRepositoryKey(ctx *pulumi.Context) (pulumi.StringOutput, error) {
+	generated, err := random.NewRandomPassword(ctx, repositoryKeyName, passwordArgs(),
+		pulumi.IgnoreChanges(repositoryKeyInputs()))
+	if err != nil {
+		return pulumi.StringOutput{}, err
+	}
+
+	stash, err := pulumi.NewStash(ctx, repositoryKeyStash, &pulumi.StashArgs{
+		Input: generated.Result,
+	},
 		pulumi.Protect(true),
-		pulumi.IgnoreChanges(repositoryKeyInputs()),
+		pulumi.AdditionalSecretOutputs([]string{stashInput, stashOutput}),
 	)
+	if err != nil {
+		return pulumi.StringOutput{}, err
+	}
+
+	return stash.Output.ApplyT(func(kept any) (string, error) {
+		key, ok := kept.(string)
+		if !ok {
+			return "", fmt.Errorf("stash %s holds %T, not the key", repositoryKeyStash, kept)
+		}
+
+		return key, nil
+	}).(pulumi.StringOutput), nil
 }
 
 // repositoryKeyInputs are the RandomPassword inputs passwordArgs sets, which
-// the key ignores once it exists. TestRepositoryKey_IgnoresEveryInputItIsGiven
-// holds this list to what is actually sent, so a field added to passwordArgs
-// cannot quietly become the one that replaces the key.
+// the generator ignores once it exists, so that the stash adopts the key that
+// exists rather than a new one. TestRepositoryKey_GeneratorIgnoresEveryInput
+// holds this list to what is actually sent.
 func repositoryKeyInputs() []string {
 	return []string{"length", "special", "minUpper", "minLower", "minNumeric", "minSpecial", "overrideSpecial"}
 }
@@ -235,7 +279,7 @@ func deploy(r *layer.Runner) error {
 	// state and deliberately not exported: nothing should be using it, and an
 	// output is the thing somebody copies.
 	r.Ctx.Export(OutputPassword, pulumi.ToSecret(snapshotPassword.Result))
-	r.Ctx.Export(OutputRepositoryPassword, pulumi.ToSecret(resticPassword.Result))
+	r.Ctx.Export(OutputRepositoryPassword, pulumi.ToSecret(resticPassword))
 
 	return nil
 }
