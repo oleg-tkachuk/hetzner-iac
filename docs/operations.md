@@ -214,7 +214,7 @@ asked for one.
 task cluster:smoke stack=dev
 ```
 
-Four checks, each proving a different piece of cluster-tier wiring is working
+Each check proves a different piece of the cluster or the platform is working
 rather than merely installed:
 
 | Check | Proves |
@@ -222,6 +222,9 @@ rather than merely installed:
 | every node is `Ready` | the CNI is installed — Talos leaves a node `NotReady` until one is |
 | a pod reaches a pod on another node | the CNI actually **routes** |
 | a claim on `hcloud-volumes` reaches `Bound` | the CSI driver, end to end through the Hetzner API |
+| volumes holding data are on a class that retains them | a namespace labelled `hetzner-iac/holds-data` loses nothing when a claim is deleted — skipped when none is labelled |
+| every secret store is ready | the External Secrets Operator reaches Pulumi ESC — skipped when no store exists |
+| every network policy is valid | Cilium accepted every policy, rather than ignoring one the API server stored |
 | every LoadBalancer Service has an address and somewhere to send it | the cloud controller manager |
 | the external metrics API answers | KEDA's aggregated API group, when `kedaEnabled` is set — skipped when it is not |
 | an image outside the inventory is refused | the image policies are enforced: a dry-run pod running `busybox`, which [`images.yaml`](../internal/pkg/imagepolicy/images.yaml) does not list, is refused by the policy-controller in a labelled namespace |
