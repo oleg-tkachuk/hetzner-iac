@@ -358,3 +358,12 @@ func TestPolicyControllerValues_SelectTheLabelTheLayersWrite(t *testing.T) {
 
 	assert.Equal(t, imagepolicy.ModeWarn.NoMatchPolicy(), values.Webhook.ConfigData["no-match-policy"])
 }
+
+// The secret store's credential is written into the namespace the External
+// Secrets Operator runs in. platform cannot import this package, so the two
+// spellings are held equal here; apart, the store reports Invalid.
+func TestSecretStoreNamespace_IsTheOperatorsNamespace(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, charts.MustGet(charts.ExternalSecrets).Namespace, platform.SecretStoreNamespace)
+}
