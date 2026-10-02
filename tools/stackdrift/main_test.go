@@ -98,3 +98,13 @@ func TestRun_RefusesMissingArguments(t *testing.T) {
 	require.ErrorIs(t, run("", []string{"infra/cluster"}), errNoStack)
 	require.ErrorIs(t, run(stack, nil), errNoProjects)
 }
+
+// The refresh operations stackdrift reports are the SDK's own, as the
+// translation in this tool maps them; held here so the package that has no
+// Pulumi import cannot drift from what the engine sends.
+func TestReportedOperations_AreTheSDKsOperationTypes(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, string(apitype.OpUpdate), stackdrift.OpUpdate)
+	assert.Equal(t, string(apitype.OpDelete), stackdrift.OpDelete)
+}

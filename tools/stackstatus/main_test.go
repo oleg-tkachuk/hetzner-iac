@@ -240,3 +240,21 @@ func TestRun_RefusesMissingArguments(t *testing.T) {
 	require.ErrorIs(t, run("", []string{"infra/cluster"}), errNoStack)
 	require.ErrorIs(t, run(stack, nil), errNoProjects)
 }
+
+// internal/pkg/stackstatus holds no Pulumi import, so it spells the change
+// kinds of an update's resourceChanges itself. This reads them from the SDK,
+// where they are defined: a kind spelled differently is a count the report
+// never shows, not an error.
+func TestChangeKinds_AreTheSDKsOperationTypes(t *testing.T) {
+	t.Parallel()
+
+	for ours, sdk := range map[string]apitype.OpType{
+		stackstatus.ChangeCreate:  apitype.OpCreate,
+		stackstatus.ChangeUpdate:  apitype.OpUpdate,
+		stackstatus.ChangeDelete:  apitype.OpDelete,
+		stackstatus.ChangeReplace: apitype.OpReplace,
+		stackstatus.ChangeSame:    apitype.OpSame,
+	} {
+		assert.Equal(t, string(sdk), ours)
+	}
+}
