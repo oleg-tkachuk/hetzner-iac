@@ -66,7 +66,7 @@ func TestDecodeDeployment(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want.Resources[0].URN, got.Resources[0].URN)
 
-	_, err = decodeDeployment(untyped(t, apitype.DeploymentSchemaVersionCurrent+1, want))
+	_, err = decodeDeployment(untyped(t, apitype.DeploymentSchemaVersionLatest+1, want))
 	require.Error(t, err, "a schema this was not written for is refused, not misread")
 	assert.Contains(t, err.Error(), "checkpoint schema")
 
@@ -75,6 +75,28 @@ func TestDecodeDeployment(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode checkpoint")
+}
+
+// The engine writes v4 as soon as a stack uses a feature that needs it — the
+// cluster tier did, through ReplaceWith — and the report must still read it.
+func TestDecodeDeployment_ReadsAV4CheckpointWithKnownFeatures(t *testing.T) {
+	t.Parallel()
+
+	want := apitype.DeploymentV3{Resources: []apitype.ResourceV3{{URN: stackURN, Type: resource.RootStackType}}}
+
+	v4 := untyped(t, apitype.DeploymentSchemaVersionLatest, want)
+	v4.Features = []string{"replaceWith"}
+
+	got, err := decodeDeployment(v4)
+	require.NoError(t, err)
+	assert.Equal(t, want.Resources[0].URN, got.Resources[0].URN)
+
+	v4.Features = []string{"replaceWith", "somethingNew"}
+
+	_, err = decodeDeployment(v4)
+	require.Error(t, err, "a feature nobody checked this report against is refused")
+	assert.Contains(t, err.Error(), "somethingNew")
+	assert.NotContains(t, err.Error(), "replaceWith", "only the unknown ones are named")
 }
 
 func TestStateOf(t *testing.T) {

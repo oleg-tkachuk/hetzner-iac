@@ -295,12 +295,25 @@ func readState(ctx context.Context, workspace auto.Workspace, stack string, read
 // module (github.com/pulumi/pulumi/pkg/v3) with the whole engine behind it;
 // this reads the same apitype the decoder does, and refuses a schema version
 // it was not written for rather than misreading one.
+//
+// Schema v4 is v3's document plus a list of the features the stack uses, and
+// the engine writes it as soon as one is: infra/cluster went to v4 the first
+// time it applied with ReplaceWith, and from then on this report could not
+// read the cluster at all. So v4 is read like v3 once every feature it names
+// is one readableFeatures has been checked against.
 func decodeDeployment(untyped apitype.UntypedDeployment) (apitype.DeploymentV3, error) {
 	var deployment apitype.DeploymentV3
 
-	if untyped.Version != apitype.DeploymentSchemaVersionCurrent {
-		return deployment, fmt.Errorf("checkpoint schema v%d, and this reads v%d",
-			untyped.Version, apitype.DeploymentSchemaVersionCurrent)
+	switch untyped.Version {
+	case apitype.DeploymentSchemaVersionCurrent:
+	case apitype.DeploymentSchemaVersionLatest:
+		if unknown := unreadableFeatures(untyped.Features); len(unknown) > 0 {
+			return deployment, fmt.Errorf("checkpoint uses %s, which this report has not been checked against",
+				strings.Join(unknown, ", "))
+		}
+	default:
+		return deployment, fmt.Errorf("checkpoint schema v%d, and this reads v%d and v%d",
+			untyped.Version, apitype.DeploymentSchemaVersionCurrent, apitype.DeploymentSchemaVersionLatest)
 	}
 
 	if err := json.Unmarshal(untyped.Deployment, &deployment); err != nil {
@@ -308,6 +321,41 @@ func decodeDeployment(untyped apitype.UntypedDeployment) (apitype.DeploymentV3, 
 	}
 
 	return deployment, nil
+}
+
+// readableFeatures are the v4 checkpoint features this report reads safely,
+// in the engine's spelling (pkg/resource/stack/deployment.go). Each adds
+// fields or resources beside the ones read here — pending operations, the
+// per-resource flags, the root stack's outputs — without changing them.
+//
+// A feature missing from this list stops the report for that stack, which is
+// the point: the engine adds one when the document changes, and a reader that
+// guessed would print a wrong count with nothing saying so.
+var readableFeatures = map[string]bool{
+	"refreshBeforeUpdate": true,
+	"views":               true,
+	"hooks":               true,
+	"taint":               true,
+	"replaceWith":         true,
+	"snippets-prototype":  true,
+	// Outputs may hold byte strings; the readers skip every value that is not
+	// a bare string already.
+	"extensionParameterization": true,
+	"byteString":                true,
+}
+
+// unreadableFeatures is every feature in a checkpoint readableFeatures does
+// not name.
+func unreadableFeatures(features []string) []string {
+	var unknown []string
+
+	for _, feature := range features {
+		if !readableFeatures[feature] {
+			unknown = append(unknown, feature)
+		}
+	}
+
+	return unknown
 }
 
 // stateOf counts what the checkpoint says did not finish cleanly.
