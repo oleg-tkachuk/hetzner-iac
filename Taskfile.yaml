@@ -261,9 +261,8 @@ tasks:
     prompt: >-
       DESTROY the {{.stack}} cluster and everything on it? Every platform layer
       goes first, then the servers, the API load balancer, the network, the
-      firewall and the placement group. An ingress load balancer, if one
-      exists, goes with its layer — the cloud controller manager owns it, not
-      Pulumi. KEPT: the Talos secrets bundle (the cluster CA is state, not a
+      firewall and the placement group. The ingress load balancer goes with
+      40-ingress, which creates it. KEPT: the Talos secrets bundle (the cluster CA is state, not a
       billed resource; `task cluster:secrets:destroy stack={{.stack}}` removes
       it and cannot be undone), the Talos snapshot in the Hetzner project, the
       backup tier with the etcd snapshots on it — it is billed, and
