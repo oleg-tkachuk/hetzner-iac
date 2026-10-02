@@ -515,3 +515,17 @@ func TestHelmArgs_TellHelmWhatTheClusterServes(t *testing.T) {
 	assert.Contains(t, args, pinnedKubernetesVersion(),
 		"the render must use the Kubernetes version the topology pins")
 }
+
+// The class check runs for the CSI chart's registry key. Keyed by a literal,
+// a renamed key made it skip every chart and pass having read nothing.
+func TestCheckStorageClasses_RunsForTheCSIChart(t *testing.T) {
+	t.Parallel()
+
+	noClasses := []byte("apiVersion: v1\nkind: ConfigMap\nmetadata: {name: x}\n")
+
+	err := checkStorageClasses(charts.HcloudCSI, noClasses)
+	require.Error(t, err, "the CSI chart rendering no class must fail")
+	assert.Contains(t, err.Error(), "renders no StorageClass")
+
+	assert.NoError(t, checkStorageClasses(charts.Cilium, noClasses), "other charts declare no classes")
+}

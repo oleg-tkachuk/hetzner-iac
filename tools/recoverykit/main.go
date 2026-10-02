@@ -39,6 +39,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/secretout"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/talossecrets"
@@ -62,8 +63,9 @@ const timeout = 120 * time.Second
 // is ever typed, and a list of names here would be a third copy of them.
 const BackupDir = "infra/backup"
 
-// TopologyDir is where the committed-shaped-but-gitignored topology lives.
-const TopologyDir = "infra/cluster"
+// TopologyDir is where the committed-shaped-but-gitignored topology lives:
+// the cluster tier's directory, which clusterspec owns.
+const TopologyDir = clusterspec.ClusterDir
 
 func main() {
 	if err := run(context.Background(), pulumiCLI{}, os.Stdout, os.Args[1:], secretout.IsTerminal()); err != nil {

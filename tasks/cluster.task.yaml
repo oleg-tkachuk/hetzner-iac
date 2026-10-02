@@ -154,7 +154,9 @@ vars:
   # and all of them.
   _CL_SELECTOR: 'cluster=$(go run "{{.ROOT}}/tools/topology" get cluster-name "{{._CL_TOPOLOGY}}")'
 
-  # What Talos calls a control-plane node's machine type.
+  # What Talos calls a control-plane node's machine type. Misspelt, every node
+  # reads as a worker; TestClusterTasks_SpellTheControlPlaneAsTalosDoes holds
+  # it to machinery's spelling.
   _CL_MACHINE_CONTROL_PLANE: controlplane
 
   # Every node of the cluster, as Talos itself lists them: `workers` and
