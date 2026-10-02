@@ -10,9 +10,11 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/imagepolicy"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -617,4 +619,43 @@ func TestHubbleUI_ReachesTheRelayBothWays(t *testing.T) {
 
 	assert.True(t, egress, "the UI may not reach the relay on %s, so it loads and shows no flows", hubbleRelayPort)
 	assert.True(t, ingress, "the relay does not accept the UI on %s; the deny holds each direction", hubbleRelayPort)
+}
+
+// policyControllerPolicy is the file holding the policy-controller's egress.
+const policyControllerPolicy = "76-allow-policy-controller.yaml"
+
+// TestPolicyControllerEgress_ReachesEveryRegistry holds the policy to the image
+// inventory. A registry the policy does not name is one the webhook cannot
+// resolve a tag against, and under enforce every pod from it is refused.
+func TestPolicyControllerEgress_ReachesEveryRegistry(t *testing.T) {
+	t.Parallel()
+
+	policies, found := manifests(t)[policyControllerPolicy]
+	require.True(t, found, "%s is gone, and the policy-controller reaches no registry under the deny", policyControllerPolicy)
+
+	named := map[string]bool{}
+
+	for _, policy := range policies {
+		assert.Equal(t, charts.PolicyControllerNamespace,
+			policy.Spec.EndpointSelector.MatchLabels["k8s:io.kubernetes.pod.namespace"],
+			"the egress must select the namespace the chart installs into")
+
+		for _, rule := range policy.Spec.Egress {
+			for _, fqdn := range rule.ToFQDNs {
+				named[fqdn.MatchName] = true
+			}
+		}
+	}
+
+	inventory, err := imagepolicy.Load()
+	require.NoError(t, err)
+
+	for _, repository := range inventory.Repositories() {
+		parsed, err := name.NewRepository(repository)
+		require.NoError(t, err)
+
+		assert.True(t, named[parsed.RegistryStr()],
+			"%s is in %s and %s does not name its registry %s",
+			repository, imagepolicy.File, policyControllerPolicy, parsed.RegistryStr())
+	}
 }

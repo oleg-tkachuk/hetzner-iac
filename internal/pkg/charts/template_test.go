@@ -312,3 +312,49 @@ func TestTemplates_HandEveryUnsignedImageItsPin(t *testing.T) {
 			"%s is pinned in %s and no values template hands its chart the digest", entry.Repository, imagepolicy.File)
 	}
 }
+
+func TestVerifiesImages_LeavesOutWhatTheWebhookCannotGuard(t *testing.T) {
+	t.Parallel()
+
+	for namespace, want := range map[string]bool{
+		charts.NamespaceKubeSystem:       false,
+		charts.PolicyControllerNamespace: false,
+		charts.CertManager:               true,
+		"traefik":                        true,
+	} {
+		assert.Equal(t, want, charts.VerifiesImages(namespace), namespace)
+	}
+}
+
+// The webhooks select namespaces by the label internal/pkg/layer writes. A
+// selector spelled differently from the label admits nothing, with nothing
+// reporting it.
+func TestPolicyControllerValues_SelectTheLabelTheLayersWrite(t *testing.T) {
+	t.Parallel()
+
+	data, err := charts.Probe(charts.PolicyController)
+	require.NoError(t, err)
+
+	rendered, err := charts.Render(charts.PolicyController, data)
+	require.NoError(t, err)
+
+	var values struct {
+		Webhook struct {
+			ConfigData        map[string]string `json:"configData"`
+			NamespaceSelector struct {
+				MatchExpressions []struct {
+					Key    string   `json:"key"`
+					Values []string `json:"values"`
+				} `json:"matchExpressions"`
+			} `json:"namespaceSelector"`
+		} `json:"webhook"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(rendered), &values))
+
+	expressions := values.Webhook.NamespaceSelector.MatchExpressions
+	require.Len(t, expressions, 1)
+	assert.Equal(t, charts.PolicyControllerIncludeLabel, expressions[0].Key)
+	assert.Equal(t, []string{charts.PolicyControllerIncludeValue}, expressions[0].Values)
+
+	assert.Equal(t, imagepolicy.ModeWarn.NoMatchPolicy(), values.Webhook.ConfigData["no-match-policy"])
+}

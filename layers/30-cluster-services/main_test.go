@@ -78,7 +78,7 @@ func TestPolicyControllerValues_KeepsAWebhookThroughADrain(t *testing.T) {
 
 	// The chart's budget keeps one webhook available, so a single replica
 	// blocks every drain of the node it runs on.
-	webhook := nestedMap(t, chartValues(t, charts.PolicyController, nil), "webhook")
+	webhook := nestedMap(t, chartValues(t, charts.PolicyController, PolicyControllerData()), "webhook")
 
 	assert.Equal(t, float64(charts.PolicyControllerReplicas), webhook["replicaCount"])
 	assert.Equal(t, charts.PriorityClusterCritical, webhook["priorityClass"])
@@ -89,7 +89,7 @@ func TestPolicyControllerValues_RemovesTheChartsCPULimit(t *testing.T) {
 
 	// The chart ships a CPU limit and Helm merges this file into its defaults,
 	// so only an explicit null removes it.
-	webhook := nestedMap(t, chartValues(t, charts.PolicyController, nil), "webhook")
+	webhook := nestedMap(t, chartValues(t, charts.PolicyController, PolicyControllerData()), "webhook")
 	limits := nestedMap(t, nestedMap(t, webhook, "resources"), "limits")
 
 	cpu, present := limits["cpu"]
@@ -103,7 +103,7 @@ func TestPolicyControllerValues_MeetsRestrictedPodSecurity(t *testing.T) {
 
 	// `securityContext` is the POD's block in this chart, the reverse of what
 	// the name suggests.
-	pod := nestedMap(t, nestedMap(t, chartValues(t, charts.PolicyController, nil), "webhook"), "securityContext")
+	pod := nestedMap(t, nestedMap(t, chartValues(t, charts.PolicyController, PolicyControllerData()), "webhook"), "securityContext")
 
 	assert.Equal(t, true, pod["enabled"])
 	assert.Equal(t, true, pod["runAsNonRoot"])
@@ -114,7 +114,7 @@ func TestPolicyControllerValues_PinsTheCleanupImageByDigest(t *testing.T) {
 	t.Parallel()
 
 	// The chart's default is the floating tag `latest-dev`.
-	image := nestedMap(t, nestedMap(t, chartValues(t, charts.PolicyController, nil), "leasescleanup"), "image")
+	image := nestedMap(t, nestedMap(t, chartValues(t, charts.PolicyController, PolicyControllerData()), "leasescleanup"), "image")
 
 	version, ok := image["version"].(string)
 	require.True(t, ok)
@@ -406,4 +406,12 @@ func TestHasAccessToken_DecidesOnEmptinessAlone(t *testing.T) {
 			assert.Equal(t, one.want, HasAccessToken(one.token))
 		})
 	}
+}
+
+// The webhook's answer for an image no policy names follows the policies' own
+// mode, so an image missing from the inventory is not the easy way through.
+func TestPolicyControllerData_FollowsTheImagePolicyMode(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, ImagePolicyMode.NoMatchPolicy(), PolicyControllerData().NoMatchPolicy)
 }

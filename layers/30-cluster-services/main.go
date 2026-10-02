@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/imagepolicy"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
@@ -134,9 +135,17 @@ var Components = layer.Components{
 	},
 	{
 		// Admission checks on image signatures. No After: it calls only the
-		// registries and Sigstore's trust root, and it enforces nothing until
-		// a namespace is labelled for it.
-		Chart: charts.PolicyController,
+		// registries and Sigstore's trust root, and it admits only namespaces
+		// labelled for it, which internal/pkg/layer does after each release.
+		Chart:        charts.PolicyController,
+		StaticValues: PolicyControllerData(),
+	},
+	{
+		// One policy per repository in the image inventory, after the chart
+		// that brings their CRD.
+		Name:   ImagePoliciesComponent,
+		After:  []string{charts.PolicyController},
+		Create: createImagePolicies,
 	},
 	{
 		// After the approver: metrics-server scrapes the kubelet over TLS and
@@ -210,6 +219,45 @@ func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulum
 
 func main() {
 	layer.RunComponents(Components)
+}
+
+// ImagePolicyMode is what the image policies do with an image that fails
+// them: warn, admitting it with a warning, until the warnings on a real
+// cluster have been read and the policies can enforce.
+const ImagePolicyMode = imagepolicy.ModeWarn
+
+// ImagePoliciesComponent is the policies' name in the component set.
+const ImagePoliciesComponent = "image-policies"
+
+// PolicyControllerData is the data the policy-controller template renders
+// with: the label it selects namespaces by, and what it does with an image no
+// policy names — the policies' own mode, so the two cannot disagree.
+func PolicyControllerData() charts.PolicyControllerValues {
+	return charts.PolicyControllerValues{
+		NoMatchPolicy: ImagePolicyMode.NoMatchPolicy(),
+		IncludeLabel:  charts.PolicyControllerIncludeLabel,
+		IncludeValue:  charts.PolicyControllerIncludeValue,
+	}
+}
+
+// createImagePolicies applies the ClusterImagePolicies generated from the
+// image inventory.
+func createImagePolicies(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
+	inventory, err := imagepolicy.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	policies, err := inventory.Policies(ImagePolicyMode)
+	if err != nil {
+		return nil, err
+	}
+
+	r.Log.Step(ImagePoliciesComponent, fmt.Sprintf("%d repositories, mode %s", len(inventory.Images), ImagePolicyMode))
+
+	return yaml.NewConfigGroup(r.Ctx, ImagePoliciesComponent, &yaml.ConfigGroupArgs{
+		YAML: []string{policies},
+	}, r.With(layer.DependsOn(dependencies)...)...)
 }
 
 // kedaRequested answers whether this cluster wants KEDA, and says so when it

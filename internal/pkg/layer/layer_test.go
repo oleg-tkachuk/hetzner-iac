@@ -467,3 +467,44 @@ func TestDeploy_TurnsAfterIntoADependencyTheEngineHolds(t *testing.T) {
 	assert.False(t, m.dependsOn("cert-manager", "external-secrets"),
 		"the dependency must not run backwards")
 }
+
+// namespacePatchType is the Pulumi type of the label patch a release in a
+// verified namespace gets.
+const namespacePatchType = "kubernetes:core/v1:NamespacePatch"
+
+func TestRelease_LabelsAVerifiedNamespaceForThePolicyController(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	m := newMocks()
+
+	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
+		_, err := runner.Release(layer.ReleaseArgs{Chart: charts.CertManager})
+
+		return err
+	}))
+
+	patches := m.of(namespacePatchType)
+	require.Len(t, patches, 1, "a release outside kube-system labels its namespace")
+
+	metadata := patches[0]["metadata"].ObjectValue()
+	assert.Equal(t, charts.MustGet(charts.CertManager).Namespace, metadata["name"].StringValue())
+	assert.Equal(t, charts.PolicyControllerIncludeValue,
+		metadata["labels"].ObjectValue()[charts.PolicyControllerIncludeLabel].StringValue())
+}
+
+func TestRelease_LeavesTheNamespacesTheWebhookCannotGuard(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	for _, chart := range []string{charts.Cilium, charts.PolicyController} {
+		m := newMocks()
+
+		require.NoError(t, run(t, m, func(runner *layer.Runner) error {
+			_, err := runner.Release(layer.ReleaseArgs{Chart: chart})
+
+			return err
+		}))
+
+		assert.Empty(t, m.of(namespacePatchType),
+			"%s's namespace is admitted without the webhook, or a webhook outage locks it out", chart)
+	}
+}

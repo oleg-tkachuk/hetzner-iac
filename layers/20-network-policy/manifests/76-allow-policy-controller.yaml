@@ -1,15 +1,26 @@
-# The Sigstore policy-controller reaching Sigstore's trust root.
+# The Sigstore policy-controller reaching Sigstore's trust root and the
+# registries it reads signatures and digests from.
 #
 # At startup the webhook fetches the public-good TUF repository — the Fulcio
 # and Rekor keys every keyless signature is checked against. Denied, it never
 # becomes Ready and Helm waits out its whole timeout, which reads as a slow
 # chart rather than as policy.
 #
-# Only the trust root here. The registries it reads signatures and digests
-# from are reached only when a namespace is labelled for enforcement, so that
-# flow is absent from a cluster at rest — the same shape 75-allow-external-
-# secrets.yaml describes — and is written with the policies that cause it,
-# from what Hubble shows them doing.
+# On every admission in a labelled namespace it resolves each image's tag to a
+# digest, then reads the signature beside it. Denied, the tag stays a tag and
+# the policy reports the image as not a digest — under enforce, every pod in
+# the namespace is refused while the webhook reports healthy.
+#
+# One registry host per registry in internal/pkg/imagepolicy/images.yaml, in
+# go-containerregistry's spelling — TestPolicyControllerEgress_ReachesEveryRegistry
+# holds the two together. Beside them, the hosts each registry redirects a
+# signature's blob to, traced with `crane blob --verbose`: a manifest is read
+# from the registry, the blob it names from a CDN.
+#
+# Docker Hub and ECR Public carry only unsigned images, whose digest is read
+# from the manifest alone, so their CDNs are not here. Neither is Chainguard's:
+# its one image runs in the policy-controller's own namespace, which is never
+# verified.
 #
 # Ingress needs nothing here: kube-apiserver calls the webhook from the node,
 # which 00-allow-host.yaml already permits to every endpoint.
@@ -18,7 +29,7 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-policy-controller
 spec:
-  description: the Sigstore policy-controller fetches Sigstore's TUF trust root
+  description: the Sigstore policy-controller reaches Sigstore's trust root and the image registries
   endpointSelector:
     matchLabels:
       k8s:io.kubernetes.pod.namespace: cosign-system
@@ -29,6 +40,24 @@ spec:
   egress:
     - toFQDNs:
         - matchName: tuf-repo-cdn.sigstore.dev
+        # Registries.
+        - matchName: quay.io
+        - matchName: ghcr.io
+        - matchName: index.docker.io
+        - matchName: auth.docker.io
+        - matchName: ecr-public.aws.com
+        - matchName: registry.k8s.io
+        - matchName: cgr.dev
+        # Where they redirect a signature's blob.
+        - matchPattern: cdn*.quay.io
+        - matchName: pkg-containers.githubusercontent.com
+        - matchName: cdn.registry.k8s.io
+        # registry.k8s.io answers a manifest with a redirect to the Artifact
+        # Registry region nearest the caller — europe-north1 from Helsinki —
+        # so the region is the cluster's location, not a constant. Measured:
+        # without it the webhook's SYN is dropped, the mutation outlasts its
+        # ten-second timeout, and the pod is refused even under warn.
+        - matchPattern: "*-docker.pkg.dev"
       toPorts:
         - ports:
             - port: "443"
