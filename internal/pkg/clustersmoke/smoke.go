@@ -32,6 +32,7 @@ package clustersmoke
 import (
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 	"strings"
@@ -106,6 +107,68 @@ func (r Report) Skipped() int {
 	}
 
 	return n
+}
+
+// Count is how many checks reached a verdict.
+func (r Report) Count(status Status) int {
+	var n int
+
+	for _, result := range r {
+		if result.Status == status {
+			n++
+		}
+	}
+
+	return n
+}
+
+// Paint colours a verdict's text for a terminal; Plain leaves it alone.
+type Paint func(Status, string) string
+
+// Plain is the Paint for output that is not a terminal.
+func Plain(_ Status, s string) string { return s }
+
+// ANSI colours each verdict the way a terminal reader expects: green, red,
+// and dim for a check that proved nothing.
+func ANSI(status Status, s string) string {
+	code := map[Status]string{StatusPassed: ansiGreen, StatusFailed: ansiRed, StatusSkipped: ansiDim}[status]
+
+	return "\x1b[" + code + "m" + s + "\x1b[0m"
+}
+
+// The SGR codes ANSI uses.
+const (
+	ansiGreen = "32"
+	ansiRed   = "31"
+	ansiDim   = "2"
+)
+
+// detailIndent is how far the observation sits under its check's name: past
+// the glyph and the space after it.
+const detailIndent = "      "
+
+// Render writes the report: each check's verdict and name on one line, what
+// was observed under it, then the count of each verdict. It builds the text
+// first and writes once, so a failed write is one error rather than a torn
+// report.
+func Render(w io.Writer, report Report, paint Paint) error {
+	var out strings.Builder
+
+	for _, result := range report {
+		out.WriteString("  " + paint(result.Status, result.Status.Glyph()+" "+result.Name) + "\n")
+		out.WriteString(detailIndent + result.Detail + "\n")
+	}
+
+	fmt.Fprintf(&out, "\n  %s · %s · %s\n",
+		paint(StatusPassed, fmt.Sprintf("%d passed", report.Count(StatusPassed))),
+		paint(StatusSkipped, fmt.Sprintf("%d skipped", report.Count(StatusSkipped))),
+		paint(StatusFailed, fmt.Sprintf("%d failed", report.Count(StatusFailed))))
+
+	if _, err := io.WriteString(w, out.String()); err != nil {
+		return fmt.Errorf("write smoke report: %w", err)
+	}
+
+	return nil
 }
 
 // NodeState is one node reduced to what the check needs.

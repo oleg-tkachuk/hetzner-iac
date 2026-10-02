@@ -820,6 +820,11 @@ func labelledNamespace(name string) *corev1.Namespace {
 // admissionAnswers makes a pod create return what the API server would, and
 // records where it was tried and whether it was a dry run.
 func admissionAnswers(err error, seen *[]string, dryRun *bool) func(*fake.Clientset) {
+	return admissionAnswersPod(err, seen, dryRun, nil)
+}
+
+// admissionAnswersPod is admissionAnswers, also keeping the pod submitted.
+func admissionAnswersPod(err error, seen *[]string, dryRun *bool, pod **corev1.Pod) func(*fake.Clientset) {
 	return func(client *fake.Clientset) {
 		client.PrependReactor("create", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
 			create, ok := action.(k8stesting.CreateActionImpl)
@@ -829,6 +834,10 @@ func admissionAnswers(err error, seen *[]string, dryRun *bool) func(*fake.Client
 
 			*seen = append(*seen, create.GetNamespace())
 			*dryRun = len(create.CreateOptions.DryRun) == 1 && create.CreateOptions.DryRun[0] == metav1.DryRunAll
+
+			if submitted, ok := create.GetObject().(*corev1.Pod); ok && pod != nil {
+				*pod = submitted
+			}
 
 			return true, create.GetObject(), err
 		})
@@ -888,4 +897,29 @@ func TestCheckImageAdmission(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The probe pod meets Pod Security's restricted level, so the API server has
+// nothing to warn about — a warning printed in the middle of the results.
+func TestCheckImageAdmission_SubmitsARestrictedPod(t *testing.T) {
+	t.Parallel()
+
+	var (
+		tried  []string
+		dryRun bool
+		pod    *corev1.Pod
+	)
+
+	r := runner(t, []runtime.Object{labelledNamespace("traefik")}, admissionAnswersPod(nil, &tried, &dryRun, &pod))
+	r.Run(context.Background())
+
+	require.NotNil(t, pod)
+	require.NotNil(t, pod.Spec.SecurityContext)
+	assert.True(t, *pod.Spec.SecurityContext.RunAsNonRoot)
+	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, pod.Spec.SecurityContext.SeccompProfile.Type)
+
+	container := pod.Spec.Containers[0].SecurityContext
+	require.NotNil(t, container)
+	assert.False(t, *container.AllowPrivilegeEscalation)
+	assert.Equal(t, []corev1.Capability{"ALL"}, container.Capabilities.Drop)
 }
