@@ -32,11 +32,8 @@ type serverSpec struct {
 	stableAddress bool
 }
 
-// The Primary IP fields hcloud spells.
-const (
-	primaryIPTypeIPv4     = "ipv4"
-	primaryIPAssigneeType = "server"
-)
+// primaryIPTypeIPv4 is the Primary IP type hcloud spells.
+const primaryIPTypeIPv4 = "ipv4"
 
 // newPrimaryIP is the public address a control-plane node keeps across a
 // replacement.
@@ -52,19 +49,19 @@ func newPrimaryIP(ctx *pulumi.Context, spec serverSpec, opts ...pulumi.ResourceO
 	// address has to exist before the server it is created with. assigneeId is
 	// therefore the server's to set: left to this resource, an address read
 	// back as assigned plans an unassignment, which takes the node's public
-	// address away.
+	// address away. assigneeType goes with it: the provider wants it only
+	// beside assigneeId, and warns on every run otherwise.
 	options := pulumiopts.With(opts, pulumi.IgnoreChanges([]string{"assigneeId"}))
 	if spec.protect {
 		options = pulumiopts.With(options, pulumi.Protect(true))
 	}
 
 	address, err := hcloud.NewPrimaryIp(ctx, spec.name+"-ipv4", &hcloud.PrimaryIpArgs{
-		Name:         pulumi.String(spec.name),
-		Type:         pulumi.String(primaryIPTypeIPv4),
-		AssigneeType: pulumi.String(primaryIPAssigneeType),
-		Location:     pulumi.String(spec.location),
-		AutoDelete:   pulumi.Bool(false),
-		Labels:       toStringMap(spec.labels),
+		Name:       pulumi.String(spec.name),
+		Type:       pulumi.String(primaryIPTypeIPv4),
+		Location:   pulumi.String(spec.location),
+		AutoDelete: pulumi.Bool(false),
+		Labels:     toStringMap(spec.labels),
 	}, options...)
 	if err != nil {
 		return nil, fmt.Errorf("hcloud primary ip for %q: %w", spec.name, err)

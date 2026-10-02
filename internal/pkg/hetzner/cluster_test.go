@@ -409,6 +409,8 @@ func TestNewCluster_ControlPlanesKeepTheirAddressAcrossAReplacement(t *testing.T
 		assert.False(t, address["autoDelete"].BoolValue(), "an auto-deleted address goes with its server")
 		assert.Equal(t, topology.Placement.Location, address["location"].StringValue())
 		assert.True(t, rec.isProtected(address["name"].StringValue()+"-ipv4"), "protected with its server")
+		assert.NotContains(t, address, resource.PropertyKey("assigneeType"),
+			"the provider wants assigneeType only beside assigneeId, and warns otherwise")
 		assert.Contains(t, rec.ignoreChanges[address["name"].StringValue()+"-ipv4"], "assigneeId",
 			"the server assigns the address; left to the address, a read-back assignment plans an unassignment")
 	}
