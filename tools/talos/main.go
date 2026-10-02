@@ -30,6 +30,8 @@ import (
 	"time"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+
+	"github.com/siderolabs/talos/pkg/machinery/config/machine"
 )
 
 const clusterEndpoint = "https://10.0.1.2:6443"
@@ -250,10 +252,11 @@ func validateTopology(ctx context.Context, talosctl, path string, topology *clus
 	return nil
 }
 
-// The machine types `talosctl gen config` writes a configuration for.
-const (
-	machineControlPlane = "controlplane"
-	machineWorker       = "worker"
+// The machine types `talosctl gen config` writes a configuration for, in
+// Talos's own spelling from its machinery package.
+var (
+	machineControlPlane = machine.TypeControlPlane.String()
+	machineWorker       = machine.TypeWorker.String()
 )
 
 // probePool stands in for the worker pools of a topology that has none, so a
