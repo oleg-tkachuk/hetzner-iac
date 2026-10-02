@@ -21,16 +21,13 @@ from. Beyond that, what no single `pulumi stack` says:
 
 It refuses to start when this machine holds no credential for the projects'
 backend, and names the command with that backend's URL —
-`pulumi login https://api.pulumi.com` for the one every project declares. The CLI does not fail on its own when an AI
-coding agent runs it: it signs up a temporary agent account, and the report
-would describe that account's empty backend. The check reads the credentials
-store through the SDK, before the first CLI call.
+`pulumi login https://api.pulumi.com` for the one every project declares.
+In some environments the CLI signs up a temporary account instead of failing,
+and the report would describe that account's empty backend.
 
-Everything else comes through the Automation API. Outputs come from the exported
-checkpoint. The export decrypts secrets, as `StackOutputs` would, but keeps each
-in its envelope, and the report prints only bare strings. Reading the
-history has to select the stack, so the workspace's previous selection is put
-back afterwards.
+Everything else comes through the Automation API. The report prints only bare
+strings, never a decrypted secret. Reading the history selects the stack, so
+the workspace's previous selection is put back afterwards.
 
 The judgements and the table live in
 [internal/pkg/stackstatus](../../internal/pkg/stackstatus), which has no

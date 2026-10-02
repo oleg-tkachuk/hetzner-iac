@@ -6,31 +6,23 @@ Answers whether a file is an etcd snapshot, and what it holds.
 go run ./tools/etcd verify --cluster <cluster name> <snapshot>
 ```
 
-It exists for one moment: `task cluster:etcd:restore` wipes the EPHEMERAL
-partition of every control-plane node before it can restore anything, and
-doing that on the strength of a truncated download turns a recoverable
-incident into an unrecoverable one. So the file is checked before the cluster
-is touched.
+It exists because `task cluster:etcd:restore` wipes the EPHEMERAL partition of
+every control-plane node before it restores anything, and doing that on a
+truncated download turns a recoverable incident into an unrecoverable one. So
+the file is checked before the cluster is touched.
 
-The check is bbolt's own. A snapshot is a bbolt database, and opening one
-validates the magic, the format version, the page size and the meta page
-checksum — all of which this used to read by hand from copied offsets. Not
-`etcdutl`, which has the same check as a library and brings the etcd server
-and raft with it: thirteen modules to read a header.
+The check is bbolt's own: opening the database validates the magic, format
+version, page size and meta page checksum, and every other page is then walked
+with bbolt's consistency check before anything is read. `etcdutl` is not used
+because it brings the etcd server and raft with it.
 
-Opening checks the meta pages only, so every other page is then walked with
-bbolt's own consistency check before anything is read. A damaged data page
-used to open fine and crash the first read of it.
-
-It also refuses a snapshot taken from another cluster. Every etcd member is
-named after its control-plane node, and so after the cluster, so the snapshot
-itself says where it came from — a file name can be copied or renamed, and
-before this one named no stack at all.
+It refuses a snapshot taken from another cluster. Every etcd member is named
+after its control-plane node, and so after the cluster, so the snapshot itself
+says where it came from; a file name can be copied or renamed.
 
 It reports the **consistent index**, not the MVCC revision `talosctl etcd
-snapshot` prints. Two different counters — measured on one snapshot as 6028
-against 39170 — and reporting either as the other has somebody comparing the
-wrong numbers mid-restore.
+snapshot` prints. They are different counters; comparing one against the other
+mid-restore compares the wrong numbers.
 
 Run by `task cluster:etcd:snapshot`, which reads back what it just wrote, by
 `task cluster:etcd:restore` before it wipes anything, and by

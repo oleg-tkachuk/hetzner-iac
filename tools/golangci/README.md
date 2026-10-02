@@ -12,20 +12,6 @@ same value CI installs from, read rather than copied, so there is one thing to
 bump and Renovate already bumps it.
 
 The binary is `bin/golangci-lint` when that exists, and whatever PATH offers
-otherwise. That order is the point.
-
-## The failure it exists for
-
-A `go install`-built golangci-lint in `~/go/bin` shadowed Homebrew's. The two
-were 2.12.2 and 2.13.2, CI pins 2.13.2, and the older one reported eight
-`goconst` findings on an untouched `main`:
-
-    tools/etcd/main.go:75:34: string `verify` has 6 occurrences (goconst)
-
-`go:lint` was red, the pull request was green, and the pre-push hook
-refused to push work that was fine. Nothing in either message named a version,
-so the only way to find it was `which -a`.
-
-A linter is not a matter of taste about which copy runs: two versions report
-different findings, and the one CI runs is the one that decides whether a
-change lands.
+otherwise. Any other version is refused because two versions report different
+findings: a stray copy in PATH would turn the local lint and the pre-push hook
+red on code CI passes, with nothing in the output naming a version.
