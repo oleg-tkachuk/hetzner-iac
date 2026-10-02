@@ -19,10 +19,12 @@ What to read when a version moves or something is wrong. Day-to-day operation
 | `task cluster:upgrade:talos` | upgrade Talos, one node at a time; asks first |
 
 Both upgrades are Talos operations and both ask before they start. The Talos
-version comes from the topology, not the task: bump `talos.version`, run
-`task cluster:image:bake`, then upgrade — the image selector keys off the
-version label, so a bump without a bake fails at plan time rather than
-halfway.
+version comes from the topology, not the task: on a running cluster pin
+`talos.configVersion` to the version it was created with, bump
+`talos.version`, run `task cluster:image:bake`, then upgrade. Without the pin
+the configuration is generated for the new version, which Talos 1.14 rejects;
+without the bake the image selector finds no snapshot at plan time rather
+than halfway.
 
 Changing `talos.architecture` needs the same re-bake: the bake checks both the
 version and the architecture, and bakes in the topology's

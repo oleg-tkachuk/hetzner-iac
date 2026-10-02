@@ -15,7 +15,7 @@ go test ./internal/ci/ -run TestGateMarkers -v           # one
 They run as part of the unit suite, so `task -t Taskfile.dev.yaml go:test`, `task -t Taskfile.dev.yaml verify` and CI all
 carry them.
 
-## What each guards
+## What some of them guard
 
 | Test file | Guards |
 |-----------|--------|
@@ -74,6 +74,5 @@ more than it returns:
 That leaves three things out on purpose. A gate over the SPELLING of the
 implementation — a regex across Go source — fixes where the code is written
 rather than what it does, and breaks on a refactor that changed nothing. A gate
-over TASTE belongs in a review or a linter. A gate over NAVIGATION — an index
-of the documents, a table describing these gates — protects a reader from ten
-seconds of `ls`.
+over TASTE belongs in a review or a linter. A gate over NAVIGATION — a table describing these gates — protects a reader
+from ten seconds of `ls`.

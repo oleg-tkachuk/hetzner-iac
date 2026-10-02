@@ -16,8 +16,8 @@ go run ./tools/charts repin         # move each unsigned image's digest pin to i
 not fail `pulumi up`; it fails the e2e suite against a real cluster later. This
 runs `helm template` at the pinned versions, compares the workloads, checks
 that the values took effect — `helm template` renders a misspelt value and
-exits zero — and validates the output with `kubeconform` against the
-Kubernetes version the topology pins.
+exits zero — and validates the output with `kubeconform` against
+`clusterspec.DefaultKubernetesVersion`.
 
 It also holds every image to [the image inventory](../../internal/pkg/imagepolicy/images.yaml),
 and every unsigned image to its digest pin. A chart bump that moves an

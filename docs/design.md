@@ -465,17 +465,11 @@ upstream repository, and Renovate opens one pull request per chart — see
 ## Versions
 
 Both the Talos and the Kubernetes version are pinned in the topology, and
-neither derives from the other. An empty `kubernetes.version` takes
-`DefaultKubernetesVersion` — also pinned — rather than whatever the configured
-Talos release happens to ship. Deriving one from the other lets a Talos patch
-bump move Kubernetes a whole minor with no diff and no decision — far enough to
-remove a `kube-apiserver` flag the machine config passes, so the control plane
-never starts.
-
-Upgrading Talos means bumping `talos.version` in the topology, re-running
-`task cluster:image:bake`, then `task cluster:upgrade:talos`. Nodes are
-upgraded in place and never replaced, which is why the server resource ignores
-changes to its image.
+neither derives from the other: an empty `kubernetes.version` takes
+`DefaultKubernetesVersion`, also pinned. [ADR-0002](adr/0002-workload-runtime.md)
+says why. Upgrading is in [recovery.md](recovery.md); nodes are upgraded in
+place and never replaced, which is why the server resource ignores changes to
+its image.
 
 `talos.architecture` is the other half of the same pin, and it is a replace
 rather than an upgrade: `x86` and `arm` are different images on different
