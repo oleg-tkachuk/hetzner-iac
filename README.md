@@ -28,7 +28,7 @@ StackReference rather than a copy.
 flowchart LR
     classDef actor fill:#E0F2FE,stroke:#0284C7,stroke-width:1px,color:#0C4A6E
     classDef state fill:#EDE9FE,stroke:#7C3AED,stroke-width:1px,color:#3B0764
-    classDef secret fill:#FEF3C7,stroke:#D97706,stroke-width:1px,color:#78350F
+    classDef secret fill:#FCE7F3,stroke:#DB2777,stroke-width:1px,color:#831843
 
     operator(["<b>👤 operator</b><br/>task · pulumi"])
 
@@ -59,9 +59,9 @@ the ingress load balancer.
 ```mermaid
 flowchart LR
     classDef actor fill:#E0F2FE,stroke:#0284C7,stroke-width:1px,color:#0C4A6E
-    classDef hetzner fill:#FFE4E6,stroke:#E11D48,stroke-width:1px,color:#881337
-    classDef gate fill:#FFEDD5,stroke:#EA580C,stroke-width:2px,color:#7C2D12
-    classDef talos fill:#FFEDD5,stroke:#EA580C,stroke-width:1px,color:#7C2D12
+    classDef hetzner fill:#DCFCE7,stroke:#16A34A,stroke-width:1px,color:#14532D
+    classDef gate fill:#FCE7F3,stroke:#DB2777,stroke-width:2px,color:#831843
+    classDef talos fill:#FEF3C7,stroke:#D97706,stroke-width:1px,color:#78350F
 
     operator(["<b>👤 operator</b><br/>kubectl · talosctl"])
     users(["<b>🌐 users</b>"])
@@ -99,10 +99,10 @@ flowchart LR
     class fw gate
     class api,etcd talos
 
-    style hcloud fill:#FFF1F2,stroke:#E11D48,stroke-width:2px,color:#881337
-    style net fill:#FFF1F2,stroke:#E11D48,stroke-dasharray:4 3,color:#881337
-    style nodes fill:#FFF7ED,stroke:#EA580C,stroke-dasharray:3 3,color:#7C2D12
-    style cp fill:#FFF7ED,stroke:#EA580C,stroke-width:1px,color:#7C2D12
+    style hcloud fill:#F0FDF4,stroke:#16A34A,stroke-width:2px,color:#14532D
+    style net fill:#F0FDF4,stroke:#16A34A,stroke-dasharray:4 3,color:#14532D
+    style nodes fill:#FFFBEB,stroke:#D97706,stroke-dasharray:3 3,color:#78350F
+    style cp fill:#FFFBEB,stroke:#D97706,stroke-width:1px,color:#78350F
 ```
 
 **The platform**, applied in order, each layer independent and idempotent.
