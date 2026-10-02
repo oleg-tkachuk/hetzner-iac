@@ -69,7 +69,7 @@ const (
 //
 // Deliberately no architecture term. The architecture is not a label on the
 // snapshot: Hetzner records it as a first-class field, which both sides filter
-// on separately — `hcloud image list --architecture` when baking, and
+// on separately — an architecture filter on the image list when baking, and
 // GetImage's WithArchitecture when looking up. A label would be a second copy
 // of a fact the API already holds, free to disagree with it.
 func TalosImageSelector(version string) string {

@@ -17,9 +17,14 @@ holding the remedy was unreachable.
 
 Images come from the [Talos Image Factory](https://factory.talos.dev) rather
 than GitHub releases: the schematic id is content-addressed, so posting the
-customisation is deterministic and there is no hash to keep in sync. Note the
-factory answers `POST /schematics` with **201**, not 200 — demanding 200 meant
-no image could be baked at all.
+customisation is deterministic and there is no hash to keep in sync.
+
+Both calls go through the vendors' own Go clients: Sidero's
+[Image Factory client](https://github.com/siderolabs/image-factory/tree/main/pkg/client)
+for the schematic, and `hcloud-go` for the check that a snapshot already
+exists. The schematic used to be a POST written here, which demanded a 200 the
+factory never sends — it answers 201 — so no image could be baked at all until
+a bake for a second architecture found it.
 
 What stays external is the upload: `hcloud-upload-image` creates a server,
 writes the image to its disk and snapshots it. Importing that as a library
