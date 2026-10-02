@@ -95,20 +95,6 @@ func (r Report) Failed() bool {
 	return false
 }
 
-// Skipped counts the checks that could not run, so a caller can say "2 passed,
-// 1 skipped" rather than implying three answers.
-func (r Report) Skipped() int {
-	var n int
-
-	for _, result := range r {
-		if result.Status == StatusSkipped {
-			n++
-		}
-	}
-
-	return n
-}
-
 // Count is how many checks reached a verdict.
 func (r Report) Count(status Status) int {
 	var n int

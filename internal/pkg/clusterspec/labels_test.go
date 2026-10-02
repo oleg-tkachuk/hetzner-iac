@@ -86,18 +86,6 @@ func TestNodeNamePrefix_IsWhatNodeNameStartsWith(t *testing.T) {
 		"one cluster's name being the start of another's must not make its nodes match")
 }
 
-func TestSortedLabelPairs_IsDeterministic(t *testing.T) {
-	t.Parallel()
-
-	labels := map[string]string{"z": "1", "a": "2", "m": "3"}
-
-	// Map iteration order is randomised per run; unsorted output would show
-	// up as a resource diff on runs where nothing changed.
-	for range 20 {
-		assert.Equal(t, []string{"a=2", "m=3", "z=1"}, clusterspec.SortedLabelPairs(labels))
-	}
-}
-
 func TestParseTaint(t *testing.T) {
 	t.Parallel()
 

@@ -143,19 +143,6 @@ func NodeNamePrefix(cluster, pool string) string {
 	return cluster + "-" + pool + "-"
 }
 
-// SortedLabelPairs renders labels as sorted key=value pairs. Sorted so that a
-// map's random iteration order cannot produce a spurious diff on every run.
-func SortedLabelPairs(labels map[string]string) []string {
-	pairs := make([]string, 0, len(labels))
-	for key, value := range labels {
-		pairs = append(pairs, key+"="+value)
-	}
-
-	slices.Sort(pairs)
-
-	return pairs
-}
-
 // ParseTaint splits a key=value:Effect taint into its parts.
 func ParseTaint(taint string) (key, value, effect string, err error) {
 	eq := strings.Index(taint, "=")

@@ -128,11 +128,11 @@ func TestReport_DistinguishesFailedFromSkipped(t *testing.T) {
 		{Name: "b", Status: clustersmoke.StatusSkipped},
 	}
 	assert.False(t, report.Failed())
-	assert.Equal(t, 1, report.Skipped())
+	assert.Equal(t, 1, report.Count(clustersmoke.StatusSkipped))
 
 	report = append(report, clustersmoke.Result{Name: "c", Status: clustersmoke.StatusFailed})
 	assert.True(t, report.Failed())
-	assert.Equal(t, 1, report.Skipped())
+	assert.Equal(t, 1, report.Count(clustersmoke.StatusSkipped))
 }
 
 func TestStatusGlyph_MatchesTheLoggerVocabulary(t *testing.T) {
