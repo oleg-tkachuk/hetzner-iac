@@ -13,7 +13,7 @@ kind: ClusterImagePolicy
 metadata:
   name: {{ .Name }}
 spec:
-  mode: {{ $.Mode }}
+  mode: {{ .Mode }}
   images:
 {{- range .Globs }}
     - glob: {{ json . }}

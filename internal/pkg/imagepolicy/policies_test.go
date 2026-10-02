@@ -109,7 +109,8 @@ func TestPolicies_HoldAKeylessImageToItsIdentity(t *testing.T) {
 `, imagepolicy.ModeEnforce)
 
 	cilium := policies[imagepolicy.PolicyName("quay.io/cilium/cilium")]
-	assert.Equal(t, string(imagepolicy.ModeEnforce), cilium.Spec.Mode)
+	assert.Equal(t, string(imagepolicy.ModeWarn), cilium.Spec.Mode, "a bundle cannot be verified, so it warns")
+	assert.Equal(t, string(imagepolicy.ModeEnforce), policies[imagepolicy.PolicyName("ghcr.io/a/b")].Spec.Mode)
 	assert.Equal(t, []string{"quay.io/cilium/cilium@*", "quay.io/cilium/cilium:*"}, globs(cilium))
 
 	authority := cilium.Spec.Authorities[0]
@@ -192,4 +193,23 @@ func TestParse_RefusesABundleSignedByAKey(t *testing.T) {
 	_, err = imagepolicy.Parse([]byte(
 		"images: [{repository: docker.io/library/a, signed: {issuer: i, subject: s, format: oci}}]"))
 	require.Error(t, err, "a format policy-controller does not know")
+}
+
+// policy-controller cannot verify a bundle, so enforcing one would refuse a
+// correctly signed image on every admission.
+func TestPolicies_KeepABundleSignedImageAtWarn(t *testing.T) {
+	t.Parallel()
+
+	policies := render(t, `images:
+  - repository: quay.io/a/bundle
+    signed: {issuer: i, subject: s, format: bundle}
+  - repository: quay.io/a/legacy
+    signed: {issuer: i, subject: s}
+  - repository: quay.io/a/pinned
+    unsigned: `+pin+`
+`, imagepolicy.ModeEnforce)
+
+	assert.Equal(t, string(imagepolicy.ModeWarn), policies[imagepolicy.PolicyName("quay.io/a/bundle")].Spec.Mode)
+	assert.Equal(t, string(imagepolicy.ModeEnforce), policies[imagepolicy.PolicyName("quay.io/a/legacy")].Spec.Mode)
+	assert.Equal(t, string(imagepolicy.ModeEnforce), policies[imagepolicy.PolicyName("quay.io/a/pinned")].Spec.Mode)
 }

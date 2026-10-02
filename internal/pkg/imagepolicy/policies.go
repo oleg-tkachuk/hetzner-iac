@@ -59,6 +59,7 @@ var policiesTemplate string
 // policy is one ClusterImagePolicy's data: what the template interpolates.
 type policy struct {
 	Name  string
+	Mode  Mode
 	Globs []string
 
 	// Pin is set for an unsigned repository; Signer otherwise.
@@ -82,7 +83,7 @@ func (inv *Inventory) Policies(mode Mode) (string, error) {
 	policies := make([]policy, 0, len(inv.Images))
 
 	for _, image := range inv.Images {
-		p, err := policyFor(image)
+		p, err := policyFor(image, mode)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", image.Repository, err)
 		}
@@ -99,10 +100,7 @@ func (inv *Inventory) Policies(mode Mode) (string, error) {
 	}
 
 	var out bytes.Buffer
-	if err := parsed.Execute(&out, struct {
-		Mode     Mode
-		Policies []policy
-	}{mode, policies}); err != nil {
+	if err := parsed.Execute(&out, struct{ Policies []policy }{policies}); err != nil {
 		return "", fmt.Errorf("render policies: %w", err)
 	}
 
@@ -110,7 +108,12 @@ func (inv *Inventory) Policies(mode Mode) (string, error) {
 }
 
 // policyFor is one repository's policy data.
-func policyFor(image Image) (policy, error) {
+//
+// A bundle-signed repository warns whatever the mode asked for. policy-
+// controller cannot verify a bundle at all — cosign's library answers "bundle
+// support for image signatures is not yet implemented" — so enforcing one
+// would refuse every pod that runs it while its signature is perfectly good.
+func policyFor(image Image, mode Mode) (policy, error) {
 	// go-containerregistry's spelling of the repository, which is what the
 	// admission webhook matches globs against: docker.io becomes
 	// index.docker.io there and nowhere else.
@@ -119,7 +122,7 @@ func policyFor(image Image) (policy, error) {
 		return policy{}, err
 	}
 
-	p := policy{Name: PolicyName(image.Repository)}
+	p := policy{Name: PolicyName(image.Repository), Mode: mode}
 
 	if errs := validation.IsDNS1123Subdomain(p.Name); len(errs) > 0 {
 		return policy{}, fmt.Errorf("policy name %q: %s", p.Name, strings.Join(errs, "; "))
@@ -137,6 +140,10 @@ func policyFor(image Image) (policy, error) {
 	}
 
 	p.Signer = image.Signed
+
+	if image.Signed.Format == FormatBundle {
+		p.Mode = ModeWarn
+	}
 	// A digest reference once the webhook has resolved the tag, and a tag
 	// reference when it could not — which the policy then refuses as not a
 	// digest, rather than letting it fall through to no policy at all.

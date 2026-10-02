@@ -17,7 +17,7 @@
 # policy-controller cannot verify a bundle-signed image at all: cosign's
 # library, v2 and v3 alike, answers "bundle support for image signatures is not
 # yet implemented". Measured on dev. Their policies are written anyway, and
-# warn on every admission until upstream verifies bundles.
+# stay at warn under enforce until upstream verifies bundles.
 
 images:
   # Argo CD and its two dependencies.
