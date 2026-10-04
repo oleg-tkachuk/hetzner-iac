@@ -61,6 +61,22 @@ contract, held by `talos.configVersion`: pulumi-talos 0.8.1 generates
 configuration with Talos machinery v1.13.
 **Blocked on:** a pulumi-talos release built on v1.14.
 
+### The secretbox key can be rotated
+
+The key that encrypts Secrets in etcd is the one the cluster was created with.
+On the v1.13 contract Talos renders a single secretbox provider from
+`cluster.secretboxEncryptionSecret`, always named `key2`, so a new value there
+strands every Secret written under the old one. The v1.14 contract's
+`KubeEtcdEncryptionConfig` holds a full encryption config: a second key
+added behind the first, promoted, then a `StorageVersionMigration` for
+`secrets` (GA since Kubernetes v1.37) to rewrite them, then the old key
+dropped — each step rolled across the control planes. The secrets bundle
+would still hold the old key, so `tools/recoverykit` has to learn where the
+new one lives, or a restore brings back etcd with nothing that decrypts it.
+**Blocked on:** the move to the v1.14 contract above. Talos machinery v1.13,
+which pulumi-talos 0.8.1 is built on, refuses the document as "not
+registered".
+
 ### An Arm cluster is proven
 
 `talos.architecture: arm` is implemented and every chart publishes

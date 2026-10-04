@@ -417,6 +417,14 @@ secretbox key, and Talos wires it into the API server's
 `--encryption-provider-config`. That covers the `secrets` resource and nothing
 else.
 
+The key cannot be rotated yet. On the v1.13 contract Talos renders the
+encryption config from two fields, and the secretbox one is always the
+provider named `key2`, first in the list: changing its value leaves every
+Secret already written under `key2` with no key that decrypts it, and
+removing it does the same. Rotation needs two secretbox keys side by side,
+which only the v1.14 contract's `KubeEtcdEncryptionConfig` document can say —
+see [ROADMAP.md](../ROADMAP.md).
+
 The volumes themselves are encrypted by two `VolumeConfig` documents in the
 cluster patch — STATE, which holds the machine config and the node's
 certificates, and EPHEMERAL, which holds `/var` and so etcd's data directory.
