@@ -20,7 +20,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/distribution/reference v0.6.0
 	github.com/google/go-containerregistry v0.22.1
-	github.com/hetznercloud/hcloud-go/v2 v2.49.0
+	github.com/hetznercloud/hcloud-go/v2 v2.52.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/pulumi/pulumi-hcloud/sdk v1.42.0
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.34.2
@@ -29,7 +29,7 @@ require (
 	github.com/pulumiverse/pulumi-talos/sdk v0.8.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/siderolabs/image-factory v1.7.2
-	github.com/siderolabs/talos/pkg/machinery v1.14.1
+	github.com/siderolabs/talos/pkg/machinery v1.14.2
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/bbolt v1.5.0
 	go.yaml.in/yaml/v3 v3.0.5
