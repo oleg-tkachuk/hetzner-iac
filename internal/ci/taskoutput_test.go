@@ -199,16 +199,16 @@ var (
 
 // TestStatusMarks_MatchTheTaskfile holds the third copy of the vocabulary.
 //
-// internal/pkg/stackstatus cannot import pulumilog — keeping Pulumi out of it
-// is the reason it exists — so it spells the glyphs and colours again, and this
-// is what keeps `task platform:status` printing the marks the tasks around it
-// print.
+// internal/pkg/report cannot import pulumilog — the reports that use it keep
+// Pulumi out — so it spells the glyphs and colours again, and this is what
+// keeps platform:status, platform:drift and cluster:orphans printing the marks
+// the tasks around them print.
 func TestStatusMarks_MatchTheTaskfile(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..")
 
-	report, err := os.ReadFile(filepath.Join(root, "internal", "pkg", "stackstatus", "stackstatus.go"))
+	report, err := os.ReadFile(filepath.Join(root, "internal", "pkg", "report", "report.go"))
 	require.NoError(t, err)
 
 	taskfile, err := os.ReadFile(filepath.Join(root, "Taskfile.yaml"))
@@ -233,13 +233,13 @@ func TestStatusMarks_MatchTheTaskfile(t *testing.T) {
 		"ERR":  {"MarkFailed", "Red"},
 	}
 
-	require.Len(t, marks, len(pairs), "stackstatus declares a mark this test does not pair with a marker")
+	require.Len(t, marks, len(pairs), "report declares a mark this test does not pair with a marker")
 
 	for marker, pair := range pairs {
 		glyph, colour, found := glyphOf(t, string(taskfile), marker)
 		require.True(t, found, "Taskfile.yaml no longer defines _%s", marker)
 
-		assert.Equal(t, glyph, marks[pair[0]], "_%s and stackstatus.%s are different glyphs", marker, pair[0])
-		assert.Equal(t, colour, colours[pair[1]], "_%s and stackstatus.%s are different colours", marker, pair[1])
+		assert.Equal(t, glyph, marks[pair[0]], "_%s and report.%s are different glyphs", marker, pair[0])
+		assert.Equal(t, colour, colours[pair[1]], "_%s and report.%s are different colours", marker, pair[1])
 	}
 }
