@@ -16,9 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/report"
 )
 
 // Result is the outcome of a stack's last operation, as Pulumi records it.
@@ -41,29 +40,6 @@ const (
 	ChangeSame    = "same"
 )
 
-// ANSI colour codes, the ones Taskfile.yaml's markers use.
-const (
-	Green  = "32"
-	Cyan   = "36"
-	Yellow = "33"
-	Red    = "31"
-	// Grey paints the "nothing here" mark only, never text: on a dark
-	// background with a low-contrast palette it all but disappears.
-	Grey = "90"
-	Bold = "1"
-)
-
-// Marks, the repository's own vocabulary: the same glyphs Taskfile.yaml's
-// _OK, _RUN, _WARN, _SKIP and _ERR print, so the report reads like the tasks
-// around it.
-const (
-	MarkOK      = "✔"
-	MarkRunning = "◉"
-	MarkWarning = "▲"
-	MarkNone    = "○"
-	MarkFailed  = "✖"
-)
-
 const (
 	// shortSHALength is how much of a commit hash the report prints.
 	shortSHALength = 8
@@ -76,20 +52,13 @@ const (
 	clockEarlier = "Jan 02 15:04"
 
 	// none stands in for a value the report does not have.
-	none = "—"
-
-	// columnGap separates table columns; indent opens every line under the title.
-	columnGap = "  "
-	indent    = "  "
-
-	// headerLabelWidth is the column the header's values start at.
-	headerLabelWidth = 10
+	none = report.None
 
 	// resourcesColumn is the one right-aligned (numeric) column.
 	resourcesColumn = 5
 
-	// title opens the report.
-	title = clusterspec.Name + " · platform status"
+	// Task is the task that prints the report, which its title names.
+	Task = "platform:status"
 )
 
 // changeSymbol pairs a change kind with the sign `pulumi preview` gives it.
@@ -393,89 +362,56 @@ func contractOf(version *int) int {
 	return *version
 }
 
-// Painter colours a string for the terminal.
-type Painter func(code, s string) string
-
-// Plain is the Painter for output that is not a terminal.
-func Plain(_, s string) string { return s }
-
-// ANSI is the Painter for a terminal.
-func ANSI(code, s string) string { return "\x1b[" + code + "m" + s + "\x1b[0m" }
-
 // Render writes the whole report. It builds the text first and writes once,
 // so a failed write is one error rather than a torn table.
-func Render(out io.Writer, header Header, projects []Project, now time.Time, paint Painter) error {
-	var report strings.Builder
+func Render(out io.Writer, header Header, projects []Project, now time.Time, paint report.Painter) error {
+	r := report.New(paint)
 
-	renderHeader(&report, header, paint)
+	r.Title(Task, header.Stack)
+	r.Facts(facts(header, r))
 
-	rows := make([][]cell, 0, len(projects))
+	rows := make([][]report.Cell, 0, len(projects))
 	for _, project := range projects {
 		rows = append(rows, row(project, header, now))
 	}
 
-	renderTable(&report, rows, paint)
-	report.WriteString("\n" + indent + summary(header, projects, paint) + "\n")
+	r.Table(report.Table{Headings: columns(), Right: map[int]bool{resourcesColumn: true}, Rows: rows})
+
+	mark, verdict := summary(header, projects, r)
+	r.Summary(mark, verdict)
 
 	for _, project := range projects {
-		lines := Recovery(project, header.Stack)
-		if len(lines) == 0 {
-			continue
-		}
-
-		report.WriteString("\n")
-
-		for _, line := range lines {
-			report.WriteString(indent + line + "\n")
-		}
+		r.Lines(Recovery(project, header.Stack))
 	}
 
-	if _, err := io.WriteString(out, report.String()); err != nil {
+	if _, err := io.WriteString(out, r.String()); err != nil {
 		return fmt.Errorf("write status report: %w", err)
 	}
 
 	return nil
 }
 
-// cell is one table cell: the text that sets the width, and how to paint it.
-type cell struct {
-	text  string
-	color string
-}
-
-func plainCell(text string) cell { return cell{text: text, color: ""} }
-
-func renderHeader(report *strings.Builder, header Header, paint Painter) {
-	report.WriteString(paint(Bold, MarkRunning+" "+title) + " · stack " + header.Stack + "\n\n")
-
+// facts is the header: the cluster, where the stacks live, and what reads them.
+func facts(header Header, r *report.Report) []report.Fact {
 	head := header.Head.Short()
 	if header.Head.Branch != "" {
 		head += " (" + header.Head.Branch + ")"
 	}
 
-	fields := [][2]string{
-		{"cluster", clusterLine(header.Cluster)},
-		{"backend", orDash(header.Backend) + " as " + orDash(header.User)},
+	facts := []report.Fact{
+		{Label: "cluster", Value: clusterLine(header.Cluster)},
+		{Label: "backend", Value: orDash(header.Backend) + " as " + orDash(header.User)},
 	}
 
 	if header.Cluster.Console != "" {
-		fields = append(fields, [2]string{"console", header.Cluster.Console})
+		facts = append(facts, report.Fact{Label: "console", Value: header.Cluster.Console})
 	}
 
-	fields = append(fields,
-		[2]string{"pulumi", orDash(header.PulumiVersion)},
-		[2]string{"HEAD", orDash(head)},
-		[2]string{"contract", contractLine(header, paint)},
+	return append(facts,
+		report.Fact{Label: "pulumi", Value: orDash(header.PulumiVersion)},
+		report.Fact{Label: "HEAD", Value: orDash(head)},
+		report.Fact{Label: "contract", Value: contractLine(header, r)},
 	)
-
-	for _, field := range fields {
-		// Pad before painting: an escape sequence has width in a format verb
-		// and none on screen, so padding a painted label eats its own gap.
-		label := fmt.Sprintf("%-*s", headerLabelWidth, field[0])
-		report.WriteString(indent + paint(Bold, label) + field[1] + "\n")
-	}
-
-	report.WriteString("\n")
 }
 
 func clusterLine(cluster Cluster) string {
@@ -494,7 +430,7 @@ func clusterLine(cluster Cluster) string {
 	return strings.Join(parts, " · ")
 }
 
-func contractLine(header Header, paint Painter) string {
+func contractLine(header Header, r *report.Report) string {
 	if header.Cluster.Contract == nil {
 		return fmt.Sprintf("%s · this checkout reads v%d", none, header.WantContract)
 	}
@@ -503,51 +439,51 @@ func contractLine(header Header, paint Painter) string {
 	line := fmt.Sprintf("v%d published · this checkout reads v%d", published, header.WantContract)
 
 	if published < header.WantContract {
-		return line + "  " + paint(Yellow, MarkWarning+" behind")
+		return line + "  " + r.Paint(report.Yellow, report.MarkWarning+" behind")
 	}
 
-	return line + "  " + paint(Green, MarkOK)
+	return line + "  " + r.Paint(report.Green, report.MarkOK)
 }
 
-func row(project Project, header Header, now time.Time) []cell {
-	name := plainCell(project.Name)
+func row(project Project, header Header, now time.Time) []report.Cell {
+	name := report.Text(project.Name)
 
 	switch {
 	case project.Err != nil:
-		return []cell{name, {MarkFailed, Red}, {"unreadable: " + firstLine(project.Err.Error()), Red}}
+		return []report.Cell{name, report.Failed, {Text: "unreadable: " + firstLine(project.Err.Error()), Color: report.Red}}
 	case !project.HasStack:
-		return []cell{name, {MarkNone, Grey}, plainCell("no stack")}
+		return []report.Cell{name, report.Nothing, report.Text("no stack")}
 	}
 
-	notes := cell{text: strings.Join(Notes(project, header), "; "), color: Yellow}
+	notes := report.Cell{Text: strings.Join(Notes(project, header), "; "), Color: report.Yellow}
 
 	if project.Last == nil {
-		return []cell{
-			name, {MarkNone, Grey}, plainCell("never run"), plainCell(""), plainCell(""),
-			plainCell(count(project.Resources)), plainCell(""), plainCell(""), notes,
+		return []report.Cell{
+			name, report.Nothing, report.Text("never run"), report.Text(""), report.Text(""),
+			report.Text(count(project.Resources)), report.Text(""), report.Text(""), notes,
 		}
 	}
 
 	last := project.Last
-	mark, markColor := resultMark(last.Result, project.InProgress)
+	mark := resultMark(last.Result, project.InProgress)
 
-	if markColor == Green && notes.text != "" {
-		mark, markColor = MarkWarning, Yellow
+	if mark == report.OK && notes.Text != "" {
+		mark = report.Warning
 	}
 
-	commit := plainCell(last.Commit.Short())
+	commit := report.Text(last.Commit.Short())
 	if last.Commit.Dirty || (last.Commit.SHA != "" && last.Commit.SHA != header.Head.SHA) {
-		commit.color = Yellow
+		commit.Color = report.Yellow
 	}
 
-	return []cell{
+	return []report.Cell{
 		name,
-		{mark, markColor},
-		plainCell(runLabel(last)),
-		plainCell(When(now, last.Start)),
-		plainCell(Took(last.Start, last.End)),
-		plainCell(count(project.Resources)),
-		plainCell(ChangeSummary(last.Changes)),
+		mark,
+		report.Text(runLabel(last)),
+		report.Text(When(now, last.Start)),
+		report.Text(Took(last.Start, last.End)),
+		report.Text(count(project.Resources)),
+		report.Text(ChangeSummary(last.Changes)),
 		commit,
 		notes,
 	}
@@ -562,16 +498,16 @@ func runLabel(last *Update) string {
 	return last.Kind + " #" + strconv.Itoa(last.Number)
 }
 
-func resultMark(result Result, inProgress bool) (string, string) {
+func resultMark(result Result, inProgress bool) report.Cell {
 	switch {
 	case inProgress || result == ResultInProgress:
-		return MarkRunning, Cyan
+		return report.Running
 	case result == ResultSucceeded:
-		return MarkOK, Green
+		return report.OK
 	case result == ResultFailed:
-		return MarkFailed, Red
+		return report.Failed
 	default:
-		return MarkWarning, Yellow
+		return report.Warning
 	}
 }
 
@@ -581,66 +517,6 @@ func count(n *int) string {
 	}
 
 	return strconv.Itoa(*n)
-}
-
-func renderTable(report *strings.Builder, rows [][]cell, paint Painter) {
-	headings := columns()
-
-	widths := make([]int, 0, len(headings))
-	head := make([]cell, 0, len(headings))
-
-	for _, heading := range headings {
-		widths = append(widths, utf8.RuneCountInString(heading))
-		head = append(head, cell{text: heading, color: Bold})
-	}
-
-	for _, cells := range rows {
-		for i, c := range cells {
-			// The last cell of every row runs on, so a long note or an error
-			// message does not stretch the columns before it.
-			if i < len(cells)-1 {
-				widths[i] = max(widths[i], utf8.RuneCountInString(c.text))
-			}
-		}
-	}
-
-	writeRow(report, head, widths, paint)
-
-	for _, cells := range rows {
-		writeRow(report, cells, widths, paint)
-	}
-}
-
-func writeRow(report *strings.Builder, cells []cell, widths []int, paint Painter) {
-	var line strings.Builder
-
-	line.WriteString(indent)
-
-	for i, c := range cells {
-		pad := strings.Repeat(" ", max(widths[i]-utf8.RuneCountInString(c.text), 0))
-
-		text := c.text
-		if c.color != "" && text != "" {
-			text = paint(c.color, text)
-		}
-
-		last := i == len(cells)-1
-
-		switch {
-		case i == resourcesColumn:
-			line.WriteString(pad + text)
-		case last:
-			line.WriteString(text)
-		default:
-			line.WriteString(text + pad)
-		}
-
-		if !last {
-			line.WriteString(columnGap)
-		}
-	}
-
-	report.WriteString(strings.TrimRight(line.String(), " ") + "\n")
 }
 
 // tally counts the projects by outcome.
@@ -680,12 +556,14 @@ func countProjects(header Header, projects []Project) tally {
 	return counts
 }
 
-func summary(header Header, projects []Project, paint Painter) string {
+// summary is the closing line: its mark is the worst row's, and the counts
+// say why.
+func summary(header Header, projects []Project, r *report.Report) (report.Cell, string) {
 	counts := countProjects(header, projects)
 
 	parts := []string{
 		strconv.Itoa(len(projects)) + " stacks",
-		paint(Green, strconv.Itoa(counts.succeeded)+" succeeded"),
+		r.Paint(report.Green, strconv.Itoa(counts.succeeded)+" succeeded"),
 	}
 
 	for _, extra := range []struct {
@@ -693,13 +571,13 @@ func summary(header Header, projects []Project, paint Painter) string {
 		label string
 		color string
 	}{
-		{counts.failed, " failed", Red},
-		{counts.running, " running", Cyan},
-		{counts.missing, " without a run", Yellow},
-		{counts.attention, " need attention", Yellow},
+		{counts.failed, " failed", report.Red},
+		{counts.running, " running", report.Cyan},
+		{counts.missing, " without a run", report.Yellow},
+		{counts.attention, " need attention", report.Yellow},
 	} {
 		if extra.n > 0 {
-			parts = append(parts, paint(extra.color, strconv.Itoa(extra.n)+extra.label))
+			parts = append(parts, r.Paint(extra.color, strconv.Itoa(extra.n)+extra.label))
 		}
 	}
 
@@ -709,11 +587,22 @@ func summary(header Header, projects []Project, paint Painter) string {
 	case len(counts.commits) == 1 && counts.commits[header.Head.SHA]:
 		parts = append(parts, "all applied from HEAD")
 	case len(counts.commits) > 0:
-		parts = append(parts, paint(Yellow, fmt.Sprintf("applied from %d commit(s), HEAD is %s",
+		parts = append(parts, r.Paint(report.Yellow, fmt.Sprintf("applied from %d commit(s), HEAD is %s",
 			len(counts.commits), orDash(header.Head.Short()))))
 	}
 
-	return strings.Join(parts, " · ")
+	mark := report.OK
+
+	switch {
+	case counts.failed > 0:
+		mark = report.Failed
+	case counts.missing > 0 || counts.attention > 0:
+		mark = report.Warning
+	case counts.running > 0:
+		mark = report.Running
+	}
+
+	return mark, strings.Join(parts, report.Separator)
 }
 
 // firstLine keeps a multi-line CLI error to the sentence that names it.

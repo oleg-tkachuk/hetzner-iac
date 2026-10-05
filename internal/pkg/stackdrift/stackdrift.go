@@ -14,7 +14,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/report"
 )
 
 // The operations a refresh preview reports for a resource that differs from
@@ -26,8 +26,8 @@ const (
 	OpDelete = "delete"
 )
 
-// indent is the report's left margin, the one platform:status uses.
-const indent = "  "
+// Task is the task that prints the report, which its title names.
+const Task = "platform:drift"
 
 // Change is one resource the cloud no longer agrees with.
 type Change struct {
@@ -59,73 +59,94 @@ func Drifted(projects []Project) bool {
 }
 
 // Render writes the whole report at once.
-func Render(out io.Writer, stack string, projects []Project, paint stackstatus.Painter) error {
-	var report strings.Builder
+func Render(out io.Writer, stack string, projects []Project, paint report.Painter) error {
+	r := report.New(paint)
 
-	fmt.Fprintf(&report, "%s %s\n\n",
-		paint(stackstatus.Cyan, stackstatus.MarkRunning), paint(stackstatus.Bold, "drift · stack "+stack))
+	r.Title(Task, stack)
+	r.Facts([]report.Fact{{
+		Label: "checked",
+		Value: strings.Join([]string{
+			report.Count(len(projects), "stack", "stacks"),
+			"each state against the cloud, by refresh preview",
+			"nothing written",
+		}, report.Separator),
+	}})
 
-	width := 0
+	rows := make([][]report.Cell, 0, len(projects))
 	for _, project := range projects {
-		width = max(width, len(project.Name))
+		mark, result := verdict(project, stack)
+		rows = append(rows, []report.Cell{report.Text(project.Name), mark, result})
 	}
+
+	r.Table(report.Table{Headings: []string{"STACK", "", "CLOUD"}, Rows: rows})
 
 	drifted, unread := 0, 0
 
 	for _, project := range projects {
-		name := fmt.Sprintf("%-*s", width, project.Name)
-
 		switch {
 		case project.Err != nil:
 			unread++
-
-			fmt.Fprintf(&report, "%s%s  %s  %v\n", indent, paint(stackstatus.Red, stackstatus.MarkFailed), name, project.Err)
-		case !project.HasStack:
-			fmt.Fprintf(&report, "%s%s  %s  no %s stack\n", indent, paint(stackstatus.Grey, stackstatus.MarkNone), name, stack)
-		case len(project.Changes) == 0:
-			fmt.Fprintf(&report, "%s%s  %s  matches the cloud\n", indent, paint(stackstatus.Green, stackstatus.MarkOK), name)
-		default:
+		case len(project.Changes) > 0:
 			drifted += len(project.Changes)
 
-			fmt.Fprintf(&report, "%s%s  %s  %d resource(s) differ from the cloud\n",
-				indent, paint(stackstatus.Yellow, stackstatus.MarkWarning), name, len(project.Changes))
-
-			for _, change := range project.Changes {
-				fmt.Fprintf(&report, "%s%s   %s\n", indent, indent, describe(change))
-			}
+			r.Section(report.Warning, project.Name, describe(project.Changes))
 		}
 	}
 
-	report.WriteString("\n" + indent + summary(drifted, unread, paint) + "\n")
+	mark, line, hints := summary(drifted, unread)
+	r.Summary(mark, line, hints...)
 
-	if _, err := io.WriteString(out, report.String()); err != nil {
+	if _, err := io.WriteString(out, r.String()); err != nil {
 		return fmt.Errorf("write drift report: %w", err)
 	}
 
 	return nil
 }
 
-func describe(change Change) string {
-	subject := change.Type + " " + change.Name
-
+// verdict is a project's row: its mark and what the refresh preview said.
+func verdict(project Project, stack string) (report.Cell, report.Cell) {
 	switch {
-	case change.Op == OpDelete:
-		return "- " + subject + " — gone from the cloud"
-	case len(change.Fields) > 0:
-		return "~ " + subject + " — " + strings.Join(change.Fields, ", ")
+	case project.Err != nil:
+		return report.Failed, report.Cell{Text: project.Err.Error(), Color: report.Red}
+	case !project.HasStack:
+		return report.Nothing, report.Text("no " + stack + " stack")
+	case len(project.Changes) == 0:
+		return report.OK, report.Text("matches")
 	default:
-		return "~ " + subject
+		return report.Warning, report.Text(report.Count(len(project.Changes), "resource differs", "resources differ"))
 	}
 }
 
-func summary(drifted, unread int, paint stackstatus.Painter) string {
+// describe is a drifted project's section: one line per resource, the
+// operation's sign first, as `pulumi preview` prints it.
+func describe(changes []Change) []string {
+	rows := make([][]string, 0, len(changes))
+
+	for _, change := range changes {
+		sign, what := "~", strings.Join(change.Fields, ", ")
+
+		switch {
+		case change.Op == OpDelete:
+			sign, what = "-", "gone from the cloud"
+		case what == "":
+			what = "changed"
+		}
+
+		rows = append(rows, []string{sign + " " + change.Type, change.Name, what})
+	}
+
+	return report.Columns(rows, nil)
+}
+
+// summary is the closing line and what to do about it.
+func summary(drifted, unread int) (report.Cell, string, []string) {
 	switch {
 	case unread > 0:
-		return paint(stackstatus.Red, fmt.Sprintf("%d stack(s) could not be read, so drift is unknown there", unread))
+		return report.Failed, report.Count(unread, "stack", "stacks") + " could not be read, so drift is unknown there", nil
 	case drifted > 0:
-		return paint(stackstatus.Yellow, fmt.Sprintf(
-			"%d resource(s) changed outside Pulumi: a refresh adopts the change, an apply puts it back", drifted))
+		return report.Warning, report.Count(drifted, "resource", "resources") + " changed outside Pulumi",
+			[]string{"A refresh adopts the cloud's version into the state; an apply puts the code's back."}
 	default:
-		return paint(stackstatus.Green, "every stack matches the cloud")
+		return report.OK, "every stack matches the cloud", nil
 	}
 }

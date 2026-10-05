@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/report"
 )
 
 func header() Header {
@@ -22,25 +22,27 @@ func TestReport_ACleanProjectShowsWhatWasRead(t *testing.T) {
 		Resources: []Resource{{Kind: KindNetwork}, {Kind: KindNetwork}},
 	}
 
-	got := Report(header(), inventory, nil, stackstatus.Plain)
+	got := Report(header(), inventory, nil, report.Plain)
 
-	assert.Contains(t, got, "orphans · stack dev · cluster platform-dev · 7 stack state(s) read")
+	assert.True(t, strings.HasPrefix(got, "◉ hetzner-iac · cluster:orphans · stack dev\n\n"))
+	assert.Contains(t, got, "  cluster  platform-dev\n")
 	// The counts are the point: "clean" and "read nothing" must not print the
 	// same report.
-	assert.Regexp(t, `server\s+1\n`, got)
-	assert.Regexp(t, `network\s+2\n`, got)
-	assert.Contains(t, got, "all 3 resources are claimed")
-	assert.NotContains(t, got, stackstatus.MarkWarning, "nothing is unclaimed, so nothing warns")
+	assert.Contains(t, got, "  checked  3 resources of 2 kinds · against 7 stack states\n")
+	assert.Contains(t, got, "  server   ✔      1\n")
+	assert.Contains(t, got, "  network  ✔      2\n")
+	assert.True(t, strings.HasSuffix(got, "\n\n  ✔ all 3 resources are claimed\n"))
+	assert.NotContains(t, got, report.MarkWarning, "nothing is unclaimed, so nothing warns")
 }
 
 func TestReport_NamesTheKindsItFoundNoneOf(t *testing.T) {
 	t.Parallel()
 
-	got := Report(header(), Inventory{Servers: []Server{{}}}, nil, stackstatus.Plain)
+	got := Report(header(), Inventory{Servers: []Server{{}}}, nil, report.Plain)
 
-	assert.Contains(t, got, "none of: volumes, load balancers")
-	assert.Contains(t, got, "dns zones")
-	assert.NotRegexp(t, `\n  volume\s`, got, "an empty kind takes no row")
+	assert.Contains(t, got, "  absent   volumes, load balancers")
+	assert.Contains(t, got, "dns zones\n")
+	assert.NotContains(t, got, "  volume ", "an empty kind takes no row")
 }
 
 func TestReport_GroupsFindingsByKindInTheTablesOrder(t *testing.T) {
@@ -55,18 +57,17 @@ func TestReport_GroupsFindingsByKindInTheTablesOrder(t *testing.T) {
 	got := Report(header(), Inventory{
 		Servers:   []Server{{}, {}},
 		Resources: []Resource{{Kind: KindNetwork}},
-	}, found, stackstatus.Plain)
+	}, found, report.Plain)
 
-	servers := strings.Index(got, "▲ server\n")
-	networks := strings.Index(got, "▲ network\n")
+	servers := strings.Index(got, "  ▲ server\n")
+	networks := strings.Index(got, "  ▲ network\n")
 
 	require.Positive(t, servers)
 	assert.Less(t, servers, networks, "billed kinds first, as the table lists them")
-	assert.Regexp(t, `server\s+2\s+2\n`, got, "the table counts what is unclaimed per kind")
-	// Names align within a group, so the reasons start in one column.
+	assert.Contains(t, got, "  server   ▲      2          2\n", "the table counts what is unclaimed per kind")
+	// Names align within a section, so the reasons start in one column.
 	assert.Contains(t, got, "    upload-leftover                    not a node\n")
-	assert.Contains(t, got, "3 of 3 resources are unclaimed")
-	assert.Contains(t, got, "Nothing was deleted")
+	assert.Contains(t, got, "  ▲ 3 of 3 resources are unclaimed\n    Nothing was deleted.")
 }
 
 func TestReport_TotalsOnlyProvisionedStorage(t *testing.T) {
@@ -76,16 +77,17 @@ func TestReport_TotalsOnlyProvisionedStorage(t *testing.T) {
 	// provisioned block storage. Adding them would print a number that means
 	// nothing, so only volumes are totalled.
 	inventory := Inventory{
-		Volumes:   []Volume{{Name: "pvc-gone", SizeGB: 50}},
+		Volumes:   []Volume{{Name: "pvc-gone", SizeGB: 50}, {Name: "pvc-small", SizeGB: 1}},
 		Snapshots: []Snapshot{{Description: "old", SizeGB: 0.2, Labels: map[string]string{TalosVersionLabel: "v1.0.0"}}},
 	}
 
-	got := Report(header(), inventory, Orphans(inventory, claims()), stackstatus.Plain)
+	got := Report(header(), inventory, Orphans(inventory, claims()), report.Plain)
 
-	assert.Contains(t, got, "2 of 2 resources are unclaimed · 50 GiB of provisioned volumes")
-	// Each size still shows, in the form it is readable in.
-	assert.Contains(t, got, "50 Gi")
-	assert.Contains(t, got, "0.2 Gi")
+	assert.Contains(t, got, "3 of 3 resources are unclaimed · 51 GiB of provisioned volumes")
+	// Sizes are right-aligned within their section.
+	assert.Contains(t, got, "    pvc-gone    50 Gi  no PersistentVolume")
+	assert.Contains(t, got, "    pvc-small  1.0 Gi  no PersistentVolume")
+	assert.Contains(t, got, "    old  0.2 Gi")
 }
 
 func TestReport_ExplainsAJudgementMadeWithoutACluster(t *testing.T) {
@@ -97,13 +99,13 @@ func TestReport_ExplainsAJudgementMadeWithoutACluster(t *testing.T) {
 	inventory := Inventory{Volumes: []Volume{{Name: "pvc-left-behind", SizeGB: 50}}}
 	found := Orphans(inventory, Claims{})
 
-	got := Report(gone, inventory, found, stackstatus.Plain)
+	got := Report(gone, inventory, found, report.Plain)
 
-	assert.Contains(t, got, "the cluster is gone")
-	// Before the table, not after it: the list reads as a catastrophe otherwise.
-	assert.Less(t, strings.Index(got, "the cluster is gone"), strings.Index(got, headKind))
+	// In the facts, before the table: the list reads as a catastrophe otherwise.
+	assert.Contains(t, got, "  cluster  platform-dev · gone: no server carries its label\n")
+	assert.Contains(t, got, "The cluster is gone, so this is what the teardown left")
 
-	assert.NotContains(t, Report(header(), inventory, found, stackstatus.Plain), "the cluster is gone")
+	assert.NotContains(t, Report(header(), inventory, found, report.Plain), "gone: no server")
 }
 
 func TestReport_PaintsOnlyThroughThePainter(t *testing.T) {
@@ -112,9 +114,9 @@ func TestReport_PaintsOnlyThroughThePainter(t *testing.T) {
 	found := []Finding{{Kind: KindServer, Name: "leftover", Why: "not a node"}}
 	inventory := Inventory{Servers: []Server{{}}}
 
-	assert.NotContains(t, Report(header(), inventory, found, stackstatus.Plain), "\x1b[",
+	assert.NotContains(t, Report(header(), inventory, found, report.Plain), "\x1b[",
 		"a pipe or NO_COLOR gets no escape codes")
-	assert.Contains(t, Report(header(), inventory, found, stackstatus.ANSI), "\x1b["+stackstatus.Yellow+"m")
+	assert.Contains(t, Report(header(), inventory, found, report.ANSI), "\x1b["+report.Yellow+"m")
 }
 
 func TestFormatSize(t *testing.T) {

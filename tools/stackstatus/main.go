@@ -32,12 +32,12 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/opthistory"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
-	"golang.org/x/term"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilogin"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/report"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 )
 
@@ -50,9 +50,6 @@ const (
 
 // branchRefPrefix is what Pulumi's git.headName carries before a branch name.
 const branchRefPrefix = "refs/heads/"
-
-// noColorEnv is the convention the taskfiles and internal/pkg/pulumilog honour.
-const noColorEnv = "NO_COLOR"
 
 // History paging: the first page, one entry — the last operation only.
 const (
@@ -121,16 +118,7 @@ func run(stack string, dirs []string) error {
 		projects = append(projects, read.project)
 	}
 
-	return stackstatus.Render(os.Stdout, header, projects, time.Now(), painter())
-}
-
-// painter colours only a terminal, and never when NO_COLOR is set.
-func painter() stackstatus.Painter {
-	if _, off := os.LookupEnv(noColorEnv); off || !term.IsTerminal(int(os.Stdout.Fd())) {
-		return stackstatus.Plain
-	}
-
-	return stackstatus.ANSI
+	return stackstatus.Render(os.Stdout, header, projects, time.Now(), report.PainterFor(os.Stdout))
 }
 
 func readHeader(ctx context.Context, stack, anyProject string) (stackstatus.Header, error) {

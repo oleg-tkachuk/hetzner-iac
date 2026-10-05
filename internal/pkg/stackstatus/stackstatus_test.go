@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/report"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 )
 
@@ -66,11 +67,11 @@ func healthy(name string) stackstatus.Project {
 func render(t *testing.T, h stackstatus.Header, projects []stackstatus.Project) string {
 	t.Helper()
 
-	var report strings.Builder
+	var out strings.Builder
 
-	require.NoError(t, stackstatus.Render(&report, h, projects, now, stackstatus.Plain))
+	require.NoError(t, stackstatus.Render(&out, h, projects, now, report.Plain))
 
-	return report.String()
+	return out.String()
 }
 
 func TestCommitShort(t *testing.T) {
@@ -222,7 +223,7 @@ func TestRenderEveryRowShape(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"◉ hetzner-iac · platform status · stack dev",
+		"◉ hetzner-iac · platform:status · stack dev\n",
 		"cluster   platform-dev · hel1 · https://203.0.113.4:6443",
 		"contract  v3 published · this checkout reads v3  ✔",
 		"backend   https://api.pulumi.com as oleg",
@@ -237,7 +238,8 @@ func TestRenderEveryRowShape(t *testing.T) {
 		"40-ingress           ○  no stack",
 		"50-gitops            ○  never run",
 		"60-broken            ✖  unreadable: could not export: 403 forbidden",
-		"8 stacks · 3 succeeded · 1 failed · 1 running · 3 without a run · 1 need attention · 42 resources · all applied from HEAD",
+		// The worst row's mark leads the verdict.
+		"  ✖ 8 stacks · 3 succeeded · 1 failed · 1 running · 3 without a run · 1 need attention · 42 resources · all applied from HEAD\n",
 	} {
 		assert.Contains(t, out, want)
 	}
@@ -351,10 +353,10 @@ func TestRenderColoursOnlyWhenAsked(t *testing.T) {
 
 	assert.NotContains(t, render(t, header(), projects), "\x1b[", "Plain output carries an escape sequence")
 
-	var report strings.Builder
+	var out strings.Builder
 
-	require.NoError(t, stackstatus.Render(&report, header(), projects, now, stackstatus.ANSI))
-	assert.Contains(t, report.String(), stackstatus.ANSI(stackstatus.Green, stackstatus.MarkOK))
+	require.NoError(t, stackstatus.Render(&out, header(), projects, now, report.ANSI))
+	assert.Contains(t, out.String(), report.ANSI(report.Green, report.MarkOK))
 }
 
 // ansiEscape matches a colour escape, to measure a painted line as it shows.
@@ -363,17 +365,17 @@ var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
 func TestHeaderValuesLineUpWhenPainted(t *testing.T) {
 	t.Parallel()
 
-	var report strings.Builder
+	var out strings.Builder
 
-	require.NoError(t, stackstatus.Render(&report, header(), nil, now, stackstatus.ANSI))
+	require.NoError(t, stackstatus.Render(&out, header(), nil, now, report.ANSI))
 
-	visible := ansiEscape.ReplaceAllString(report.String(), "")
+	visible := ansiEscape.ReplaceAllString(out.String(), "")
 
 	var starts []int
 
 	for _, value := range []string{"platform-dev", "v3 published", "https://api.pulumi.com", "3.265.0", "1495bea4 (main)"} {
 		for line := range strings.SplitSeq(visible, "\n") {
-			if i := strings.Index(line, value); i >= 0 && !strings.Contains(line, stackstatus.MarkRunning) {
+			if i := strings.Index(line, value); i >= 0 && !strings.Contains(line, report.MarkRunning) {
 				starts = append(starts, utf8.RuneCountInString(line[:i]))
 
 				break
@@ -392,7 +394,7 @@ func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("terminal
 func TestRenderReportsAFailedWrite(t *testing.T) {
 	t.Parallel()
 
-	err := stackstatus.Render(failingWriter{}, header(), nil, now, stackstatus.Plain)
+	err := stackstatus.Render(failingWriter{}, header(), nil, now, report.Plain)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "write status report")
 }
@@ -406,7 +408,7 @@ func TestRenderPaintsNoTextGrey(t *testing.T) {
 	var grey []string
 
 	recording := func(code, s string) string {
-		if code == stackstatus.Grey {
+		if code == report.Grey {
 			grey = append(grey, s)
 		}
 
@@ -416,9 +418,9 @@ func TestRenderPaintsNoTextGrey(t *testing.T) {
 	h := header()
 	h.Cluster.Console = "https://app.pulumi.com/acme/hetzner-cluster/dev"
 
-	var report strings.Builder
+	var out strings.Builder
 
-	require.NoError(t, stackstatus.Render(&report, h, []stackstatus.Project{
+	require.NoError(t, stackstatus.Render(&out, h, []stackstatus.Project{
 		healthy(ingress),
 		{Name: "backup"},
 		{Name: "50-gitops", HasStack: true, ClusterRef: goodRef},
@@ -427,7 +429,7 @@ func TestRenderPaintsNoTextGrey(t *testing.T) {
 	require.NotEmpty(t, grey, "no row printed the none mark, so this proved nothing")
 
 	for _, painted := range grey {
-		assert.Equal(t, stackstatus.MarkNone, painted, "text painted grey")
+		assert.Equal(t, report.MarkNone, painted, "text painted grey")
 	}
 }
 
@@ -470,7 +472,34 @@ func TestRender_ShowsRecoveryUnderTheTable(t *testing.T) {
 		State: stackstatus.State{PendingOperations: 1, PendingCreates: []string{serverURN}},
 	}}
 
-	require.NoError(t, stackstatus.Render(&out, stackstatus.Header{Stack: "dev"}, projects, time.Now(), stackstatus.Plain))
+	require.NoError(t, stackstatus.Render(&out, stackstatus.Header{Stack: "dev"}, projects, time.Now(), report.Plain))
 	assert.Contains(t, out.String(), "recover cluster")
 	assert.Contains(t, out.String(), serverURN)
+}
+
+// TestRender_TheVerdictCarriesTheWorstMark: the closing line opens with the
+// mark of the worst row, so a glance at the last line says whether to read up.
+func TestRender_TheVerdictCarriesTheWorstMark(t *testing.T) {
+	t.Parallel()
+
+	attention := healthy("10-node-platform")
+	attention.ClusterRef = ""
+
+	for _, tc := range []struct {
+		name     string
+		projects []stackstatus.Project
+		mark     string
+	}{
+		{"all healthy", []stackstatus.Project{healthy("cluster")}, report.MarkOK},
+		{"one needs attention", []stackstatus.Project{healthy("cluster"), attention}, report.MarkWarning},
+		{"one without a stack", []stackstatus.Project{healthy("cluster"), {Name: "40-ingress"}}, report.MarkWarning},
+		{"one failed", []stackstatus.Project{healthy("cluster"), {
+			Name: "backup", HasStack: true, Last: &stackstatus.Update{Result: stackstatus.ResultFailed},
+		}}, report.MarkFailed},
+	} {
+		out := strings.TrimRight(render(t, header(), tc.projects), "\n")
+		last := out[strings.LastIndex(out, "\n")+1:]
+
+		assert.True(t, strings.HasPrefix(last, "  "+tc.mark+" "), "%s: %q", tc.name, last)
+	}
 }

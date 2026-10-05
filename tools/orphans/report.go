@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/report"
 )
 
 // kindName is a kind as the report counts it: its row, and its plural.
@@ -43,14 +43,13 @@ type Header struct {
 	Stacks int
 }
 
-// The report's layout: the left margin, the gap between columns, and the
-// headings of the counts table.
+// Task is the task that prints the report, which its title names.
+const Task = "cluster:orphans"
+
+// The counts table's columns, and which of them are numeric.
 const (
-	indent       = "  "
-	gap          = "  "
-	headKind     = "KIND"
-	headFound    = "FOUND"
-	headOrphaned = "UNCLAIMED"
+	columnFound     = 2
+	columnUnclaimed = 3
 )
 
 // Counts is how many resources of each kind the inventory holds.
@@ -75,123 +74,131 @@ func (i Inventory) Counts() map[string]int {
 // The counts come first, so a clean report is evidence rather than silence:
 // "nothing unclaimed" over an empty project is what a wrong token looks like,
 // and the table says which it is.
-func Report(header Header, inventory Inventory, found []Finding, paint stackstatus.Painter) string {
-	var out strings.Builder
-
-	fmt.Fprintf(&out, "%s %s · cluster %s · %d stack state(s) read\n\n",
-		paint(stackstatus.Cyan, stackstatus.MarkRunning),
-		paint(stackstatus.Bold, "orphans · stack "+header.Stack), header.Cluster, header.Stacks)
-
-	// Before anything else: without it, a list of everything as unclaimed
-	// reads like a catastrophe rather than an inventory of a teardown.
-	if header.ClusterGone {
-		fmt.Fprintf(&out, "%s%s no server carries %s's label: the cluster is gone, so everything\n"+
-			"%s  below is what the teardown left behind and no stack holds.\n\n",
-			indent, paint(stackstatus.Grey, stackstatus.MarkNone), header.Cluster, indent)
-	}
-
+func Report(header Header, inventory Inventory, found []Finding, paint report.Painter) string {
+	r := report.New(paint)
 	counts := inventory.Counts()
-	writeCounts(&out, counts, found, paint)
-	writeFindings(&out, found, paint)
-	writeSummary(&out, counts, found, paint)
 
-	return out.String()
-}
+	r.Title(Task, header.Stack)
+	r.Facts(facts(header, counts))
+	r.Table(countsTable(counts, found))
 
-// writeCounts is the table of kinds found, and the line naming the kinds the
-// project holds none of.
-func writeCounts(out *strings.Builder, counts map[string]int, found []Finding, paint stackstatus.Painter) {
-	unclaimed := map[string]int{}
-	for _, finding := range found {
-		unclaimed[finding.Kind]++
-	}
-
-	width := len(headKind)
-
-	var empty []string
-
-	for _, kind := range kindOrder() {
-		if counts[kind.kind] == 0 {
-			empty = append(empty, kind.plural)
-
-			continue
-		}
-
-		width = max(width, len(kind.kind))
-	}
-
-	fmt.Fprintf(out, "%s%s\n", indent, paint(stackstatus.Bold,
-		fmt.Sprintf("%-*s%s%s%s%s", width, headKind, gap, headFound, gap, headOrphaned)))
-
-	for _, kind := range kindOrder() {
-		if counts[kind.kind] == 0 {
-			continue
-		}
-
-		row := fmt.Sprintf("%-*s%s%*d", width, kind.kind, gap, len(headFound), counts[kind.kind])
-		if n := unclaimed[kind.kind]; n > 0 {
-			row += gap + paint(stackstatus.Yellow, fmt.Sprintf("%*d", len(headOrphaned), n))
-		}
-
-		fmt.Fprintf(out, "%s%s\n", indent, row)
-	}
-
-	if len(empty) > 0 {
-		fmt.Fprintf(out, "%s%s none of: %s\n", indent, paint(stackstatus.Grey, stackstatus.MarkNone),
-			strings.Join(empty, ", "))
-	}
-
-	out.WriteString("\n")
-}
-
-// writeFindings lists what nothing claims, one group per kind.
-func writeFindings(out *strings.Builder, found []Finding, paint stackstatus.Painter) {
 	byKind := map[string][]Finding{}
 	for _, finding := range found {
 		byKind[finding.Kind] = append(byKind[finding.Kind], finding)
 	}
 
 	for _, kind := range kindOrder() {
-		group := byKind[kind.kind]
-		if len(group) == 0 {
+		if group := byKind[kind.kind]; len(group) > 0 {
+			r.Section(report.Warning, kind.kind, findingLines(group))
+		}
+	}
+
+	mark, verdict, hints := summary(header, counts, found)
+	r.Summary(mark, verdict, hints...)
+
+	return r.String()
+}
+
+// facts is what was read: the cluster, how much, and which kinds the project
+// holds none of.
+func facts(header Header, counts map[string]int) []report.Fact {
+	cluster := header.Cluster
+	if header.ClusterGone {
+		// First, so the list below reads as an inventory of a teardown rather
+		// than as a catastrophe.
+		cluster += report.Separator + "gone: no server carries its label"
+	}
+
+	total, kinds := 0, 0
+
+	var absent []string
+
+	for _, kind := range kindOrder() {
+		if counts[kind.kind] == 0 {
+			absent = append(absent, kind.plural)
+
 			continue
 		}
 
-		fmt.Fprintf(out, "%s%s %s\n", indent, paint(stackstatus.Yellow, stackstatus.MarkWarning),
-			paint(stackstatus.Bold, kind.kind))
-
-		nameWidth, sizeWidth := 0, 0
-		for _, finding := range group {
-			nameWidth = max(nameWidth, len(finding.Name))
-			sizeWidth = max(sizeWidth, len(formatSize(finding.Size)))
-		}
-
-		for _, finding := range group {
-			row := fmt.Sprintf("%-*s", nameWidth, finding.Name)
-			if sizeWidth > 0 {
-				row += gap + fmt.Sprintf("%*s", sizeWidth, formatSize(finding.Size))
-			}
-
-			fmt.Fprintf(out, "%s%s%s%s%s\n", indent, indent, row, gap, finding.Why)
-		}
-
-		out.WriteString("\n")
+		total += counts[kind.kind]
+		kinds++
 	}
+
+	facts := []report.Fact{
+		{Label: "cluster", Value: cluster},
+		{Label: "checked", Value: report.Count(total, "resource", "resources") + " of " +
+			report.Count(kinds, "kind", "kinds") + report.Separator +
+			"against " + report.Count(header.Stacks, "stack state", "stack states")},
+	}
+
+	if len(absent) > 0 {
+		facts = append(facts, report.Fact{Label: "absent", Value: strings.Join(absent, ", ")})
+	}
+
+	return facts
 }
 
-// writeSummary is the last line: whether anything is unclaimed, and what to
-// do before deleting it.
-func writeSummary(out *strings.Builder, counts map[string]int, found []Finding, paint stackstatus.Painter) {
+// countsTable is a row per kind the project holds: how many, and how many
+// nothing claims.
+func countsTable(counts map[string]int, found []Finding) report.Table {
+	unclaimed := map[string]int{}
+	for _, finding := range found {
+		unclaimed[finding.Kind]++
+	}
+
+	table := report.Table{
+		Headings: []string{"KIND", "", "FOUND", "UNCLAIMED"},
+		Right:    map[int]bool{columnFound: true, columnUnclaimed: true},
+	}
+
+	for _, kind := range kindOrder() {
+		if counts[kind.kind] == 0 {
+			continue
+		}
+
+		mark, orphaned := report.OK, report.Text("")
+		if n := unclaimed[kind.kind]; n > 0 {
+			mark, orphaned = report.Warning, report.Cell{Text: strconv.Itoa(n), Color: report.Yellow}
+		}
+
+		table.Rows = append(table.Rows, []report.Cell{
+			report.Text(kind.kind), mark, report.Text(strconv.Itoa(counts[kind.kind])), orphaned,
+		})
+	}
+
+	return table
+}
+
+// findingLines is one kind's section: name, size when the kind has one, and
+// why nothing claims it.
+func findingLines(group []Finding) []string {
+	sized := false
+	for _, finding := range group {
+		sized = sized || finding.Size > 0
+	}
+
+	rows := make([][]string, 0, len(group))
+
+	for _, finding := range group {
+		if sized {
+			rows = append(rows, []string{finding.Name, formatSize(finding.Size), finding.Why})
+		} else {
+			rows = append(rows, []string{finding.Name, finding.Why})
+		}
+	}
+
+	return report.Columns(rows, map[int]bool{1: sized})
+}
+
+// summary is the closing line and what to do before deleting anything.
+func summary(header Header, counts map[string]int, found []Finding) (report.Cell, string, []string) {
 	total := 0
 	for _, n := range counts {
 		total += n
 	}
 
 	if len(found) == 0 {
-		fmt.Fprintf(out, "%s%s all %d resources are claimed\n", indent,
-			paint(stackstatus.Green, stackstatus.MarkOK), total)
-
-		return
+		return report.OK, fmt.Sprintf("all %d resources are claimed", total), nil
 	}
 
 	provisioned := 0
@@ -210,14 +217,21 @@ func writeSummary(out *strings.Builder, counts map[string]int, found []Finding, 
 		verb = "is"
 	}
 
-	line := fmt.Sprintf("%d of %d resources %s unclaimed", len(found), total, verb)
+	verdict := fmt.Sprintf("%d of %s %s unclaimed", len(found), report.Count(total, "resource", "resources"), verb)
 	if provisioned > 0 {
-		line += " · " + strconv.Itoa(provisioned) + " GiB of provisioned volumes"
+		verdict += report.Separator + strconv.Itoa(provisioned) + " GiB of provisioned volumes"
 	}
 
-	fmt.Fprintf(out, "%s%s %s\n", indent, paint(stackstatus.Yellow, stackstatus.MarkWarning), paint(stackstatus.Bold, line))
-	fmt.Fprintf(out, "%s  Nothing was deleted. Most kinds are billed while they exist; read each\n", indent)
-	fmt.Fprintf(out, "%s  reason first — a volume whose PersistentVolume is gone still holds its data.\n", indent)
+	hints := []string{
+		"Nothing was deleted. Most kinds are billed while they exist; read each reason first —",
+		"a volume whose PersistentVolume is gone still holds its data.",
+	}
+
+	if header.ClusterGone {
+		hints = append([]string{"The cluster is gone, so this is what the teardown left and no stack holds."}, hints...)
+	}
+
+	return report.Warning, verdict, hints
 }
 
 // formatSize keeps a compressed image size readable beside a volume's, and is

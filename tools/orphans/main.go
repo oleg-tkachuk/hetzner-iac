@@ -31,20 +31,16 @@ import (
 	"time"
 
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
-	"golang.org/x/term"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hcloudtoken"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilogin"
-	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/report"
 )
 
 // timeout covers a stack export per project and environment, a listing per
 // Hetzner resource kind and four kubectl calls, on a slow link.
 const timeout = 5 * time.Minute
-
-// noColorEnv is the convention the taskfiles and internal/pkg/pulumilog honour.
-const noColorEnv = "NO_COLOR"
 
 // The arguments before the project directories.
 const fixedArgs = 3
@@ -144,18 +140,9 @@ func run() (clean bool, err error) {
 		Stack: stack, Cluster: topology.Metadata.Name, ClusterGone: len(servers) == 0, Stacks: held.Stacks,
 	}
 
-	fmt.Print(Report(header, inventory, found, painter()))
+	fmt.Print(Report(header, inventory, found, report.PainterFor(os.Stdout)))
 
 	return len(found) == 0, nil
-}
-
-// painter colours the report on a terminal, unless NO_COLOR is set.
-func painter() stackstatus.Painter {
-	if _, off := os.LookupEnv(noColorEnv); off || !term.IsTerminal(int(os.Stdout.Fd())) {
-		return stackstatus.Plain
-	}
-
-	return stackstatus.ANSI
 }
 
 // readInventory asks Hetzner what the project holds.
