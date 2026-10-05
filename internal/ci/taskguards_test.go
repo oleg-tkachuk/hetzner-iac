@@ -29,6 +29,18 @@ const stackGuard = `- sh: '[ -n "{{.stack}}" ]'`
 // precondition here would name the internal task instead.
 const quietStackGuard = `[ -n "{{.stack}}" ] || exit 0`
 
+// callerVar is what every dependency is called with: the task the operator
+// ran, carried down however deep the dependencies go.
+const callerVar = `_CALLER: '{{default .TASK ._CALLER}}'`
+
+// callerUsage is how a dependency's guard renders its usage: with the name of
+// the task the operator ran in place of its own.
+const callerUsage = `| replace .TASK (default .TASK ._CALLER)}}"`
+
+// usageMessage matches a precondition message rendering one of the usage
+// variables, which spell the task's name.
+var usageMessage = regexp.MustCompile(`msg: "\{\{\._[A-Z_]+USAGE\b[^"]*"`)
+
 // TestTasks_ThatNeedAStackSaySoWhenItIsMissing closes the gap left by removing
 // the dev default.
 //
@@ -101,20 +113,91 @@ func TestTasks_ThatNeedAStackSaySoWhenItIsMissing(t *testing.T) {
 	assert.Positive(t, checked, "no task reads a stack — this test is checking nothing")
 }
 
-// dependencies matches the inline list form this repository uses.
-var dependencies = regexp.MustCompile(`deps: \[([^\]]+)\]`)
+// TestDependencies_NameTheTaskThatWasRun holds the usage a dependency prints
+// to the task the operator ran.
+//
+// Task runs a task's dependencies before its own preconditions, so a forgotten
+// stack= is reported by the dependency's guard. Rendered with its own name,
+// `task cluster:orphans` answered "cluster:kubeconfig needs a stack" and
+// suggested running that instead.
+func TestDependencies_NameTheTaskThatWasRun(t *testing.T) {
+	t.Parallel()
+
+	var checked int
+
+	for _, path := range taskfiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		tasks := tasksIn(string(raw))
+		file := filepath.Base(path)
+
+		for name, body := range tasks {
+			for _, dep := range dependenciesIn(body) {
+				checked++
+
+				assert.Contains(t, dep.vars, callerVar,
+					"%s in %s runs %s without passing the task the operator ran", name, file, dep.task)
+
+				for _, msg := range usageMessage.FindAllString(tasks[dep.task], -1) {
+					assert.Contains(t, msg, callerUsage,
+						"%s in %s is a dependency of %s, and its usage names itself: %s", dep.task, file, name, msg)
+				}
+			}
+		}
+	}
+
+	assert.Positive(t, checked, "no task has a dependency — this test is checking nothing")
+}
+
+// dependency is one entry of a task's deps: the task it runs, and the vars
+// line passed with it.
+type dependency struct {
+	task string
+	vars string
+}
+
+// dependencyEntry matches the `- task:` line of a deps entry.
+var dependencyEntry = regexp.MustCompile(`^\s+- task: (\S+)$`)
+
+// dependenciesIn reads the block form of `deps:` this repository uses: one
+// `- task:` per entry, with its vars on the next line.
+func dependenciesIn(body string) []dependency {
+	var (
+		out    []dependency
+		inDeps bool
+		indent int
+	)
+
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		depth := len(line) - len(strings.TrimLeft(line, " "))
+
+		switch {
+		case trimmed == "deps:":
+			inDeps, indent = true, depth
+		case !inDeps:
+		case depth <= indent:
+			// The task's next key: its own vars are not the dependency's.
+			inDeps = false
+		case dependencyEntry.MatchString(line):
+			out = append(out, dependency{task: dependencyEntry.FindStringSubmatch(line)[1]})
+		case strings.HasPrefix(trimmed, "vars:") && len(out) > 0:
+			out[len(out)-1].vars = trimmed
+		default:
+			inDeps = false
+		}
+	}
+
+	return out
+}
 
 // dependenciesOf names the tasks a body declares as dependencies.
 func dependenciesOf(body string) []string {
-	match := dependencies.FindStringSubmatch(body)
-	if match == nil {
-		return nil
-	}
-
 	var out []string
 
-	for _, dep := range strings.Split(match[1], ",") {
-		out = append(out, strings.TrimSpace(dep))
+	for _, dep := range dependenciesIn(body) {
+		out = append(out, dep.task)
 	}
 
 	return out

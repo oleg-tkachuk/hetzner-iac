@@ -43,7 +43,7 @@ tasks:
     desc: "Create the stack for every layer and point it at the cluster (override with ref=<org>/hetzner-cluster/<stack>)"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_USAGE | replace .TASK (default .TASK ._CALLER)}}"
     cmds:
       # One row per layer. It used to be two sentences per layer — an
       # absolute path, and the cluster reference repeated six times — which
@@ -140,7 +140,7 @@ tasks:
           enum: *layers
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_LAYER_USAGE}}"
+        msg: "{{._STACK_LAYER_USAGE | replace .TASK (default .TASK ._CALLER)}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -221,7 +221,7 @@ tasks:
     # confirmed before anybody had seen what it would change.
     deps:
       - task: plan
-        vars: {layer: '{{.layer}}', target: '{{.target}}'}
+        vars: {_CALLER: '{{default .TASK ._CALLER}}', layer: '{{.layer}}', target: '{{.target}}'}
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_LAYER_USAGE}}"
@@ -290,7 +290,7 @@ tasks:
     # with no second question before it went.
     deps:
       - task: _destroy:preview
-        vars: {layer: '{{.layer}}', target: '{{.target}}', dependents: '{{.dependents}}'}
+        vars: {_CALLER: '{{default .TASK ._CALLER}}', layer: '{{.layer}}', target: '{{.target}}', dependents: '{{.dependents}}'}
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_LAYER_USAGE}}"
