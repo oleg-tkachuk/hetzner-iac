@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
@@ -34,27 +33,6 @@ const (
 	KindSubaccount     = "subaccount"
 	KindZone           = "dns zone"
 )
-
-// examinedKinds is the order and the plural each kind is counted in, so a
-// clean report says what it read.
-func examinedKinds() []struct{ kind, plural string } {
-	return []struct{ kind, plural string }{
-		{KindVolume, "volumes"},
-		{KindLoadBalancer, "load balancers"},
-		{KindServer, "servers"},
-		{KindPrimaryIP, "primary ips"},
-		{KindFloatingIP, "floating ips"},
-		{KindSnapshot, "snapshots"},
-		{KindNetwork, "networks"},
-		{KindFirewall, "firewalls"},
-		{KindPlacementGroup, "placement groups"},
-		{KindSSHKey, "ssh keys"},
-		{KindCertificate, "certificates"},
-		{KindStorageBox, "storage boxes"},
-		{KindSubaccount, "subaccounts"},
-		{KindZone, "dns zones"},
-	}
-}
 
 // ServiceUIDLabel is how the hcloud cloud controller manager records which
 // Service a load balancer belongs to.
@@ -364,120 +342,6 @@ func unheld(labels map[string]string) string {
 	}
 
 	return "made by neither this repository nor the cluster, and no stack holds it"
-}
-
-// Examined is what the inventory held, so a clean report is evidence rather
-// than silence.
-//
-// Without it "no orphaned resources" reads identically whether the project
-// holds forty volumes that are all claimed or none at all — and the second is
-// what a wrong token or an empty project looks like. The same distinction the
-// cluster side already makes by failing instead of returning an empty list.
-func (i Inventory) Examined() string {
-	counts := map[string]int{
-		KindVolume:       len(i.Volumes),
-		KindLoadBalancer: len(i.LoadBalancers),
-		KindServer:       len(i.Servers),
-		KindPrimaryIP:    len(i.PrimaryIPs),
-		KindSnapshot:     len(i.Snapshots),
-	}
-
-	for _, res := range i.Resources {
-		counts[res.Kind]++
-	}
-
-	parts := make([]string, 0, len(examinedKinds()))
-	for _, kind := range examinedKinds() {
-		parts = append(parts, fmt.Sprintf("%d %s", counts[kind.kind], kind.plural))
-	}
-
-	return strings.Join(parts, ", ")
-}
-
-// ClusterGoneNote is the header printed when the judgement was made without a
-// cluster.
-//
-// Without it the report is alarming and unexplained: every volume and every
-// load balancer is listed as claimed by nothing, which is correct and reads
-// like a catastrophe. Saying why first turns the same list into an inventory
-// of what a teardown left behind.
-const ClusterGoneNote = "no server carries this cluster's label, so the cluster is gone and " +
-	"claims nothing.\nEverything below is what the teardown left behind and no stack holds."
-
-// The report's column widths: the longest kind, a generated volume name, and
-// a size with its unit.
-const (
-	columnKind = 15
-	columnName = 46
-	columnSize = 9
-)
-
-// Report renders the findings against what was examined.
-//
-// note is printed before the table when there is one to print — see
-// ClusterGoneNote.
-func Report(found []Finding, examined, note string) string {
-	header := ""
-	if note != "" {
-		header = note + "\n\n"
-	}
-
-	if len(found) == 0 {
-		return header + "examined " + examined + "\nno orphans: every one of them is claimed\n"
-	}
-
-	var (
-		out         strings.Builder
-		provisioned int
-	)
-
-	out.WriteString(header)
-
-	fmt.Fprintf(&out, "%-*s %-*s %*s  %s\n", columnKind, "KIND", columnName, "NAME", columnSize, "SIZE", "WHY")
-
-	for _, finding := range found {
-		size := ""
-
-		if finding.Size > 0 {
-			size = formatSize(finding.Size)
-		}
-
-		// Only volumes: an image's size is a compressed artefact, and adding
-		// it to provisioned block storage would produce a total that means
-		// nothing.
-		if finding.Kind == KindVolume {
-			provisioned += int(finding.Size)
-		}
-
-		fmt.Fprintf(&out, "%-*s %-*s %*s  %s\n",
-			columnKind, finding.Kind, columnName, finding.Name, columnSize, size, finding.Why)
-	}
-
-	fmt.Fprintf(&out, "\nexamined %s\n%d of them nothing claims", examined, len(found))
-
-	if provisioned > 0 {
-		fmt.Fprintf(&out, ", including %d GiB of provisioned volumes", provisioned)
-	}
-
-	out.WriteString(".\nMost are billed while they exist; the free ones hold their name against a\n")
-	out.WriteString("rebuild. Nothing here is deleted by this check — read the\n")
-	out.WriteString("WHY column first: a volume whose PersistentVolume is gone still holds the\n")
-	out.WriteString("data that was on it.\n")
-
-	return out.String()
-}
-
-// formatSize keeps a compressed image size readable beside a volume's.
-//
-// A snapshot is a fraction of a gigabyte and a volume is fifty, so one format
-// cannot serve both: %.0f prints "0 Gi" for the image, and %.1f prints
-// "50.0 Gi" for the volume.
-func formatSize(size float64) string {
-	if size < 10 {
-		return fmt.Sprintf("%.1f Gi", size)
-	}
-
-	return fmt.Sprintf("%.0f Gi", size)
 }
 
 // volumeFindings is the volume half of Orphans, split out because the two

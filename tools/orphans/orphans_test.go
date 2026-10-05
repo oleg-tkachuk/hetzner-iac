@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -187,41 +186,6 @@ func TestOrphans_IsOrderedSoTwoRunsReadTheSame(t *testing.T) {
 	}, order)
 }
 
-func TestReport_SaysSoWhenThereIsNothing(t *testing.T) {
-	t.Parallel()
-
-	// "(none)" must not read the same as a failed lookup, which is why the
-	// empty case has words rather than an empty table.
-	got := Report(nil, Inventory{Volumes: []Volume{{Name: "pvc-kept"}}}.Examined(), "")
-
-	assert.Contains(t, got, "no orphans")
-	assert.NotContains(t, got, "KIND")
-	// The counts are the point: "clean" and "read nothing" must not print the
-	// same line.
-	assert.Contains(t, got, "examined 1 volumes")
-}
-
-func TestReport_TotalsOnlyProvisionedStorage(t *testing.T) {
-	t.Parallel()
-
-	// A snapshot's size is a compressed artefact and a volume's is
-	// provisioned block storage. Adding them would print a number that means
-	// nothing, so only volumes are totalled.
-	inventory := Inventory{
-		Volumes:   []Volume{{Name: "pvc-gone", SizeGB: 50}},
-		Snapshots: []Snapshot{{Description: "old", SizeGB: 0.2, Labels: map[string]string{TalosVersionLabel: "v1.0.0"}}},
-	}
-
-	got := Report(Orphans(inventory, claims()), inventory.Examined(), "")
-
-	assert.Contains(t, got, "50 GiB of provisioned volumes")
-	// Both sizes still show per row, in a form each is readable in.
-	assert.Contains(t, got, "50 Gi")
-	assert.Contains(t, got, "0.2 Gi")
-	assert.Equal(t, 2, strings.Count(got, "Gi\n")+strings.Count(got, "Gi "),
-		"one size per row, and one in the total")
-}
-
 // TestClusterServers_OnlyThisClustersOwn is the decision that lets this check
 // run at all without a cluster.
 //
@@ -293,28 +257,6 @@ func TestOrphans_WithNoClusterReportsEverythingItLeftBehind(t *testing.T) {
 	assert.Equal(t, "addr-1", kinds[KindPrimaryIP])
 	assert.NotContains(t, kinds, KindSnapshot,
 		"the pinned snapshot is what a rebuild boots from; reporting it invites deleting it")
-}
-
-// TestReport_ExplainsAJudgementMadeWithoutACluster keeps the alarming version
-// of a correct report from being the one an operator reads.
-//
-// Every volume and every load balancer listed as claimed by nothing is right
-// after a teardown and looks like a catastrophe. The note goes first.
-func TestReport_ExplainsAJudgementMadeWithoutACluster(t *testing.T) {
-	t.Parallel()
-
-	inventory := Inventory{Volumes: []Volume{{Name: "pvc-left-behind", SizeGB: 50}}}
-
-	got := Report(Orphans(inventory, Claims{}), inventory.Examined(), ClusterGoneNote)
-
-	assert.Contains(t, got, "the cluster is gone")
-	assert.Contains(t, got, "left behind")
-	// Before the table, not after it.
-	assert.Less(t, strings.Index(got, "the cluster is gone"), strings.Index(got, "KIND"))
-
-	// And the ordinary report does not carry it.
-	assert.NotContains(t, Report(Orphans(inventory, Claims{}), inventory.Examined(), ""),
-		"the cluster is gone")
 }
 
 // TestOrphans_AReleasedVolumeIsReportedThoughItsPVExists is the gap the
@@ -476,23 +418,6 @@ func TestOrphans_AStackClaimsWhatTheClusterDoesNot(t *testing.T) {
 	}, held)
 
 	assert.Empty(t, found)
-}
-
-func TestExamined_CountsEveryKind(t *testing.T) {
-	t.Parallel()
-
-	got := Inventory{
-		Volumes:   []Volume{{}},
-		Resources: []Resource{{Kind: KindNetwork}, {Kind: KindNetwork}, {Kind: KindZone}},
-	}.Examined()
-
-	assert.True(t, strings.HasPrefix(got, "1 volumes, "), got)
-	assert.Contains(t, got, "2 networks")
-	assert.Contains(t, got, "1 dns zones")
-
-	for _, kind := range examinedKinds() {
-		assert.Contains(t, got, kind.plural, "every kind is counted, zero or not")
-	}
 }
 
 // ours is the label set this repository stamps on what it creates.
