@@ -64,8 +64,8 @@ configuration with Talos machinery v1.13.
 ### The secretbox key can be rotated
 
 The key that encrypts Secrets in etcd is the one the cluster was created with.
-On the v1.13 contract Talos renders a single secretbox provider from
-`cluster.secretboxEncryptionSecret`, always named `key2`, so a new value there
+On the v1.13 contract Talos renders a single secretbox provider from the
+machine config's one secretbox secret, always named `key2`, so a new value there
 strands every Secret written under the old one. The v1.14 contract's
 `KubeEtcdEncryptionConfig` holds a full encryption config: a second key
 added behind the first, promoted, then a `StorageVersionMigration` for
