@@ -998,28 +998,34 @@ tasks:
           printf '%s\n' "    talosctl --endpoints <node> --nodes <node> read {{._CL_AUDIT_LOG}}"
 
   orphans:
-    desc: "Hetzner resources nothing claims any more — volumes, load balancers, servers, addresses, snapshots. Works after a teardown too"
+    desc: "Hetzner resources no stack holds and the cluster does not use, every kind the project lists. Works after a teardown too"
     deps: [kubeconfig]
     cmds:
-      # Read-only, and it never deletes. Two silent ways this platform loses
-      # track of a resource, both billed:
+      # Read-only, and it never deletes. The silent ways this platform loses
+      # track of a resource, most of them billed:
       #
       #   - a StatefulSet's claims outlive their Helm release, which is
       #     Kubernetes behaving as designed, so destroying a layer leaves its
       #     volumes behind. 160 GiB were found that way.
       #   - destroying a cluster destroys the API server that would have told
       #     the CSI driver to delete a volume.
+      #   - a destroy that stops part-way, or a stack removed with --force,
+      #     leaves resources no state holds; and one made by hand never had one.
       #
       # Which is why it answers with no cluster at all: no server carrying the
       # cluster's label means no cluster, so nothing can claim anything and
       # every remaining resource really is orphaned. `task destroy` runs it
       # last for exactly that reason.
       #
-      # The token comes from the stack the same way every other task's does.
+      # A stack's state is the other claimant: every tier and layer is read,
+      # every stack of each, so a resource another environment holds is not
+      # reported. The token comes from the stack as every other task's does.
       - cmd: |
           set -euo pipefail
+          for tier in {{.TIERS}}; do set -- "$@" "{{.ROOT}}/infra/${tier}"; done
+          for layer in {{.LAYERS}}; do set -- "$@" "{{.ROOT}}/layers/${layer}"; done
           go run "{{.ROOT}}/tools/orphans" \
-            "{{._CL_STACK}}" "{{.ROOT}}/kubeconfig" "{{._CL_TOPOLOGY}}"
+            "{{._CL_STACK}}" "{{.ROOT}}/kubeconfig" "{{._CL_TOPOLOGY}}" "$@"
 
   encryption:check:
     desc: "Are the system volumes actually encrypted? Talos skips encryption on a formatted partition, silently"

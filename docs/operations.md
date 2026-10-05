@@ -94,7 +94,7 @@ every resource that depends on the target too.
 | `task platform:status` | every stack's last run, interrupted updates and the `refresh` that clears them |
 | `task platform:drift` | which resources the cloud no longer agrees with |
 | `task cluster:encryption:check` | are the system volumes encrypted on disk, not only in config |
-| `task cluster:orphans` | is anything billed that nothing claims |
+| `task cluster:orphans` | is anything left that no stack holds and the cluster does not use |
 | `task cluster:hubble` | the cluster's traffic, as flows |
 | `task cluster:machine-config:check` | does Talos accept the machine-config patches |
 
