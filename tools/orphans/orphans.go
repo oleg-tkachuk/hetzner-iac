@@ -1,35 +1,69 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
-// The Hetzner resources this platform creates indirectly, and can therefore
-// leave behind. Spelled once, because the report groups by them and a typo
-// would print a heading nobody recognises.
+// The Hetzner resources this check lists: every kind the API holds per
+// project that a stack, the cluster or an operator can create and then forget.
+// Spelled once, because the report groups by them and a typo would print a
+// heading nobody recognises.
+//
+// Not listed: server backups, which the API deletes with their server; storage
+// box snapshots, which live and die with their box; and the catalogues —
+// system images, ISOs, types, locations — which nobody in the project owns.
 const (
-	KindVolume       = "volume"
-	KindLoadBalancer = "load balancer"
-	KindServer       = "server"
-	KindPrimaryIP    = "primary ip"
-	KindSnapshot     = "snapshot"
+	KindVolume         = "volume"
+	KindLoadBalancer   = "load balancer"
+	KindServer         = "server"
+	KindPrimaryIP      = "primary ip"
+	KindFloatingIP     = "floating ip"
+	KindSnapshot       = "snapshot"
+	KindNetwork        = "network"
+	KindFirewall       = "firewall"
+	KindPlacementGroup = "placement group"
+	KindSSHKey         = "ssh key"
+	KindCertificate    = "certificate"
+	KindStorageBox     = "storage box"
+	KindSubaccount     = "subaccount"
+	KindZone           = "dns zone"
 )
+
+// examinedKinds is the order and the plural each kind is counted in, so a
+// clean report says what it read.
+func examinedKinds() []struct{ kind, plural string } {
+	return []struct{ kind, plural string }{
+		{KindVolume, "volumes"},
+		{KindLoadBalancer, "load balancers"},
+		{KindServer, "servers"},
+		{KindPrimaryIP, "primary ips"},
+		{KindFloatingIP, "floating ips"},
+		{KindSnapshot, "snapshots"},
+		{KindNetwork, "networks"},
+		{KindFirewall, "firewalls"},
+		{KindPlacementGroup, "placement groups"},
+		{KindSSHKey, "ssh keys"},
+		{KindCertificate, "certificates"},
+		{KindStorageBox, "storage boxes"},
+		{KindSubaccount, "subaccounts"},
+		{KindZone, "dns zones"},
+	}
+}
 
 // ServiceUIDLabel is how the hcloud cloud controller manager records which
 // Service a load balancer belongs to.
 //
-// Its ABSENCE used to mean "not created from this cluster", and that stopped
-// being true when both load balancers here moved to the Hetzner provider: the
-// CCM refuses to target a node carrying
-// node.kubernetes.io/exclude-from-external-load-balancers, which Talos puts on
-// every control-plane node, so neither the API nor the ingress balancer is the
-// CCM's. Neither carries this label and neither is an orphan — which this
-// check reported as two findings and a non-zero exit, on a cluster where
-// nothing was wrong.
+// Its absence does not mean "not this cluster's": both load balancers here are
+// made through the Hetzner provider, because the CCM refuses to target a node
+// carrying node.kubernetes.io/exclude-from-external-load-balancers, which
+// Talos puts on every control-plane node. Those are claimed by the stack that
+// holds them.
 const ServiceUIDLabel = "hcloud-ccm/service-uid"
 
 // TalosVersionLabel is the label cluster:image:bake stamps on the snapshot it
@@ -45,6 +79,9 @@ type Inventory struct {
 	Servers       []Server
 	PrimaryIPs    []PrimaryIP
 	Snapshots     []Snapshot
+	// Resources are every other kind. Nothing in the cluster can claim them,
+	// so a stack's state is the only claimant.
+	Resources []Resource
 }
 
 // The shapes below are this check's own, filled from the Hetzner SDK's types
@@ -52,15 +89,20 @@ type Inventory struct {
 // a name, a size and one label, and a classifier that took the library's types
 // would need the library to test.
 
+// Every shape carries the API's ID, which is the ID a stack's state records
+// for the same resource.
+
 // Volume is a block volume, whose name the CSI driver sets to the
 // PersistentVolume's name.
 type Volume struct {
+	ID     int64
 	Name   string
 	SizeGB int
 }
 
-// LoadBalancer is one load balancer and the labels the CCM put on it.
+// LoadBalancer is one load balancer and its labels.
 type LoadBalancer struct {
+	ID     int64
 	Name   string
 	Labels map[string]string
 }
@@ -68,6 +110,7 @@ type LoadBalancer struct {
 // Server is one server. Its type is reported because "which type" is the
 // first thing asked about a server nobody expected.
 type Server struct {
+	ID   int64
 	Name string
 	Type string
 	// Labels, for the cluster label alone. It decides whether this check may
@@ -77,7 +120,11 @@ type Server struct {
 
 // PrimaryIP is a reservable public address, which is billed while it exists
 // whether or not anything is using it.
+//
+// One with no labels and an assignee is usually not anybody's to claim: the API
+// creates a load balancer's addresses itself and assigns them to it.
 type PrimaryIP struct {
+	ID         int64
 	Name       string
 	IP         string
 	AssigneeID int64
@@ -86,14 +133,78 @@ type PrimaryIP struct {
 // Snapshot is a bootable image this repository baked. Its size is the
 // compressed image in GB, not a provisioned volume.
 type Snapshot struct {
+	ID          int64
 	Description string
 	SizeGB      float64
 	Labels      map[string]string
 }
 
-// Claims is what the cluster says it is using, plus what the repository
-// pinned. Everything in the inventory that no claim accounts for is reported.
+// Resource is one resource of a kind only a stack can claim.
+type Resource struct {
+	Kind   string
+	ID     int64
+	Name   string
+	Labels map[string]string
+}
+
+// Held is what the stacks' states hold: per kind, the API IDs.
+type Held struct {
+	IDs map[string]map[int64]bool
+	// Zones are the DNS zones a stack writes record sets into, as the record
+	// set names them: by name or by ID, both of which the provider accepts.
+	// The zone is made by hand and delegated; the records are what claim it.
+	Zones map[string]bool
+	// Stacks is how many states were read, so a report can say so.
+	Stacks int
+}
+
+// NewHeld is an empty Held, ready to add to.
+func NewHeld() Held {
+	return Held{IDs: map[string]map[int64]bool{}, Zones: map[string]bool{}}
+}
+
+// Add records that a stack holds the resource.
+func (h Held) Add(kind string, id int64) {
+	if h.IDs[kind] == nil {
+		h.IDs[kind] = map[int64]bool{}
+	}
+
+	h.IDs[kind][id] = true
+}
+
+// Holds reports whether any stack holds the resource.
+func (h Held) Holds(kind string, id int64) bool {
+	return h.IDs[kind][id]
+}
+
+// HoldsZone reports whether a stack writes record sets into the zone.
+func (h Held) HoldsZone(zone Resource) bool {
+	return h.Zones[zone.Name] || h.Zones[strconv.FormatInt(zone.ID, 10)]
+}
+
+// RefuseEmptyBackend refuses a judgement against no stacks while the
+// cluster's servers exist: the backend is not the one that made them, and
+// every resource would read as unheld. With no servers, no stacks is the truth
+// after a teardown.
+func RefuseEmptyBackend(servers, stacks int) error {
+	if servers > 0 && stacks == 0 {
+		return fmt.Errorf("%w: %d server(s) carry this cluster's label", ErrNoStacks, servers)
+	}
+
+	return nil
+}
+
+// ErrNoStacks is RefuseEmptyBackend's refusal.
+var ErrNoStacks = errors.New("no project directory has a stack, yet the cluster's servers exist: " +
+	"is this the backend that made them?")
+
+// Claims is what the cluster says it is using, what the stacks hold, and what
+// the repository pinned. Everything in the inventory that no claim accounts
+// for is reported.
 type Claims struct {
+	// Held is what the stacks' states hold. A held resource is the stack's to
+	// destroy, whoever else uses it.
+	Held Held
 	// PersistentVolumes are PV names, which equal the hcloud volume names the
 	// CSI driver creates.
 	PersistentVolumes map[string]bool
@@ -111,14 +222,6 @@ type Claims struct {
 	// TalosVersion is the version the topology pins. A snapshot for another
 	// version is not wrong, only unused — and still billed.
 	TalosVersion string
-	// Cluster is the name the topology gives this cluster, which its
-	// Pulumi-made resources carry in their cluster label.
-	Cluster string
-	// ClusterGone is true when no server carries Cluster's label. The claims
-	// above are then empty because nothing is left to make any, and a
-	// Pulumi-made resource of this cluster is no longer claimed by a stack
-	// that will destroy it.
-	ClusterGone bool
 }
 
 // ClusterServers are the servers labelled as belonging to one cluster.
@@ -163,8 +266,7 @@ type Finding struct {
 
 // PhaseReleased is the PersistentVolume phase that means the claim is gone and
 // the volume was kept. Spelled here rather than imported from k8s.io/api: this
-// program shells out to kubectl and links no Kubernetes client at all, which
-// is what keeps it a 4.7 MB binary.
+// program asks the cluster through kubectl and links no Kubernetes client.
 const PhaseReleased = "Released"
 
 // Orphans is the whole judgement, as a pure function of two lists.
@@ -181,7 +283,7 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 	found = append(found, loadBalancerFindings(inventory.LoadBalancers, claims)...)
 
 	for _, server := range inventory.Servers {
-		if claims.Nodes[server.Name] {
+		if claims.Nodes[server.Name] || claims.Held.Holds(KindServer, server.ID) {
 			continue
 		}
 
@@ -190,34 +292,29 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 		// part way through leaves it running and billed.
 		found = append(found, Finding{
 			Kind: KindServer, Name: server.Name,
-			Why: "not a node in this cluster (type " + server.Type + ")",
+			Why: "not a node in this cluster, and no stack holds it (type " + server.Type + ")",
 		})
 	}
 
 	for _, address := range inventory.PrimaryIPs {
-		if address.AssigneeID != 0 {
+		if address.AssigneeID != 0 || claims.Held.Holds(KindPrimaryIP, address.ID) {
 			continue
 		}
 
 		found = append(found, Finding{
 			Kind: KindPrimaryIP, Name: address.Name,
-			Why: "unassigned (" + address.IP + ")",
+			Why: "unassigned, and no stack holds it (" + address.IP + ")",
 		})
 	}
 
-	for _, snapshot := range inventory.Snapshots {
-		version := snapshot.Labels[TalosVersionLabel]
+	found = append(found, snapshotFindings(inventory.Snapshots, claims)...)
 
-		// Only Talos snapshots this repository bakes, and only the ones for
-		// another version. The pinned one is what every server boots from.
-		if version == "" || version == claims.TalosVersion {
+	for _, res := range inventory.Resources {
+		if claims.Held.Holds(res.Kind, res.ID) || (res.Kind == KindZone && claims.Held.HoldsZone(res)) {
 			continue
 		}
 
-		found = append(found, Finding{
-			Kind: KindSnapshot, Name: snapshot.Description, Size: snapshot.SizeGB,
-			Why: "baked for Talos " + version + ", and the topology pins " + claims.TalosVersion,
-		})
+		found = append(found, Finding{Kind: res.Kind, Name: res.Name, Why: unheld(res.Labels)})
 	}
 
 	sort.SliceStable(found, func(i, j int) bool {
@@ -231,6 +328,44 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 	return found
 }
 
+// snapshotFindings is the snapshot half of Orphans: only Talos snapshots this
+// repository bakes, and only the ones for another version. The pinned one is
+// what every server boots from.
+func snapshotFindings(snapshots []Snapshot, claims Claims) []Finding {
+	var found []Finding
+
+	for _, snapshot := range snapshots {
+		version := snapshot.Labels[TalosVersionLabel]
+
+		if claims.Held.Holds(KindSnapshot, snapshot.ID) || version == "" || version == claims.TalosVersion {
+			continue
+		}
+
+		found = append(found, Finding{
+			Kind: KindSnapshot, Name: snapshot.Description, Size: snapshot.SizeGB,
+			Why: "baked for Talos " + version + ", and the topology pins " + claims.TalosVersion,
+		})
+	}
+
+	return found
+}
+
+// unheld says why a resource no stack holds is an orphan, from who made it.
+//
+// One this repository labelled is what a destroy that stopped part-way, or a
+// stack removed with --force, leaves. One it did not label was made by hand or
+// by another tool, and is reported rather than skipped: the operator reads
+// this list to find out what is being paid for, and "something else made it"
+// is an answer.
+func unheld(labels map[string]string) string {
+	if labels[clusterspec.LabelManagedBy] == clusterspec.ManagedBy {
+		return "made by this repository for " + labels[clusterspec.LabelCluster] +
+			", and no stack holds it: a destroy stopped part-way, or a stack was removed"
+	}
+
+	return "made by neither this repository nor the cluster, and no stack holds it"
+}
+
 // Examined is what the inventory held, so a clean report is evidence rather
 // than silence.
 //
@@ -239,8 +374,24 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 // what a wrong token or an empty project looks like. The same distinction the
 // cluster side already makes by failing instead of returning an empty list.
 func (i Inventory) Examined() string {
-	return fmt.Sprintf("%d volumes, %d load balancers, %d servers, %d addresses, %d snapshots",
-		len(i.Volumes), len(i.LoadBalancers), len(i.Servers), len(i.PrimaryIPs), len(i.Snapshots))
+	counts := map[string]int{
+		KindVolume:       len(i.Volumes),
+		KindLoadBalancer: len(i.LoadBalancers),
+		KindServer:       len(i.Servers),
+		KindPrimaryIP:    len(i.PrimaryIPs),
+		KindSnapshot:     len(i.Snapshots),
+	}
+
+	for _, res := range i.Resources {
+		counts[res.Kind]++
+	}
+
+	parts := make([]string, 0, len(examinedKinds()))
+	for _, kind := range examinedKinds() {
+		parts = append(parts, fmt.Sprintf("%d %s", counts[kind.kind], kind.plural))
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 // ClusterGoneNote is the header printed when the judgement was made without a
@@ -251,7 +402,15 @@ func (i Inventory) Examined() string {
 // like a catastrophe. Saying why first turns the same list into an inventory
 // of what a teardown left behind.
 const ClusterGoneNote = "no server carries this cluster's label, so the cluster is gone and " +
-	"nothing can claim anything.\nEverything below is what the teardown left behind."
+	"claims nothing.\nEverything below is what the teardown left behind and no stack holds."
+
+// The report's column widths: the longest kind, a generated volume name, and
+// a size with its unit.
+const (
+	columnKind = 15
+	columnName = 46
+	columnSize = 9
+)
 
 // Report renders the findings against what was examined.
 //
@@ -274,7 +433,7 @@ func Report(found []Finding, examined, note string) string {
 
 	out.WriteString(header)
 
-	fmt.Fprintf(&out, "%-14s %-46s %9s  %s\n", "KIND", "NAME", "SIZE", "WHY")
+	fmt.Fprintf(&out, "%-*s %-*s %*s  %s\n", columnKind, "KIND", columnName, "NAME", columnSize, "SIZE", "WHY")
 
 	for _, finding := range found {
 		size := ""
@@ -290,7 +449,8 @@ func Report(found []Finding, examined, note string) string {
 			provisioned += int(finding.Size)
 		}
 
-		fmt.Fprintf(&out, "%-14s %-46s %9s  %s\n", finding.Kind, finding.Name, size, finding.Why)
+		fmt.Fprintf(&out, "%-*s %-*s %*s  %s\n",
+			columnKind, finding.Kind, columnName, finding.Name, columnSize, size, finding.Why)
 	}
 
 	fmt.Fprintf(&out, "\nexamined %s\n%d of them nothing claims", examined, len(found))
@@ -299,7 +459,8 @@ func Report(found []Finding, examined, note string) string {
 		fmt.Fprintf(&out, ", including %d GiB of provisioned volumes", provisioned)
 	}
 
-	out.WriteString(".\nEach is still billed. Nothing here is deleted by this check — read the\n")
+	out.WriteString(".\nMost are billed while they exist; the free ones hold their name against a\n")
+	out.WriteString("rebuild. Nothing here is deleted by this check — read the\n")
 	out.WriteString("WHY column first: a volume whose PersistentVolume is gone still holds the\n")
 	out.WriteString("data that was on it.\n")
 
@@ -326,6 +487,11 @@ func volumeFindings(volumes []Volume, claims Claims) []Finding {
 	var found []Finding
 
 	for _, volume := range volumes {
+		// One a stack made is the stack's, PersistentVolume or not.
+		if claims.Held.Holds(KindVolume, volume.ID) {
+			continue
+		}
+
 		// A Released volume is claimed by a PersistentVolume and used by
 		// nothing: the PVC is gone and Kubernetes will not bind that PV to a
 		// new claim by itself. So the object exists, the bill continues, and
@@ -369,39 +535,20 @@ func volumeFindings(volumes []Volume, claims Claims) []Finding {
 
 // loadBalancerFindings is the load-balancer half of Orphans, split out because
 // who made a balancer decides which claim can account for it: a Service for
-// the CCM's, the stack for this repository's own.
+// the CCM's, a stack for this repository's own.
 func loadBalancerFindings(balancers []LoadBalancer, claims Claims) []Finding {
 	var found []Finding
 
 	for _, balancer := range balancers {
+		if claims.Held.Holds(KindLoadBalancer, balancer.ID) {
+			continue
+		}
+
 		uid, fromCCM := balancer.Labels[ServiceUIDLabel]
-		pulumiMade := balancer.Labels[clusterspec.LabelManagedBy] == clusterspec.ManagedBy
-		leftBehind := claims.ClusterGone && balancer.Labels[clusterspec.LabelCluster] == claims.Cluster
 
 		switch {
-		case pulumiMade && leftBehind:
-			// Pulumi's own, of a cluster that is gone. The stack that should
-			// have destroyed it did not: a destroy that stopped part-way, or a
-			// stack removed with --force, leaves exactly this, and it is billed.
-			found = append(found, Finding{
-				Kind: KindLoadBalancer, Name: balancer.Name,
-				Why: "created by this repository for " + claims.Cluster +
-					", which no server belongs to any more: the stack did not destroy it",
-			})
-		case pulumiMade:
-			// Pulumi's own, and therefore claimed: the stack that created it
-			// destroys it. Checked before the CCM label because these carry
-			// no CCM label at all.
-			continue
 		case !fromCCM:
-			// Neither Pulumi's nor the CCM's. Reported rather than skipped,
-			// because the operator is reading this list to find out what is
-			// being paid for, and "something else made it" is an answer.
-			found = append(found, Finding{
-				Kind: KindLoadBalancer, Name: balancer.Name,
-				Why: "no " + ServiceUIDLabel + " and no " + clusterspec.LabelManagedBy +
-					" label: created neither by this cluster's CCM nor by this repository",
-			})
+			found = append(found, Finding{Kind: KindLoadBalancer, Name: balancer.Name, Why: unheld(balancer.Labels)})
 		case !claims.ServiceUIDs[uid]:
 			found = append(found, Finding{
 				Kind: KindLoadBalancer, Name: balancer.Name,
