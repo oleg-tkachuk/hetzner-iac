@@ -26,15 +26,12 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optrefresh"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
-	"golang.org/x/term"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilogin"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/report"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackdrift"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 )
-
-// noColorEnv is the convention the taskfiles and internal/pkg/pulumilog honour.
-const noColorEnv = "NO_COLOR"
 
 // pulumiPackage is the package of the engine's own resource types.
 const pulumiPackage = "pulumi"
@@ -90,7 +87,7 @@ func run(stack string, dirs []string) error {
 		projects = append(projects, <-result)
 	}
 
-	if err := stackdrift.Render(os.Stdout, stack, projects, painter()); err != nil {
+	if err := stackdrift.Render(os.Stdout, stack, projects, report.PainterFor(os.Stdout)); err != nil {
 		return err
 	}
 
@@ -229,12 +226,4 @@ func toChange(step apitype.StepEventMetadata) (stackdrift.Change, bool) {
 		Op:     op,
 		Fields: slices.Sorted(maps.Keys(step.DetailedDiff)),
 	}, true
-}
-
-func painter() stackstatus.Painter {
-	if _, off := os.LookupEnv(noColorEnv); off || !term.IsTerminal(int(os.Stdout.Fd())) {
-		return stackstatus.Plain
-	}
-
-	return stackstatus.ANSI
 }
