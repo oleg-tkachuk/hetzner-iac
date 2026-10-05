@@ -1016,9 +1016,10 @@ tasks:
 
   orphans:
     desc: "Hetzner resources no stack holds and the cluster does not use, every kind the project lists. Works after a teardown too"
+    # The kubeconfig quietly: it is this check's input, not something to report.
     deps:
       - task: kubeconfig
-        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
+        vars: {_CALLER: '{{default .TASK ._CALLER}}', quiet: 'yes'}
     cmds:
       # Read-only, and it never deletes. The silent ways this platform loses
       # track of a resource, most of them billed:
@@ -1039,12 +1040,17 @@ tasks:
       # A stack's state is the other claimant: every tier and layer is read,
       # every stack of each, so a resource another environment holds is not
       # reported. The token comes from the stack as every other task's does.
+      #
+      # Built rather than `go run`: go run adds its own "exit status 1" under
+      # the report, and an orphan found is not a failure of the build.
       - cmd: |
           set -euo pipefail
           for tier in {{.TIERS}}; do set -- "$@" "{{.ROOT}}/infra/${tier}"; done
           for layer in {{.LAYERS}}; do set -- "$@" "{{.ROOT}}/layers/${layer}"; done
-          go run "{{.ROOT}}/tools/orphans" \
-            "{{._CL_STACK}}" "{{.ROOT}}/kubeconfig" "{{._CL_TOPOLOGY}}" "$@"
+          bin="$(mktemp -d)"
+          trap 'rm -rf "$bin"' EXIT
+          go build -C "{{.ROOT}}" -o "$bin/orphans" ./tools/orphans
+          "$bin/orphans" "{{._CL_STACK}}" "{{.ROOT}}/kubeconfig" "{{._CL_TOPOLOGY}}" "$@"
 
   encryption:check:
     desc: "Are the system volumes actually encrypted? Talos skips encryption on a formatted partition, silently"
