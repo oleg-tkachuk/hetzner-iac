@@ -18,6 +18,7 @@ func claims() Claims {
 		ServiceUIDs:       map[string]bool{"uid-kept": true},
 		Nodes:             map[string]bool{"node-kept": true},
 		TalosVersion:      "v1.13.10",
+		Held:              NewHeld(),
 	}
 }
 
@@ -77,7 +78,7 @@ func TestOrphans_LoadBalancers(t *testing.T) {
 		// answer, not a reason to stay silent.
 		"not ours": {
 			labels: map[string]string{"team": "platform"},
-			why:    "created neither by this cluster's CCM nor by this repository",
+			why:    "made by neither this repository nor the cluster",
 		},
 	} {
 		found := Orphans(Inventory{
@@ -90,39 +91,27 @@ func TestOrphans_LoadBalancers(t *testing.T) {
 	}
 }
 
-// TestOrphans_PulumiLoadBalancersAreClaimed is the false positive this check
-// produced on a working cluster.
+// TestOrphans_PulumiLoadBalancersAreClaimedByTheirStack is the false positive
+// this check once produced on a working cluster.
 //
 // Both load balancers here are created through the Hetzner provider rather
-// than by the CCM — the API one in infra/cluster, the ingress one in
-// layers/40-ingress — because the CCM refuses to target a control-plane node.
-// Neither carries a CCM label, and the absence used to be read as "not this
-// cluster's": two findings and exit 1 with nothing wrong. `task destroy` runs
-// this check last, so the teardown reported a failure it did not have.
-func TestOrphans_PulumiLoadBalancersAreClaimed(t *testing.T) {
+// than by the CCM, and carry no CCM label. The stack holding them is what
+// claims them.
+func TestOrphans_PulumiLoadBalancersAreClaimedByTheirStack(t *testing.T) {
 	t.Parallel()
+
+	held := claims()
+	held.Held.Add(KindLoadBalancer, 7848680)
+	held.Held.Add(KindLoadBalancer, 7848779)
 
 	found := Orphans(Inventory{
 		LoadBalancers: []LoadBalancer{
-			{
-				Name: "platform-dev-api",
-				Labels: map[string]string{
-					clusterspec.LabelCluster:   "platform-dev",
-					clusterspec.LabelManagedBy: clusterspec.ManagedBy,
-				},
-			},
-			{
-				Name: "platform-dev-ingress",
-				Labels: map[string]string{
-					clusterspec.LabelCluster:   "platform-dev",
-					clusterspec.LabelManagedBy: clusterspec.ManagedBy,
-				},
-			},
+			{ID: 7848680, Name: "platform-dev-api", Labels: ours("platform-dev")},
+			{ID: 7848779, Name: "platform-dev-ingress", Labels: ours("platform-dev")},
 		},
-	}, claims())
+	}, held)
 
-	assert.Empty(t, found,
-		"a load balancer this repository created is claimed by the stack that created it")
+	assert.Empty(t, found, "a load balancer a stack holds is that stack's to destroy")
 }
 
 func TestOrphans_AServerThatIsNotANode(t *testing.T) {
@@ -374,43 +363,142 @@ func TestOrphans_AReleasedVolumeIsNotReportedTwice(t *testing.T) {
 	assert.Contains(t, found[0].Why, PhaseReleased)
 }
 
-// TestOrphans_WithNoClusterReportsItsPulumiLoadBalancers is the bill the
-// cluster-gone report used to hide.
+// TestOrphans_ALabelledResourceNoStackHoldsIsReported is the bill the label
+// alone used to hide.
 //
-// A load balancer this repository created is claimed by the stack that
-// created it only while that stack can still destroy it. Once no server
-// carries the cluster's label, one that is still there is what a destroy that
-// stopped part-way, or a stack removed with --force, left behind — and the
-// report promises that everything it lists is exactly that. Another cluster's
-// balancer in the same project is still that cluster's stack's to destroy.
-func TestOrphans_WithNoClusterReportsItsPulumiLoadBalancers(t *testing.T) {
+// The label says this repository made it; only a state says a stack will
+// destroy it. A destroy that stopped part-way, a stack removed with --force,
+// or a layer destroyed while the cluster lives leaves exactly this.
+func TestOrphans_ALabelledResourceNoStackHoldsIsReported(t *testing.T) {
 	t.Parallel()
 
-	pulumiOwned := func(name, cluster string) LoadBalancer {
-		return LoadBalancer{Name: name, Labels: map[string]string{
-			clusterspec.LabelCluster:   cluster,
-			clusterspec.LabelManagedBy: clusterspec.ManagedBy,
-		}}
-	}
+	found := Orphans(Inventory{
+		LoadBalancers: []LoadBalancer{{ID: 1, Name: "platform-dev-ingress", Labels: ours("platform-dev")}},
+	}, claims())
 
-	inventory := Inventory{LoadBalancers: []LoadBalancer{
-		pulumiOwned("platform-dev-ingress", "platform-dev"),
-		pulumiOwned("platform-prod-ingress", "platform-prod"),
-	}}
-
-	gone := claims()
-	gone.Cluster = "platform-dev"
-	gone.ClusterGone = true
-
-	found := Orphans(inventory, gone)
-
-	require.Len(t, found, 1, "only the gone cluster's balancer is left behind")
-	assert.Equal(t, KindLoadBalancer, found[0].Kind)
+	require.Len(t, found, 1, "the cluster being alive does not make a stack hold it")
 	assert.Equal(t, "platform-dev-ingress", found[0].Name)
+	assert.Contains(t, found[0].Why, "made by this repository for platform-dev")
+	assert.Contains(t, found[0].Why, "no stack holds it")
+}
 
-	alive := claims()
-	alive.Cluster = "platform-dev"
+// TestOrphans_StackOnlyKinds covers every kind nothing in the cluster can
+// claim: held by a stack, or reported with who made it.
+func TestOrphans_StackOnlyKinds(t *testing.T) {
+	t.Parallel()
 
-	assert.Empty(t, Orphans(inventory, alive),
-		"while the cluster exists its stack still claims the balancer")
+	for _, kind := range []string{
+		KindFloatingIP, KindNetwork, KindFirewall, KindPlacementGroup, KindSSHKey,
+		KindCertificate, KindStorageBox, KindSubaccount, KindZone,
+	} {
+		held := claims()
+		held.Held.Add(kind, 1)
+
+		found := Orphans(Inventory{Resources: []Resource{
+			{Kind: kind, ID: 1, Name: "held"},
+			{Kind: kind, ID: 2, Name: "left-behind", Labels: ours("platform-dev")},
+			{Kind: kind, ID: 3, Name: "by-hand"},
+		}}, held)
+
+		require.Len(t, found, 2, kind)
+		assert.Equal(t, kind, found[0].Kind, kind)
+		assert.Equal(t, "by-hand", found[0].Name, kind)
+		assert.Contains(t, found[0].Why, "made by neither this repository nor the cluster", kind)
+		assert.Equal(t, "left-behind", found[1].Name, kind)
+		assert.Contains(t, found[1].Why, "made by this repository for platform-dev", kind)
+	}
+}
+
+// TestOrphans_HeldIsPerKind: the API numbers each kind on its own, so a
+// server's ID can be a network's too.
+func TestOrphans_HeldIsPerKind(t *testing.T) {
+	t.Parallel()
+
+	held := claims()
+	held.Held.Add(KindServer, 42)
+
+	found := Orphans(Inventory{Resources: []Resource{{Kind: KindNetwork, ID: 42, Name: "net"}}}, held)
+
+	require.Len(t, found, 1)
+	assert.Equal(t, KindNetwork, found[0].Kind)
+}
+
+// TestOrphans_AZoneIsClaimedByTheRecordsWrittenToIt: the zone is made by
+// hand and delegated, and a stack writes record sets into it.
+func TestOrphans_AZoneIsClaimedByTheRecordsWrittenToIt(t *testing.T) {
+	t.Parallel()
+
+	held := claims()
+	held.Held.Zones["example.com"] = true
+	// The provider takes the zone's ID as well as its name.
+	held.Held.Zones["3"] = true
+
+	found := Orphans(Inventory{Resources: []Resource{
+		{Kind: KindZone, ID: 1, Name: "example.com"},
+		{Kind: KindZone, ID: 2, Name: "example.org"},
+		{Kind: KindZone, ID: 3, Name: "example.net"},
+	}}, held)
+
+	require.Len(t, found, 1)
+	assert.Equal(t, "example.org", found[0].Name)
+}
+
+func TestRefuseEmptyBackend(t *testing.T) {
+	t.Parallel()
+
+	require.ErrorIs(t, RefuseEmptyBackend(3, 0), ErrNoStacks,
+		"servers and no stack anywhere: the wrong backend would call everything unheld")
+	require.NoError(t, RefuseEmptyBackend(0, 0), "after a teardown, no stacks is the truth")
+	require.NoError(t, RefuseEmptyBackend(3, 7))
+	require.NoError(t, RefuseEmptyBackend(0, 7))
+}
+
+// TestOrphans_AStackClaimsWhatTheClusterDoesNot: a held resource is the
+// stack's to destroy, whatever the cluster's own claims say.
+func TestOrphans_AStackClaimsWhatTheClusterDoesNot(t *testing.T) {
+	t.Parallel()
+
+	held := claims()
+	held.Held.Add(KindServer, 1)
+	held.Held.Add(KindPrimaryIP, 2)
+	held.Held.Add(KindVolume, 3)
+	held.Held.Add(KindSnapshot, 4)
+
+	found := Orphans(Inventory{
+		// A server that has not joined yet.
+		Servers: []Server{{ID: 1, Name: "platform-dev-control-plane-0"}},
+		// An address held across a server's replacement.
+		PrimaryIPs: []PrimaryIP{{ID: 2, Name: "platform-dev-control-plane-0", IP: "192.0.2.1"}},
+		Volumes:    []Volume{{ID: 3, Name: "made-by-a-stack", SizeGB: 10}},
+		Snapshots: []Snapshot{{
+			ID: 4, Description: "made-by-a-stack", Labels: map[string]string{TalosVersionLabel: "v1.0.0"},
+		}},
+	}, held)
+
+	assert.Empty(t, found)
+}
+
+func TestExamined_CountsEveryKind(t *testing.T) {
+	t.Parallel()
+
+	got := Inventory{
+		Volumes:   []Volume{{}},
+		Resources: []Resource{{Kind: KindNetwork}, {Kind: KindNetwork}, {Kind: KindZone}},
+	}.Examined()
+
+	assert.True(t, strings.HasPrefix(got, "1 volumes, "), got)
+	assert.Contains(t, got, "2 networks")
+	assert.Contains(t, got, "1 dns zones")
+
+	for _, kind := range examinedKinds() {
+		assert.Contains(t, got, kind.plural, "every kind is counted, zero or not")
+	}
+}
+
+// ours is the label set this repository stamps on what it creates.
+func ours(cluster string) map[string]string {
+	return map[string]string{
+		clusterspec.LabelCluster:   cluster,
+		clusterspec.LabelManagedBy: clusterspec.ManagedBy,
+	}
 }
