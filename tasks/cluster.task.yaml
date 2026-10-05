@@ -184,7 +184,8 @@ vars:
 
 # The tasks below with a `deps:` carry no stack guard of their own: Task runs
 # dependencies before a task's own preconditions, so the dependency's guard
-# fires first and names itself. A second guard there would be unreachable.
+# fires first. A second guard there would be unreachable. Each dependency is
+# passed _CALLER, so its usage names the task the operator ran, not its own.
 
   # The restic repository on the Storage Box, for etcd:upload and
   # etcd:download: the backup tier's outputs, the box's host key, and the
@@ -408,7 +409,7 @@ tasks:
     desc: "Create the Pulumi stack for this environment"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_USAGE | replace .TASK (default .TASK ._CALLER)}}"
     cmds:
       # cmd/stack, because the same decision is made here, in platform:init
       # and in the preview workflow, and three copies of a `pulumi stack ls
@@ -427,7 +428,9 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-    deps: [init]
+    deps:
+      - task: init
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     cmds:
       # No `token=` variable, deliberately. Passing a credential as a task
       # argument writes it into the shell history and into the process
@@ -454,9 +457,9 @@ tasks:
     desc: "Show what applying the cluster would change; change nothing"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_USAGE | replace .TASK (default .TASK ._CALLER)}}"
       - sh: '[ -z "{{.target}}" ]'
-        msg: "{{._NO_TARGET_USAGE}}"
+        msg: "{{._NO_TARGET_USAGE | replace .TASK (default .TASK ._CALLER)}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -491,7 +494,7 @@ tasks:
     # never runs.
     deps:
       - task: plan
-        vars: {replace_control_plane: '{{.replace_control_plane}}'}
+        vars: {_CALLER: '{{default .TASK ._CALLER}}', replace_control_plane: '{{.replace_control_plane}}'}
     prompt: "Apply the {{._CL_STACK}} cluster? This creates servers, and replaces them when an input forces it."
     cmds:
       # replace_control_plane=yes is --ignore-protect, and it is the only way
@@ -614,7 +617,9 @@ tasks:
 
   stop:
     desc: "Shut the cluster down cleanly through Talos — it keeps existing, and keeps being billed"
-    deps: [talosconfig]
+    deps:
+      - task: talosconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     prompt: "Shut down every node of {{._CL_STACK}}? The API stops answering until it is powered on again."
     cmds:
       # The CLUSTER's stop, which is a different operation from the
@@ -643,7 +648,9 @@ tasks:
 
   reboot:
     desc: "Reboot the cluster's nodes through Talos"
-    deps: [talosconfig]
+    deps:
+      - task: talosconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     prompt: "Reboot every node of {{._CL_STACK}}?"
     cmds:
       # Talos again, for the same reason, and it comes back on its own — no
@@ -681,7 +688,7 @@ tasks:
     desc: "Write ./kubeconfig from the cluster stack"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_USAGE | replace .TASK (default .TASK ._CALLER)}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -705,7 +712,7 @@ tasks:
     # The kubeconfig quietly: it is this check's input, not something to report.
     deps:
       - task: kubeconfig
-        vars: {quiet: 'yes'}
+        vars: {_CALLER: '{{default .TASK ._CALLER}}', quiet: 'yes'}
     cmds:
       - cmd: |
           set -euo pipefail
@@ -716,7 +723,9 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-    deps: [kubeconfig]
+    deps:
+      - task: kubeconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     cmds:
       # Entries added through kubectl, not a merged file.
       #
@@ -824,7 +833,7 @@ tasks:
     desc: "Write ./talosconfig from the cluster stack"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._STACK_USAGE}}"
+        msg: "{{._STACK_USAGE | replace .TASK (default .TASK ._CALLER)}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -843,13 +852,17 @@ tasks:
 
   nodes:
     desc: "List cluster nodes"
-    deps: [kubeconfig]
+    deps:
+      - task: kubeconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     cmds:
       - KUBECONFIG="{{.ROOT}}/kubeconfig" kubectl get nodes -o wide
 
   status:
     desc: "Cluster health at a glance: nodes, then anything not Running"
-    deps: [kubeconfig]
+    deps:
+      - task: kubeconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     cmds:
       - cmd: |
           set -euo pipefail
@@ -876,7 +889,9 @@ tasks:
 
   hubble:
     desc: "Observe pod flows through Hubble — the evidence layers/20-network-policy is built from"
-    deps: [kubeconfig]
+    deps:
+      - task: kubeconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     vars:
       # Enough to cover the periodic traffic — kubelet probes, scrapes, DNS —
       # without reaching past what the relay still holds.
@@ -915,7 +930,9 @@ tasks:
 
   audit:
     desc: "Who did what to this cluster's API, from every control-plane node; read-only"
-    deps: [talosconfig]
+    deps:
+      - task: talosconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     vars:
       # Per node, not in total. Three API servers each write their own log and
       # the load balancer spreads requests across them, so a question about
@@ -999,7 +1016,9 @@ tasks:
 
   orphans:
     desc: "Hetzner resources no stack holds and the cluster does not use, every kind the project lists. Works after a teardown too"
-    deps: [kubeconfig]
+    deps:
+      - task: kubeconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     cmds:
       # Read-only, and it never deletes. The silent ways this platform loses
       # track of a resource, most of them billed:
@@ -1029,7 +1048,9 @@ tasks:
 
   encryption:check:
     desc: "Are the system volumes actually encrypted? Talos skips encryption on a formatted partition, silently"
-    deps: [talosconfig]
+    deps:
+      - task: talosconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     cmds:
       # The check exists because the failure is silent in the worst way: Talos
       # encrypts STATE and EPHEMERAL only when the partition is empty and has
@@ -1211,7 +1232,9 @@ tasks:
 
   etcd:snapshot:
     desc: "Take an etcd snapshot into .backups/, read it back, and record what it holds"
-    deps: [talosconfig]
+    deps:
+      - task: talosconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
@@ -1249,7 +1272,9 @@ tasks:
 
   etcd:restore:
     desc: "Restore etcd from a snapshot — wipes every control-plane node first (snapshot=<path>). The other half of a backup."
-    deps: [talosconfig]
+    deps:
+      - task: talosconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
@@ -1645,7 +1670,11 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-    deps: [talosconfig, kubeconfig]
+    deps:
+      - task: talosconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
+      - task: kubeconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     prompt: "Upgrade Talos on every node of {{._CL_STACK}}?"
     cmds:
       - cmd: |
@@ -1726,7 +1755,11 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
         msg: "{{._STACK_USAGE}}"
-    deps: [talosconfig, kubeconfig]
+    deps:
+      - task: talosconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
+      - task: kubeconfig
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     prompt: "Upgrade Kubernetes on {{._CL_STACK}}?"
     cmds:
       - cmd: |

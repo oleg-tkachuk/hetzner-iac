@@ -37,7 +37,7 @@ tasks:
     desc: "Create the backup tier's stack and point it at the cluster (override with ref=<org>/hetzner-cluster/<stack>)"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._BK_USAGE}}"
+        msg: "{{._BK_USAGE | replace .TASK (default .TASK ._CALLER)}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -61,9 +61,9 @@ tasks:
     desc: "Preview the backup tier; changes nothing"
     preconditions:
       - sh: '[ -n "{{.stack}}" ]'
-        msg: "{{._BK_USAGE}}"
+        msg: "{{._BK_USAGE | replace .TASK (default .TASK ._CALLER)}}"
       - sh: '[ -z "{{.target}}" ]'
-        msg: "{{._NO_TARGET_USAGE}}"
+        msg: "{{._NO_TARGET_USAGE | replace .TASK (default .TASK ._CALLER)}}"
     cmds:
       - cmd: |
           set -euo pipefail
@@ -82,7 +82,9 @@ tasks:
     # on the first apply. A second apply does not rotate them — RandomPassword
     # keeps its value — so this is safe to repeat, which is what the prompt is
     # NOT about. It is about creating a paid resource.
-    deps: [plan]
+    deps:
+      - task: plan
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
     prompt: "Apply the backup tier on {{._BK_STACK}}? This creates a billable Storage Box."
     cmds:
       - cmd: |
