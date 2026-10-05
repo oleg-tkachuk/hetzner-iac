@@ -70,7 +70,7 @@ env:
   # renovate: datasource=go depName=github.com/rhysd/actionlint
   ACTIONLINT_VERSION: "v1.7.12"
   # renovate: datasource=github-releases depName=aquasecurity/trivy extractVersion=^v(?<version>.+)$
-  TRIVY_VERSION: "0.74.0"
+  TRIVY_VERSION: "0.75.0"
 
 jobs:
   # Every job installs the tool and then calls the SAME task an operator runs
