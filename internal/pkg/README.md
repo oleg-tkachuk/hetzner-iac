@@ -18,6 +18,7 @@ under [layers/](../../layers), [infra/cluster/](../../infra/cluster) and
 | [cni/](cni) | which CNI a stack installs, and whether it agrees with what Talos did to kube-proxy |
 | [clustersmoke/](clustersmoke) | can a cluster run a workload — the judgements behind `tools/smoke` |
 | [pulumilog/](pulumilog) | the output vocabulary, the same one the taskfiles print |
+| [report/](report) | the layout `platform:status`, `platform:drift` and `cluster:orphans` share: title, facts, table, sections, verdict, and the marks the taskfiles print |
 | [stackstatus/](stackstatus) | the report behind `task platform:status`, without the Pulumi import that reads it |
 | [stackdrift/](stackdrift) | the report behind `task platform:drift`, without the Pulumi import that reads it |
 | [pulumilogin/](pulumilogin) | refuses to start against a backend this machine holds no credential for, before the CLI signs up a temporary account |
