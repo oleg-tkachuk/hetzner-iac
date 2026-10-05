@@ -64,8 +64,8 @@ configuration with Talos machinery v1.13.
 ### The secretbox key can be rotated
 
 The key that encrypts Secrets in etcd is the one the cluster was created with.
-On the v1.13 contract Talos renders a single secretbox provider from
-`cluster.secretboxEncryptionSecret`, always named `key2`, so a new value there
+On the v1.13 contract Talos renders a single secretbox provider from the
+machine config's one secretbox secret, always named `key2`, so a new value there
 strands every Secret written under the old one. The v1.14 contract's
 `KubeEtcdEncryptionConfig` holds a full encryption config: a second key
 added behind the first, promoted, then a `StorageVersionMigration` for
@@ -99,6 +99,11 @@ it — the refusal follows the architecture, not the region.
 - **Drift is reported.** `task platform:drift` exits 1 on drift, run by hand:
   a hosted CI runner cannot reach APIs the firewall opens to
   `network.adminCIDRs` only.
+- **Unmanaged resources are reported.** `task cluster:orphans` reads every
+  kind the Hetzner project holds and exits 1 on any that no stack holds and
+  the cluster does not use: the half of drift a refresh never sees, left by a
+  destroy that stopped part-way or made by hand. Run by hand, for the same
+  reason.
 - **Upgrades rehearsed.** Talos v1.13.10 → v1.14.2 node by node and Kubernetes
   v1.36.4 → v1.37.1, on dev, smoke passing.
 - **Stable control-plane addresses.** Control-plane nodes hold explicit Primary
@@ -110,9 +115,9 @@ it — the refusal follows the architecture, not the region.
   is not a goal and would cost the things that keep this simple.
 - **A managed control plane.** Hetzner offers none — that is why this exists.
 - **Observability.** Metrics, logs and alerting are for whoever runs workloads
-  on the cluster to choose and install. The smoke checks and
-  `task platform:drift` verify the cluster and its platform, and are not
-  monitoring.
+  on the cluster to choose and install. The smoke checks,
+  `task platform:drift` and `task cluster:orphans` verify the cluster and its
+  platform, and are not monitoring.
 - **Volume backup.** Left to the cluster's users, since everything else is
   rebuilt from this repository; [ADR-0006](docs/adr/0006-volume-backup.md)
   records the options.
