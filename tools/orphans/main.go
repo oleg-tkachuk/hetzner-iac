@@ -31,15 +31,20 @@ import (
 	"time"
 
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"golang.org/x/term"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hcloudtoken"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilogin"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 )
 
 // timeout covers a stack export per project and environment, a listing per
 // Hetzner resource kind and four kubectl calls, on a slow link.
 const timeout = 5 * time.Minute
+
+// noColorEnv is the convention the taskfiles and internal/pkg/pulumilog honour.
+const noColorEnv = "NO_COLOR"
 
 // The arguments before the project directories.
 const fixedArgs = 3
@@ -115,8 +120,6 @@ func run() (clean bool, err error) {
 		Nodes:             map[string]bool{},
 	}
 
-	note := ClusterGoneNote
-
 	servers := ClusterServers(inventory, topology.Metadata.Name)
 
 	err = RefuseEmptyBackend(len(servers), held.Stacks)
@@ -125,8 +128,6 @@ func run() (clean bool, err error) {
 	}
 
 	if len(servers) > 0 {
-		note = ""
-
 		claims, err = readClaims(ctx, kubeconfig)
 		if err != nil {
 			return false, fmt.Errorf("%w\n\n%d server(s) still carry %s=%s, so the cluster "+
@@ -139,11 +140,22 @@ func run() (clean bool, err error) {
 	claims.Held = held
 
 	found := Orphans(inventory, claims)
-	examined := fmt.Sprintf("%s, against %d stack state(s)", inventory.Examined(), held.Stacks)
+	header := Header{
+		Stack: stack, Cluster: topology.Metadata.Name, ClusterGone: len(servers) == 0, Stacks: held.Stacks,
+	}
 
-	fmt.Print(Report(found, examined, note))
+	fmt.Print(Report(header, inventory, found, painter()))
 
 	return len(found) == 0, nil
+}
+
+// painter colours the report on a terminal, unless NO_COLOR is set.
+func painter() stackstatus.Painter {
+	if _, off := os.LookupEnv(noColorEnv); off || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return stackstatus.Plain
+	}
+
+	return stackstatus.ANSI
 }
 
 // readInventory asks Hetzner what the project holds.
