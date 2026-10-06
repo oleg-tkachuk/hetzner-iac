@@ -302,6 +302,26 @@ Full reference: [commands.md](docs/commands.md). The checks and scanners live
 in `Taskfile.dev.yaml`, for working on this repository:
 [commands.md](docs/commands.md#working-on-this-repository).
 
+### Checking the state still matches the cloud
+
+Two read-only checks cover the halves a plan does not read. Both exit 1 on a
+finding, so a schedule can run them.
+
+```bash
+# Resources changed outside Pulumi: each tier's and layer's state against the
+# cloud, from a refresh preview. Writes nothing.
+task platform:drift stack=dev
+
+# Hetzner resources no stack holds and the cluster does not use, such as
+# volumes a destroyed layer left behind. Works with no cluster at all.
+task cluster:orphans stack=dev
+```
+
+Drift is taken into state with `task platform:refresh` or undone by an apply;
+an orphan is never deleted for you. Sources:
+[tools/stackdrift](tools/stackdrift), [tools/orphans](tools/orphans). The
+rest of the checks: [operations.md](docs/operations.md#checks-worth-running).
+
 ## Configuration
 
 Everything that shapes a cluster is in `infra/cluster/cluster.<stack>.yaml`,
