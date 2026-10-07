@@ -57,7 +57,11 @@ import (
 // own copy of is a value that drifts. The drift is silent: an Ingress for one
 // name behind a record for another is accepted by everything and serves
 // nothing.
-const ContractVersion = 3
+//
+// v4 added ingressIpv4Id and ingressIpv6Id. The ingress load balancer lives in
+// 40-ingress and its addresses must outlive it, so the tier keeps them as
+// Primary IPs and the layer creates the load balancer on them.
+const ContractVersion = 4
 
 // Output names exported by the cluster tier. Renaming one is a breaking change
 // to every layer, which is why they are constants rather than literals.
@@ -78,6 +82,8 @@ const (
 	OutputRoutingMode       = "routingMode"
 	OutputDomain            = "domain"
 	OutputDNSZone           = "dnsZone"
+	OutputIngressIPv4ID     = "ingressIpv4Id"
+	OutputIngressIPv6ID     = "ingressIpv6Id"
 )
 
 // ProbeLocation is the Hetzner location every test fixture and every render
@@ -135,6 +141,8 @@ var Declared = []string{
 	OutputRoutingMode,
 	OutputDomain,
 	OutputDNSZone,
+	OutputIngressIPv4ID,
+	OutputIngressIPv6ID,
 }
 
 // Cluster is the resolved view of the cluster tier's outputs.
@@ -185,6 +193,12 @@ type Cluster struct {
 	// authoritative DNS is somewhere else — a supported state, and one the
 	// ingress layer reports rather than failing on.
 	DNSZone pulumi.StringOutput
+
+	// IngressIPv4ID and IngressIPv6ID are the Primary IPs the ingress load
+	// balancer is created on. The tier keeps them so a replaced load balancer
+	// comes back on the addresses the domain's records name.
+	IngressIPv4ID pulumi.IntOutput
+	IngressIPv6ID pulumi.IntOutput
 
 	// ControlPlaneCount is how many control-plane nodes the topology declares.
 	// A consumer needs it to size anything that cannot put two replicas on one
@@ -242,6 +256,8 @@ func Resolve(ctx *pulumi.Context, ref string) (*Cluster, error) {
 		RoutingMode:       stack.GetStringOutput(pulumi.String(OutputRoutingMode)),
 		Domain:            stack.GetStringOutput(pulumi.String(OutputDomain)),
 		DNSZone:           stack.GetStringOutput(pulumi.String(OutputDNSZone)),
+		IngressIPv4ID:     stack.GetIntOutput(pulumi.String(OutputIngressIPv4ID)),
+		IngressIPv6ID:     stack.GetIntOutput(pulumi.String(OutputIngressIPv6ID)),
 	}, nil
 }
 

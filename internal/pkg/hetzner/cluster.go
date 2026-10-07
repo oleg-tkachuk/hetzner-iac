@@ -56,6 +56,11 @@ type Cluster struct {
 	NetworkID         pulumi.IntOutput    `pulumi:"networkId"`
 	PodCIDR           pulumi.StringOutput `pulumi:"podCidr"`
 	ServiceCIDR       pulumi.StringOutput `pulumi:"serviceCidr"`
+
+	// IngressIPv4ID and IngressIPv6ID are the Primary IPs the ingress load
+	// balancer is created on, kept here so they outlive it.
+	IngressIPv4ID pulumi.IntOutput `pulumi:"ingressIpv4Id"`
+	IngressIPv6ID pulumi.IntOutput `pulumi:"ingressIpv6Id"`
 }
 
 // ClusterArgs is the resolved topology plus anything that must not live in a
@@ -147,6 +152,11 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		return nil, err
 	}
 
+	ingress, err := NewIngressAddresses(ctx, name, topology, parent)
+	if err != nil {
+		return nil, err
+	}
+
 	talosconfig, err := asSecret("talosconfig", talosconfigFor(ctx, topology, config.secrets, controlPlane))
 	if err != nil {
 		return nil, err
@@ -163,10 +173,12 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 	component.NetworkID = base.network.NetworkID
 	component.PodCIDR = pulumi.String(topology.Network.PodCIDR).ToStringOutput()
 	component.ServiceCIDR = pulumi.String(topology.Network.ServiceCIDR).ToStringOutput()
+	component.IngressIPv4ID = ingress.IPv4ID
+	component.IngressIPv6ID = ingress.IPv6ID
 
-	// Literals, and the same seven names as the fields' own tags — which is
-	// what TestComponentOutputs_AreTheFieldsTheyAreTaggedAs holds, since a Go
-	// tag cannot be a constant. Seven of them also read like
+	// Literals, and the same names as the fields' own tags — which is what
+	// TestComponentOutputs_AreTheFieldsTheyAreTaggedAs holds, since a Go tag
+	// cannot be a constant. Every one of them also reads like
 	// clusterref.Output*, and that is not a contract: those are the stack's
 	// exported names, which layers and shell read, while these belong to the
 	// component and nothing outside this program sees them. They agree because
@@ -179,6 +191,8 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		"networkId":         component.NetworkID,
 		"podCidr":           component.PodCIDR,
 		"serviceCidr":       component.ServiceCIDR,
+		"ingressIpv4Id":     component.IngressIPv4ID,
+		"ingressIpv6Id":     component.IngressIPv6ID,
 	}); err != nil {
 		return nil, fmt.Errorf("register cluster outputs: %w", err)
 	}

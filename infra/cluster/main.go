@@ -210,6 +210,11 @@ func exports(topology *clusterspec.Topology, cluster *hetzner.Cluster, token pul
 		clusterref.OutputLocation:    pulumi.String(topology.Placement.Location),
 
 		clusterref.OutputHcloudToken: token,
+
+		// The ingress load balancer's addresses, kept here so they outlive
+		// it: 40-ingress creates the load balancer on them.
+		clusterref.OutputIngressIPv4ID: cluster.IngressIPv4ID,
+		clusterref.OutputIngressIPv6ID: cluster.IngressIPv6ID,
 	}
 }
 

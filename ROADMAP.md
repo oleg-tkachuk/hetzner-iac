@@ -108,6 +108,9 @@ it — the refusal follows the architecture, not the region.
   v1.36.4 → v1.37.1, on dev, smoke passing.
 - **Stable control-plane addresses.** Control-plane nodes hold explicit Primary
   IPs, so a replacement keeps the address the kubeconfig and talosconfig name.
+- **Stable ingress addresses.** The ingress load balancer is created on Primary
+  IPs the cluster tier keeps, so a re-applied ingress keeps the address the
+  domain's records name.
 
 ## Not planned
 

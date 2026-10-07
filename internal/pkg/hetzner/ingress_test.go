@@ -21,6 +21,12 @@ const testCluster = "platform-prod"
 // testNetworkID is what the cluster tier publishes as networkId.
 const testNetworkID = 12648820
 
+// The Primary IP ids the cluster tier publishes for the ingress.
+const (
+	testIngressIPv4ID = 149808390
+	testIngressIPv6ID = 149808391
+)
+
 // runIngress creates an ingress load balancer under the mock monitor and
 // returns what was registered.
 func runIngress(t *testing.T) *recorder {
@@ -34,6 +40,8 @@ func runIngress(t *testing.T) *recorder {
 			Location:         pulumi.String(clusterref.ProbeLocation),
 			NetworkID:        pulumi.Int(testNetworkID),
 			LoadBalancerType: "lb11",
+			IPv4ID:           pulumi.Int(testIngressIPv4ID),
+			IPv6ID:           pulumi.Int(testIngressIPv6ID),
 		})
 
 		return err
@@ -65,6 +73,27 @@ func TestIngressLoadBalancer_IsPlacedAndLabelledWithTheCluster(t *testing.T) {
 	// below matches, so a load balancer without it targets nothing.
 	labels := got["labels"].ObjectValue()
 	assert.Equal(t, testCluster, labels[resource.PropertyKey(clusterspec.LabelCluster)].StringValue())
+}
+
+// TestIngressLoadBalancer_IsCreatedOnTheClustersAddresses is the point of the
+// cluster tier keeping them: a load balancer created on them comes back on the
+// same addresses after a replacement.
+func TestIngressLoadBalancer_IsCreatedOnTheClustersAddresses(t *testing.T) {
+	t.Parallel()
+
+	rec := runIngress(t)
+
+	registered := rec.of("hcloud:index/loadBalancer:LoadBalancer")
+	require.Len(t, registered, 1)
+
+	assert.EqualValues(t, testIngressIPv4ID, registered[0]["ipv4Id"].NumberValue())
+	assert.EqualValues(t, testIngressIPv6ID, registered[0]["ipv6Id"].NumberValue())
+
+	// Hetzner cannot move a load balancer to another Primary IP, so a diff on
+	// either could only replace it — and state written before the fields
+	// existed holds none, which is a diff on every live load balancer.
+	assert.Subset(t, rec.ignoreChanges["ingress"], []string{"ipv4Id", "ipv6Id"},
+		"a changed address id plans a replacement of the ingress")
 }
 
 func TestIngressLoadBalancer_ServesBothEntryPointsOnThePinnedNodePorts(t *testing.T) {

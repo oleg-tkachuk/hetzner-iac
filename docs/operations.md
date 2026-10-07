@@ -241,3 +241,56 @@ touched.
 
 4. `task cluster:plan stack=<stack>` should show the three addresses renamed,
    labelled and set to auto-delete off, and nothing else. Apply it.
+
+## Ingress addresses
+
+The ingress load balancer is created on two Primary IPs the cluster tier keeps,
+with auto-delete off, so a destroyed and re-applied `40-ingress` comes back on
+the addresses the domain's records name. Only a cluster teardown releases them.
+
+A load balancer takes its Primary IPs when it is created and keeps them for
+its lifetime; the ids are ignored on an existing one.
+
+### Moving a cluster that predates this
+
+A cluster tier publishing contract v3 (`pulumi stack output contractVersion`)
+has no ingress addresses, and a plain apply would create two new ones the load
+balancer never uses — nothing reports that. Its own addresses are Primary IPs
+already, with auto-delete on. Adopt them before that apply; the load balancer
+is not touched.
+
+1. Find the ingress load balancer's two address ids:
+
+   ```bash
+   bash -c 'cd infra/cluster && HCLOUD_TOKEN="$(pulumi config get hcloud:token --stack <stack>)" hcloud load-balancer describe <cluster>-ingress -o json | jq -r "\"\(.public_net.ipv4.id) \(.public_net.ipv6.id)\""'
+   ```
+
+2. Import them under the cluster component:
+
+   ```json
+   {
+     "nameTable": {"cluster": "urn:pulumi:<stack>::hetzner-cluster::hetzner-iac:cluster:Cluster::<cluster>"},
+     "resources": [
+       {"type": "hcloud:index/primaryIp:PrimaryIp", "name": "<cluster>-ingress-ipv4", "id": "<ipv4 id>", "parent": "cluster"},
+       {"type": "hcloud:index/primaryIp:PrimaryIp", "name": "<cluster>-ingress-ipv6", "id": "<ipv6 id>", "parent": "cluster"}
+     ]
+   }
+   ```
+
+   ```bash
+   bash -c 'cd infra/cluster && pulumi import --stack <stack> --file <that file> --generate-code=false --protect'
+   ```
+
+3. Drop the imported `assigneeId` and `assigneeType` inputs. The load balancer
+   holds the assignment, and the provider warns on an `assigneeType` given
+   without an `assigneeId`:
+
+   ```bash
+   bash -c 'cd infra/cluster && pulumi stack export --stack <stack> > state.json && jq "(.deployment.resources[] | select(.type==\"hcloud:index/primaryIp:PrimaryIp\" and (.urn | contains(\"-ingress-\"))) | .inputs) |= del(.assigneeId, .assigneeType)" state.json > state.new.json && pulumi stack import --stack <stack> --file state.new.json'
+   ```
+
+4. `task cluster:plan stack=<stack>` should show the two addresses renamed,
+   labelled and set to auto-delete off, and nothing else. Apply it.
+
+5. `task platform:plan stack=<stack> layer=40-ingress` should plan no
+   replacement of the load balancer. Then apply the layer.
