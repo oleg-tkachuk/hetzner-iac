@@ -79,6 +79,18 @@ const (
 	AcmeStagingKey = "acmeStaging"
 )
 
+// Stack outputs. Every export is a named constant, in every layer, so the set
+// a stack publishes is greppable. TestLayers_ExportOnlyNamedOutputs holds that.
+const (
+	// OutputClusterIssuer is the ClusterIssuer's name, or empty when the
+	// component declined because acmeEmail is unset. Empty rather than
+	// absent: a consumer reads one output either way.
+	OutputClusterIssuer = "clusterIssuer"
+	// OutputKedaEnabled says whether this stack installed KEDA. Named after
+	// the switch it reports, which is this layer's own stack config.
+	OutputKedaEnabled = "kedaEnabled"
+)
+
 // Components are what this layer deploys.
 //
 // The ClusterIssuer is a component that may decline. Its Create returns
@@ -218,7 +230,38 @@ func createClusterIssuer(r *layer.Runner, dependencies []pulumi.Resource) (pulum
 }
 
 func main() {
-	layer.RunComponents(Components)
+	layer.Run(func(r *layer.Runner) error {
+		deployed, err := r.Deploy(Components)
+		if err != nil {
+			return err
+		}
+
+		for name, value := range exports(deployed) {
+			r.Ctx.Export(name, value)
+		}
+
+		return nil
+	})
+}
+
+// exports pairs every output this layer publishes with its value.
+//
+// Both are read from what Deploy created rather than from the config again: a
+// component that declined, or whose When said no, is absent from Deployed, so
+// each output is the decision the component made and cannot disagree with it.
+func exports(deployed layer.Deployed) map[string]pulumi.Input {
+	issuer := ""
+	if _, created := deployed[platform.IssuerName]; created {
+		issuer = platform.IssuerName
+	}
+
+	// The decision kedaRequested made from KedaEnabledKey.
+	_, keda := deployed[KedaChart]
+
+	return map[string]pulumi.Input{
+		OutputClusterIssuer: pulumi.String(issuer),
+		OutputKedaEnabled:   pulumi.Bool(keda),
+	}
 }
 
 // ImagePolicyMode is what the image policies do with an image that fails
