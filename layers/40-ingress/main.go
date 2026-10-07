@@ -41,11 +41,15 @@ const Chart = charts.Traefik
 // layer, and there is now somewhere to read them from: under the cloud
 // controller manager they existed only on a Service's status, so `pulumi stack
 // output` had nothing to say about how the cluster is reached.
+//
+// OutputIngressClass is the class an application's Ingress names to be served
+// by this layer's Traefik.
 const (
-	OutputAddress     = "ingressIp"
-	OutputAddressIPv6 = "ingressIpv6"
-	OutputHostname    = "ingressHostname"
-	OutputRecords     = "dnsRecords"
+	OutputAddress      = "ingressIp"
+	OutputAddressIPv6  = "ingressIpv6"
+	OutputHostname     = "ingressHostname"
+	OutputRecords      = "dnsRecords"
+	OutputIngressClass = "ingressClass"
 )
 
 // RecordsPerDomain is how many RRSets one domain gets: an A and an AAAA.
@@ -124,6 +128,8 @@ func IngressData(nodeSubnet pulumi.StringInput) pulumi.Output {
 				// balancer's services and health checks at.
 				NodePortHTTP:  platform.IngressNodePortHTTP,
 				NodePortHTTPS: platform.IngressNodePortHTTPS,
+				// The same constant the export below publishes.
+				IngressClass: platform.IngressClass,
 			}
 		})
 }
@@ -164,6 +170,9 @@ func deploy(r *layer.Runner) error {
 	r.Ctx.Export(OutputAddress, balancer.Ipv4)
 	r.Ctx.Export(OutputAddressIPv6, balancer.Ipv6)
 	r.Ctx.Export(OutputHostname, r.Cluster.Domain)
+	// The constant the values template renders into the chart, so the output
+	// and the IngressClass Traefik creates cannot disagree.
+	r.Ctx.Export(OutputIngressClass, pulumi.String(platform.IngressClass))
 
 	// Exported so the engine awaits it: the records are created inside an
 	// apply, and an unconsumed output would swallow any error from it.

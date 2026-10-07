@@ -39,7 +39,19 @@ const (
 	TraefikServiceType = "type"
 	// TraefikService is the top-level key both of those hang from.
 	TraefikService = "service"
+	// TraefikIngressClass and TraefikIngressClassName name the IngressClass
+	// the chart creates. Left empty, the chart falls back to the release
+	// name, which matches internal/pkg/platform.IngressClass only by
+	// coincidence.
+	TraefikIngressClass     = "ingressClass"
+	TraefikIngressClassName = "name"
 )
+
+// IngressClassProbeName is the class name the render check renders with.
+// Deliberately not platform.IngressClass: every Traefik label already reads
+// `name: traefik`, so the real name would pass whether or not the chart
+// honoured the key.
+const IngressClassProbeName = "ingress-class-probe"
 
 // TraefikProxyProtocolSet is the --set expression for one entry point, built
 // from the same constants the layer nests.
@@ -105,6 +117,14 @@ func init() {
 					"Kubernetes allocates another and every target reports unhealthy against a " +
 					"closed one",
 			},
+			{
+				Set: []string{
+					TraefikIngressClass + "." + TraefikIngressClassName + "=" + IngressClassProbeName,
+				},
+				Expect: "name: " + IngressClassProbeName,
+				Why: "every Ingress in the platform names this class; a class under any other " +
+					"name is owned by nobody, and an Ingress naming it is accepted and ignored",
+			},
 		},
 	})
 }
@@ -120,6 +140,9 @@ type TraefikValues struct {
 	// mismatch does.
 	NodePortHTTP  int
 	NodePortHTTPS int
+	// IngressClass is the name of the IngressClass the chart creates, and
+	// the one every Ingress in the platform asks for.
+	IngressClass string
 }
 
 // traefikProbe renders the template offline. The ports are the real pinned
@@ -131,5 +154,6 @@ func traefikProbe() any {
 		NodeSubnet:    ProxyProtocolProbeCIDR,
 		NodePortHTTP:  platform.IngressNodePortHTTP,
 		NodePortHTTPS: platform.IngressNodePortHTTPS,
+		IngressClass:  platform.IngressClass,
 	}
 }
