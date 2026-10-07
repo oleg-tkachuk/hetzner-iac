@@ -11,10 +11,12 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/imagepolicy"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -190,8 +192,8 @@ func TestComponents_TheDenyFollowsTheAllows(t *testing.T) {
 	// Applied in the other order, the cluster spends the gap between them
 	// dropping everything.
 	for _, component := range Components {
-		if component.Name == "default-deny" {
-			assert.Contains(t, component.After, "allow")
+		if component.Name == DenyComponent {
+			assert.Contains(t, component.After, AllowComponent)
 
 			return
 		}
@@ -657,5 +659,37 @@ func TestPolicyControllerEgress_ReachesEveryRegistry(t *testing.T) {
 		assert.True(t, named[parsed.RegistryStr()],
 			"%s is in %s and %s does not name its registry %s",
 			repository, imagepolicy.File, policyControllerPolicy, parsed.RegistryStr())
+	}
+}
+
+// TestExports_ReportTheDenyDeployActuallyCreated holds the output to the
+// decision rather than to the config: off when the component declined, on
+// only when Deploy has the deny.
+func TestExports_ReportTheDenyDeployActuallyCreated(t *testing.T) {
+	t.Parallel()
+
+	for name, one := range map[string]struct {
+		deployed layer.Deployed
+		want     bool
+	}{
+		"declined, only the allows applied": {
+			deployed: layer.Deployed{AllowComponent: &pulumi.ResourceState{}},
+			want:     false,
+		},
+		"applied": {
+			deployed: layer.Deployed{
+				AllowComponent: &pulumi.ResourceState{},
+				DenyComponent:  &pulumi.ResourceState{},
+			},
+			want: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, map[string]pulumi.Input{
+				OutputDefaultDeny: pulumi.Bool(one.want),
+			}, exports(one.deployed))
+		})
 	}
 }

@@ -584,3 +584,21 @@ func TestCSIData_CarriesBothStorageClasses(t *testing.T) {
 		platform.StorageClassDatabase: "Retain",
 	}, named)
 }
+
+// TestExports_CarryTheValueEachNamePromises holds every output to its value.
+// Both storage classes are strings, so the database class published under
+// the default's name compiles, exports, and sends a claim to the wrong
+// reclaim policy.
+func TestExports_CarryTheValueEachNamePromises(t *testing.T) {
+	t.Parallel()
+
+	// Stands in for the release's status, which this layer passes through
+	// untouched.
+	cniReady := pulumi.String("deployed")
+
+	assert.Equal(t, map[string]pulumi.Input{
+		OutputCNIReady:             cniReady,
+		OutputStorageClass:         pulumi.String(platform.StorageClass),
+		OutputStorageClassDatabase: pulumi.String(platform.StorageClassDatabase),
+	}, exports(cniReady))
+}

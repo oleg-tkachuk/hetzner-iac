@@ -5,9 +5,11 @@ import (
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer/layertest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -414,4 +416,45 @@ func TestPolicyControllerData_FollowsTheImagePolicyMode(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, ImagePolicyMode.NoMatchPolicy(), PolicyControllerData().NoMatchPolicy)
+}
+
+// TestExports_ReportWhatDeployActuallyCreated holds both outputs to the
+// components' decisions: an empty issuer when it declined, KEDA off when its
+// When said no, and each independent of the other.
+func TestExports_ReportWhatDeployActuallyCreated(t *testing.T) {
+	t.Parallel()
+
+	created := &pulumi.ResourceState{}
+
+	for name, one := range map[string]struct {
+		deployed   layer.Deployed
+		wantIssuer string
+		wantKeda   bool
+	}{
+		"neither": {
+			deployed: layer.Deployed{},
+		},
+		"issuer only": {
+			deployed:   layer.Deployed{platform.IssuerName: created},
+			wantIssuer: platform.IssuerName,
+		},
+		"keda only": {
+			deployed: layer.Deployed{KedaChart: created},
+			wantKeda: true,
+		},
+		"both": {
+			deployed:   layer.Deployed{platform.IssuerName: created, KedaChart: created},
+			wantIssuer: platform.IssuerName,
+			wantKeda:   true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, map[string]pulumi.Input{
+				OutputClusterIssuer: pulumi.String(one.wantIssuer),
+				OutputKedaEnabled:   pulumi.Bool(one.wantKeda),
+			}, exports(one.deployed))
+		})
+	}
 }
