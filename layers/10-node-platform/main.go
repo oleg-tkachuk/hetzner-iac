@@ -46,6 +46,9 @@ const (
 	// mismatch is not rejected — it leaves the volume Pending with nothing
 	// saying why.
 	StorageClass = platform.StorageClass
+	// StorageClassDatabase is the Retain class the CSI chart registers beside
+	// it, re-exported for the same reason.
+	StorageClassDatabase = platform.StorageClassDatabase
 )
 
 // SystemNamespace is where the Secret both hcloud charts read has to live:
@@ -71,8 +74,9 @@ const CiliumTimeoutSeconds = 900
 // a stack publishes is greppable and a consumer that appears later needs no
 // rename. TestLayers_ExportOnlyNamedOutputs holds that.
 const (
-	OutputCNIReady     = "cniReady"
-	OutputStorageClass = "storageClass"
+	OutputCNIReady             = "cniReady"
+	OutputStorageClass         = "storageClass"
+	OutputStorageClassDatabase = "storageClassDatabase"
 )
 
 // Components are what this layer deploys.
@@ -150,9 +154,28 @@ func main() {
 			return err
 		}
 
-		r.Ctx.Export(OutputCNIReady, cilium.Status.Status())
-		r.Ctx.Export(OutputStorageClass, pulumi.String(StorageClass))
+		for name, value := range exports(cilium.Status.Status()) {
+			r.Ctx.Export(name, value)
+		}
 
 		return nil
 	})
+}
+
+// exports pairs every output this layer publishes with its value.
+//
+// A map rather than a sequence of Export calls, so a test can read which value
+// each name carries: both storage classes are strings, and one wired to the
+// other's name compiles and exports without complaint.
+//
+// The CNI's readiness is passed in rather than read from the release here,
+// which keeps this a function a test can call without a Pulumi run.
+func exports(cniReady pulumi.Input) map[string]pulumi.Input {
+	return map[string]pulumi.Input{
+		OutputCNIReady:     cniReady,
+		OutputStorageClass: pulumi.String(StorageClass),
+		// Published beside the default because a claim has to ask for it by
+		// name, and this layer is what registers it.
+		OutputStorageClassDatabase: pulumi.String(StorageClassDatabase),
+	}
 }

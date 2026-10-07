@@ -30,6 +30,18 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
+// Operator-facing outputs: what `task cluster:outputs` shows a person, and
+// outside internal/pkg/clusterref on purpose. No layer reads them, so they are
+// not in the versioned contract — adding one there would bump ContractVersion
+// and block every layer until this tier is re-applied, for a value no layer
+// needs.
+const (
+	OutputControlPlaneAddresses = "controlPlaneAddresses"
+	OutputTalosVersion          = "talosVersion"
+	OutputKubernetesVersion     = "kubernetesVersion"
+	OutputTalosImage            = "talosImage"
+)
+
 // The token's config key is internal/pkg/hcloudtoken's, not this file's.
 //
 // It was a second `const TokenConfigKey = "hcloud:token"` here. Three things
@@ -89,6 +101,10 @@ func program(ctx *pulumi.Context) error {
 	}
 
 	for name, value := range exports(topology, cluster, clusterToken(ctx)) {
+		ctx.Export(name, value)
+	}
+
+	for name, value := range information(topology, cluster) {
 		ctx.Export(name, value)
 	}
 
@@ -215,6 +231,25 @@ func exports(topology *clusterspec.Topology, cluster *hetzner.Cluster, token pul
 		// it: 40-ingress creates the load balancer on them.
 		clusterref.OutputIngressIPv4ID: cluster.IngressIPv4ID,
 		clusterref.OutputIngressIPv6ID: cluster.IngressIPv6ID,
+	}
+}
+
+// information pairs every operator-facing output name with its value. A map
+// for the same reason exports is one: a test can then check each name carries
+// its own value.
+func information(topology *clusterspec.Topology, cluster *hetzner.Cluster) map[string]pulumi.Input {
+	return map[string]pulumi.Input{
+		// First node first, in the order of the kubeconfig's contexts.
+		OutputControlPlaneAddresses: cluster.ControlPlane.NodeAddresses,
+
+		// What the topology declares. Nodes are upgraded in place with
+		// talosctl, so a node may run another version until that is done.
+		OutputTalosVersion:      pulumi.String(topology.Talos.Version),
+		OutputKubernetesVersion: pulumi.String(topology.Kubernetes.Version),
+
+		// The snapshot a new node is created from, not what the running nodes
+		// booted: servers ignore changes to their image.
+		OutputTalosImage: cluster.TalosImage,
 	}
 }
 
