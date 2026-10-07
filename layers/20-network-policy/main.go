@@ -53,31 +53,71 @@ const (
 // here: the layer reads it and Pulumi.yaml declares it.
 const EnabledKey = "enabled"
 
+// The two components' names: what the deny's After names, and what the
+// exports read the deny back by.
+const (
+	AllowComponent = "allow"
+	DenyComponent  = "default-deny"
+)
+
+// Stack outputs. Every export is a named constant, in every layer, so the set
+// a stack publishes is greppable. TestLayers_ExportOnlyNamedOutputs holds that.
+const (
+	// OutputDefaultDeny says whether this stack applied the deny. The one fact
+	// about this layer that changes what traffic the cluster drops.
+	OutputDefaultDeny = "defaultDeny"
+)
+
 // Components are what this layer deploys.
 //
 // Both are Create components: these are custom resources, not charts, and
 // internal/pkg/charts has nothing to pin for them.
 var Components = layer.Components{
 	{
-		Name:   "allow",
+		Name:   AllowComponent,
 		Create: createAllows,
 	},
 	{
-		Name:   "default-deny",
-		After:  []string{"allow"},
+		Name:   DenyComponent,
+		After:  []string{AllowComponent},
 		Create: createDefaultDeny,
 	},
 }
 
 func main() {
-	layer.RunComponents(Components)
+	layer.Run(func(r *layer.Runner) error {
+		deployed, err := r.Deploy(Components)
+		if err != nil {
+			return err
+		}
+
+		for name, value := range exports(deployed) {
+			r.Ctx.Export(name, value)
+		}
+
+		return nil
+	})
+}
+
+// exports pairs every output this layer publishes with its value.
+//
+// The deny is reported from what Deploy created rather than from a second
+// read of EnabledKey: a component that declined is absent from Deployed, so
+// the output is the decision createDefaultDeny made and cannot disagree with
+// it.
+func exports(deployed layer.Deployed) map[string]pulumi.Input {
+	_, denied := deployed[DenyComponent]
+
+	return map[string]pulumi.Input{
+		OutputDefaultDeny: pulumi.Bool(denied),
+	}
 }
 
 // createAllows applies every policy that only permits.
 func createAllows(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
-	r.Log.Step("allow", "policies that permit and never deny")
+	r.Log.Step(AllowComponent, "policies that permit and never deny")
 
-	return yaml.NewConfigGroup(r.Ctx, "allow", &yaml.ConfigGroupArgs{
+	return yaml.NewConfigGroup(r.Ctx, AllowComponent, &yaml.ConfigGroupArgs{
 		Files: []string{AllowManifests},
 	}, r.With(layer.DependsOn(dependencies)...)...)
 }
@@ -104,14 +144,14 @@ func createDefaultDeny(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.
 	}
 
 	if !enabled {
-		r.Log.Skipped("default-deny", "not enabled, only the allow policies are applied")
+		r.Log.Skipped(DenyComponent, "not enabled, only the allow policies are applied")
 
 		return nil, nil
 	}
 
-	r.Log.Warn("default-deny", "everything not named by an allow policy is now dropped")
+	r.Log.Warn(DenyComponent, "everything not named by an allow policy is now dropped")
 
-	return yaml.NewConfigFile(r.Ctx, "default-deny", &yaml.ConfigFileArgs{
+	return yaml.NewConfigFile(r.Ctx, DenyComponent, &yaml.ConfigFileArgs{
 		File: DenyManifest,
 	}, r.With(layer.DependsOn(dependencies)...)...)
 }
