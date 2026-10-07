@@ -121,6 +121,18 @@ func TestValues_PinTheNodePortsTheLoadBalancerForwardsTo(t *testing.T) {
 	}
 }
 
+func TestValues_NameTheIngressClassThisLayerExports(t *testing.T) {
+	t.Parallel()
+
+	// The ingressClass output publishes platform.IngressClass. This holds the
+	// chart to the same name: left to the chart, the class takes the release
+	// name, and a renamed release would leave every Ingress naming a class
+	// nobody owns.
+	class := nested(t, rendered(t), charts.TraefikIngressClass)
+
+	assert.Equal(t, platform.IngressClass, class[charts.TraefikIngressClassName])
+}
+
 func TestValues_LeaveTheDashboardOff(t *testing.T) {
 	t.Parallel()
 

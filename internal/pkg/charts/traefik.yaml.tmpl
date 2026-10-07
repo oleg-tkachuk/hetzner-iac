@@ -24,6 +24,12 @@ priorityClassName: system-cluster-critical
 image:
   tag: "{{ (pinned "docker.io/library/traefik").Reference }}"
 
+# Named rather than left to the chart, whose empty default falls back to the
+# release name. Every Ingress in the platform asks for this class, and
+# layers/40-ingress exports it from the same constant.
+ingressClass:
+  name: {{ .IngressClass }}
+
 deployment:
   # Two, so losing one node does not take ingress with it.
   replicas: {{ .Replicas }}
