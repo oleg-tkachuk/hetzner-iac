@@ -21,8 +21,8 @@ network — and then deploys the platform onto it in independent, idempotent
 layers.
 
 Colours are consistent across diagrams and say whose territory a box is in:
-green for Hetzner, amber for Talos, blue for Kubernetes, violet for Pulumi
-state, pink for gates and secrets, grey for people, grey dashed for what is
+sky for people, green for Hetzner, amber for Talos, blue for Kubernetes,
+violet for Pulumi state, pink for gates and secrets, grey dashed for what is
 optional. Rounded boxes are people, cylinders hold state, hexagons are gates.
 
 **Pulumi Cloud — state and secrets.** Each project is its own stack. The
@@ -46,7 +46,7 @@ flowchart LR
     cluster -->|"StackReference<br/>token"| backup
     cluster -.- secrets
 
-    classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155
+    classDef actor fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E
     classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4
     classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F
@@ -96,7 +96,7 @@ flowchart LR
     apilb -->|"every node's kubelet<br/>and KubePrism"| api
     etcd -. "restic" .-> box
 
-    classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155
+    classDef actor fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E
     classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4
     classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F
@@ -126,7 +126,7 @@ flowchart LR
 
     l10 --> l20 --> l30 --> l40 --> l50
 
-    classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155
+    classDef actor fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E
     classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4
     classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F

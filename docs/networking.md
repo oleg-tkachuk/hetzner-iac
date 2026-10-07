@@ -133,7 +133,7 @@ flowchart LR
     traefik --> svc
     svc --> pod
 
-    classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155
+    classDef actor fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E
     classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4
     classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F
@@ -178,7 +178,7 @@ flowchart LR
     nodes -->|"tcp/6443"| apilb
     apilb --> cps
 
-    classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155
+    classDef actor fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E
     classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4
     classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F
