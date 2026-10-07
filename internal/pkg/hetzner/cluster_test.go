@@ -402,7 +402,7 @@ func TestNewCluster_ControlPlanesKeepTheirAddressAcrossAReplacement(t *testing.T
 	topology := haTopology(t)
 	rec := runCluster(t, topology, &hetzner.ClusterArgs{PublicIPv4: true})
 
-	addresses := rec.of("hcloud:index/primaryIp:PrimaryIp")
+	addresses := nodeAddresses(rec)
 	require.Len(t, addresses, topology.ControlPlane.Count, "one per control-plane node, none for workers")
 
 	for _, address := range addresses {
@@ -432,12 +432,67 @@ func TestNewCluster_ControlPlanesKeepTheirAddressAcrossAReplacement(t *testing.T
 	}
 }
 
-func TestNewCluster_NoPrimaryIPWithoutAPublicAddress(t *testing.T) {
+func TestNewCluster_NoNodePrimaryIPWithoutAPublicAddress(t *testing.T) {
 	t.Parallel()
 
 	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: false})
 
-	assert.Empty(t, rec.of("hcloud:index/primaryIp:PrimaryIp"))
+	assert.Empty(t, nodeAddresses(rec))
+}
+
+// ingressSuffix is what the ingress Primary IPs' names end in before their
+// type, and what tells them apart from a node's.
+const ingressSuffix = "-ingress-"
+
+// nodeAddresses is every Primary IP a node holds, without the ingress's.
+func nodeAddresses(rec *recorder) []resource.PropertyMap {
+	var nodes []resource.PropertyMap
+
+	for _, address := range rec.of("hcloud:index/primaryIp:PrimaryIp") {
+		if !strings.Contains(address["name"].StringValue(), ingressSuffix) {
+			nodes = append(nodes, address)
+		}
+	}
+
+	return nodes
+}
+
+// TestNewCluster_KeepsTheIngressAddresses holds the property the ingress
+// depends on: its two addresses outlive the load balancer, so a replaced one
+// comes back where the domain's records point.
+func TestNewCluster_KeepsTheIngressAddresses(t *testing.T) {
+	t.Parallel()
+
+	// Without node addresses too: the ingress is public whatever the nodes are.
+	for _, publicIPv4 := range []bool{true, false} {
+		topology := haTopology(t)
+		rec := runCluster(t, topology, &hetzner.ClusterArgs{PublicIPv4: publicIPv4})
+
+		byType := map[string]resource.PropertyMap{}
+
+		for _, address := range rec.of("hcloud:index/primaryIp:PrimaryIp") {
+			if strings.Contains(address["name"].StringValue(), ingressSuffix) {
+				byType[address["type"].StringValue()] = address
+			}
+		}
+
+		require.Len(t, byType, 2, "one IPv4 and one IPv6 for the ingress, publicIPv4=%t", publicIPv4)
+
+		for kind, address := range byType {
+			resourceName := "test" + ingressSuffix + kind
+
+			assert.Equal(t, topology.Metadata.Name+ingressSuffix+kind, address["name"].StringValue())
+			assert.False(t, address["autoDelete"].BoolValue(),
+				"an auto-deleted address goes with the load balancer it is assigned to")
+			assert.Equal(t, topology.Placement.Location, address["location"].StringValue(),
+				"a Primary IP is assignable only in its own location")
+			assert.True(t, rec.isProtected(resourceName), "%s is not protected", kind)
+			assert.NotContains(t, address, resource.PropertyKey("assigneeType"),
+				"the load balancer assigns the address at creation")
+			assert.Subset(t, rec.ignoreChanges[resourceName], []string{"assigneeId", "assigneeType"},
+				"left to the address, a read-back assignment plans an unassignment")
+		}
+	}
 }
 
 func TestNewCluster_GeneratesConfigForTheContractAndBootsTheVersion(t *testing.T) {

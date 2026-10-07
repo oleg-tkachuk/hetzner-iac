@@ -34,6 +34,79 @@ type IngressLoadBalancerArgs struct {
 	NetworkID pulumi.IntInput
 	// LoadBalancerType is the Hetzner type, from stack config.
 	LoadBalancerType string
+	// IPv4ID and IPv6ID are the Primary IPs the cluster tier keeps for the
+	// ingress. See NewIngressAddresses.
+	IPv4ID pulumi.IntInput
+	IPv6ID pulumi.IntInput
+}
+
+// Primary IP types, as hcloud spells them.
+const (
+	primaryIPTypeIPv4 = "ipv4"
+	primaryIPTypeIPv6 = "ipv6"
+)
+
+// Fields of hcloud's LoadBalancer and PrimaryIp that the options below name.
+// Pulumi matches IgnoreChanges against these spellings, and a misspelt one is
+// ignored without a word.
+const (
+	fieldIPv4ID       = "ipv4Id"
+	fieldIPv6ID       = "ipv6Id"
+	fieldAssigneeID   = "assigneeId"
+	fieldAssigneeType = "assigneeType"
+)
+
+// IngressAddresses are the ingress load balancer's public addresses, by
+// Primary IP id.
+type IngressAddresses struct {
+	IPv4ID pulumi.IntOutput
+	IPv6ID pulumi.IntOutput
+}
+
+// NewIngressAddresses creates the public addresses the ingress load balancer
+// is created on.
+//
+// They live in the cluster tier rather than beside the load balancer in
+// 40-ingress, so they outlive it. A load balancer's own addresses go with it,
+// and the domain's records name them — so a destroyed and re-applied ingress
+// layer used to come back on new addresses, and records hosted outside Hetzner
+// went on pointing at the old ones with nothing saying so. Created here, with
+// autoDelete off and Protect, a replaced load balancer is created on the same
+// two addresses.
+//
+// The load balancer assigns them, at creation: Hetzner cannot reassign a load
+// balancer's Primary IP afterwards. assigneeId and assigneeType are therefore
+// the load balancer's, and left to this resource a read-back assignment would
+// plan an unassignment — the same trap newPrimaryIP avoids for servers.
+func NewIngressAddresses(
+	ctx *pulumi.Context,
+	name string,
+	topology *clusterspec.Topology,
+	opts ...pulumi.ResourceOption,
+) (IngressAddresses, error) {
+	options := pulumiopts.With(opts,
+		pulumi.Protect(true),
+		pulumi.IgnoreChanges([]string{fieldAssigneeID, fieldAssigneeType}))
+
+	kinds := []string{primaryIPTypeIPv4, primaryIPTypeIPv6}
+	ids := make(map[string]pulumi.IntOutput, len(kinds))
+
+	for _, kind := range kinds {
+		address, err := hcloud.NewPrimaryIp(ctx, name+"-ingress-"+kind, &hcloud.PrimaryIpArgs{
+			Name:       pulumi.Sprintf("%s-ingress-%s", topology.Metadata.Name, kind),
+			Type:       pulumi.String(kind),
+			Location:   pulumi.String(topology.Placement.Location),
+			AutoDelete: pulumi.Bool(false),
+			Labels:     toStringMap(clusterspec.ResourceLabels(topology.Metadata.Name, nil)),
+		}, options...)
+		if err != nil {
+			return IngressAddresses{}, fmt.Errorf("hcloud ingress %s primary ip: %w", kind, err)
+		}
+
+		ids[kind] = idToInt(address.ID())
+	}
+
+	return IngressAddresses{IPv4ID: ids[primaryIPTypeIPv4], IPv6ID: ids[primaryIPTypeIPv6]}, nil
 }
 
 // NewIngressLoadBalancer creates the load balancer that fronts the ingress
@@ -72,12 +145,19 @@ func NewIngressLoadBalancer(
 		clusterspec.LabelManagedBy: pulumi.String(clusterspec.ManagedBy),
 	}
 
+	// The addresses are taken at creation only, and ignored afterwards.
+	// Hetzner cannot move a load balancer onto another Primary IP, so a
+	// changed id could only ever plan a replacement — and state written before
+	// these fields existed holds no id at all, so without this every live load
+	// balancer would be planned for one.
 	loadBalancer, err := hcloud.NewLoadBalancer(ctx, name, &hcloud.LoadBalancerArgs{
 		Name:             pulumi.Sprintf("%s-ingress", args.ClusterName),
 		LoadBalancerType: pulumi.String(args.LoadBalancerType),
 		Location:         args.Location,
 		Labels:           labels,
-	}, opts...)
+		Ipv4Id:           args.IPv4ID,
+		Ipv6Id:           args.IPv6ID,
+	}, pulumiopts.With(opts, pulumi.IgnoreChanges([]string{fieldIPv4ID, fieldIPv6ID}))...)
 	if err != nil {
 		return nil, fmt.Errorf("hcloud ingress load balancer: %w", err)
 	}

@@ -32,9 +32,6 @@ type serverSpec struct {
 	stableAddress bool
 }
 
-// primaryIPTypeIPv4 is the Primary IP type hcloud spells.
-const primaryIPTypeIPv4 = "ipv4"
-
 // newPrimaryIP is the public address a control-plane node keeps across a
 // replacement.
 //
@@ -51,7 +48,7 @@ func newPrimaryIP(ctx *pulumi.Context, spec serverSpec, opts ...pulumi.ResourceO
 	// back as assigned plans an unassignment, which takes the node's public
 	// address away. assigneeType goes with it: the provider wants it only
 	// beside assigneeId, and warns on every run otherwise.
-	options := pulumiopts.With(opts, pulumi.IgnoreChanges([]string{"assigneeId"}))
+	options := pulumiopts.With(opts, pulumi.IgnoreChanges([]string{fieldAssigneeID}))
 	if spec.protect {
 		options = pulumiopts.With(options, pulumi.Protect(true))
 	}

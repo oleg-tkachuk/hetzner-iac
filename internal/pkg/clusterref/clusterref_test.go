@@ -283,6 +283,8 @@ func TestOutputNames_AreStable(t *testing.T) {
 	assert.Equal(t, "routingMode", clusterref.OutputRoutingMode)
 	assert.Equal(t, "domain", clusterref.OutputDomain)
 	assert.Equal(t, "dnsZone", clusterref.OutputDNSZone)
+	assert.Equal(t, "ingressIpv4Id", clusterref.OutputIngressIPv4ID)
+	assert.Equal(t, "ingressIpv6Id", clusterref.OutputIngressIPv6ID)
 }
 
 // TestOutputNames_ArePinnedWithoutException catches the way the list above

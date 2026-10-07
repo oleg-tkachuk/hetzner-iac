@@ -547,10 +547,11 @@ tasks:
     cmds:
       # --ignore-protect with one exclusion, rather than --exclude-protected.
       #
-      # Three resources carry `protect` now: the Talos secrets bundle, the
-      # control-plane nodes and the API load balancer. A teardown IS meant to
-      # take the last two, so --exclude-protected would leave a cluster
-      # standing and report success; and a plain destroy fails in PREVIEW,
+      # Four kinds of resource carry `protect` now: the Talos secrets bundle,
+      # the control-plane nodes, the API load balancer and the ingress
+      # addresses. A teardown IS meant to take the last three, so
+      # --exclude-protected would leave a cluster standing and report
+      # success; and a plain destroy fails in PREVIEW,
       # handing the operator
       #
       #     pulumi state unprotect 'urn:pulumi:dev::hetzner-cluster::…'
@@ -562,9 +563,10 @@ tasks:
       # --ignore-protect is scoped to this one operation, the same choice
       # secrets:destroy and backup:destroy make. The bundle is then kept by
       # name instead: --exclude takes URN wildcards, and matching its TYPE is
-      # what keeps this from assembling a URN by hand. Measured: 22 resources
-      # to delete without it, 19 with, and the three it keeps are the bundle
-      # plus the two parent nodes, neither of which is billed.
+      # what keeps this from assembling a URN by hand. Measured before the
+      # ingress addresses existed: 22 resources to delete without it, 19 with,
+      # and the three it keeps are the bundle plus the two parent nodes,
+      # neither of which is billed.
       #
       # So the servers, the network, the firewall and the placement group go,
       # and the cluster's root of trust stays. That is not a leftover: the CA

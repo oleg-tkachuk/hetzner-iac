@@ -86,6 +86,10 @@ through a Hetzner provider it builds from the token the cluster tier publishes.
 A third, [layers/10-node-platform](../layers/10-node-platform), writes that
 token into a Kubernetes Secret, because the hcloud charts read it from there.
 
+The ingress load balancer's addresses are not the layer's: the cluster tier
+keeps them as Primary IPs and the load balancer is created on them, so they
+outlive it.
+
 The ingress load balancer is not the cloud controller manager's: a CCM-managed
 load balancer is invisible to `plan` and `destroy`, and the CCM will not target
 a node carrying `node.kubernetes.io/exclude-from-external-load-balancers`,
@@ -262,6 +266,7 @@ different word said out loud:
 | Talos secrets bundle — the cluster CA | `pulumi.Protect` | `task cluster:secrets:destroy` |
 | Control-plane servers and their Primary IPs — etcd is on their disks | `pulumi.Protect` | `replace_control_plane=yes` |
 | API load balancer — its address is the endpoint | `pulumi.Protect` | `replace_control_plane=yes` |
+| Ingress Primary IPs — the domain's records name them | `pulumi.Protect` | `replace_control_plane=yes` |
 | Storage Box — the uploaded etcd snapshots | `pulumi.Protect`, plus Hetzner's own flag for the console | `ignore_protect=yes` |
 
 `pulumi.Protect` is the mechanism in every case, and it refuses a **replacement**
@@ -272,7 +277,8 @@ deleting, so on its own it would let a destroy take the box and the snapshots
 on it.
 
 A teardown is different from an accident, and the commands say which they are.
-`task destroy` takes the servers and the API load balancer, because that is
+`task destroy` takes the servers, the API load balancer and the ingress
+addresses, because that is
 what tearing a cluster down means; it keeps the CA, and it never reaches the
 Storage Box, which belongs to a tier of its own.
 

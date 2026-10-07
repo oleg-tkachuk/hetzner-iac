@@ -102,6 +102,8 @@ func createBalancer(provider pulumi.ProviderResource) layer.CreateFunc {
 			Location:         r.Cluster.Location,
 			NetworkID:        r.Cluster.NetworkID,
 			LoadBalancerType: balancerType,
+			IPv4ID:           r.Cluster.IngressIPv4ID,
+			IPv6ID:           r.Cluster.IngressIPv6ID,
 		}, append(layer.DependsOn(dependencies), pulumi.Provider(provider))...)
 	}
 }

@@ -19,12 +19,30 @@ const (
 	testStack   = "test"
 )
 
+// The Primary IP ids the cluster tier publishes for the ingress.
+const (
+	testIngressIPv4ID = 149808390
+	testIngressIPv6ID = 149808391
+)
+
 // clusterTier stands in for the cluster tier's stack. token == "" is a cluster
 // built from an environment token rather than from stack config, which the
 // tier exports as an empty string.
-type clusterTier struct{ token string }
+//
+// balancers, when set, collects the inputs of every load balancer registered.
+type clusterTier struct {
+	token     string
+	balancers *[]resource.PropertyMap
+}
+
+// loadBalancerType is hcloud's type token for a load balancer.
+const loadBalancerType = "hcloud:index/loadBalancer:LoadBalancer"
 
 func (m clusterTier) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
+	if args.TypeToken == loadBalancerType && m.balancers != nil {
+		*m.balancers = append(*m.balancers, args.Inputs)
+	}
+
 	if args.TypeToken != "pulumi:pulumi:StackReference" {
 		// Numeric, because hcloud ids are and the load balancer's services
 		// parse it: a name here fails for a reason no real apply has.
@@ -50,6 +68,8 @@ func (m clusterTier) NewResource(args pulumi.MockResourceArgs) (string, resource
 		resource.PropertyKey(clusterref.OutputRoutingMode):       resource.NewStringProperty(clusterspec.RoutingModeNative),
 		resource.PropertyKey(clusterref.OutputDomain):            resource.NewStringProperty(""),
 		resource.PropertyKey(clusterref.OutputDNSZone):           resource.NewStringProperty(""),
+		resource.PropertyKey(clusterref.OutputIngressIPv4ID):     resource.NewNumberProperty(testIngressIPv4ID),
+		resource.PropertyKey(clusterref.OutputIngressIPv6ID):     resource.NewNumberProperty(testIngressIPv6ID),
 	})}, nil
 }
 
@@ -64,6 +84,13 @@ func (clusterTier) Call(pulumi.MockCallArgs) (resource.PropertyMap, error) {
 func deployAgainst(t *testing.T, token string) error {
 	t.Helper()
 
+	return deployTo(t, clusterTier{token: token})
+}
+
+// deployTo runs this layer against the given cluster tier.
+func deployTo(t *testing.T, tier clusterTier) error {
+	t.Helper()
+
 	raw, err := json.Marshal(map[string]string{testProject + ":clusterStackRef": "acme/hetzner-cluster/test"})
 	require.NoError(t, err)
 	t.Setenv("PULUMI_CONFIG", string(raw))
@@ -75,7 +102,7 @@ func deployAgainst(t *testing.T, token string) error {
 		}
 
 		return deploy(runner)
-	}, pulumi.WithMocks(testProject, testStack, clusterTier{token: token}))
+	}, pulumi.WithMocks(testProject, testStack, tier))
 }
 
 // TestDeploy_RefusesAnEmptyClusterToken is the provider that authenticated as
@@ -96,4 +123,17 @@ func TestDeploy_RefusesAnEmptyClusterToken(t *testing.T) {
 
 func TestDeploy_TakesTheClusterTiersToken(t *testing.T) {
 	require.NoError(t, deployAgainst(t, "token-from-the-cluster-tier"))
+}
+
+// TestDeploy_CreatesTheBalancerOnTheClusterTiersAddresses holds the wiring
+// end to end: the ids the tier publishes are the ones the load balancer is
+// created on, so a replaced one keeps the addresses the records name.
+func TestDeploy_CreatesTheBalancerOnTheClusterTiersAddresses(t *testing.T) {
+	var balancers []resource.PropertyMap
+
+	require.NoError(t, deployTo(t, clusterTier{token: "token-from-the-cluster-tier", balancers: &balancers}))
+	require.Len(t, balancers, 1)
+
+	assert.EqualValues(t, testIngressIPv4ID, balancers[0]["ipv4Id"].NumberValue())
+	assert.EqualValues(t, testIngressIPv6ID, balancers[0]["ipv6Id"].NumberValue())
 }

@@ -93,13 +93,14 @@ task platform:outputs stack=dev layer=40-ingress
 | `A` | the ingress load balancer's IPv4 | `ingressIp` |
 | `AAAA` | its IPv6 | `ingressIpv6` |
 
-Keep the TTL short; the records this repository writes for itself use 300
-seconds. A load balancer's IPv4 cannot be reserved, so a rebuilt environment
-serves from a new address, and however long the old one stays cached is how
-long the domain is dark.
+The addresses are Primary IPs the cluster tier keeps, so they survive the
+ingress layer being destroyed and re-applied
+([operations.md](operations.md#ingress-addresses)). A cluster teardown releases
+them, and a rebuilt environment serves from new ones.
 
-**Those two records are not reconciled.** A rebuild gives a new address and
-nothing updates them or says they are stale.
+**Those two records are not reconciled.** After a rebuild nothing updates them
+or says they are stale. Keep the TTL short; the records this repository writes
+for itself use 300 seconds.
 
 ## Delegating one subdomain, and leaving the rest where it is
 
