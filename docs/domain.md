@@ -10,9 +10,10 @@ A domain is a prerequisite of being **reachable**, not of installing:
 and `30-cluster-services` orders the certificate for them.
 
 Leave `metadata.domain` out and both layers say so on every apply — no records
-are written, `50-gitops` creates no Ingress, and the Argo CD UI is reached with
-`kubectl port-forward`. The cluster is unaffected either way: `talosctl` and
-`kubectl` target addresses, not names.
+are written, `50-gitops` creates no Ingress, the Argo CD UI is reached with
+`kubectl port-forward`, and its `argocdUrl` output is empty. With a domain,
+`argocdUrl` is `https://<domain>`. The cluster is unaffected either way:
+`talosctl` and `kubectl` target addresses, not names.
 
 What the domain has to be:
 

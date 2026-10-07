@@ -129,6 +129,38 @@ func TestArgoCDValues_CreatesNoServiceMonitors(t *testing.T) {
 	}
 }
 
+func TestArgoCDURL(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, domain, want string
+	}{
+		// Not "https://": with no domain there is no Ingress, and a scheme
+		// with no host reads as a URL that should work.
+		{name: "no domain, no ingress", domain: "", want: ""},
+		{name: "the hostname the ingress serves", domain: testDomain, want: "https://" + testDomain},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, ArgoCDURL(tc.domain))
+		})
+	}
+}
+
+// TestArgoCDURL_IsTheIngressHostname holds the output to what the template
+// publishes, so the two cannot name different hosts.
+func TestArgoCDURL_IsTheIngressHostname(t *testing.T) {
+	t.Parallel()
+
+	ingress := nested(t, render(t, testDomain), "server", "ingress")
+
+	hostname, ok := ingress["hostname"].(string)
+	require.True(t, ok, "the ingress carries no hostname")
+
+	assert.Equal(t, ArgoCDURL(testDomain), URLScheme+hostname)
+}
+
 func TestComponents(t *testing.T) {
 	t.Parallel()
 

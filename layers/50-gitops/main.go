@@ -38,7 +38,12 @@ const StatelessReplicas = 2
 const (
 	OutputAdminSecret = "adminSecret"
 	OutputReady       = "gitopsReady"
+	OutputURL         = "argocdUrl"
 )
+
+// URLScheme is how the UI is reached: the Ingress terminates TLS, so only
+// HTTPS is served under the domain.
+const URLScheme = "https://"
 
 // ArgoCDTimeoutSeconds is longer than the default: several images, a Redis and
 // five deployments, and the default is tight on a cold cluster.
@@ -259,9 +264,22 @@ func main() {
 		// for no benefit — it is rotated on first login anyway.
 		r.Ctx.Export(OutputAdminSecret, pulumi.String(AdminSecret))
 		r.Ctx.Export(OutputReady, argocd.Status.Status())
+		r.Ctx.Export(OutputURL, r.Cluster.Domain.ApplyT(ArgoCDURL))
 
 		return nil
 	})
+}
+
+// ArgoCDURL is where the UI is served: the hostname the template gives the
+// Ingress, which is also what the chart writes into argocd-cm as `url`. Empty
+// without a domain, because there is then no Ingress and the UI is reached
+// with `kubectl port-forward`.
+func ArgoCDURL(domain string) string {
+	if domain == "" {
+		return ""
+	}
+
+	return URLScheme + domain
 }
 
 // ArgoCDData is what internal/pkg/charts/argo-cd.yaml.tmpl renders with.
