@@ -20,24 +20,25 @@ repository builds the cluster itself — a Talos control plane on a private
 network — and then deploys the platform onto it in independent, idempotent
 layers.
 
+Colours are consistent across diagrams and say whose territory a box is in:
+green for Hetzner, amber for Talos, blue for Kubernetes, violet for Pulumi
+state, pink for gates and secrets, grey for people, grey dashed for what is
+optional. Rounded boxes are people, cylinders hold state, hexagons are gates.
+
 **Pulumi Cloud — state and secrets.** Each project is its own stack. The
 cluster tier publishes what the others need, and they read it through a
 StackReference rather than a copy.
 
 ```mermaid
 flowchart LR
-    classDef actor fill:#E0F2FE,stroke:#0284C7,stroke-width:1px,color:#0C4A6E
-    classDef state fill:#EDE9FE,stroke:#7C3AED,stroke-width:1px,color:#3B0764
-    classDef secret fill:#FCE7F3,stroke:#DB2777,stroke-width:1px,color:#831843
+    operator(["<b>operator</b><br/>task · pulumi"])
 
-    operator(["<b>👤 operator</b><br/>task · pulumi"])
-
-    subgraph cloud["Pulumi Cloud — one stack per project and environment"]
+    subgraph cloud ["Pulumi Cloud — one stack per project and environment"]
         direction LR
         cluster[("<b>infra/cluster</b><br/>network · servers · Talos")]
         backup[("<b>infra/backup</b><br/>Storage Box")]
         layers[("<b>layers/10 … 50</b><br/>the platform")]
-        secrets["<b>stack secrets</b><br/>hcloud token · Talos CA<br/>kubeconfig · talosconfig"]
+        secrets[("<b>stack secrets</b><br/>hcloud token · Talos CA<br/>kubeconfig · talosconfig")]
     end
 
     operator ==>|"pulumi up, per project"| cloud
@@ -45,11 +46,17 @@ flowchart LR
     cluster -->|"StackReference<br/>token"| backup
     cluster -.- secrets
 
+    classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155
+    classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4
+    classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D
+    classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F
+    classDef kube fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
+    classDef state fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    classDef gate fill:#FCE7F3,stroke:#DB2777,color:#831843
     class operator actor
     class cluster,backup,layers state
-    class secrets secret
-
-    style cloud fill:#F5F3FF,stroke:#7C3AED,stroke-width:2px,color:#3B0764
+    class secrets gate
+    style cloud fill:#F8FAFC,stroke:#7C3AED
 ```
 
 **Hetzner Cloud.** The firewall is the only way in for an operator, the API
@@ -58,31 +65,26 @@ the ingress load balancer.
 
 ```mermaid
 flowchart LR
-    classDef actor fill:#E0F2FE,stroke:#0284C7,stroke-width:1px,color:#0C4A6E
-    classDef hetzner fill:#DCFCE7,stroke:#16A34A,stroke-width:1px,color:#14532D
-    classDef gate fill:#FCE7F3,stroke:#DB2777,stroke-width:2px,color:#831843
-    classDef talos fill:#FEF3C7,stroke:#D97706,stroke-width:1px,color:#78350F
+    operator(["<b>operator</b><br/>kubectl · talosctl"])
+    users(["<b>users</b>"])
 
-    operator(["<b>👤 operator</b><br/>kubectl · talosctl"])
-    users(["<b>🌐 users</b>"])
-
-    subgraph hcloud["☁️ Hetzner Cloud"]
+    subgraph hcloud ["Hetzner Cloud"]
         direction LR
         fw{{"<b>firewall</b><br/>tcp/6443 · tcp/50000<br/>network.adminCIDRs only"}}
-        inglb(["<b>ingress load balancer</b><br/>public · tcp/80 · tcp/443"])
+        inglb["<b>ingress load balancer</b><br/>public · tcp/80 · tcp/443"]
 
-        subgraph net["🔒 private network"]
+        subgraph net ["private network"]
             direction TB
-            apilb(["<b>API load balancer</b><br/>private · the cluster endpoint"])
+            apilb["<b>API load balancer</b><br/>private · the cluster endpoint"]
 
-            subgraph nodes["Talos nodes"]
+            subgraph nodes ["Talos nodes"]
                 direction TB
-                subgraph cp["control plane × 3 · own Primary IPs"]
+                subgraph cp ["control plane × 3 · own Primary IPs"]
                     direction LR
                     api["<b>kube-apiserver</b>"]
                     etcd[("<b>etcd</b>")]
                 end
-                workers["<b>worker pools · optional</b>"]
+                workers["<b>worker pools</b><br/>optional"]
             end
         end
 
@@ -94,23 +96,28 @@ flowchart LR
     apilb -->|"every node's kubelet<br/>and KubePrism"| api
     etcd -. "restic" .-> box
 
+    classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155
+    classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4
+    classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D
+    classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F
+    classDef kube fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
+    classDef state fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    classDef gate fill:#FCE7F3,stroke:#DB2777,color:#831843
     class operator,users actor
-    class inglb,apilb,box,workers hetzner
+    class inglb,apilb,box hetzner
+    class workers optional
     class fw gate
     class api,etcd talos
-
-    style hcloud fill:#F0FDF4,stroke:#16A34A,stroke-width:2px,color:#14532D
-    style net fill:#F0FDF4,stroke:#16A34A,stroke-dasharray:4 3,color:#14532D
-    style nodes fill:#FFFBEB,stroke:#D97706,stroke-dasharray:3 3,color:#78350F
-    style cp fill:#FFFBEB,stroke:#D97706,stroke-width:1px,color:#78350F
+    style hcloud fill:#F8FAFC,stroke:#16A34A
+    style net fill:#F8FAFC,stroke:#16A34A,stroke-dasharray:5 4
+    style nodes fill:#F8FAFC,stroke:#D97706,stroke-dasharray:5 4
+    style cp fill:#F8FAFC,stroke:#D97706
 ```
 
 **The platform**, applied in order, each layer independent and idempotent.
 
 ```mermaid
 flowchart LR
-    classDef kube fill:#DBEAFE,stroke:#2563EB,stroke-width:1px,color:#1E3A8A
-
     l10["<b>10-node-platform</b><br/>Cilium · hcloud CCM · CSI"]
     l20["<b>20-network-policy</b><br/>default deny, opt-in"]
     l30["<b>30-cluster-services</b><br/>cert-manager · ESO · metrics-server<br/>policy-controller"]
@@ -119,6 +126,13 @@ flowchart LR
 
     l10 --> l20 --> l30 --> l40 --> l50
 
+    classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155
+    classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4
+    classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D
+    classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F
+    classDef kube fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
+    classDef state fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    classDef gate fill:#FCE7F3,stroke:#DB2777,color:#831843
     class l10,l20,l30,l40,l50 kube
 ```
 
