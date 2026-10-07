@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
@@ -217,4 +218,137 @@ func TestHandoverDiagram_NamesTheLayerThatEndsNotReady(t *testing.T) {
 	// step later.
 	assert.Contains(t, diagram, "the cluster tier installs no CNI",
 		"the NotReady note does not name the tier, so it reads as a claim that this platform has no CNI")
+}
+
+// diagramPalette is the one set of classes every flowchart declares, byte for
+// byte. The colour says whose territory a box is in, which only works if it
+// means the same thing in every diagram; five diagrams with five palettes of
+// their own had green meaning Hetzner in one and "the edge" in the next.
+//
+// Light fills with dark text of the same hue, spelled out: GitHub renders a
+// diagram in both themes, and a colour left to the theme is unreadable in one
+// of them. The README states the legend once.
+var diagramPalette = []string{
+	"classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155",
+	"classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4",
+	"classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D",
+	"classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F",
+	"classDef kube fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A",
+	"classDef state fill:#EDE9FE,stroke:#7C3AED,color:#3B0764",
+	"classDef gate fill:#FCE7F3,stroke:#DB2777,color:#831843",
+}
+
+// flowchartPrefix opens a flowchart; the palette is a flowchart's concern, and
+// a sequence diagram has no classes to hold to it.
+const flowchartPrefix = "flowchart "
+
+// classAssignment matches `class a,b name`, capturing the ids and the class.
+var classAssignment = regexp.MustCompile(`(?m)^\s*class (\S+) (\S+)\s*$`)
+
+func flowcharts(t *testing.T) []string {
+	t.Helper()
+
+	var found []string
+
+	for _, block := range diagrams(t) {
+		if strings.HasPrefix(block, flowchartPrefix) {
+			found = append(found, block)
+		}
+	}
+
+	require.NotEmpty(t, found, "no flowcharts found — the palette tests are checking nothing")
+
+	return found
+}
+
+// TestEveryFlowchart_DeclaresExactlyTheSharedPalette catches the diagram that
+// grows a colour of its own, or drops one and so renders a box unstyled.
+func TestEveryFlowchart_DeclaresExactlyTheSharedPalette(t *testing.T) {
+	t.Parallel()
+
+	for _, block := range flowcharts(t) {
+		var declared []string
+
+		for _, line := range strings.Split(block, "\n") {
+			if line = strings.TrimSpace(line); strings.HasPrefix(line, "classDef ") {
+				declared = append(declared, line)
+			}
+		}
+
+		assert.Equal(t, diagramPalette, declared,
+			"a flowchart declares another palette than the shared one:\n%s", block)
+	}
+}
+
+// TestEveryFlowchart_AssignsOnlyPaletteClasses catches a class name the
+// palette does not define. Mermaid ignores it without a word, and the box
+// renders in the theme's colours — the one thing the palette exists to stop.
+func TestEveryFlowchart_AssignsOnlyPaletteClasses(t *testing.T) {
+	t.Parallel()
+
+	known := map[string]bool{}
+
+	for _, line := range diagramPalette {
+		known[strings.Fields(line)[1]] = true
+	}
+
+	for _, block := range flowcharts(t) {
+		for _, found := range classAssignment.FindAllStringSubmatch(block, -1) {
+			assert.True(t, known[found[2]],
+				"a flowchart assigns class %q, which the palette does not define", found[2])
+		}
+	}
+}
+
+// stadiumNode matches a node drawn as a stadium, `id(["…"])`, capturing its id.
+var stadiumNode = regexp.MustCompile(`(?m)^\s*(\w+)\(\[`)
+
+// actorClass is the palette class a stadium has to carry.
+const actorClass = "actor"
+
+// TestEveryStadium_IsAnActor holds the shape grammar the README's legend
+// states: a rounded box is a person. One drawn round for looks reads as
+// somebody who acts on the system.
+func TestEveryStadium_IsAnActor(t *testing.T) {
+	t.Parallel()
+
+	var checked int
+
+	for _, block := range flowcharts(t) {
+		actors := map[string]bool{}
+
+		for _, found := range classAssignment.FindAllStringSubmatch(block, -1) {
+			if found[2] != actorClass {
+				continue
+			}
+
+			for _, id := range strings.Split(found[1], ",") {
+				actors[id] = true
+			}
+		}
+
+		for _, found := range stadiumNode.FindAllStringSubmatch(block, -1) {
+			checked++
+
+			assert.True(t, actors[found[1]],
+				"%s is drawn as a stadium, which the legend reserves for people, but is not of class %s",
+				found[1], actorClass)
+		}
+	}
+
+	require.NotZero(t, checked, "no stadiums found — this test is checking nothing")
+}
+
+// TestNoDiagram_CarriesAnEmoji keeps labels to text. An emoji — any symbol
+// of Unicode's "other symbol" category — renders as a different glyph on every
+// platform, and the shapes already say what one would.
+func TestNoDiagram_CarriesAnEmoji(t *testing.T) {
+	t.Parallel()
+
+	for _, block := range diagrams(t) {
+		for _, r := range block {
+			assert.False(t, unicode.Is(unicode.So, r),
+				"a diagram carries %q:\n%s", string(r), block)
+		}
+	}
 }

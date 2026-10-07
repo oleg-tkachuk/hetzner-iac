@@ -12,46 +12,35 @@ everything above it; destroying a layer takes only its own namespaces.
 
 ```mermaid
 flowchart TB
-    %% The colour says whose territory a box is in: Hetzner green, Talos amber,
-    %% Kubernetes blue, Pulumi state violet; pink marks the few gates and
-    %% secrets that deserve the eye. Light fills with dark text of the same
-    %% hue, spelled out: GitHub renders this in both themes, and a colour left
-    %% to the theme is unreadable in one of them.
-    classDef hetzner fill:#DCFCE7,stroke:#16A34A,stroke-width:1px,color:#14532D
-    classDef talos fill:#FEF3C7,stroke:#D97706,stroke-width:1px,color:#78350F
-    classDef kube fill:#DBEAFE,stroke:#2563EB,stroke-width:1px,color:#1E3A8A
-    classDef derived fill:#F1F5F9,stroke:#64748B,stroke-width:1px,stroke-dasharray:4 3,color:#334155
-    classDef state fill:#EDE9FE,stroke:#7C3AED,stroke-width:2px,color:#3B0764
-
-    subgraph hetzner["☁️ Hetzner Cloud project — infra/cluster and infra/backup, plus one layer that owns one resource"]
+    subgraph hetzner ["Hetzner Cloud project — infra/cluster and infra/backup, plus one layer that owns one resource"]
         direction TB
         net["<b>private network</b><br/>+ subnet"]
-        fw["<b>firewall</b>"]
+        fw{{"<b>firewall</b>"}}
         pg["<b>placement group</b>"]
         snap[("<b>Talos snapshot</b><br/>task cluster:image:bake")]
 
-        subgraph servers["servers"]
+        subgraph servers ["servers"]
             direction LR
             cp["<b>control plane</b>"]
             wk["<b>worker pools</b>"]
         end
 
-        apilb(["<b>load balancer for the API</b><br/>private only — the nodes' endpoint"])
-        inglb(["<b>load balancer for ingress</b><br/>layers/40-ingress"])
+        apilb["<b>load balancer for the API</b><br/>private only — the nodes' endpoint"]
+        inglb["<b>load balancer for ingress</b><br/>layers/40-ingress"]
         box[("<b>Storage Box + subaccount</b><br/>infra/backup")]
     end
 
-    subgraph talos["Talos on those servers"]
+    subgraph talos ["Talos on those servers"]
         direction LR
         etcd[("<b>etcd</b>")]
         api["<b>kube-apiserver</b>"]
     end
 
-    subgraph k8s["Kubernetes — every layer writes only here"]
+    subgraph k8s ["Kubernetes — every layer writes only here"]
         direction TB
         ks["<b>kube-system</b><br/>layers/10-node-platform"]
         pol["<b>cluster-wide policy</b><br/>layers/20-network-policy"]
-        cmns["<b>cert-manager, external-secrets, cosign-system</b><br/>layers/30-cluster-services"]
+        cmns["<b>cert-manager · external-secrets · cosign-system</b><br/>layers/30-cluster-services"]
         kedans["<b>keda</b><br/>layers/30-cluster-services, when kedaEnabled"]
         tns["<b>traefik</b><br/>layers/40-ingress"]
         argons["<b>argocd</b><br/>layers/50-gitops"]
@@ -63,22 +52,29 @@ flowchart TB
     trust -.->|"every certificate descends from it"| talos
     servers ==> talos
     talos ==> k8s
-    inglb ==>|"tcp/80, tcp/443 to a pinned nodePort"| servers
+    inglb ==>|"tcp/80 · tcp/443 to a pinned nodePort"| servers
     servers -->|"cluster endpoint over the private network<br/>targets the control plane"| apilb
-    op -->|"tcp/6443, tcp/50000 through the firewall<br/>to the first control-plane node"| fw
+    op -->|"tcp/6443 · tcp/50000 through the firewall<br/>to the first control-plane node"| fw
     etcd -.->|"task cluster:etcd:upload — restic over sftp"| box
 
-    class net,fw,pg,snap,cp,wk,box hetzner
-    class apilb,inglb hetzner
+    classDef actor fill:#F1F5F9,stroke:#64748B,color:#334155
+    classDef optional fill:#F1F5F9,stroke:#64748B,color:#334155,stroke-dasharray:5 4
+    classDef hetzner fill:#DCFCE7,stroke:#16A34A,color:#14532D
+    classDef talos fill:#FEF3C7,stroke:#D97706,color:#78350F
+    classDef kube fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
+    classDef state fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    classDef gate fill:#FCE7F3,stroke:#DB2777,color:#831843
+    class net,pg,snap,cp,apilb,inglb,box hetzner
+    class fw gate
     class etcd,api talos
-    class ks,pol,cmns,kedans,tns,argons kube
+    class ks,pol,cmns,tns,argons kube
+    class wk,kedans optional
     class trust state
-    class op derived
-
-    style hetzner fill:#F0FDF4,stroke:#16A34A,stroke-width:2px,color:#14532D
-    style servers fill:#F0FDF4,stroke:#16A34A,stroke-dasharray:3 3,color:#14532D
-    style talos fill:#FFFBEB,stroke:#D97706,stroke-width:2px,color:#78350F
-    style k8s fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#1E3A8A
+    class op actor
+    style hetzner fill:#F8FAFC,stroke:#16A34A
+    style servers fill:#F8FAFC,stroke:#16A34A,stroke-dasharray:5 4
+    style talos fill:#F8FAFC,stroke:#D97706
+    style k8s fill:#F8FAFC,stroke:#2563EB
 ```
 
 Two projects other than the cluster tier cross that seam, and both do it on
@@ -363,7 +359,7 @@ sequenceDiagram
     participant k8s as Kubernetes API
     participant layers as layers/*
 
-    rect rgb(253, 232, 235)
+    rect rgb(220, 252, 231)
         operator->>tier: task cluster:apply
         tier->>hcloud: private network, firewall, servers
         tier->>hcloud: Talos machine configuration, then bootstrap
@@ -373,7 +369,7 @@ sequenceDiagram
 
     Note over tier,k8s: the cluster tier installs no CNI,<br/>so every node stays NotReady until the next phase
 
-    rect rgb(231, 239, 252)
+    rect rgb(219, 234, 254)
         operator->>layers: task platform:apply layer=all
         layers->>k8s: layers/10-node-platform installs the CNI — Cilium
         Note over layers,k8s: nodes become Ready
