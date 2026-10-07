@@ -216,6 +216,14 @@ requires a constant to publish it, which catches a rename on either side.
 `TestOutputNames_ArePinnedWithoutException` counts the pins against the
 constants.
 
+The cluster tier also publishes a few outputs for the operator alone —
+`controlPlaneAddresses`, `talosVersion`, `kubernetesVersion`, `talosImage` —
+declared in `infra/cluster`, not in `internal/pkg/clusterref`. No layer reads
+them, so they stay outside the versioned contract: adding them there would bump
+`ContractVersion` and block every layer until the tier is re-applied. The
+versions are what the topology declares, and `talosImage` is the snapshot a new
+node is created from, not necessarily the one running nodes booted.
+
 ## What Pulumi owns, and what it deliberately does not
 
 Owned here: the network and its subnet, the firewall, the placement group, the
