@@ -1,6 +1,7 @@
 package hetzner_test
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -89,6 +90,8 @@ const (
 	testLoadBalancerPrivateIP = "10.0.1.250"
 	// testFirstNodeIP is the public address every mock server reports.
 	testFirstNodeIP = "203.0.113.10"
+	// testTalosImageID is the snapshot every image lookup answers with.
+	testTalosImageID = 4242
 	// talosKubeconfig is a kubeconfig as Talos returns it, pointed at the
 	// cluster endpoint.
 	talosKubeconfig = `apiVersion: v1
@@ -229,7 +232,7 @@ func (r *recorder) Call(args pulumi.MockCallArgs) (resource.PropertyMap, error) 
 	switch args.Token {
 	case "hcloud:index/getImage:getImage":
 		return resource.PropertyMap{
-			"id": resource.NewNumberProperty(4242),
+			"id": resource.NewNumberProperty(testTalosImageID),
 		}, nil
 	case "talos:machine/getConfiguration:getConfiguration":
 		return resource.PropertyMap{
@@ -1047,6 +1050,38 @@ func TestNewCluster_TheAPITargetWaitsForTheLoadBalancerToJoinTheNetwork(t *testi
 	// everything else.
 	assert.True(t, onAttachment,
 		"the api target does not wait for the load balancer's network attachment")
+}
+
+// TestNewCluster_PublishesTheImageANewNodeBoots holds the component output to
+// the lookup the servers are created from, rather than to any other id.
+func TestNewCluster_PublishesTheImageANewNodeBoots(t *testing.T) {
+	t.Parallel()
+
+	rec := newRecorder()
+	want := strconv.Itoa(testTalosImageID)
+
+	require.NoError(t, pulumi.RunErr(func(ctx *pulumi.Context) error {
+		cluster, err := hetzner.NewCluster(ctx, "test", &hetzner.ClusterArgs{
+			Topology:   clusterspectest.MustParseValid(t),
+			PublicIPv4: true,
+		})
+		require.NoError(t, err)
+
+		image, err := internals.UnsafeAwaitOutput(ctx.Context(), cluster.TalosImage)
+		require.NoError(t, err)
+
+		assert.Equal(t, want, image.Value)
+
+		return nil
+	}, pulumi.WithMocks("hetzner-iac", "test", rec)))
+
+	servers := rec.of("hcloud:index/server:Server")
+	require.NotEmpty(t, servers)
+
+	for _, server := range servers {
+		assert.Equal(t, want, server["image"].StringValue(),
+			"%s boots an image other than the one published", server["name"].StringValue())
+	}
 }
 
 // TestNewCluster_MarksBothCredentialsSecret is the property asSecret exists to

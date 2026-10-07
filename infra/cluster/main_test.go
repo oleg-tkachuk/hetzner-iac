@@ -35,7 +35,11 @@ const (
 	testServiceCIDR       = "10.96.0.0/12"
 	testNetworkID         = 4242
 	testToken             = "token-sentinel"
+	testTalosImage        = "4343"
 )
+
+// testControlPlaneAddresses are two, so an order lost on the way is visible.
+var testControlPlaneAddresses = []string{"203.0.113.10", "203.0.113.11"}
 
 func exampleTopology(t *testing.T) *clusterspec.Topology {
 	t.Helper()
@@ -58,6 +62,10 @@ func fakeCluster() *hetzner.Cluster {
 		NetworkID:         pulumi.Int(testNetworkID).ToIntOutput(),
 		PodCIDR:           pulumi.String(testPodCIDR).ToStringOutput(),
 		ServiceCIDR:       pulumi.String(testServiceCIDR).ToStringOutput(),
+		TalosImage:        pulumi.String(testTalosImage).ToStringOutput(),
+		ControlPlane: &hetzner.ControlPlane{
+			NodeAddresses: pulumi.ToStringArray(testControlPlaneAddresses).ToStringArrayOutput(),
+		},
 	}
 }
 
@@ -124,6 +132,43 @@ func TestExports_CarryTheValueEachNamePromises(t *testing.T) {
 	} {
 		require.Contains(t, published, name)
 		assert.Equal(t, want, resolve(t, published[name]), "%s carries another output's value", name)
+	}
+}
+
+// TestInformation_StaysOutOfTheContract keeps the operator-facing outputs from
+// colliding with a contract name: two exports of one name, and whichever loop
+// runs second silently decides what a layer reads.
+func TestInformation_StaysOutOfTheContract(t *testing.T) {
+	t.Parallel()
+
+	for name := range information(exampleTopology(t), fakeCluster()) {
+		assert.NotContains(t, clusterref.Declared, name,
+			"%s is in the versioned contract; publish it from exports, not information", name)
+	}
+}
+
+// TestInformation_CarriesTheValueEachNamePromises is the contract's value check,
+// for the outputs a person reads.
+func TestInformation_CarriesTheValueEachNamePromises(t *testing.T) {
+	t.Parallel()
+
+	topology := exampleTopology(t)
+	published := information(topology, fakeCluster())
+
+	want := map[string]any{
+		OutputControlPlaneAddresses: testControlPlaneAddresses,
+		OutputTalosImage:            testTalosImage,
+
+		// From the topology rather than from the component.
+		OutputTalosVersion:      topology.Talos.Version,
+		OutputKubernetesVersion: topology.Kubernetes.Version,
+	}
+
+	assert.Len(t, published, len(want), "an output is published with no value checked here")
+
+	for name, value := range want {
+		require.Contains(t, published, name)
+		assert.Equal(t, value, resolve(t, published[name]), "%s carries another output's value", name)
 	}
 }
 

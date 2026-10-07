@@ -107,6 +107,7 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 		charts.TraefikEntryPointTLS,
 		charts.TraefikProxyProtocol,
 		charts.TraefikTrustedIPs,
+		charts.TraefikIngressClass,
 	} {
 		assert.Contains(t, traefik, key,
 			"the traefik template no longer spells %q the way the render check asserts it", key)
@@ -243,6 +244,7 @@ func TestProbeData_CarriesThePinnedValuesRatherThanACopy(t *testing.T) {
 
 	assert.Equal(t, platform.IngressNodePortHTTP, ingress.NodePortHTTP)
 	assert.Equal(t, platform.IngressNodePortHTTPS, ingress.NodePortHTTPS)
+	assert.Equal(t, platform.IngressClass, ingress.IngressClass)
 
 	csi, err := charts.Probe("hcloud-csi")
 	require.NoError(t, err)

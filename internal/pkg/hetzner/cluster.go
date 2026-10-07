@@ -61,6 +61,11 @@ type Cluster struct {
 	// balancer is created on, kept here so they outlive it.
 	IngressIPv4ID pulumi.IntOutput `pulumi:"ingressIpv4Id"`
 	IngressIPv6ID pulumi.IntOutput `pulumi:"ingressIpv6Id"`
+
+	// TalosImage is the snapshot id a node created now would boot. Not what
+	// the running nodes booted: servers ignore changes to their image, so a
+	// node keeps the snapshot it was created from across Talos upgrades.
+	TalosImage pulumi.StringOutput `pulumi:"talosImage"`
 }
 
 // ClusterArgs is the resolved topology plus anything that must not live in a
@@ -175,6 +180,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 	component.ServiceCIDR = pulumi.String(topology.Network.ServiceCIDR).ToStringOutput()
 	component.IngressIPv4ID = ingress.IPv4ID
 	component.IngressIPv6ID = ingress.IPv6ID
+	component.TalosImage = config.image
 
 	// Literals, and the same names as the fields' own tags — which is what
 	// TestComponentOutputs_AreTheFieldsTheyAreTaggedAs holds, since a Go tag
@@ -193,6 +199,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		"serviceCidr":       component.ServiceCIDR,
 		"ingressIpv4Id":     component.IngressIPv4ID,
 		"ingressIpv6Id":     component.IngressIPv6ID,
+		"talosImage":        component.TalosImage,
 	}); err != nil {
 		return nil, fmt.Errorf("register cluster outputs: %w", err)
 	}

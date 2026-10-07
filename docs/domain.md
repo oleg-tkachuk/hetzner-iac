@@ -71,7 +71,8 @@ become yours to write. The load balancer, the Ingress and the certificate are
 the same.
 
 **The certificate does not care who serves the zone.** The ClusterIssuer solves
-HTTP-01 through the ingress class `40-ingress` registers, so Let's Encrypt
+HTTP-01 through the ingress class `40-ingress` registers (its `ingressClass`
+output, the name an application's Ingress asks for), so Let's Encrypt
 validates by fetching `/.well-known/acme-challenge/` over the load balancer —
 no provider credentials, no DNS-01. It does need the name to resolve *to that
 balancer*, so write the records first: until they resolve, the `Certificate`
