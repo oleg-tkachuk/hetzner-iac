@@ -89,8 +89,8 @@ images:
   - repository: docker.io/hetznercloud/hcloud-cloud-controller-manager
     unsigned:
       reason: Hetzner publishes no signature for the cloud controller manager.
-      tag: v1.38.0
-      digest: sha256:0ceeacefbecbc4e149f0fb740b48518c8eeff077557b730ae615b4f7a7b1c669
+      tag: v1.39.0
+      digest: sha256:d6fee56987598cddb01121ebc1566e6513048cf6c66cba29d5d7a3025f3c2085
   - repository: docker.io/hetznercloud/hcloud-csi-driver
     unsigned:
       reason: Hetzner publishes no signature for the CSI driver.
