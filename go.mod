@@ -1,6 +1,6 @@
 module github.com/oleg-tkachuk/hetzner-iac
 
-go 1.27.1
+go 1.27.2
 
 // GO-2026-6443 (CVE-2026-84445): a server panic in grpc reachable from this
 // module's own code, which govulncheck reports with symbol traces rather than
