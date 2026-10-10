@@ -486,15 +486,9 @@ jobs:
           printf 'cores: %s\n' "$(nproc)"
           printf 'memory: %s\n' "$(free -h | awk '/^Mem:/ {print $2}')"
 
-      # Built from the `tool` directive in go.mod, not downloaded. gosec reads
-      # export data through golang.org/x/tools, and its release binary carries
-      # whatever x/tools gosec's own go.mod asks for — v0.49.0 in v2.29.0, which
-      # cannot decode the export data Go 1.27.2 writes. Built inside this
-      # module, MVS gives it ours, and go.sum verifies every byte.
-      - name: Install gosec
-        run: |
-          go install github.com/securego/gosec/v2/cmd/gosec
-          gosec --version
+      # No install step: security:gosec runs `go tool gosec`, the build the
+      # `tool` directive in go.mod pins. A release binary carries gosec's own
+      # golang.org/x/tools, which can be too old for this Go's export data.
       # Suppressions are written as #nosec, which both this and the gosec
       # inside golangci-lint honour — //nolint:gosec would satisfy the lint job
       # and fail this one.

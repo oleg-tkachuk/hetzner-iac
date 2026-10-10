@@ -158,8 +158,8 @@ the prefix restores the previous dependencies, and anything that type-checks
 the module compiles the difference. That is why `Insecure patterns` has a
 25-minute bound and prints the runner's cores and memory before it starts.
 
-gosec is a `tool` dependency in `go.mod` and is built with `go install` from
-this module, so it reads export data with this module's `golang.org/x/tools`
+gosec is a `tool` dependency in `go.mod`, and `security:gosec` runs it with
+`go tool gosec`, so it reads export data with this module's `golang.org/x/tools`
 rather than the older one its release binary carries. `GOSEC_FLAGS` sets its
 concurrency from the cores the machine has.
 
