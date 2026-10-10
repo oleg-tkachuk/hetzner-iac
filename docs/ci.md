@@ -158,9 +158,10 @@ the prefix restores the previous dependencies, and anything that type-checks
 the module compiles the difference. That is why `Insecure patterns` has a
 25-minute bound and prints the runner's cores and memory before it starts.
 
-gosec is downloaded and verified against its release's `checksums.txt`, not
-built with `go install`. `GOSEC_FLAGS` sets its concurrency from the cores the
-machine has.
+gosec is a `tool` dependency in `go.mod` and is built with `go install` from
+this module, so it reads export data with this module's `golang.org/x/tools`
+rather than the older one its release binary carries. `GOSEC_FLAGS` sets its
+concurrency from the cores the machine has.
 
 [`free-disk`](../.github/actions/free-disk/action.yml) clears space only when
 the runner has less free than it needs.
@@ -235,8 +236,8 @@ Every tool version in `.github/workflows/*.yaml` is pinned and carries the
 annotation a custom manager reads:
 
 ```yaml
-# renovate: datasource=github-releases depName=securego/gosec
-GOSEC_VERSION: "v2.29.0"
+# renovate: datasource=github-releases depName=golangci/golangci-lint
+GOLANGCI_VERSION: "v2.14.0"
 ```
 
 The annotation holds the datasource — GitHub releases, PyPI or Go modules — so

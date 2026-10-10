@@ -88,8 +88,10 @@ brew "lychee"        # task -t Taskfile.dev.yaml docs:links
 # bin/golangci-lint — see tools/golangci — so this one is for everything else.
 brew "golangci-lint"
 brew "gitleaks"      # security:secrets
-brew "gosec"         # nightly, and security:gosec
 brew "trivy"         # security:trivy
+# gosec is not here: go.mod pins it as a tool, and the formula's build cannot
+# read this Go's export data. `go install github.com/securego/gosec/v2/cmd/gosec`
+# from this module for security:gosec.
 
 # checkov, and pipx rather than the formula on purpose. `checkov:scan` runs the
 # version .github/workflows/ci.yaml pins, and uses an installed checkov only
