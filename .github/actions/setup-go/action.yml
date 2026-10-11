@@ -62,6 +62,18 @@ runs:
         # own option cannot express "restore but do not save".
         cache: false
 
+    # Go's work directory, off /tmp. Ubuntu 26.04 mounts /tmp as a RAM-backed
+    # tmpfs — half the RAM, with a per-user quota — and a cold build writes
+    # gigabytes of intermediate files there, which then compete with the
+    # compiler for the same memory (actions/runner-images#14777). RUNNER_TEMP
+    # is on the root disk and emptied after every job.
+    - shell: bash
+      run: |
+        set -euo pipefail
+        work="${RUNNER_TEMP}/go-tmp"
+        mkdir -p "${work}"
+        printf 'GOTMPDIR=%s\n' "${work}" >>"${GITHUB_ENV}"
+
     - id: go-paths
       shell: bash
       run: |
