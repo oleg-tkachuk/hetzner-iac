@@ -706,3 +706,47 @@ func TestWorkflows_PinTheRunner(t *testing.T) {
 	assert.Empty(t, problems)
 	assert.Positive(t, checked, "no job names a runner — this test is checking nothing")
 }
+
+// setupGoAction is the composite action every Go job sets up through.
+const setupGoAction = ".github/actions/setup-go/action.yml"
+
+// goTmpdirExport is the line that moves Go's work directory for the rest of
+// the job, and goTmpdirValue the assignment that must put it under
+// RUNNER_TEMP, on the root disk.
+var (
+	goTmpdirExport = regexp.MustCompile(`GOTMPDIR=%s\\n' "\$\{(\w+)\}"\s*>>\s*"\$\{GITHUB_ENV\}"`)
+	goTmpdirValue  = regexp.MustCompile(`(?m)^\s*(\w+)="\$\{RUNNER_TEMP\}/[^"]+"\s*$`)
+)
+
+// TestSetupGo_KeepsTheWorkDirectoryOffTmp pins GOTMPDIR under RUNNER_TEMP.
+//
+// Ubuntu 26.04 runners mount /tmp as a RAM-backed tmpfs, and Go writes its
+// work directory there by default, so a cold build spends memory twice: once
+// compiling and once holding the compiler's output.
+func TestSetupGo_KeepsTheWorkDirectoryOffTmp(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", setupGoAction))
+	require.NoError(t, err)
+
+	var action compositeAction
+	require.NoError(t, yaml.Unmarshal(raw, &action), setupGoAction)
+
+	var exported []string
+
+	for _, step := range action.Runs.Steps {
+		export := goTmpdirExport.FindStringSubmatch(step.Run)
+		if export == nil {
+			continue
+		}
+
+		for _, value := range goTmpdirValue.FindAllStringSubmatch(step.Run, -1) {
+			if value[1] == export[1] {
+				exported = append(exported, value[1])
+			}
+		}
+	}
+
+	assert.Len(t, exported, 1,
+		"%s must export GOTMPDIR exactly once, from a variable set under ${RUNNER_TEMP}", setupGoAction)
+}
