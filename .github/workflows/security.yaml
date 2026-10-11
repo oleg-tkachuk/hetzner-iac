@@ -84,7 +84,7 @@ jobs:
   # token into a document.
   secrets:
     name: Committed secrets
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -132,7 +132,7 @@ jobs:
     # this workflow exists for — the one where the advisory database moved and
     # the code did not.
     if: inputs.code != false
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -165,7 +165,7 @@ jobs:
     # trivy reads go.sum and the manifests. `!= false` for the same reason as
     # the job above: an empty `inputs` on a schedule must run, not skip.
     if: inputs.code != false
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -195,7 +195,7 @@ jobs:
     # zizmor reads .github/workflows only, which a prose change does not
     # touch — .github/**/*.md included.
     if: inputs.code != false
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -227,7 +227,7 @@ jobs:
     name: Workflow syntax
     # actionlint reads the same files zizmor does.
     if: inputs.code != false
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
