@@ -2,19 +2,6 @@ module github.com/oleg-tkachuk/hetzner-iac
 
 go 1.27.2
 
-// GO-2026-6443 (CVE-2026-84445): a server panic in grpc reachable from this
-// module's own code, which govulncheck reports with symbol traces rather than
-// as a module we merely require. v1.84.0 was cut after the patched v1.82.2 and
-// v1.83.2 without carrying the fix, and the only version the advisory names for
-// the 1.84 line is a master pseudo-version.
-//
-// Excluded rather than only pinned, because a pin does not survive the thing
-// that introduced it: `task go:deps:update` runs `go get -u` on the direct
-// requirements, which walks their dependency trees and raised grpc on its own.
-// Verified by replaying that command with this in place — grpc stays at
-// v1.83.2. Drop it when a stable 1.84.x or 1.85.0 ships.
-exclude google.golang.org/grpc v1.84.0
-
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/blang/semver v3.5.1+incompatible
@@ -212,7 +199,7 @@ require (
 	google.golang.org/genai v1.69.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20261005182115-fad411399dd8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 // indirect
-	google.golang.org/grpc v1.83.2 // indirect
+	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
