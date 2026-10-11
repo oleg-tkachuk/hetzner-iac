@@ -609,16 +609,80 @@ func TestFreeDisk_HasOneThresholdAndUsesItTwice(t *testing.T) {
 // nobody here chose.
 const FloatingRunner = "ubuntu-latest"
 
-// PinnedRunner is what every job asks for instead.
-const PinnedRunner = "ubuntu-24.04"
+// pinnedRunner is the shape every job's runner takes instead: an Ubuntu label
+// that names its release. The release itself is not spelled here — Renovate
+// moves it across the workflows and cannot move it in this file, so a test
+// naming one fails every runner bump for the wrong reason.
+var pinnedRunner = regexp.MustCompile(`^ubuntu-\d+\.\d+$`)
+
+// runsOnLine captures the runner label of one `runs-on:` line.
+var runsOnLine = regexp.MustCompile(`(?m)^\s*runs-on:\s*(\S+)\s*$`)
+
+// runnerProblems returns what is wrong with the runners the given workflows
+// ask for, keyed by file name: a label that is not a pinned release, or more
+// than one release across them. It also returns how many jobs it checked.
+func runnerProblems(workflows map[string]string) ([]string, int) {
+	var problems []string
+
+	labels := map[string]bool{}
+	checked := 0
+
+	for name, text := range workflows {
+		for _, match := range runsOnLine.FindAllStringSubmatch(text, -1) {
+			label := match[1]
+			checked++
+
+			if !pinnedRunner.MatchString(label) {
+				problems = append(problems, name+" runs on "+label+", not a pinned Ubuntu release")
+
+				continue
+			}
+
+			labels[label] = true
+		}
+	}
+
+	if len(labels) > 1 {
+		problems = append(problems, "jobs disagree on the Ubuntu release — a runner bump stopped halfway")
+	}
+
+	return problems, checked
+}
+
+func TestRunnerProblems(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		workflows map[string]string
+		problems  int
+		checked   int
+	}{
+		{"pinned", map[string]string{"a": "    runs-on: ubuntu-24.04\n"}, 0, 1},
+		{"the next release", map[string]string{"a": "    runs-on: ubuntu-26.04\n", "b": "    runs-on: ubuntu-26.04\n"}, 0, 2},
+		{"floating", map[string]string{"a": "    runs-on: " + FloatingRunner + "\n"}, 1, 1},
+		{"half a bump", map[string]string{"a": "    runs-on: ubuntu-24.04\n", "b": "    runs-on: ubuntu-26.04\n"}, 1, 2},
+		{"another OS", map[string]string{"a": "    runs-on: macos-15\n"}, 1, 1},
+		{"no job", map[string]string{"a": "on: push\n"}, 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			problems, checked := runnerProblems(tt.workflows)
+			assert.Len(t, problems, tt.problems, problems)
+			assert.Equal(t, tt.checked, checked)
+		})
+	}
+}
 
 // TestWorkflows_PinTheRunner keeps the runner from drifting back to a floating
 // label.
 //
 // Every job used ubuntu-latest and every job warned that it becomes Ubuntu 26
 // on 19 October 2026. Pinned, that migration is a pull request Renovate opens
-// and somebody reads — measured first: all sixteen jobs are green on
-// ubuntu-26.04, so the pin is a choice about when, not a way to avoid it.
+// and somebody reads.
 //
 // A floating label reads as harmless in a diff, which is why this is a test
 // rather than a comment.
@@ -629,20 +693,16 @@ func TestWorkflows_PinTheRunner(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, paths)
 
-	var pinned int
+	workflows := map[string]string{}
 
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err, path)
 
-		text := string(raw)
-
-		assert.NotContains(t, text, "runs-on: "+FloatingRunner,
-			"%s takes %s, so the OS under it changes on a date nobody here chose",
-			filepath.Base(path), FloatingRunner)
-
-		pinned += strings.Count(text, "runs-on: "+PinnedRunner)
+		workflows[filepath.Base(path)] = string(raw)
 	}
 
-	assert.Positive(t, pinned, "no job pins a runner — this test is checking nothing")
+	problems, checked := runnerProblems(workflows)
+	assert.Empty(t, problems)
+	assert.Positive(t, checked, "no job names a runner — this test is checking nothing")
 }

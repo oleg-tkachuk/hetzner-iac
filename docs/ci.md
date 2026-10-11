@@ -261,7 +261,7 @@ task `bash .github/renovate/trust-tasklib.sh` replaces them on the same branch.
 Every post-upgrade command must also be listed in `RENOVATE_ALLOWED_COMMANDS`
 in `renovate.yaml`, or Renovate skips it with a warning.
 
-The runners are pinned to `ubuntu-24.04` rather than `ubuntu-latest`, and
+The runners are pinned to one `ubuntu-<release>` label rather than `ubuntu-latest`, and
 Renovate's built-in `github-runners` datasource proposes the next image as a
 `ci(runner)` pull request. `.github/actionlint.yaml` declares the newer label so
 that pull request is reviewable rather than red. `TestWorkflows_PinTheRunner`
