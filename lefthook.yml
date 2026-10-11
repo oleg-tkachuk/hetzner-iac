@@ -149,9 +149,15 @@ pre-commit:
           fi
         done
 
+    # Every Go job runs on one thread: hooks fire on a shared workstation, and a
+    # compile or test fanned out over every core starves everything else on it.
+    # CI keeps its own parallelism.
     - name: gofmt
       tags: [go, format]
       glob: "*.go"
+      env: &single_thread
+        GOMAXPROCS: "1"
+        GOFLAGS: "-p=1"
       run: |
         set -euo pipefail
         unformatted="$(gofmt -l {staged_files})"
@@ -168,13 +174,15 @@ pre-commit:
     - name: cluster-topology
       tags: [config]
       glob: "infra/cluster/cluster.*.yaml"
+      env: *single_thread
       run: go run ./tools/topology infra/cluster
 
     # Exact chart versions, no floating tags.
     - name: chart-pins
       tags: [config]
       glob: "internal/pkg/charts/*.go"
-      run: go test -count=1 ./internal/pkg/charts/
+      env: *single_thread
+      run: go test -count=1 -parallel=1 ./internal/pkg/charts/
 
     # The workflows are the one part of this repository that runs with a token.
     - name: zizmor
@@ -196,7 +204,8 @@ pre-push:
   jobs:
     - name: test
       tags: [go, test]
-      run: go test -count=1 ./...
+      env: *single_thread
+      run: go test -count=1 -parallel=1 ./...
 
     # Through tools/golangci, not the bare binary: it runs the version CI pins
     # and refuses a different one. A push was once blocked by eight findings
@@ -204,10 +213,12 @@ pre-push:
     # and neither message named a version.
     - name: lint
       tags: [go, lint]
-      run: go run ./tools/golangci run ./...
+      env: *single_thread
+      run: go run ./tools/golangci run --concurrency=1 ./...
 
     - name: vet
       tags: [go]
+      env: *single_thread
       run: go vet ./...
 
 commit-msg:
