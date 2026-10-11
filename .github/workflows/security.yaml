@@ -64,7 +64,7 @@ env:
   # "panic: unexpected expr: *ast.KeyValueExpr". A static-analysis tool has to
   # be at least as new as the toolchain it reads.
   # renovate: datasource=go depName=golang.org/x/vuln
-  GOVULNCHECK_VERSION: "v1.8.0"
+  GOVULNCHECK_VERSION: "v1.9.0"
   # renovate: datasource=pypi depName=zizmor
   ZIZMOR_VERSION: "1.30.1"
   # renovate: datasource=go depName=github.com/rhysd/actionlint
