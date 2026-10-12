@@ -17,8 +17,8 @@ func TestAppVersionStatus(t *testing.T) {
 
 	// This is what a Renovate pull request runs into. Renovate bumps the chart
 	// Version — the helm datasource knows nothing about app versions — so the
-	// AppVersion beside it is stale until a human fixes it, and that is the
-	// case this must catch.
+	// AppVersion beside it is stale until `appversions --write` follows it,
+	// and that is the case this must catch.
 	for name, tc := range map[string]struct {
 		pinned, upstream string
 		wantStatus       string

@@ -32,7 +32,7 @@ func main() {
 	case "render":
 		err = renderAll()
 	case "appversions":
-		err = appversions()
+		err = appversionsCommand(os.Args[2:])
 	case "repin":
 		err = repin(context.Background())
 	default:
@@ -57,19 +57,34 @@ func list() error {
 	return out.Flush()
 }
 
+// appversionsCommand parses `appversions [--write]`.
+func appversionsCommand(args []string) error {
+	switch {
+	case len(args) == 0:
+		return appversions(false)
+	case len(args) == 1 && args[0] == "--write":
+		return appversions(true)
+	default:
+		return fmt.Errorf("appversions takes only --write, got %q", strings.Join(args, " "))
+	}
+}
+
 // appversions checks that each entry's AppVersion is what the pinned chart
-// actually ships.
+// actually ships, and with write sets it where it is not.
 //
-// It exists because Renovate cannot maintain it. Renovate bumps Version — the
-// helm datasource only knows chart versions — and AppVersion beside it then
-// becomes a lie: a comment claiming a chart deploys something it does not.
-// Mostly that is a misleading document — but it stops being only a document
-// the moment anything derives a value from it, as a validation image tag was
-// derived from alloy's while that chart was pinned here.
+// Renovate bumps Version — the helm datasource only knows chart versions — and
+// AppVersion beside it then becomes a lie: a comment claiming a chart deploys
+// something it does not. Mostly that is a misleading document — but it stops
+// being only a document the moment anything derives a value from it, as a
+// validation image tag was derived from alloy's while that chart was pinned
+// here.
 //
-// A gate rather than a rewriter. An automated upgrade should stop for a human
-// to read a changelog, and this is the check that makes it stop.
-func appversions() error {
+// CI runs it as a gate. Renovate runs it with write as a post-upgrade task, so
+// a chart bump arrives with AppVersion already following the pin: it used to
+// stop for a person to set it, and every chart pull request went red for a
+// value this command already knew. Write only changes a value that exists;
+// adding or dropping the field still fails here for a person to decide.
+func appversions(write bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -92,6 +107,14 @@ func appversions() error {
 		}
 
 		status, agrees := AppVersionStatus(chart.AppVersion, upstream)
+		if !agrees && write {
+			if writeErr := writeAppVersion(key, chart, upstream); writeErr != nil {
+				status = writeErr.Error()
+			} else {
+				status, agrees = "set", true
+			}
+		}
+
 		if !agrees {
 			wrong = append(wrong, key)
 		}
@@ -107,8 +130,9 @@ func appversions() error {
 	if len(wrong) > 0 {
 		fmt.Fprintf(os.Stderr,
 			"\n%d chart entr(ies) claim the wrong app version.\n"+
-				"Fix internal/pkg/charts/registry.go so AppVersion is the UPSTREAM APP column above,\n"+
-				"and update the `// app <version>` comment beside Version to match.\n",
+				"Run `go run ./tools/charts appversions --write`, or set AppVersion in the chart's file\n"+
+				"under internal/pkg/charts to the UPSTREAM APP column above, with the `// app <version>`\n"+
+				"comment beside Version to match.\n",
 			len(wrong))
 
 		return fmt.Errorf("app version mismatch: %s", strings.Join(wrong, ", "))

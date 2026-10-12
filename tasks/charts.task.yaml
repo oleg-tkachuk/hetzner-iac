@@ -25,9 +25,9 @@ tasks:
   appversions:
     desc: "Check every AppVersion is what the pinned chart actually ships"
     cmds:
-      # Renovate bumps Version and cannot touch AppVersion — the helm
-      # datasource knows chart versions and nothing else. This is the gate
-      # that stops a bot's pull request from landing a lie beside the pin.
+      # The helm datasource knows chart versions and nothing else, so Renovate
+      # sets AppVersion with `appversions --write` after a bump. This is the
+      # gate that stops a pin from landing with a lie beside it anyway.
       - go run ./tools/charts appversions
 
   render-check:

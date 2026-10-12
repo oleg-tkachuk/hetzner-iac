@@ -332,11 +332,12 @@ upgrade reaches a release (`feat(charts):` for a major, so the version says so).
 `internal/pkg/imagepolicy/images.yaml` behind. The post-upgrade task
 `go run ./tools/charts repin` moves it on the same branch.
 
-**Renovate cannot maintain `AppVersion`.** The helm datasource knows chart
-versions and nothing else, so `Chart pins` fails the pull request until a human
-sets it. The pull request says so in its own body; run `task -t Taskfile.dev.yaml charts:appversions`
-for the value to set, and update the `// app <version>` comment beside
-`Version` to match.
+**`AppVersion` follows the pin on the same branch.** The helm datasource knows
+chart versions and nothing else, so the post-upgrade task
+`go run ./tools/charts appversions --write` sets `AppVersion` and the
+`// app <version>` comment beside `Version` from the chart's index entry.
+`Chart pins` still checks it, and fails when the field would have to be added
+or removed — that is a person's call.
 
 **The regex keys off the field order `Name → Repo → Version`.** Reorder them and
 Renovate stops matching, opens no pull request, and reports nothing. So
