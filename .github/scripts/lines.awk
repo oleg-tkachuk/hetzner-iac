@@ -17,14 +17,28 @@
 # fix the breakage those greps had and still be a hand-rolled YAML reader —
 # wrong on a quoted value, an anchor, or a nested key of the same name.
 #
-# Every op is covered by lib_test.go beside it. An awk program nobody tests is
-# a shell pipeline with extra steps.
+# Every op is covered by internal/ci/lines_test.go. An awk program nobody
+# tests is a shell pipeline with extra steps. A missing or unknown op exits 2.
+#
+#   df --output=avail -BM / | awk -f .github/scripts/lines.awk -v op=avail-mb
+#   git diff --cached --numstat | awk -f .github/scripts/lines.awk -v op=staged-binaries
+#   awk -f .github/scripts/lines.awk -v op=cache-writers .github/workflows/*.yaml
+#   awk -f .github/scripts/lines.awk -v op=reverse-words <<<"$layers"
+#
+#   avail-mb         megabytes free, from `df --output=avail -BM`
+#   cache-writers    which workflow jobs write the Go build cache
+#   reverse-words    the words in reverse, for destroying layers in reverse order
+#   staged-binaries  the staged paths git considers binary, non-zero if any;
+#                    it asks git what is binary rather than guessing from `file`
+#
+# Run by CI, the free-disk composite action, the pre-commit hook, and
+# `task platform:destroy layer=all`.
 
 # Fail loudly on a missing or unknown op rather than silently printing nothing,
 # which is the failure mode the pipelines had.
 BEGIN {
     if (op == "") {
-        print "lines/main.awk: -v op=<name> is required" > "/dev/stderr"
+        print "lines.awk: -v op=<name> is required" > "/dev/stderr"
         exit 2
     }
 
@@ -34,7 +48,7 @@ BEGIN {
     known["staged-binaries"] = 1
 
     if (!(op in known)) {
-        print "lines/main.awk: unknown op " op > "/dev/stderr"
+        print "lines.awk: unknown op " op > "/dev/stderr"
         exit 2
     }
 }
@@ -124,7 +138,7 @@ op == "cache-writers" && /^[[:space:]]+cache-mode:.*save/ {
 END {
     if (op == "avail-mb") {
         if (!found) {
-            print "lines/main.awk: df produced no data row" > "/dev/stderr"
+            print "lines.awk: df produced no data row" > "/dev/stderr"
             exit 1
         }
 

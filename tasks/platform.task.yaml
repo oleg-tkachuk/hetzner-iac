@@ -342,7 +342,7 @@ tasks:
           # Reversed into a variable first: a failing command substitution in
           # a `for` list does not trip `set -e`, and a destroy that walked zero
           # layers would still end green.
-          reversed="$(awk -f "{{.ROOT}}/tools/lines/main.awk" -v op=reverse-words <<<"$selected")"
+          reversed="$(awk -f "{{.ROOT}}/.github/scripts/lines.awk" -v op=reverse-words <<<"$selected")"
           if [ -z "$reversed" ]; then
             printf '%s\n' "{{._ERR}} platform · destroy · no layer to destroy in \"$selected\"" >&2
             exit 1
