@@ -222,7 +222,10 @@ refuses either half alone.
 
 Ticking a box on the Dependency Dashboard records a request that Renovate
 fulfils on its next run, so the workflow also triggers on `issues: edited`,
-filtered to the dashboard.
+filtered to the dashboard. The filter checks the issue's author as well as its
+title, so a stranger's `Dependency Dashboard` starts nothing. The author is
+the repository owner, because Renovate opens the dashboard with
+`RENOVATE_TOKEN`, the owner's personal access token.
 
 Renovate rewrites the dashboard on every pass with the same token, and events
 from a personal access token start workflow runs, so its own edit fires the

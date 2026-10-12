@@ -88,7 +88,7 @@ concurrency:
 jobs:
   renovate:
     name: Dependency updates
-    # The dashboard and nothing else, and only the bot's copy of it.
+    # The dashboard and nothing else, and only Renovate's own copy of it.
     #
     # The title alone was the guard, which is enough while the repository is
     # private and nothing once it is public: anyone can open an issue called
@@ -98,12 +98,17 @@ jobs:
     # what that buys is a run nobody asked for rather than a credential — but
     # a stranger should not be able to start one at all.
     #
-    # The author is the exact test, because Renovate opens the dashboard
-    # itself. Every other issue edit in the repository leaves this asleep.
+    # The author is the exact test. Renovate opens the dashboard with
+    # RENOVATE_TOKEN, a personal access token, so the author is the token's
+    # owner — the repository owner — and not `renovate[bot]`. It was
+    # `renovate[bot]` here, which matched only the dashboard the hosted
+    # Renovate app opened while it was also installed: ticks on that copy
+    # started a run that read the other one, and ticks on the real one started
+    # nothing. Every other issue edit in the repository leaves this asleep.
     if: >-
       github.event_name != 'issues' || (
         github.event.issue.title == 'Dependency Dashboard' &&
-        github.event.issue.user.login == 'renovate[bot]'
+        github.event.issue.user.login == github.repository_owner
       )
     runs-on: ubuntu-26.04
     timeout-minutes: 30
