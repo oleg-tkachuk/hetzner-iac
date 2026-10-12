@@ -51,7 +51,7 @@ func init() {
 		Chart: Chart{
 			Name:      "hcloud-csi",
 			Repo:      "https://charts.hetzner.cloud",
-			Version:   "2.23.0",
+			Version:   "2.24.0",
 			Namespace: NamespaceKubeSystem,
 		},
 		Workloads: []Object{
