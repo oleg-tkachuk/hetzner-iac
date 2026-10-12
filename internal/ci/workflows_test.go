@@ -490,9 +490,12 @@ var privilegedByIssue = []string{"renovate.yaml"}
 // be the issue's TITLE, which is enough only while nobody else can open an
 // issue: anyone may call theirs `Dependency Dashboard`.
 //
-// The author is what cannot be forged. Renovate opens the dashboard itself, so
-// `github.event.issue.user.login == 'renovate[bot]'` is the exact test, and
-// this holds it in place for whoever edits the trigger next.
+// The author is what cannot be forged. Renovate opens the dashboard with
+// RENOVATE_TOKEN, a personal access token of the repository owner, so
+// `github.event.issue.user.login == github.repository_owner` is the exact
+// test, and this holds it in place for whoever edits the trigger next. Not
+// `renovate[bot]`: that is the hosted app's identity, which this repository
+// does not use.
 func TestWorkflows_AnIssueCannotStartAJobForAStranger(t *testing.T) {
 	t.Parallel()
 
@@ -512,7 +515,7 @@ func TestWorkflows_AnIssueCannotStartAJobForAStranger(t *testing.T) {
 
 		checked++
 
-		assert.Contains(t, text, "github.event.issue.user.login == 'renovate[bot]'",
+		assert.Contains(t, text, "github.event.issue.user.login == github.repository_owner",
 			".github/workflows/%s runs on an issue event without checking who wrote the "+
 				"issue, so anyone who can open one can start it", name)
 	}
