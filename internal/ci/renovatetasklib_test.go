@@ -20,7 +20,7 @@ const (
 	// tasklibDepName is how renovate.json names the shared task library.
 	tasklibDepName = "oleg-tkachuk/taskfiles"
 	// trustTasklibScript replaces the library's checksums after a bump.
-	trustTasklibScript = ".github/renovate/trust-tasklib.sh"
+	trustTasklibScript = ".github/scripts/trust-tasklib.sh"
 	// renovateWorkflow runs Renovate and holds its global configuration.
 	renovateWorkflow = ".github/workflows/renovate.yaml"
 	// allowedCommandsEnv is the global option postUpgradeTasks are matched against.
