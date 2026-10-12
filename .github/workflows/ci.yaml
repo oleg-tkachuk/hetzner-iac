@@ -700,7 +700,7 @@ jobs:
       #   prose only            → docs, which releases nothing
       #   contributor-only only → not feat/fix/perf; ci, test or chore
       #
-      # Both live in .github/commit-type.awk, with what counts as which, since
+      # Both live in .github/scripts/commit-type.awk, with what counts as which, since
       # the commit-msg hook in lefthook.yml applies the same rule to what is
       # staged — and a rule with two copies is a rule that disagrees with
       # itself.
@@ -717,7 +717,7 @@ jobs:
             case "$subject" in Merge*|Revert*) continue ;; esac
             type="${subject%%[(:!]*}"
             want="$(git show --name-only --format= "$sha" |
-              awk -v type="$type" -f .github/commit-type.awk)"
+              awk -v type="$type" -f .github/scripts/commit-type.awk)"
             if [ -z "$want" ]; then
               printf '%s\n' "ok   ${sha:0:8}  $subject"
               continue

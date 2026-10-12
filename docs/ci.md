@@ -257,7 +257,7 @@ release behind.
 
 A task library bump invalidates every checksum under `.task/remote`, because
 Task names its trust files for the sha256 of the whole URL. The post-upgrade
-task `bash .github/renovate/trust-tasklib.sh` replaces them on the same branch.
+task `bash .github/scripts/trust-tasklib.sh` replaces them on the same branch.
 Every post-upgrade command must also be listed in `RENOVATE_ALLOWED_COMMANDS`
 in `renovate.yaml`, or Renovate skips it with a warning.
 

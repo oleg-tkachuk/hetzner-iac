@@ -258,7 +258,7 @@ commit-msg:
     # fix or chore for a change that only touched prose, and each time the
     # answer arrived from a pull request rather than from the commit.
     #
-    # Same rule, same file as the workflow — .github/commit-type.awk.
+    # Same rule, same file as the workflow — .github/scripts/commit-type.awk.
     - name: commit-type-matches-paths
       run: |
         set -euo pipefail
@@ -278,7 +278,7 @@ commit-msg:
         paths="$(git diff --cached --name-only)"
         [ -n "$paths" ] || paths="$(git show --name-only --format= HEAD 2>/dev/null || true)"
 
-        want="$(printf '%s\n' "$paths" | awk -v type="$type" -f .github/commit-type.awk)"
+        want="$(printf '%s\n' "$paths" | awk -v type="$type" -f .github/scripts/commit-type.awk)"
         [ -n "$want" ] && {
           printf '%s\n' "ERROR: $subject" >&2
           printf '%s\n' "is typed $type and every path it touches is documentation or contributor-only." >&2

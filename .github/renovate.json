@@ -83,7 +83,7 @@
       "semanticCommitScope": "tasklib",
       "labels": ["tooling"],
       "postUpgradeTasks": {
-        "commands": ["bash .github/renovate/trust-tasklib.sh"],
+        "commands": ["bash .github/scripts/trust-tasklib.sh"],
         "fileFilters": [".task/remote/*.checksum"],
         "executionMode": "branch"
       }

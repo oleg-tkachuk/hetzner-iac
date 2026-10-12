@@ -14,7 +14,7 @@ import (
 
 // commitTypeRule is the one copy of the rule, which both the workflow and the
 // commit-msg hook run.
-var commitTypeRule = filepath.Join("..", "..", ".github", "commit-type.awk")
+var commitTypeRule = filepath.Join("..", "..", ".github", "scripts", "commit-type.awk")
 
 // wanted runs the rule over paths and returns the type it says to use, empty
 // when the type given is acceptable.
