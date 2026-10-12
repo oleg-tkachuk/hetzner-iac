@@ -264,10 +264,10 @@ jobs:
           # -e` would treat as failure — so neither `|| true` is needed, and
           # nothing is being swallowed to make the step survive.
           #
-          # The pattern is anchored inside tools/lines/main.awk, so it cannot match
+          # The pattern is anchored inside .github/scripts/lines.awk, so it cannot match
           # string in its own source. The shell version did, on its first
           # attempt.
-          report="$(awk -f tools/lines/main.awk -v op=cache-writers .github/workflows/*.yaml)"
+          report="$(awk -f .github/scripts/lines.awk -v op=cache-writers .github/workflows/*.yaml)"
           count="${report##*count=}"
           printf '%s\n' "writers:"
           printf '  %s\n' "$(printf '%s' "$report" | grep -v '^count=' || printf '%s' none)"

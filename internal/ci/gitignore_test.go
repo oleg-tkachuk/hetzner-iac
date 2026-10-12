@@ -68,10 +68,9 @@ func TestGitignore_CoversEveryBinaryName(t *testing.T) {
 
 			name := entry.Name()
 
-			// Only a main package produces a binary. tools/lines is an awk
-			// script with Go tests around it, and internal/ci is test files
-			// only — neither leaves anything for git to see, and requiring an
-			// ignore for them was this test's own first bug.
+			// Only a main package produces a binary. internal/ci is test files
+			// only and leaves nothing for git to see; requiring an ignore for
+			// a directory like that was this test's own first bug.
 			if !hasMainPackage(t, filepath.Join(root, parent, name)) {
 				continue
 			}

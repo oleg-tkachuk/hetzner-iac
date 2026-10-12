@@ -52,8 +52,7 @@ Brewfile -linguist-detectable
 # reviewable", and internal/ci refuses an edit to it by digest.
 #
 # `.github/**` needs no rule: Linguist's vendor.yml already matches it. That
-# is why .github/scripts/commit-type.awk is absent from the reported Awk and
-# tools/lines/main.awk is all 5,756 bytes of it.
+# is why the awk under .github/scripts is absent from the reported languages.
 #
 # internal/pkg/charts/*.yaml.tmpl stay detectable on purpose. The Helm values
 # templates are written and reviewed here, and "Go Template" describes them
