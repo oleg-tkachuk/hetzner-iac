@@ -9,6 +9,7 @@ go run ./tools/charts list          # every pin, with namespace and repo
 go run ./tools/charts outdated      # each pin against the latest upstream
 go run ./tools/charts render        # the pins still produce their workloads
 go run ./tools/charts appversions   # each AppVersion is what the pin ships
+go run ./tools/charts appversions --write  # set each AppVersion that is not
 go run ./tools/charts repin         # move each unsigned image's digest pin to its chart's tag
 ```
 
@@ -22,7 +23,8 @@ exits zero — and validates the output with `kubeconform` against
 It also holds every image to [the image inventory](../../internal/pkg/imagepolicy/images.yaml),
 and every unsigned image to its digest pin. A chart bump that moves an
 unsigned image's default tag fails here until the pin moves with it, which
-`repin` does; Renovate runs it on every chart bump.
+`repin` does; Renovate runs it on every chart bump, after `appversions --write`
+sets `AppVersion` to what the new pin ships.
 
 `render` also holds every network-policy selector that names a pod to a pod
 some chart renders: a selector matching nothing is accepted and does nothing,
