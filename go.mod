@@ -9,9 +9,9 @@ require (
 	github.com/google/go-containerregistry v0.22.1
 	github.com/hetznercloud/hcloud-go/v2 v2.52.0
 	github.com/opencontainers/go-digest v1.0.0
-	github.com/pulumi/pulumi-hcloud/sdk v1.43.0
+	github.com/pulumi/pulumi-hcloud/sdk v1.43.1
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.34.2
-	github.com/pulumi/pulumi-random/sdk/v4 v4.21.2
+	github.com/pulumi/pulumi-random/sdk/v4 v4.21.3
 	github.com/pulumi/pulumi/sdk/v3 v3.268.0
 	github.com/pulumiverse/pulumi-talos/sdk v0.8.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
