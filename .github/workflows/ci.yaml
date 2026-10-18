@@ -38,7 +38,7 @@ env:
   # extractVersion appears where the pin omits the `v` its upstream tag carries.
   # Without it Renovate compares "0.8.0" against a list of "v0.8.0" tags.
   # renovate: datasource=github-releases depName=golangci/golangci-lint
-  GOLANGCI_VERSION: "v2.14.0"
+  GOLANGCI_VERSION: "v2.15.0"
   # renovate: datasource=pypi depName=checkov
   CHECKOV_VERSION: "3.3.29"
 
