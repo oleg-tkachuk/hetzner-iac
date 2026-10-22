@@ -73,8 +73,8 @@ func init() {
 		Chart: Chart{
 			Name:       "traefik",
 			Repo:       "https://traefik.github.io/charts",
-			Version:    "42.0.0", // app v3.7.14
-			AppVersion: "v3.7.14",
+			Version:    "42.1.3", // app v3.7.16
+			AppVersion: "v3.7.16",
 			Namespace:  Traefik,
 		},
 		Workloads: []Object{
