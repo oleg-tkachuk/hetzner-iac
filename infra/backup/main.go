@@ -2,9 +2,19 @@
 // in.
 //
 // The only layer that creates nothing in Kubernetes. It reads the cluster tier
-// for the token and the location, and everything it makes is Hetzner-side: a
-// Storage Box, one subaccount confined to a directory, and the two passwords
-// for them.
+// for the cluster's name and location, and everything it makes is
+// Hetzner-side: a Storage Box, one subaccount confined to a directory, and the
+// two passwords for them.
+//
+// # Why it has a token of its own
+//
+// The box lives in a Hetzner project of its own, reached with a token that
+// project issued — never the cluster tier's. A Hetzner token reaches every
+// resource in its project, the Storage Box API included, and the cluster
+// tier's token is also a stack output every layer holds and a Secret in
+// kube-system. A box in the cluster's project could be deleted by anything
+// that compromised the cluster, which is the incident a backup exists for.
+// See docs/adr/0007-backup-project.md.
 //
 // # Why it is a layer at all
 //
@@ -45,12 +55,16 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/hetzner"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
 
+	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
 // PasswordLength is how long the generated passwords are.
@@ -210,18 +224,103 @@ const (
 	OutputPassword           = "backupPassword"
 	OutputDirectory          = "backupDirectory"
 	OutputRepositoryPassword = "backupRepositoryPassword"
+
+	// OutputSeparateProject is true once this tier's token has been shown to
+	// reach none of the cluster's servers. Read by nobody: it exists so the
+	// engine awaits the check.
+	OutputSeparateProject = "backupSeparateProject"
 )
+
+// TokenTask is the command that gives this tier its token, named in every
+// refusal that needs one.
+const TokenTask = "task backup:token stack=<stack>"
+
+// ownToken reads the Hetzner token this tier is configured with.
+//
+// Required, with no fallback to the cluster tier's exported token. A fallback
+// is how this tier came to share the cluster's project in the first place,
+// and it would put it back in silence the first time the key went missing.
+func ownToken(cfg *config.Config) (pulumi.StringOutput, error) {
+	if cfg.Get(layer.HcloudTokenKey) == "" {
+		return pulumi.StringOutput{}, fmt.Errorf(
+			"config `%s` is not set. The Storage Box lives in a Hetzner project of its own, "+
+				"so the cluster's token is not used here. Create that project in the Hetzner "+
+				"console, issue a read+write token in it, then:\n  %s",
+			layer.HcloudTokenKey, TokenTask)
+	}
+
+	return cfg.RequireSecret(layer.HcloudTokenKey), nil
+}
+
+// separateProject resolves to true when the token behind provider can see none
+// of the cluster's servers, and fails otherwise.
+//
+// The property that matters is the project, not the token: a second token
+// issued in the cluster's project deletes the box as easily as the first, and
+// two token strings compared for inequality would pass it. Hetzner has no
+// call that names a token's project, so this asks the one question that
+// answers it — whether the cluster's servers are visible.
+func separateProject(
+	ctx *pulumi.Context,
+	provider pulumi.ProviderResource,
+	clusterName pulumi.StringOutput,
+) pulumi.BoolOutput {
+	selector := clusterName.ApplyT(func(name string) *string {
+		selected := clusterspec.ClusterSelector(name)
+
+		return &selected
+	}).(pulumi.StringPtrOutput)
+
+	servers := hcloud.GetServersOutput(ctx, hcloud.GetServersOutputArgs{WithSelector: selector},
+		pulumi.Provider(provider))
+
+	return pulumi.All(clusterName, servers.Servers()).ApplyT(func(resolved []any) (bool, error) {
+		name, _ := resolved[0].(string)
+		found, _ := resolved[1].([]hcloud.GetServersServer)
+
+		visible := make([]string, 0, len(found))
+		for _, server := range found {
+			visible = append(visible, server.Name)
+		}
+
+		return true, refuseSharedProject(name, visible)
+	}).(pulumi.BoolOutput)
+}
+
+// refuseSharedProject fails when the backup token can see any of the cluster's
+// servers, naming them.
+func refuseSharedProject(cluster string, visible []string) error {
+	if len(visible) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"config `%s` reaches the Hetzner project cluster %q runs in — it sees %s. A Storage "+
+			"Box there can be deleted with the cluster's own token, which is the incident a "+
+			"backup has to survive. Issue a token in a project of its own, then:\n  %s",
+		layer.HcloudTokenKey, cluster, strings.Join(visible, ", "), TokenTask)
+}
 
 // deploy creates the destination and publishes how to reach it.
 func deploy(r *layer.Runner) error {
+	token, err := ownToken(r.Cfg)
+	if err != nil {
+		return err
+	}
+
 	// Its own provider, and the only one this project has: the runner comes
 	// from layer.NewWithoutKubernetes, so there is no Kubernetes provider to
 	// inherit or to avoid inheriting. That used to be a comment warning about
 	// r.Options; it is now a fact about the runner.
-	provider, err := hetzner.NewProvider(r.Ctx, r.Cluster.HcloudToken)
+	provider, err := hetzner.NewProvider(r.Ctx, token)
 	if err != nil {
 		return err
 	}
+
+	// Exported so the engine awaits it, the way the runner awaits the
+	// contract check: an output nothing consumes is never resolved, and the
+	// refusal inside it would never surface.
+	r.Ctx.Export(OutputSeparateProject, separateProject(r.Ctx, provider, r.Cluster.ClusterName))
 
 	// Generated rather than configured, and that is the point of doing this in
 	// Pulumi at all. The alternative — an operator minting a credential in a
