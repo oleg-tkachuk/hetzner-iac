@@ -343,6 +343,9 @@ copied from [cluster.example.yaml](infra/cluster/cluster.example.yaml) and
 validated as you type it. Stack config holds the Hetzner token and what each
 layer deploys: [configuration.md](docs/configuration.md#stack-config).
 
+The example is a scratch shape; what turns it into a cluster worth keeping is
+[three separate changes](docs/configuration.md#a-cluster-worth-keeping).
+
 The domain, and Argo CD's hostname with it, is `metadata.domain` in the
 topology, not stack config: [domain.md](docs/domain.md).
 Everything else: [configuration.md](docs/configuration.md).
