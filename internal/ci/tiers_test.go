@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,9 +35,10 @@ var hetznerProviders = map[string]string{
 // `infra/cluster` is deliberately absent, and the absence is the sharper half
 // of the invariant. It never builds a provider: the token is declared in its
 // own `Pulumi.yaml` as `hcloud:token`, so it uses the DEFAULT hcloud provider.
-// It is the source. Everything in this list is a RECEIVER — a project that
-// takes the token as a stack output and builds an explicit provider from it,
-// which is the thing worth counting.
+// It is the source. Everything else in this list is a RECEIVER — a project
+// that takes the token as a stack output and builds an explicit provider from
+// it, which is the thing worth counting. `infra/backup` is the exception: it
+// builds its provider from a token of its own, from another Hetzner project.
 //
 // A named list because docs/design.md makes a claim about the shape of this
 // repository, and a third receiver appearing unnoticed would make that claim
@@ -47,7 +50,8 @@ var hetznerProviders = map[string]string{
 var writesToHetzner = map[string]string{
 	"infra/backup": "a tier of its own: a Storage Box and its subaccount, and nothing in Kubernetes. " +
 		"Moved out of layers/ because a backup destination should be creatable before the cluster " +
-		"and outlive it",
+		"and outlive it. The one project that is not a receiver: its provider is built from a token " +
+		"of its own, issued in a Hetzner project of its own — see TestBackupTier_NeverUsesTheClustersToken",
 	"layers/40-ingress": "the ingress load balancer, which a CCM-managed Service cannot be: that was " +
 		"tried against a live cluster and is invisible to plan and destroy, and refuses to target a " +
 		"control-plane node",
@@ -133,6 +137,119 @@ func TestOnlyNamedProjectsWriteToHetzner(t *testing.T) {
 	}
 
 	assert.Positive(t, checked, "no project directories found; this test is checking nothing")
+}
+
+// backupTier is the project whose Hetzner token must not be the cluster's.
+const backupTier = "infra/backup"
+
+// ownTokenKey matches a project declaring its own layer.HcloudTokenKey in its
+// Pulumi.yaml: `  <project>:hcloudToken:`.
+var ownTokenKey = regexp.MustCompile(`(?m)^\s+[a-z][a-z0-9-]*:` + layer.HcloudTokenKey + `:`)
+
+// TestOnlyTheBackupTierDeclaresATokenOfItsOwn is the backup tier's half of
+// the seam: one project is configured with a token from another Hetzner
+// project, and it is that one.
+//
+// A layer may still be given `<project>:hcloudToken` as an override, which
+// layer.HcloudToken reads; undeclared, because it is the exception. Declared
+// is the backup tier's, where it is required.
+func TestOnlyTheBackupTierDeclaresATokenOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	var declared []string
+
+	for _, parent := range []string{"layers", "infra"} {
+		entries, err := os.ReadDir(filepath.Join(root, parent))
+		require.NoError(t, err)
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			raw, readErr := os.ReadFile(filepath.Join(root, parent, entry.Name(), "Pulumi.yaml"))
+			require.NoError(t, readErr, entry.Name())
+
+			if ownTokenKey.Match(raw) {
+				declared = append(declared, parent+"/"+entry.Name())
+			}
+		}
+	}
+
+	assert.Equal(t, []string{backupTier}, declared,
+		"exactly one project declares a Hetzner token of its own: the backup tier, whose box "+
+			"must live outside the cluster's project")
+}
+
+// TestBackupTier_NeverUsesTheClustersToken keeps the backup tier off the
+// cluster's token, in either spelling: the Cluster.HcloudToken field the
+// cluster tier exports, or Runner.HcloudToken, which falls back to it.
+//
+// The syntax tree, for the reason callsHetznerProvider reads one: the package
+// comment explains why the cluster's token is not used, and a grep would read
+// that as a use.
+func TestBackupTier_NeverUsesTheClustersToken(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join("..", "..", filepath.FromSlash(backupTier))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+
+	set := token.NewFileSet()
+
+	var parsed int
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		file, parseErr := parser.ParseFile(set, filepath.Join(dir, name), nil, 0)
+		require.NoError(t, parseErr, name)
+
+		parsed++
+
+		ast.Inspect(file, func(node ast.Node) bool {
+			selector, ok := node.(*ast.SelectorExpr)
+			if ok && selector.Sel.Name == clusterTokenField {
+				t.Errorf("%s uses .%s at %s: a box reachable with the cluster's token can be "+
+					"deleted by anything that compromised the cluster. Read %s from this tier's "+
+					"own config", backupTier, clusterTokenField, set.Position(selector.Pos()),
+					layer.HcloudTokenKey)
+			}
+
+			return true
+		})
+	}
+
+	require.Positive(t, parsed, "no Go source in %s, so this proved nothing", backupTier)
+}
+
+// clusterTokenField is the name both ways to the cluster's token share: the
+// field on clusterref.Cluster and the method on layer.Runner.
+const clusterTokenField = "HcloudToken"
+
+// backupTokenKey matches the config key the backup taskfile writes the token
+// under.
+var backupTokenKey = regexp.MustCompile(`(?m)^  _BK_TOKEN_KEY: '([^']+)'$`)
+
+// TestBackupTokenKey_IsTheOneTheProgramReads holds the task that stores the
+// token to the key the program reads. A mismatch is a token stored where
+// nothing looks, and an apply refusing for a token the operator just set.
+func TestBackupTokenKey_IsTheOneTheProgramReads(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tasks", "backup.task.yaml"))
+	require.NoError(t, err)
+
+	match := backupTokenKey.FindSubmatch(raw)
+	require.NotNil(t, match, "no _BK_TOKEN_KEY in the backup taskfile")
+
+	assert.Equal(t, "backup:"+layer.HcloudTokenKey, string(match[1]))
 }
 
 // callsHetznerProvider reports whether a directory's non-test Go actually

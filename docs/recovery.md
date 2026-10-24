@@ -101,6 +101,42 @@ the other half a restore needs.
 Only `task backup:destroy ignore_protect=yes` can take the Storage Box, and it
 takes the snapshots with it — see [commands.md](commands.md#backup).
 
+### The box lives in a project of its own
+
+The Storage Box is in a Hetzner project that holds nothing else, reached
+with a token issued there, so a compromised cluster cannot delete it:
+[ADR-0007](adr/0007-backup-project.md). Create the project in the Hetzner
+console, issue a read+write token in it, then:
+
+```bash
+task backup:token stack=dev     # prompts, hidden; or pipe it from a password store
+task backup:apply stack=dev
+```
+
+The apply refuses a token that can see the cluster's servers. Keep that token
+with the recovery kit: rebuilding the backup tier without it means a new token
+from the console, which works, but only for someone who can still sign in.
+
+### Moving the backup tier to its own project
+
+A backup tier applied before this has its box in the cluster's project.
+Moving it means a new box, because Hetzner cannot move a Storage Box between
+projects.
+
+```bash
+task backup:destroy stack=dev ignore_protect=yes   # runs from state, with the old token
+task backup:token stack=dev                        # the new project's token
+task backup:apply stack=dev
+task cluster:etcd:snapshot stack=dev
+task cluster:etcd:upload stack=dev trust_host_key=yes
+```
+
+The destroy takes the restic repository key with it. The snapshots on the old
+box become unreadable, and the new box starts a new repository. Copy the new
+`backupRepositoryPassword` into the password store, or run
+`task cluster:recovery-kit` again. If the destroy is skipped, the old box keeps
+billing, and `task cluster:orphans` reports it.
+
 ### Restoring
 
 When this machine has no snapshot, fetch one from the Storage Box first:

@@ -43,7 +43,7 @@ flowchart LR
 
     operator ==>|"pulumi up, per project"| cloud
     cluster -->|"StackReference<br/>kubeconfig · token · network"| layers
-    cluster -->|"StackReference<br/>token"| backup
+    cluster -->|"StackReference<br/>name · location"| backup
     cluster -.- secrets
 
     classDef actor fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E
