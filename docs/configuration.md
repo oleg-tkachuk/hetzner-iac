@@ -197,6 +197,29 @@ cannot be skipped is a Pulumi Cloud organisation policy group, which applies to
 every stack in the organisation. That is an account setting, not a repository
 change, and stays with whoever owns the organisation.
 
+## A cluster worth keeping
+
+`cluster.example.yaml` ships the cheapest shape that is still a cluster:
+three control planes, no workers, no default deny. Each of those defaults is
+deliberate. Together they make a scratch cluster, and moving to one worth
+keeping is three separate changes, not one switch:
+
+| Change | Where | What it buys | What it costs |
+|---|---|---|---|
+| A worker pool | `workerPools` in the topology; the commented block in [cluster.example.yaml](../infra/cluster/cluster.example.yaml) | the control-plane taint comes back, so workloads leave the nodes running etcd and kube-apiserver | the pool's servers |
+| The default deny | `network-policy:enabled: true` on `20-network-policy` | a pod reaches only what a policy names | every flow named first — read `task cluster:hubble` before turning it on ([networking.md](networking.md#the-default-deny-is-opt-in)) |
+| An off-site recovery point | a Hetzner project of its own and `task backup:token`, then `task backup:apply`, `task cluster:etcd:upload` and `task cluster:recovery-kit` | the cluster can be rebuilt after losing its nodes or its state backend, and a compromised cluster cannot delete the backup ([ADR-0007](adr/0007-backup-project.md)) | a Storage Box, and a snapshot taken by hand ([recovery.md](recovery.md#the-three-parts-of-a-backup)) |
+
+Three things are the same in every shape, so none of them is on that list:
+
+- **Image verification** is enforced everywhere except `kube-system` and
+  `cosign-system`, where a webhook outage would stop the CNI or the webhook
+  itself ([operations.md](operations.md#which-images-may-run)).
+- **The failure domain** is a host, inside one location
+  ([design.md](design.md#three-control-planes-and-etcd-on-the-private-network)).
+- **Monitoring** is not built here. It is for whoever runs workloads on the
+  cluster to choose.
+
 ## Stack config
 
 | Key | Where | Meaning |
