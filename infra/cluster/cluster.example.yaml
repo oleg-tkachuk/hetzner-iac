@@ -153,8 +153,9 @@ controlPlane:
   #   failures — use 1 or 3
   #
   # The three land on separate physical hosts: pkg/hetzner puts the control
-  # plane in a spread placement group, which is what turns three etcd members
-  # into three failure domains rather than three processes on one machine.
+  # plane in a spread placement group, so three etcd members survive one host
+  # failing. All three are in placement.location, so a location outage takes
+  # them together.
   count: 3
   # The cheapest type that can hold a control plane, read from the API rather
   # than remembered — hel1, monthly, gross:
