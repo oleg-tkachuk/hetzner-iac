@@ -12,7 +12,7 @@ everything above it; destroying a layer takes only its own namespaces.
 
 ```mermaid
 flowchart TB
-    subgraph hetzner ["Hetzner Cloud project — infra/cluster and infra/backup, plus one layer that owns one resource"]
+    subgraph hetzner ["Hetzner Cloud project — infra/cluster, plus one layer that owns one resource"]
         direction TB
         net["<b>private network</b><br/>+ subnet"]
         fw{{"<b>firewall</b>"}}
@@ -27,6 +27,9 @@ flowchart TB
 
         apilb["<b>load balancer for the API</b><br/>private only — the nodes' endpoint"]
         inglb["<b>load balancer for ingress</b><br/>layers/40-ingress"]
+    end
+
+    subgraph backupproject ["Hetzner project of its own — infra/backup"]
         box[("<b>Storage Box + subaccount</b><br/>infra/backup")]
     end
 
@@ -72,6 +75,7 @@ flowchart TB
     class trust state
     class op actor
     style hetzner fill:#F8FAFC,stroke:#16A34A
+    style backupproject fill:#F8FAFC,stroke:#16A34A
     style servers fill:#F8FAFC,stroke:#16A34A,stroke-dasharray:5 4
     style talos fill:#F8FAFC,stroke:#D97706
     style k8s fill:#F8FAFC,stroke:#2563EB
@@ -80,9 +84,13 @@ flowchart TB
 Two projects other than the cluster tier cross that seam, and both do it on
 purpose.
 
-[layers/40-ingress](../layers/40-ingress) creates the ingress load balancer and
-[infra/backup](../infra/backup) creates the Storage Box and its subaccount, each
+[layers/40-ingress](../layers/40-ingress) creates the ingress load balancer,
 through a Hetzner provider it builds from the token the cluster tier publishes.
+[infra/backup](../infra/backup) creates the Storage Box and its subaccount, in a
+Hetzner project of its own and with that project's token — never the
+cluster's, because the cluster's token is exactly what a compromised cluster
+hands over, and a box it can reach dies with the cluster it was meant to
+restore. [ADR-0007](adr/0007-backup-project.md) records the decision.
 A third, [layers/10-node-platform](../layers/10-node-platform), writes that
 token into a Kubernetes Secret, because the hcloud charts read it from there.
 
@@ -97,11 +105,12 @@ which Talos puts on every control-plane node.
 `internal/pkg/hetzner.NewIngressLoadBalancer` records the details.
 
 So the seam is narrower than "only the cluster tier touches Hetzner". What it
-actually holds is that **the token lives in one stack's config** —
+actually holds is that **the cluster's token lives in one stack's config** —
 `infra/cluster`'s — and reaches another project only as a secret output of that
-stack. Nothing else is configured with a credential of its own, and destroying
-the cluster tier takes the only copy that was configured anywhere.
-`internal/ci/tiers_test.go` asserts it.
+stack, and that the backup tier never takes it. The backup tier is configured
+with the one other credential, `backup:hcloudToken`, and refuses it when it can
+see the cluster's servers, because the property that matters is the project,
+not the token string. `internal/ci/tiers_test.go` asserts both halves.
 
 The box outside all three is the one to watch. Every certificate in the cluster
 descends from a secrets bundle that exists only in Pulumi's state: `Protect`

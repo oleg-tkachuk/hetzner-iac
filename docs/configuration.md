@@ -218,6 +218,7 @@ change, and stays with whoever owns the organisation.
 | `gitops:repoUsername` | [`50-gitops`](../layers/50-gitops) | HTTPS username for a private repository; any non-empty string when the password is a token (secret) |
 | `gitops:repoPassword` | [`50-gitops`](../layers/50-gitops) | HTTPS password or token for a private repository (secret) |
 | `gitops:repoSSHPrivateKey` | [`50-gitops`](../layers/50-gitops) | SSH private key for a private repository, in place of the two above — a read-only deploy key is enough (secret) |
+| `backup:hcloudToken` | [`backup`](../infra/backup) | Hetzner token of the project the Storage Box lives in, which must not be the cluster's; set with `task backup:token`, see [ADR-0007](adr/0007-backup-project.md) (secret) |
 | `backup:storageBoxType` | [`backup`](../infra/backup) | Hetzner Storage Box type, default `bx11` |
 
 The switches — `network-policy:enabled`, `cluster-services:acmeStaging` and

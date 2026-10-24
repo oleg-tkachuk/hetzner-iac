@@ -160,6 +160,7 @@ the three credentials that reach it, into its own state.
 | Task | Does |
 |------|------|
 | `task backup:init` | create the tier's stack and point it at the cluster; `ref=` overrides the derived reference |
+| `task backup:token` | store the token of the Hetzner project the box lives in — not the cluster's — encrypted; prompts, or reads stdin |
 | `task backup:plan` | preview it; changes nothing |
 | `task backup:apply` | create the Storage Box and its credentials; shows the plan, then asks, because the box is billable |
 | `task backup:destroy ignore_protect=yes` | destroy it; refuses without that argument, then asks |
