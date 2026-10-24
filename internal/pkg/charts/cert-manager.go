@@ -24,8 +24,8 @@ func init() {
 		Chart: Chart{
 			Name:       "cert-manager",
 			Repo:       "https://charts.jetstack.io",
-			Version:    "v1.21.2", // app v1.21.2
-			AppVersion: "v1.21.2",
+			Version:    "v1.21.3", // app v1.21.3
+			AppVersion: "v1.21.3",
 			Namespace:  CertManager,
 		},
 		Workloads: []Object{
