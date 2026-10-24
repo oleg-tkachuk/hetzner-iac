@@ -371,7 +371,7 @@ func TestValidate_Rejects(t *testing.T) {
 		},
 		{
 			name:    "wrong apiVersion",
-			mutate:  func(top *clusterspec.Topology) { top.APIVersion = "caryon/v1" },
+			mutate:  func(top *clusterspec.Topology) { top.APIVersion = "example/v1" },
 			wantMsg: `apiVersion must be "hetzner-iac/v1"`,
 		},
 	}
