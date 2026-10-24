@@ -405,8 +405,15 @@ sequenceDiagram
 The shipped shape is three control planes behind a load balancer, which is the
 smallest number that means anything: validation refuses an even count, because
 a second member tolerates no more failures than one while costing twice as
-much. The three land in a spread placement group, so they are three failure
-domains rather than three processes on one machine.
+much. The three land in a spread placement group, so they are three physical
+hosts rather than three processes on one machine.
+
+Those hosts are in one location, `placement.location`, and so are both load
+balancers. The cluster survives a host failing; it does not survive the
+location failing, which takes every member at once. Spreading members across
+locations is not built, so recovery from a lost location is a rebuild plus an
+etcd restore from the Storage Box — see
+[recovery.md](recovery.md#restoring).
 
 The load balancer is the endpoint signed into every certificate, which is what
 makes a member replaceable — with a node's own address there, replacing that

@@ -296,9 +296,9 @@ func newControlPlane(
 ) (*ControlPlane, error) {
 	topology := args.Topology
 
-	// Anti-affinity for the control plane only. It is what turns three etcd
-	// members into three failure domains rather than three VMs that can share
-	// one physical host. Worker pools skip it because a spread group holds at
+	// Anti-affinity for the control plane only. It puts three etcd members on
+	// three physical hosts rather than three VMs that can share one — inside one
+	// location, which this does not spread across. Worker pools skip it because a spread group holds at
 	// most ten servers, which would cap pool size at an arbitrary number.
 	placementGroup, err := hcloud.NewPlacementGroup(ctx, name+"-control-plane", &hcloud.PlacementGroupArgs{
 		Name:   pulumi.Sprintf("%s-control-plane", topology.Metadata.Name),
