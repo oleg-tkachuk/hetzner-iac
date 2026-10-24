@@ -64,9 +64,3 @@ last box snapshot.
 - Moving an existing backup tier means a new box, and a new restic repository
   key. [recovery.md](../recovery.md#moving-the-backup-tier-to-its-own-project)
   has the steps.
-
-## To revisit
-
-- An in-cluster job that takes the etcd snapshots. Its credential would live in
-  the cluster, so it should write through an append-only proxy that holds the
-  subaccount password, or accept the box's snapshot window as above.

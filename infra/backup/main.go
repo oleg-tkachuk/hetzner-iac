@@ -211,9 +211,9 @@ const PasswordSpecialCharacters = "%+,-./:@_" // #nosec G101 -- the alphabet a p
 // and its subaccount errored while five other resources had been created.
 const HetznerPasswordSpecialCharacters = "^!$%/()=?+#-.,;:~*@{}_&" // #nosec G101 -- the alphabet the API permits, not a password
 
-// Stack outputs. Named because a consumer — `task cluster:etcd:upload` today,
-// an in-cluster job later — reads them by name, and a rename that only
-// happened here would be a consumer reading nothing.
+// Stack outputs. Named because their consumer, `task cluster:etcd:upload`,
+// reads them by name, and a rename that only happened here would be a
+// consumer reading nothing.
 //
 // TestBackupOutputs_AreTheNamesTheUploadTaskReads holds them equal to the
 // names the task greps out of `pulumi stack output`, because that consumer is

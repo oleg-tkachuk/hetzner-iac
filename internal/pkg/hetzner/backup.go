@@ -130,10 +130,8 @@ func NewStorageBox(
 			SambaEnabled:  pulumi.Bool(false),
 			WebdavEnabled: pulumi.Bool(false),
 			ZfsEnabled:    pulumi.Bool(false),
-			// Reachable from outside Hetzner, because the thing that writes
-			// these today is `task cluster:etcd:snapshot` on the operator's
-			// own machine. Turn it off when an in-cluster job takes that over
-			// — the nodes are inside the network.
+			// Reachable from outside Hetzner, because what writes these is
+			// `task cluster:etcd:upload` on the operator's own machine.
 			ReachableExternally: pulumi.Bool(true),
 		},
 		// The box's own snapshots, under the files this platform uploads. See
