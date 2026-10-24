@@ -194,7 +194,7 @@ controlPlane:
   # lb11 is the size for this: three targets and one service against limits of
   # twenty-five and five. The reason to move up is throughput to the API, not
   # availability — and the ingress load balancer is a separate one, created by
-  # the CCM from Traefik's Service and sized by ingress:loadBalancerType.
+  # layers/40-ingress rather than the CCM and sized by ingress:loadBalancerType.
   apiLoadBalancerType: lb11
 
 # No worker pool, which is the cheaper half of this shape rather than an
