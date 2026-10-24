@@ -34,8 +34,21 @@ config:
     default: ""
     description: |
       Fully qualified stack of the cluster tier — <org>/hetzner-cluster/<stack>.
-      This layer reads the Hetzner token and the location from it, and nothing
-      else: it never talks to the cluster.
+      This layer reads the cluster's name and location from it, and nothing
+      else: it never talks to the cluster, and never uses its token.
+
+  # Set with `task backup:token stack=<stack>`, never in a committed file.
+  #
+  # Declared without `secret: true` for the reason every other credential here
+  # is: a secret with an empty default arrives set-but-empty, so a presence
+  # check passes and what reaches the provider is the empty string.
+  backup:hcloudToken:
+    default: ""
+    description: |
+      Hetzner API token, read+write, issued in a project of its own — not the
+      cluster's. The program refuses a token that can see the cluster's
+      servers: a Storage Box in the cluster's project can be deleted with the
+      cluster's token, which every layer and a kube-system Secret hold.
 
   backup:storageBoxType:
     default: ""

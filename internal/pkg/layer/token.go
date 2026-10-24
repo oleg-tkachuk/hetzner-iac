@@ -10,8 +10,12 @@ import (
 )
 
 // HcloudTokenKey is the stack config key a layer may override the cluster
-// tier's Hetzner token with. Deliberately not declared in any Pulumi.yaml —
-// the layers that read it say why in theirs.
+// tier's Hetzner token with. Not declared in a layer's Pulumi.yaml, because
+// there it is the exception — the layers that read it say why in theirs.
+//
+// infra/backup declares it, and there it is required: its Storage Box lives
+// in a Hetzner project of its own, so it never takes the cluster's token and
+// does not call HcloudToken below.
 //
 // #nosec G101 -- the name of a config key, not a credential.
 const HcloudTokenKey = "hcloudToken"

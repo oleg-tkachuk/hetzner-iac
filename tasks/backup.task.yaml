@@ -7,6 +7,11 @@ vars:
   _BK_DIR: '{{.ROOT}}/infra/backup'
   _BK_CLUSTER_DIR: '{{.ROOT}}/infra/cluster'
   _BK_STACK: '{{.stack}}'
+  # The config key infra/backup reads its token from: layer.HcloudTokenKey,
+  # under the project's namespace. TestBackupTokenKey_IsTheOneTheProgramReads
+  # holds the two equal.
+  # checkov:skip=CKV_SECRET_6: the name of a config key, not a token
+  _BK_TOKEN_KEY: 'backup:hcloudToken'
 
   _BK_PROTECTED: |
     {{._ERR}} backup · destroy · the Storage Box is protected, and nothing was deleted
@@ -21,7 +26,7 @@ vars:
         task {{.TASK}} stack=dev
 
     The stack names the Pulumi stack of the backup tier, and the cluster tier's
-    stack it reads the Hetzner token from.
+    stack it reads the cluster's name and location from.
 
 tasks:
   # A tier of its own rather than a platform layer, and the reasons are in
@@ -56,6 +61,32 @@ tasks:
             config set backup:clusterStackRef "$ref"
 
           printf '%s\n' "{{._OK}} backup · init · stack {{._BK_STACK}} ${state} → cluster $ref"
+
+  token:
+    desc: "Store the backup project's Hetzner API token in this stack, encrypted"
+    preconditions:
+      - sh: '[ -n "{{.stack}}" ]'
+        msg: "{{._BK_USAGE}}"
+    deps:
+      - task: init
+        vars: {_CALLER: '{{default .TASK ._CALLER}}'}
+    cmds:
+      # A token from a Hetzner project of its own, not the cluster's: the
+      # program refuses one that can see the cluster's servers. See
+      # docs/adr/0007-backup-project.md.
+      #
+      # No `token=` variable, for the reason cluster:token has none: an
+      # argument lands in the shell history and in `ps`. Pulumi prompts with
+      # hidden input, or reads standard input when something is piped:
+      #
+      #   task backup:token stack=dev
+      #   pass hetzner/backup-token | task backup:token stack=dev
+      #
+      # Interactive by necessity: --non-interactive would refuse to prompt.
+      - cmd: |
+          set -euo pipefail
+          pulumi --cwd "{{._BK_DIR}}" --stack "{{._BK_STACK}}" config set --secret {{._BK_TOKEN_KEY}}
+          printf '%s\n' "{{._OK}} backup · token · encrypted in Pulumi.{{._BK_STACK}}.yaml, which is gitignored"
 
   plan:
     desc: "Preview the backup tier; changes nothing"
