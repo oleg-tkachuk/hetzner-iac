@@ -23,7 +23,7 @@ func init() {
 		Chart: Chart{
 			Name:       "argo-cd",
 			Repo:       "https://argoproj.github.io/argo-helm",
-			Version:    "10.11.1", // app v3.5.6
+			Version:    "10.11.6", // app v3.5.6
 			AppVersion: "v3.5.6",
 			Namespace:  "argocd",
 		},
