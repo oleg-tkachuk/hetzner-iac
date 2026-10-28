@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// goGetTool moves the modules behind go.mod's `tool` directives, which
-// go:deps:update does not: it bumps direct requirements, and a tool's module
+// goGetTool moves the modules behind go.mod's `tool` directives. The library's
+// `go:deps:update` does not: it bumps direct requirements, and a tool's module
 // is an indirect one.
 const goGetTool = "go get tool"
 
