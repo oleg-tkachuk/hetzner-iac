@@ -27,7 +27,7 @@ func init() {
 		Chart: Chart{
 			Name:      "hcloud-cloud-controller-manager",
 			Repo:      "https://charts.hetzner.cloud",
-			Version:   "1.39.1",
+			Version:   "1.39.2",
 			Namespace: NamespaceKubeSystem,
 		},
 		Workloads: []Object{
