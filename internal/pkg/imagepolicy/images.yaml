@@ -94,8 +94,8 @@ images:
   - repository: docker.io/hetznercloud/hcloud-csi-driver
     unsigned:
       reason: Hetzner publishes no signature for the CSI driver.
-      tag: v2.24.0
-      digest: sha256:5b25f70ea9acd5ae0a607ebc8213becfc4cf414232927e4ff35405a153299f10
+      tag: v2.24.1
+      digest: sha256:cc6f83a2b00f74656f23fdc25a67118b58a133184d30817a9528765b49eaca3e
 
   - repository: ghcr.io/kedacore/keda
     signed: &keda
@@ -111,7 +111,7 @@ images:
     unsigned:
       reason: Traefik publishes no cosign signature.
       tag: v3.7.16
-      digest: sha256:c8a121e4bb1347e8fd52657fab12f2cb70b68f8a018895e2068f92c9e519b9c2
+      digest: sha256:1336e85aaed293bd63d005086e0dd013b04078b26aaeb1c18b26a2f928af7e65
 
   # Sigstore's policy-controller, and the kubectl its uninstall hook runs.
   # Chainguard signs from a branch, so that identity cannot be held to a tag.
