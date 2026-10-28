@@ -288,6 +288,7 @@ Everything below is on the second entry point,
 | `task -t Taskfile.dev.yaml shell` † | shellcheck over the shell inside the taskfiles — needs shellcheck |
 | `task -t Taskfile.dev.yaml fmt` | format and tidy |
 | `task -t Taskfile.dev.yaml fmt-check` † | fail if `gofmt -s` would change anything |
+| `task -t Taskfile.dev.yaml tidy-check` | fail if `go.mod` or `go.sum` is not what `go mod tidy` writes, or a download differs from `go.sum` |
 | `task -t Taskfile.dev.yaml docs:links` † | do the documentation's own links point at files and headings that exist? — needs lychee |
 | `task -t Taskfile.dev.yaml checkov:scan` † | hardening rules over the manifests and workflows this repository ships |
 | `task -t Taskfile.dev.yaml checkov:triage` | every finding, including the ones `.checkov.yaml` skips — for deciding what to fix, never a gate |
@@ -307,6 +308,8 @@ Everything below is on the second entry point,
 
 | Task | Does |
 |------|------|
+| `task -t Taskfile.dev.yaml deps:outdated` | every Go module and chart pin with a newer version upstream |
+| `task -t Taskfile.dev.yaml deps:update` | bump the tools `go.mod` declares, then what `go:deps:update` bumps |
 | `task -t Taskfile.dev.yaml go:compile` | type-check without writing a binary |
 | `task -t Taskfile.dev.yaml go:deps:outdated` | dependencies with a newer version available |
 | `task -t Taskfile.dev.yaml go:deps:update` | bump the direct dependencies, tidy, then prove it still builds |
