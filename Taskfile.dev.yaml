@@ -262,6 +262,7 @@ tasks:
       # taskfile reaching back to the root, and this file IS the root when
       # Task is pointed at it. `:go:test` here fails with "does not exist".
       - task: fmt-check
+      - task: tidy-check
       - task: go:test
       # Not go:lint: that runs whatever golangci-lint is on PATH, and this one
       # runs the version CI pins.
@@ -339,6 +340,35 @@ tasks:
     cmds:
       - task: go:fmt
       - task: go:tidy
+
+  tidy-check:
+    desc: "Fail if go.mod or go.sum is not what go mod tidy writes, or a download differs from go.sum"
+    cmds:
+      - go mod tidy -diff
+      - go mod verify
+      - cmd: |
+          printf '%s\n' "{{._OK}} {{.PROJECT_NAME}} · tidy · go.mod and go.sum are tidy and verified"
+
+  deps:outdated:
+    desc: "Every Go module and chart pin with a newer version upstream (read-only)"
+    cmds:
+      - task: go:deps:outdated
+      - task: charts:outdated
+
+  deps:update:
+    desc: "Bump the tools go.mod declares, then the direct Go dependencies, tidy and build"
+    # go:deps:update moves direct requirements only, and a `tool` directive's
+    # module is an indirect one, so gosec would otherwise stay where it is.
+    # `go get tool` moves the tool modules alone; `-u` would also walk their
+    # dependencies, the drift go:deps:update exists to avoid.
+    #
+    # Charts and the task library are not here: Renovate bumps those, and
+    # deps:outdated shows where they stand.
+    cmds:
+      - cmd: |
+          printf '%s\n' "{{._RUN}} {{.PROJECT_NAME}} · deps · go get tool"
+      - go get tool
+      - task: go:deps:update
 
   layers:
     desc: "The layer order, which CI derives its matrix from"
