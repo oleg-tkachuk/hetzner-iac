@@ -540,6 +540,10 @@ func (r *Runner) checkStorage(ctx context.Context) Result {
 	// this run's result.
 	r.cleanupStorageProbe(ctx, late)
 
+	if goneErr := r.waitStorageProbeGone(ctx, late); goneErr != nil {
+		return Result{Name: name, Status: StatusFailed, Detail: goneErr.Error()}
+	}
+
 	if applyErr := r.applyStorageProbe(ctx, late); applyErr != nil {
 		return Result{Name: name, Status: StatusFailed, Detail: applyErr.Error()}
 	}
@@ -720,6 +724,66 @@ func (r *Runner) cleanupStorageProbe(ctx context.Context, late bool) {
 	}
 }
 
+// deletionTimeout bounds the wait for a previous run's probe object to go. A
+// pod's default grace period is thirty seconds, and a claim's protection
+// finalizer holds it until the pod using it is gone.
+const deletionTimeout = 2 * time.Minute
+
+// waitStorageProbeGone waits for the objects cleanupStorageProbe deleted.
+func (r *Runner) waitStorageProbeGone(ctx context.Context, late bool) error {
+	if late {
+		if err := r.waitGone(ctx, "pod "+probeNamespace+"/"+probePod, func(ctx context.Context) error {
+			_, err := r.client.CoreV1().Pods(probeNamespace).Get(ctx, probePod, metav1.GetOptions{})
+
+			return err
+		}); err != nil {
+			return err
+		}
+	}
+
+	return r.waitGone(ctx, "claim "+probeNamespace+"/"+probeClaim, func(ctx context.Context) error {
+		_, err := r.client.CoreV1().PersistentVolumeClaims(probeNamespace).Get(ctx, probeClaim, metav1.GetOptions{})
+
+		return err
+	})
+}
+
+// waitGone polls get until the object it reads is NotFound.
+//
+// A delete only starts the deletion: the name stays taken through a pod's
+// grace period and a claim's finalizer, and a create in between is
+// AlreadyExists. So a run that clears a killed run's leftovers waits for them
+// to be gone before creating its own.
+func (r *Runner) waitGone(ctx context.Context, what string, get func(context.Context) error) error {
+	deadline := time.Now().Add(deletionTimeout)
+	logged := false
+
+	for {
+		err := get(ctx)
+
+		switch {
+		case apierrors.IsNotFound(err):
+			return nil
+		case err != nil:
+			return fmt.Errorf("read %s: %w", what, err)
+		case time.Now().After(deadline):
+			return fmt.Errorf("%s left by an earlier run is still being deleted after %s", what, deletionTimeout)
+		}
+
+		if !logged {
+			r.opts.Logf("%s left by an earlier run is being deleted; waiting for it", what)
+
+			logged = true
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
 // The cross-node prober.
 const (
 	proberPod = "cluster-smoke-crossnode"
@@ -802,6 +866,14 @@ func (r *Runner) checkCrossNode(ctx context.Context) Result {
 	// Delete first too: a prober left by a killed run is pinned to a node, and
 	// would otherwise be read as this run's answer.
 	r.deleteProber(ctx)
+
+	if goneErr := r.waitGone(ctx, "pod "+probeNamespace+"/"+proberPod, func(ctx context.Context) error {
+		_, getErr := r.client.CoreV1().Pods(probeNamespace).Get(ctx, proberPod, metav1.GetOptions{})
+
+		return getErr
+	}); goneErr != nil {
+		return Result{Name: name, Status: StatusFailed, Detail: goneErr.Error()}
+	}
 
 	if _, createErr := r.client.CoreV1().Pods(probeNamespace).
 		Create(ctx, proberFor(plan.ProbeNode, replicas), metav1.CreateOptions{}); createErr != nil {
