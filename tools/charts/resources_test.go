@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -189,4 +190,31 @@ func TestUnmeasuredCharts_HaveNoMeasurementsToUse(t *testing.T) {
 			"%s sets resources in its values template, so it IS measured — "+
 				"delete its line from unmeasuredCharts and let the gate check it", key)
 	}
+}
+
+func TestCheckResources(t *testing.T) {
+	t.Parallel()
+
+	render := renderFixture{
+		manifests: map[string]string{
+			charts.HcloudCSI: workload(bounded),
+			charts.Traefik:   workload(""),
+		},
+		failing: map[string]bool{charts.HcloudCCM: true},
+	}.render
+
+	var out bytes.Buffer
+
+	failures := checkResources(t.Context(), &out, render)
+
+	assert.Equal(t, 3, failures, "no memory request, no memory limit, and the failed render")
+	assert.Equal(t, failures, missLines(out.String()))
+	assert.Contains(t, out.String(), "skip  argo-cd        resources: "+reasonUnmeasured+"\n")
+	assert.Contains(t, out.String(), "ok    hcloud-csi     every container has requests and a memory limit\n")
+	assert.Contains(t, out.String(), "MISS  hcloud-ccm     render failed: boom\n")
+	assert.Contains(t, out.String(),
+		"MISS  traefik        Deployment/hcloud-csi-controller container hcloud-csi-driver has no memory limit\n"+
+			"MISS  traefik        Deployment/hcloud-csi-controller container hcloud-csi-driver has no memory request\n"+
+			"      set it in internal/pkg/charts/traefik.yaml.tmpl, from `kubectl top pods --containers`\n",
+		"sorted, then where to fix them")
 }

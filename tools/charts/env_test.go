@@ -83,3 +83,18 @@ func TestDuplicateEnv_AnUnreadableStreamIsAnError(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+func TestCheckDuplicateEnv(t *testing.T) {
+	t.Parallel()
+
+	err := checkDuplicateEnv("hcloud-ccm", []byte(ccmDeployment))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "hcloud-ccm renders an environment variable twice, and the later one wins:\n  "+
+		"Deployment/hcloud-cloud-controller-manager container hcloud-cloud-controller-manager sets HCLOUD_NETWORK 2 times")
+
+	require.NoError(t, checkDuplicateEnv("x", []byte("apiVersion: v1\nkind: ConfigMap\nmetadata: {name: x}\n")))
+
+	err = checkDuplicateEnv("x", []byte("kind: [unclosed"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "x: ")
+}

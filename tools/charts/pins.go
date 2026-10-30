@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"maps"
 	"sort"
 
 	"github.com/distribution/reference"
@@ -26,30 +28,26 @@ var defaultRenderSets = map[string][]string{
 // handing the chart the old digest — so the cluster runs the previous release
 // with every other check green. This renders each chart on its own defaults
 // and fails until the pin is moved with it.
-func checkPins(ctx context.Context) int {
+func checkPins(ctx context.Context, w io.Writer, render renderFunc) int {
 	inventory, err := imagepolicy.Load()
 	if err != nil {
-		fmt.Printf("MISS  %-14s %v\n", "pins", err)
+		fmt.Fprintf(w, "MISS  %-14s %v\n", "pins", err)
 
 		return 1
 	}
 
+	return pinFailures(ctx, w, render, inventory)
+}
+
+// pinFailures is checkPins against an inventory already read.
+func pinFailures(ctx context.Context, w io.Writer, render renderFunc, inventory *imagepolicy.Inventory) int {
 	failures := 0
 	seen := map[string]bool{}
 
 	for _, key := range charts.Keys() {
-		chart, err := charts.Get(key)
+		images, err := chartDefaultImages(ctx, render, key)
 		if err != nil {
-			fmt.Printf("MISS  %-14s unknown chart\n", key)
-
-			failures++
-
-			continue
-		}
-
-		images, err := defaultImages(ctx, key, chart)
-		if err != nil {
-			fmt.Printf("MISS  %-14s %v\n", key, err)
+			fmt.Fprintf(w, "MISS  %-14s %v\n", key, err)
 
 			failures++
 
@@ -57,34 +55,43 @@ func checkPins(ctx context.Context) int {
 		}
 
 		problems, checked := stalePins(images, inventory)
-		for repository := range checked {
-			seen[repository] = true
-		}
+		maps.Copy(seen, checked)
 
 		for _, problem := range problems {
-			fmt.Printf("MISS  %-14s %s\n", key, problem)
+			fmt.Fprintf(w, "MISS  %-14s %s\n", key, problem)
 		}
 
 		failures += len(problems)
 	}
 
 	for _, problem := range uncheckedPins(inventory, seen) {
-		fmt.Printf("MISS  %-14s %s\n", "pins", problem)
+		fmt.Fprintf(w, "MISS  %-14s %s\n", "pins", problem)
 
 		failures++
 	}
 
 	if failures == 0 {
-		fmt.Printf("ok    %-14s every digest pin is for the tag its chart renders\n", "pins")
+		fmt.Fprintf(w, "ok    %-14s every digest pin is for the tag its chart renders\n", "pins")
 	}
 
 	return failures
 }
 
+// chartDefaultImages is defaultImages for a registry key, worded as the
+// report prints it.
+func chartDefaultImages(ctx context.Context, render renderFunc, key string) ([]string, error) {
+	chart, err := charts.Get(key)
+	if err != nil {
+		return nil, errUnknownChart
+	}
+
+	return defaultImages(ctx, render, key, chart)
+}
+
 // defaultImages is every image a chart renders on its own defaults — no values
 // file — which is where the tag a pin must follow comes from.
-func defaultImages(ctx context.Context, key string, chart charts.Chart) ([]string, error) {
-	output, err := renderRaw(ctx, chart, key, chart.Namespace, "", defaultRenderSets[key]...)
+func defaultImages(ctx context.Context, render renderFunc, key string, chart charts.Chart) ([]string, error) {
+	output, err := render(ctx, chart, key, chart.Namespace, "", defaultRenderSets[key]...)
 	if err != nil {
 		return nil, fmt.Errorf("default render failed: %w", err)
 	}

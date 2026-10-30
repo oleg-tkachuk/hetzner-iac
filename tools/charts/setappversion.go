@@ -21,7 +21,13 @@ var errNoAppVersionField = errors.New("no AppVersion field beside the pin")
 // writeAppVersion sets AppVersion, and the `// app <version>` comment beside
 // Version, in the file that declares the chart.
 func writeAppVersion(key string, chart charts.Chart, appVersion string) error {
-	path := filepath.Join(chartsDir, key+".go")
+	return writeAppVersionIn(chartsDir, key, chart, appVersion)
+}
+
+// writeAppVersionIn is writeAppVersion for declarations in dir, so a test can
+// rewrite a copy.
+func writeAppVersionIn(dir, key string, chart charts.Chart, appVersion string) error {
+	path := filepath.Join(dir, key+".go")
 
 	// #nosec G304 -- a registry key inside this repository, not user input.
 	src, err := os.ReadFile(path)

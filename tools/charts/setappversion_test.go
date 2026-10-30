@@ -87,3 +87,23 @@ func TestSetAppVersion_MatchesEveryRegisteredChart(t *testing.T) {
 		assert.Equal(t, string(src), string(out), "%s: rewriting to the current value changes nothing", key)
 	}
 }
+
+func TestWriteAppVersionIn(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, charts.ArgoCD+".go")
+	require.NoError(t, os.WriteFile(path, []byte(declaration), chartSourceMode))
+
+	require.NoError(t, writeAppVersionIn(dir, charts.ArgoCD, argoCD, "v3.5.5"))
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, strings.ReplaceAll(declaration, "v3.5.4", "v3.5.5"), string(raw))
+
+	err = writeAppVersionIn(dir, charts.ArgoCD, argoCD, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path+": ", "a refusal names the file")
+
+	require.ErrorIs(t, writeAppVersionIn(dir, "absent", argoCD, "v1"), os.ErrNotExist)
+}

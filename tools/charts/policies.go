@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -73,28 +74,28 @@ type renderedPod struct {
 // does nothing: a chart that renames a label leaves its pods outside the policy
 // that allowed their traffic, and under the default deny that traffic is
 // dropped while every check reports the policy valid.
-func checkPolicySelectors(ctx context.Context) int {
-	pods, err := renderedPods(ctx)
+func checkPolicySelectors(ctx context.Context, w io.Writer, render renderFunc, dir string) int {
+	pods, err := renderedPods(ctx, render)
 	if err != nil {
-		fmt.Printf("MISS  %-14s %v\n", "policies", err)
+		fmt.Fprintf(w, "MISS  %-14s %v\n", "policies", err)
 
 		return 1
 	}
 
-	selectors, err := policySelectors(policyManifests)
+	selectors, err := policySelectors(dir)
 	if err != nil {
-		fmt.Printf("MISS  %-14s %v\n", "policies", err)
+		fmt.Fprintf(w, "MISS  %-14s %v\n", "policies", err)
 
 		return 1
 	}
 
 	problems := unmatchedSelectors(selectors, pods)
 	for _, problem := range problems {
-		fmt.Printf("MISS  %-14s %s\n", "policies", problem)
+		fmt.Fprintf(w, "MISS  %-14s %s\n", "policies", problem)
 	}
 
 	if len(problems) == 0 {
-		fmt.Printf("ok    %-14s every policy selector names a pod a chart renders\n", "policies")
+		fmt.Fprintf(w, "ok    %-14s every policy selector names a pod a chart renders\n", "policies")
 	}
 
 	return len(problems)
@@ -272,7 +273,7 @@ func matches(s metav1.LabelSelector, pod renderedPod) bool {
 }
 
 // renderedPods is every pod template every chart renders with its values.
-func renderedPods(ctx context.Context) ([]renderedPod, error) {
+func renderedPods(ctx context.Context, render renderFunc) ([]renderedPod, error) {
 	var pods []renderedPod
 
 	for _, key := range charts.Keys() {
@@ -281,7 +282,7 @@ func renderedPods(ctx context.Context) ([]renderedPod, error) {
 			return nil, err
 		}
 
-		output, err := renderRaw(ctx, chart, key, chart.Namespace, key)
+		output, err := render(ctx, chart, key, chart.Namespace, key)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", key, err)
 		}
@@ -307,31 +308,12 @@ func podTemplates(manifests []byte, releaseNamespace string) ([]renderedPod, err
 	var pods []renderedPod
 
 	for _, doc := range docs {
-		var template *corev1.PodTemplateSpec
+		template, err := podTemplateOf(doc.Kind, []byte(doc.Text))
+		if err != nil {
+			return nil, err
+		}
 
-		switch doc.Kind {
-		case string(charts.Deployment):
-			var o appsv1.Deployment
-			if err := yaml.Unmarshal([]byte(doc.Text), &o); err != nil {
-				return nil, err
-			}
-
-			template = &o.Spec.Template
-		case string(charts.StatefulSet):
-			var o appsv1.StatefulSet
-			if err := yaml.Unmarshal([]byte(doc.Text), &o); err != nil {
-				return nil, err
-			}
-
-			template = &o.Spec.Template
-		case string(charts.DaemonSet):
-			var o appsv1.DaemonSet
-			if err := yaml.Unmarshal([]byte(doc.Text), &o); err != nil {
-				return nil, err
-			}
-
-			template = &o.Spec.Template
-		default:
+		if template == nil {
 			continue
 		}
 
@@ -339,4 +321,22 @@ func podTemplates(manifests []byte, releaseNamespace string) ([]renderedPod, err
 	}
 
 	return pods, nil
+}
+
+// podTemplateOf is the pod template a workload document carries, and nil for
+// a kind this check does not track.
+func podTemplateOf(kind string, text []byte) (*corev1.PodTemplateSpec, error) {
+	switch kind {
+	case string(charts.Deployment):
+		var o appsv1.Deployment
+		return &o.Spec.Template, yaml.Unmarshal(text, &o)
+	case string(charts.StatefulSet):
+		var o appsv1.StatefulSet
+		return &o.Spec.Template, yaml.Unmarshal(text, &o)
+	case string(charts.DaemonSet):
+		var o appsv1.DaemonSet
+		return &o.Spec.Template, yaml.Unmarshal(text, &o)
+	}
+
+	return nil, nil
 }

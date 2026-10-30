@@ -17,32 +17,37 @@ import (
 )
 
 func main() {
-	command := "list"
-	if len(os.Args) > 1 {
-		command = os.Args[1]
-	}
-
-	var err error
-
-	switch command {
-	case "list":
-		err = list()
-	case "outdated":
-		err = outdated()
-	case "render":
-		err = renderAll()
-	case "appversions":
-		err = appversionsCommand(os.Args[2:])
-	case "repin":
-		err = repin(context.Background())
-	default:
-		err = fmt.Errorf("unknown command %q; use list, outdated, render, appversions or repin", command)
-	}
-
-	if err != nil {
+	if err := dispatch(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// defaultCommand is what runs when none is named.
+const defaultCommand = "list"
+
+// commands are the subcommands by name, each given the arguments after it.
+var commands = map[string]func(args []string) error{
+	defaultCommand: func([]string) error { return list() },
+	"outdated":     func([]string) error { return outdated() },
+	"render":       func([]string) error { return renderAll() },
+	"appversions":  appversionsCommand,
+	"repin":        func([]string) error { return repin(context.Background()) },
+}
+
+// dispatch runs the command the arguments name.
+func dispatch(args []string) error {
+	command := defaultCommand
+	if len(args) > 0 {
+		command, args = args[0], args[1:]
+	}
+
+	handler, known := commands[command]
+	if !known {
+		return fmt.Errorf("unknown command %q; use list, outdated, render, appversions or repin", command)
+	}
+
+	return handler(args)
 }
 
 func list() error {
@@ -59,15 +64,35 @@ func list() error {
 
 // appversionsCommand parses `appversions [--write]`.
 func appversionsCommand(args []string) error {
+	write, err := appversionsWrite(args)
+	if err != nil {
+		return err
+	}
+
+	return appversions(write)
+}
+
+// writeFlag asks appversions to set what it finds wrong.
+const writeFlag = "--write"
+
+// appversionsWrite reads appversions' arguments: none, or the write flag.
+func appversionsWrite(args []string) (bool, error) {
 	switch {
 	case len(args) == 0:
-		return appversions(false)
-	case len(args) == 1 && args[0] == "--write":
-		return appversions(true)
+		return false, nil
+	case len(args) == 1 && args[0] == writeFlag:
+		return true, nil
 	default:
-		return fmt.Errorf("appversions takes only --write, got %q", strings.Join(args, " "))
+		return false, fmt.Errorf("appversions takes only --write, got %q", strings.Join(args, " "))
 	}
 }
+
+// indexTimeout bounds a whole report, so a hung registry cannot hang it; the
+// client timeout alone does not cover a slow body.
+const indexTimeout = 5 * time.Minute
+
+// indexRequestTimeout bounds one index request.
+const indexRequestTimeout = 30 * time.Second
 
 // appversions checks that each entry's AppVersion is what the pinned chart
 // actually ships, and with write sets it where it is not.
@@ -85,42 +110,37 @@ func appversionsCommand(args []string) error {
 // value this command already knew. Write only changes a value that exists;
 // adding or dropping the field still fails here for a person to decide.
 func appversions(write bool) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), indexTimeout)
 	defer cancel()
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	var set appVersionSetter
+	if write {
+		set = writeAppVersion
+	}
 
-	out := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	return reportAppVersions(ctx, &http.Client{Timeout: indexRequestTimeout}, os.Stdout, os.Stderr, registryPins(), set)
+}
+
+// appVersionSetter writes a chart's app version into its declaration.
+type appVersionSetter func(key string, chart charts.Chart, appVersion string) error
+
+// reportAppVersions is appversions with its inputs passed in, so a test can
+// run it against a local repository. A nil set only reports.
+func reportAppVersions(
+	ctx context.Context, client *http.Client, stdout, stderr io.Writer, pins []pin, set appVersionSetter,
+) error {
+	out := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(out, "CHART\tVERSION\tPINNED APP\tUPSTREAM APP\tSTATUS")
 
 	var wrong []string
 
-	for _, key := range charts.Keys() {
-		chart := charts.MustGet(key)
-
-		upstream, err := appVersionInRepo(ctx, client, chart)
-		if err != nil {
-			fmt.Fprintf(out, "%s\t%s\t%s\t?\t%v\n", key, chart.Version, chart.AppVersion, err)
-			wrong = append(wrong, key)
-
-			continue
-		}
-
-		status, agrees := AppVersionStatus(chart.AppVersion, upstream)
-		if !agrees && write {
-			if writeErr := writeAppVersion(key, chart, upstream); writeErr != nil {
-				status = writeErr.Error()
-			} else {
-				status, agrees = "set", true
-			}
-		}
-
+	for _, p := range pins {
+		row, agrees := appVersionRow(ctx, client, p, set)
 		if !agrees {
-			wrong = append(wrong, key)
+			wrong = append(wrong, p.Key)
 		}
 
-		fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\n",
-			key, chart.Version, display(chart.AppVersion), display(upstream), status)
+		fmt.Fprintln(out, row)
 	}
 
 	if err := out.Flush(); err != nil {
@@ -128,7 +148,7 @@ func appversions(write bool) error {
 	}
 
 	if len(wrong) > 0 {
-		fmt.Fprintf(os.Stderr,
+		fmt.Fprintf(stderr,
 			"\n%d chart entr(ies) claim the wrong app version.\n"+
 				"Run `go run ./tools/charts appversions --write`, or set AppVersion in the chart's file\n"+
 				"under internal/pkg/charts to the UPSTREAM APP column above, with the `// app <version>`\n"+
@@ -139,6 +159,29 @@ func appversions(write bool) error {
 	}
 
 	return nil
+}
+
+// appVersionRow is one chart's row of the report, and whether its app
+// version agrees with upstream once set has run.
+func appVersionRow(ctx context.Context, client *http.Client, p pin, set appVersionSetter) (string, bool) {
+	key, chart := p.Key, p.Chart
+
+	upstream, err := appVersionInRepo(ctx, client, chart)
+	if err != nil {
+		return fmt.Sprintf("%s\t%s\t%s\t?\t%v", key, chart.Version, chart.AppVersion, err), false
+	}
+
+	status, agrees := AppVersionStatus(chart.AppVersion, upstream)
+	if !agrees && set != nil {
+		if setErr := set(key, chart, upstream); setErr != nil {
+			status = setErr.Error()
+		} else {
+			status, agrees = "set", true
+		}
+	}
+
+	return fmt.Sprintf("%s\t%s\t%s\t%s\t%s",
+		key, chart.Version, display(chart.AppVersion), display(upstream), status), agrees
 }
 
 // AppVersionStatus compares a pinned app version against the upstream one.
@@ -192,19 +235,22 @@ func appVersionInRepo(ctx context.Context, client *http.Client, chart charts.Cha
 // `helm search`, which would mutate the operator's Helm configuration as a side
 // effect of a read-only report.
 func outdated() error {
-	// A context so a hung registry cannot hang the whole report; the client
-	// timeout alone does not cover a slow body.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), indexTimeout)
 	defer cancel()
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	return reportOutdated(ctx, &http.Client{Timeout: indexRequestTimeout}, os.Stdout, os.Stderr, registryPins())
+}
 
-	var pins []pin
-	for _, key := range charts.Keys() {
+// registryPins is every chart in the registry, in key order.
+func registryPins() []pin {
+	keys := charts.Keys()
+	pins := make([]pin, 0, len(keys))
+
+	for _, key := range keys {
 		pins = append(pins, pin{Key: key, Chart: charts.MustGet(key)})
 	}
 
-	return reportOutdated(ctx, client, os.Stdout, os.Stderr, pins)
+	return pins
 }
 
 // pin is one chart the report checks, under the key it is listed by.

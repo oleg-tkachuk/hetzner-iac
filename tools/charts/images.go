@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 
@@ -24,39 +25,26 @@ import (
 // not. An image with no entry would reach the cluster with no policy at all,
 // and the case worth catching is a chart upgrade that adds one — Renovate
 // bumps the chart, and the new sidecar arrives unclassified.
-func checkImages(ctx context.Context) int {
+func checkImages(ctx context.Context, w io.Writer, render renderFunc) int {
 	inventory, err := imagepolicy.Load()
 	if err != nil {
-		fmt.Printf("MISS  %-14s %v\n", "images", err)
+		fmt.Fprintf(w, "MISS  %-14s %v\n", "images", err)
 
 		return 1
 	}
 
+	return imageFailures(ctx, w, render, inventory)
+}
+
+// imageFailures is checkImages against an inventory already read.
+func imageFailures(ctx context.Context, w io.Writer, render renderFunc, inventory *imagepolicy.Inventory) int {
 	failures := 0
 	used := map[string]bool{}
 
 	for _, key := range charts.Keys() {
-		chart, err := charts.Get(key)
+		images, err := chartImages(ctx, render, key)
 		if err != nil {
-			fmt.Printf("MISS  %-14s unknown chart\n", key)
-
-			failures++
-
-			continue
-		}
-
-		output, err := renderRaw(ctx, chart, key, chart.Namespace, key)
-		if err != nil {
-			fmt.Printf("MISS  %-14s render failed: %v\n", key, err)
-
-			failures++
-
-			continue
-		}
-
-		images, err := renderedImages(output)
-		if err != nil {
-			fmt.Printf("MISS  %-14s %v\n", key, err)
+			fmt.Fprintf(w, "MISS  %-14s %v\n", key, err)
 
 			failures++
 
@@ -64,7 +52,7 @@ func checkImages(ctx context.Context) int {
 		}
 
 		for _, problem := range imageProblems(images, inventory, used) {
-			fmt.Printf("MISS  %-14s %s\n", key, problem)
+			fmt.Fprintf(w, "MISS  %-14s %s\n", key, problem)
 
 			failures++
 		}
@@ -72,17 +60,33 @@ func checkImages(ctx context.Context) int {
 
 	for _, repository := range inventory.Repositories() {
 		if !used[repository] {
-			fmt.Printf("MISS  %-14s %s is in %s and no chart renders it\n", "images", repository, imagepolicy.File)
+			fmt.Fprintf(w, "MISS  %-14s %s is in %s and no chart renders it\n", "images", repository, imagepolicy.File)
 
 			failures++
 		}
 	}
 
 	if failures == 0 {
-		fmt.Printf("ok    %-14s every rendered image is in %s\n", "images", imagepolicy.File)
+		fmt.Fprintf(w, "ok    %-14s every rendered image is in %s\n", "images", imagepolicy.File)
 	}
 
 	return failures
+}
+
+// chartImages is every image a chart renders with its values template, or
+// what stopped them being read, worded as the report prints it.
+func chartImages(ctx context.Context, render renderFunc, key string) ([]string, error) {
+	chart, err := charts.Get(key)
+	if err != nil {
+		return nil, errUnknownChart
+	}
+
+	output, err := render(ctx, chart, key, chart.Namespace, key)
+	if err != nil {
+		return nil, fmt.Errorf("render failed: %w", err)
+	}
+
+	return renderedImages(output)
 }
 
 // imageProblems holds each rendered image to its inventory entry, marking the

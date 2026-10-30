@@ -48,7 +48,11 @@ import (
 
 // renderAll runs every chart check and reports how many failed.
 func renderAll() error {
-	failures, err := run()
+	return verdict(run())
+}
+
+// verdict is the command's error for a run's failure count.
+func verdict(failures int, err error) error {
 	if err != nil {
 		return err
 	}
@@ -62,15 +66,54 @@ func renderAll() error {
 	return nil
 }
 
+// renderTimeout bounds the whole run, so a registry that stops responding
+// cannot hang the check forever.
+const renderTimeout = 10 * time.Minute
+
+// helmBinary is the program every render runs.
+const helmBinary = "helm"
+
 func run() (int, error) {
-	// A registry that stops responding must not hang the check forever.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), renderTimeout)
 	defer cancel()
 
-	if _, err := exec.LookPath("helm"); err != nil {
+	if _, err := exec.LookPath(helmBinary); err != nil {
 		return 0, fmt.Errorf("helm is not installed: %w", err)
 	}
 
+	return runChecks(ctx, os.Stdout, renderChart, renderRaw)
+}
+
+// renderFunc templates one chart and returns its manifests: renderRaw, or a
+// fixture in a test.
+type renderFunc func(ctx context.Context, chart charts.Chart, release, namespace, key string, sets ...string) ([]byte, error)
+
+// workloadFunc templates one chart and returns the workloads it produced, keyed
+// "Kind/namespace/name": renderChart, or a fixture in a test.
+type workloadFunc func(ctx context.Context, chart charts.Chart, release, namespace, key string) (map[string]bool, error)
+
+// errUnknownChart is what a check prints for a key the registry does not hold.
+var errUnknownChart = errors.New("unknown chart")
+
+// runChecks is every check, writing to w, with the renders passed in.
+func runChecks(ctx context.Context, w io.Writer, findWorkloads workloadFunc, render renderFunc) (int, error) {
+	failures, err := checkWorkloads(ctx, w, findWorkloads)
+	if err != nil {
+		return 0, err
+	}
+
+	failures += checkEffects(ctx, w, render, charts.Effects())
+	failures += checkResources(ctx, w, render)
+	failures += checkImages(ctx, w, render)
+	failures += checkPins(ctx, w, render)
+	failures += checkPolicySelectors(ctx, w, render, policyManifests)
+
+	return failures, nil
+}
+
+// checkWorkloads holds each chart's render to the workloads
+// internal/pkg/workloads expects of it.
+func checkWorkloads(ctx context.Context, w io.Writer, findWorkloads workloadFunc) (int, error) {
 	failures := 0
 
 	for _, key := range workloads.Charts() {
@@ -91,43 +134,47 @@ func run() (int, error) {
 		// access goes to kube-system while the rest stay in the release's own
 		// — and whichever entry came first decided what `helm template -n`
 		// was given.
-		found, err := renderChart(ctx, chart, expected[0].Release, chart.Namespace, key)
+		found, err := findWorkloads(ctx, chart, expected[0].Release, chart.Namespace, key)
 		if err != nil {
 			return 0, fmt.Errorf("render %s: %w", key, err)
 		}
 
-		for _, want := range expected {
-			label := fmt.Sprintf("%s %s/%s", want.Kind, want.Namespace, want.Name)
+		failures += reportWorkloads(w, key, expected, found)
+	}
 
-			if found[string(want.Kind)+"/"+want.Namespace+"/"+want.Name] {
-				fmt.Printf("ok    %-14s %s\n", key, label)
+	return failures, nil
+}
 
-				continue
-			}
+// reportWorkloads prints one line per expected workload and returns how many
+// required ones the render did not produce.
+func reportWorkloads(w io.Writer, key string, expected []workloads.Workload, found map[string]bool) int {
+	failures := 0
 
-			if want.Optional {
-				fmt.Printf("skip  %-14s %s (optional, not rendered)\n", key, label)
+	for _, want := range expected {
+		label := fmt.Sprintf("%s %s/%s", want.Kind, want.Namespace, want.Name)
 
-				continue
-			}
+		if found[string(want.Kind)+"/"+want.Namespace+"/"+want.Name] {
+			fmt.Fprintf(w, "ok    %-14s %s\n", key, label)
 
-			fmt.Printf("MISS  %-14s %s\n", key, label)
+			continue
+		}
 
-			failures++
+		if want.Optional {
+			fmt.Fprintf(w, "skip  %-14s %s (optional, not rendered)\n", key, label)
 
-			if names := slices.Sorted(maps.Keys(found)); len(names) > 0 {
-				fmt.Printf("      chart rendered: %s\n", strings.Join(names, ", "))
-			}
+			continue
+		}
+
+		fmt.Fprintf(w, "MISS  %-14s %s\n", key, label)
+
+		failures++
+
+		if names := slices.Sorted(maps.Keys(found)); len(names) > 0 {
+			fmt.Fprintf(w, "      chart rendered: %s\n", strings.Join(names, ", "))
 		}
 	}
 
-	failures += checkEffects(ctx)
-	failures += checkResources(ctx)
-	failures += checkImages(ctx)
-	failures += checkPins(ctx)
-	failures += checkPolicySelectors(ctx)
-
-	return failures, nil
+	return failures
 }
 
 // checkEffects verifies that the settings whose misspelling fails silently
@@ -137,22 +184,22 @@ func run() (int, error) {
 // the check would verify its own expression instead. The assertion is on the
 // EFFECT — the line the chart's own template produces — so a key the chart
 // ignores cannot satisfy it.
-func checkEffects(ctx context.Context) int {
+func checkEffects(ctx context.Context, w io.Writer, render renderFunc, effects []charts.Effect) int {
 	failures := 0
 
-	for _, effect := range charts.Effects() {
+	for _, effect := range effects {
 		chart, err := charts.Get(effect.Chart)
 		if err != nil {
-			fmt.Printf("MISS  %-14s unknown chart\n", effect.Chart)
+			fmt.Fprintf(w, "MISS  %-14s %v\n", effect.Chart, errUnknownChart)
 
 			failures++
 
 			continue
 		}
 
-		output, err := renderRaw(ctx, chart, effect.Release, effect.Namespace, effect.Chart)
+		output, err := render(ctx, chart, effect.Release, effect.Namespace, effect.Chart)
 		if err != nil {
-			fmt.Printf("MISS  %-14s render failed: %v\n", effect.Chart, err)
+			fmt.Fprintf(w, "MISS  %-14s render failed: %v\n", effect.Chart, err)
 
 			failures++
 
@@ -160,13 +207,13 @@ func checkEffects(ctx context.Context) int {
 		}
 
 		if strings.Contains(string(output), effect.Expect) {
-			fmt.Printf("ok    %-14s %s\n", effect.Chart, effect.Expect)
+			fmt.Fprintf(w, "ok    %-14s %s\n", effect.Chart, effect.Expect)
 
 			continue
 		}
 
-		fmt.Printf("MISS  %-14s values template produced no %q\n", effect.Chart, effect.Expect)
-		fmt.Printf("      %s\n", effect.Why)
+		fmt.Fprintf(w, "MISS  %-14s values template produced no %q\n", effect.Chart, effect.Expect)
+		fmt.Fprintf(w, "      %s\n", effect.Why)
 
 		failures++
 	}
@@ -195,6 +242,15 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 		return nil, err
 	}
 
+	return checkedWorkloads(ctx, key, namespace, output, validateSchema)
+}
+
+// checkedWorkloads holds a render to every structural check, then returns its
+// workloads.
+func checkedWorkloads(
+	ctx context.Context, key, namespace string, output []byte,
+	validate func(ctx context.Context, key string, manifests []byte) error,
+) (map[string]bool, error) {
 	// Validated against the Kubernetes version the topology pins, not just
 	// parsed for workload names.
 	//
@@ -205,7 +261,7 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 	// config was passing. A chart emitting a removed API version is the same
 	// failure with a different name, and it is found at apply, halfway
 	// through.
-	if err := validateSchema(ctx, key, output); err != nil {
+	if err := validate(ctx, key, output); err != nil {
 		return nil, err
 	}
 
@@ -467,7 +523,13 @@ var skippedKinds = []string{
 // a network dependency this check adds, and worth knowing before it fails in a
 // place with no egress.
 func validateSchema(ctx context.Context, key string, manifests []byte) error {
-	if _, err := exec.LookPath(kubeconformBinary); err != nil {
+	return validateWith(ctx, kubeconformBinary, key, manifests)
+}
+
+// validateWith is validateSchema with the program passed in, so a test can
+// reach each outcome without kubeconform.
+func validateWith(ctx context.Context, binary, key string, manifests []byte) error {
+	if _, err := exec.LookPath(binary); err != nil {
 		return fmt.Errorf("kubeconform is not installed (brew bundle, or brew install kubeconform): %w", err)
 	}
 
@@ -476,7 +538,7 @@ func validateSchema(ctx context.Context, key string, manifests []byte) error {
 	// #nosec G204 -- every argument comes from kubeconformArgs, which builds
 	// them from literals in this file plus a version from a package constant.
 	// CommandContext takes a vector, so no shell reads any of it.
-	cmd := exec.CommandContext(ctx, kubeconformBinary, kubeconformArgs(version)...)
+	cmd := exec.CommandContext(ctx, binary, kubeconformArgs(version)...)
 	cmd.Stdin = bytes.NewReader(manifests)
 
 	out, err := cmd.CombinedOutput()
@@ -553,6 +615,14 @@ func helmArgs(chart charts.Chart, release, namespace string, sets []string) []st
 
 // renderRaw templates a chart and returns its manifests.
 func renderRaw(ctx context.Context, chart charts.Chart, release, namespace, key string, sets ...string) ([]byte, error) {
+	return renderWith(ctx, helmBinary, chart, release, namespace, key, sets...)
+}
+
+// renderWith is renderRaw with the program passed in, so a test can see the
+// invocation without helm.
+func renderWith(
+	ctx context.Context, binary string, chart charts.Chart, release, namespace, key string, sets ...string,
+) ([]byte, error) {
 	args := helmArgs(chart, release, namespace, sets)
 
 	valuesFile, err := writeValues(key)
@@ -568,8 +638,13 @@ func renderRaw(ctx context.Context, chart charts.Chart, release, namespace, key 
 		args = append(args, "--values", valuesFile)
 	}
 
+	return helmOutput(ctx, binary, args)
+}
+
+// helmOutput runs helm and returns its stdout.
+func helmOutput(ctx context.Context, binary string, args []string) ([]byte, error) {
 	// #nosec G204 -- a fixed argv built from the pinned chart registry; no shell is involved.
-	output, err := exec.CommandContext(ctx, "helm", args...).Output()
+	output, err := exec.CommandContext(ctx, binary, args...).Output()
 	if err != nil {
 		// helm writes the useful part — the template error and its line — to
 		// stderr, which Output() captures only on an ExitError.
@@ -701,26 +776,9 @@ func checkStorageClasses(key string, manifests []byte) error {
 		return nil
 	}
 
-	docs, err := documents(manifests)
+	rendered, err := storageClassesIn(manifests)
 	if err != nil {
 		return fmt.Errorf("%s: %w", key, err)
-	}
-
-	rendered := map[string]string{}
-
-	for _, doc := range docs {
-		// The object's own kind, not the text containing it: a CRD that
-		// mentions StorageClass is not one, and the old `strings.Contains`
-		// could not tell the difference.
-		if doc.Kind != StorageClassKind {
-			continue
-		}
-
-		if doc.Name == "" {
-			continue
-		}
-
-		rendered[doc.Name] = doc.ReclaimPolicy
 	}
 
 	for name, policy := range expectedStorageClasses {
@@ -744,4 +802,28 @@ func checkStorageClasses(key string, manifests []byte) error {
 	}
 
 	return nil
+}
+
+// storageClassesIn is each named StorageClass a render declares, with its
+// reclaim policy.
+func storageClassesIn(manifests []byte) (map[string]string, error) {
+	docs, err := documents(manifests)
+	if err != nil {
+		return nil, err
+	}
+
+	rendered := map[string]string{}
+
+	for _, doc := range docs {
+		// The object's own kind, not the text containing it: a CRD that
+		// mentions StorageClass is not one, and the old `strings.Contains`
+		// could not tell the difference.
+		if doc.Kind != StorageClassKind || doc.Name == "" {
+			continue
+		}
+
+		rendered[doc.Name] = doc.ReclaimPolicy
+	}
+
+	return rendered, nil
 }
