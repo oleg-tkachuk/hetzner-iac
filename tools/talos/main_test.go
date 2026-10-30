@@ -67,26 +67,6 @@ func TestMinor_Malformed(t *testing.T) {
 	assert.Equal(t, "nonsense", minor("nonsense"))
 }
 
-func TestIsTopologyFile(t *testing.T) {
-	t.Parallel()
-
-	// Mirrors the name infra/cluster/main.go derives from the stack.
-	for name, want := range map[string]bool{
-		"cluster.prod.yaml":     true,
-		"cluster.dev.yaml":      true,
-		"cluster.yaml":          false,
-		"cluster.prod.yml":      false,
-		"cluster.prod.old.yaml": false,
-		"Pulumi.yaml":           false,
-		// The committed template counts, so cluster:machine-config:check validates
-		// it against talosctl too — a broken example is found here rather
-		// than by whoever copies it.
-		"cluster.example.yaml": true,
-	} {
-		assert.Equal(t, want, isTopologyFile(name), name)
-	}
-}
-
 func TestIndent(t *testing.T) {
 	t.Parallel()
 

@@ -195,7 +195,7 @@ func TestProgram_NamesTheTopologyFileItCouldNotFind(t *testing.T) {
 	// The remedy names the file to create. Reported by os.IsNotExist before,
 	// which does not walk a %w chain — so this branch never ran and the
 	// operator got the raw "open cluster.<stack>.yaml" instead.
-	assert.Contains(t, err.Error(), topologyPath(stack))
+	assert.Contains(t, err.Error(), clusterspec.TopologyFile(stack))
 	assert.Contains(t, err.Error(), "create")
 }
 

@@ -175,7 +175,7 @@ func run(ctx context.Context, pulumi pulumiReader, out io.Writer, args []string,
 	// a stack name checked against stackName above, so it cannot carry a
 	// separator or a parent reference. Both codes are needed: G703's taint
 	// analysis reports this separately from G304.
-	topology, err := os.ReadFile(filepath.Join(TopologyDir, "cluster."+stack+".yaml"))
+	topology, err := os.ReadFile(filepath.Join(TopologyDir, clusterspec.TopologyFile(stack)))
 	if err != nil {
 		kit.TopologyMissing = err.Error()
 	} else {
@@ -318,7 +318,7 @@ func (k Kit) Document() []byte {
 			indent(k.BackupMissing))
 	}
 
-	fmt.Fprintf(&out, "\n%stopology · cluster.%s.yaml\n", section, k.Stack)
+	fmt.Fprintf(&out, "\n%stopology · %s\n", section, clusterspec.TopologyFile(k.Stack))
 
 	if k.Topology != nil {
 		out.Write(ensureNewline(k.Topology))

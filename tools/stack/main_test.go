@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -216,4 +220,20 @@ func TestRun_ListTakesOneArgument(t *testing.T) {
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), "usage: stack list <cluster-dir>", name)
 	}
+}
+
+func TestTopologies_ListsOnlyTheNamesTheClusterTierLoads(t *testing.T) {
+	t.Parallel()
+
+	// cluster.a.b.yaml is no stack's file, and the template is no environment.
+	dir := t.TempDir()
+	for _, name := range []string{"cluster.dev.yaml", "cluster.a.b.yaml", "cluster.example.yaml", "Pulumi.yaml"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(sparse), 0o600))
+	}
+
+	files, err := topologies(dir)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"dev"}, slices.Collect(maps.Keys(files)))
+	assert.NoError(t, files["dev"].Err)
 }

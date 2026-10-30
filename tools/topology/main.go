@@ -128,7 +128,7 @@ func topologyFiles(dir string) ([]string, error) {
 
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !IsTopologyFile(name) {
+		if _, ok := clusterspec.TopologyStack(name); entry.IsDir() || !ok {
 			continue
 		}
 
@@ -138,23 +138,6 @@ func topologyFiles(dir string) ([]string, error) {
 	slices.Sort(paths)
 
 	return paths, nil
-}
-
-// IsTopologyFile reports whether a filename is a committed cluster topology.
-//
-// The shape matters: infra/cluster/main.go derives the path from the stack
-// name, so a file that does not follow it is never loaded by anything and
-// would sit in the repository looking like configuration that is in effect.
-func IsTopologyFile(name string) bool {
-	if !strings.HasSuffix(name, ".yaml") {
-		return false
-	}
-
-	// Strip the extension BEFORE the prefix: trimming the other way round
-	// turns "cluster.yaml" — which names no stack — into the stack "yaml".
-	stack, found := strings.CutPrefix(strings.TrimSuffix(name, ".yaml"), "cluster.")
-
-	return found && stack != "" && !strings.Contains(stack, ".")
 }
 
 func indent(text string) string {
