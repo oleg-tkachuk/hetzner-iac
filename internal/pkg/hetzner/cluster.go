@@ -491,9 +491,8 @@ func apiEndpointAddress(
 	if _, err := hcloud.NewLoadBalancerTarget(ctx, name+"-api-targets", &hcloud.LoadBalancerTargetArgs{
 		LoadBalancerId: idToInt(loadBalancer.ID()),
 		Type:           pulumi.String(targetLabelSelector),
-		LabelSelector: pulumi.String(fmt.Sprintf("%s,%s=%s",
-			clusterspec.ClusterSelector(topology.Metadata.Name), clusterspec.LabelRole, clusterspec.RoleControlPlane)),
-		UsePrivateIp: pulumi.Bool(true),
+		LabelSelector:  pulumi.String(clusterspec.ControlPlaneSelector(topology.Metadata.Name)),
+		UsePrivateIp:   pulumi.Bool(true),
 	}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet, attachment}))...); err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer target: %w", err)
 	}
