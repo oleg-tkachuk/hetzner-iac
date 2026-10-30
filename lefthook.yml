@@ -90,8 +90,8 @@ pre-commit:
     # binary, whatever the format.
     #
     # To allow a file that genuinely belongs here, add its path to the awk
-    # invocation as -v allow=<path>. Nothing needs it today: the repository
-    # tracks no binary files.
+    # invocation as -v allow=<path>. The README banner and the social preview
+    # are the only ones: images under docs/assets, not build output.
     # Branch protection refuses the push, but by then the commit exists and
     # has to be moved. This refuses it four steps earlier.
     #
@@ -112,7 +112,9 @@ pre-commit:
 
     - name: forbid-binaries
       tags: [hygiene]
-      run: git diff --cached --numstat | awk -f .github/scripts/lines.awk -v op=staged-binaries
+      run: >-
+        git diff --cached --numstat | awk -f .github/scripts/lines.awk -v op=staged-binaries
+        -v allow=docs/assets/banner.png:docs/assets/social-preview.png:docs/assets/social-preview@2x.png
 
     # A secret reaches the remote once and is burned; this is the only cheap
     # moment to catch it. A scan that skips itself when the tool is missing is
