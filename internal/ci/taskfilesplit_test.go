@@ -14,15 +14,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// devTaskfile is the second entry point, and the flag every workflow passes.
-const devTaskfile = "Taskfile.dev.yaml"
-
-// includeName matches one include's name in an `includes:` block.
-var includeName = regexp.MustCompile(`(?m)^  ([a-z][a-z0-9-]*):`)
 
 // checkTools are the tools that answer a question about this repository rather
 // than about a cluster. The root taskfile runs none of them.
@@ -73,9 +68,9 @@ func TestRootTaskfile_HoldsNoCheck(t *testing.T) {
 
 	body := string(raw)
 
-	assert.ElementsMatch(t, rootIncludes, names(includesOf(t, body)),
+	assert.ElementsMatch(t, rootIncludes, names(citest.IncludesOf(t, body)),
 		"the root taskfile includes something other than the taskfiles that describe a "+
-			"cluster. The checks live in %s", devTaskfile)
+			"cluster. The checks live in %s", citest.DevTaskfile)
 
 	// The tasks themselves, without the comments: the file talks about the
 	// checks on purpose, saying where they went.
@@ -88,7 +83,7 @@ func TestRootTaskfile_HoldsNoCheck(t *testing.T) {
 		for _, tool := range checkTools {
 			assert.NotContains(t, stripped, tool,
 				"the root task `%s` runs %s, which asks a question about this repository "+
-					"rather than about a cluster. It belongs in %s", name, tool, devTaskfile)
+					"rather than about a cluster. It belongs in %s", name, tool, citest.DevTaskfile)
 		}
 
 		assert.NotContains(t, stripped, ".github/",
@@ -107,20 +102,20 @@ func TestRootTaskfile_HoldsNoCheck(t *testing.T) {
 func TestDevTaskfile_RedeclaresNoIaCInclude(t *testing.T) {
 	t.Parallel()
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", devTaskfile))
+	raw, err := os.ReadFile(filepath.Join("..", "..", citest.DevTaskfile))
 	require.NoError(t, err)
 
-	includes := includesOf(t, string(raw))
-	require.NotEmpty(t, includes, "%s includes nothing", devTaskfile)
+	includes := citest.IncludesOf(t, string(raw))
+	require.NotEmpty(t, includes, "%s includes nothing", citest.DevTaskfile)
 
 	require.True(t, includes["iac"],
 		"%s has no `iac:` include, so anything it needs from the root taskfile is a copy",
-		devTaskfile)
+		citest.DevTaskfile)
 
 	for _, name := range rootIncludes {
 		assert.False(t, includes[name],
 			"%s includes %q directly instead of reaching it through `iac:`, which gives that "+
-				"taskfile two readers and nothing holding them equal", devTaskfile, name)
+				"taskfile two readers and nothing holding them equal", citest.DevTaskfile, name)
 	}
 }
 
@@ -165,10 +160,10 @@ func TestWorkflows_CallTasksThroughTheDevTaskfile(t *testing.T) {
 
 				checked++
 
-				assert.Equal(t, []string{"-t", devTaskfile}, args[:min(2, len(args))],
+				assert.Equal(t, []string{"-t", citest.DevTaskfile}, args[:min(2, len(args))],
 					"%s runs `task %s` without -t %s, so it resolves against the root "+
 						"taskfile, which holds no check:\n  %s",
-					name, args[0], devTaskfile, trimmed)
+					name, args[0], citest.DevTaskfile, trimmed)
 			}
 		}
 	}
@@ -179,23 +174,6 @@ func TestWorkflows_CallTasksThroughTheDevTaskfile(t *testing.T) {
 // taskInvocation matches `task` and the arguments that follow it on one line.
 // `task:` as a YAML key does not match: a colon follows the word directly.
 var taskInvocation = regexp.MustCompile(`\btask((?:[ \t]+[^ \t|)]+)+)`)
-
-// includesOf returns the names in a taskfile's `includes:` block.
-func includesOf(t *testing.T, body string) map[string]bool {
-	t.Helper()
-
-	_, includes, found := strings.Cut(body, "\nincludes:\n")
-	require.True(t, found, "the taskfile has no includes block")
-
-	includes, _, _ = strings.Cut(includes, "\ntasks:\n")
-
-	names := map[string]bool{}
-	for _, match := range includeName.FindAllStringSubmatch(includes, -1) {
-		names[match[1]] = true
-	}
-
-	return names
-}
 
 // names is the include names as a slice, so a set comparison reports which
 // one is extra or missing rather than a boolean.
@@ -219,198 +197,4 @@ var yamlComment = regexp.MustCompile(`(?m)^\s*#.*$`)
 // would trip over.
 func withoutComments(body string) string {
 	return yamlComment.ReplaceAllString(body, "")
-}
-
-// documentedCommand matches a command a document tells somebody to RUN: the
-// verb, the entry point when the task needs one, and the name.
-//
-// The verb is required here, unlike in documentedTask, and that is the whole
-// point: a bare `charts:validate` in prose is a reference to a task, while
-// `task charts:validate` is a line somebody pastes into a terminal.
-//
-// Two forms, because a command reaches a reader two ways. The first is inline
-// code; the second is a fenced or indented block, where there is no backtick
-// to anchor on — which is where `task go:test` survived the first pass of
-// this gate.
-var documentedCommands = []*regexp.Regexp{
-	regexp.MustCompile("`task (-t (\\S+) )?([a-z][a-z0-9:-]*)"),
-	regexp.MustCompile(`(?m)^[ \t]*\$?[ \t]*task (-t (\S+) )?([a-z][a-z0-9:-]*)`),
-}
-
-// TestDocs_NameTheEntryPointThatHasTheTask keeps every documented command
-// paste-able.
-//
-// A name that exists is not enough once there are two entry points. `task
-// charts:validate` names a task that is declared, and fails — the root
-// entry point does not include the charts taskfile, and Task answers "does
-// not exist" for a command the documentation states in full. The reverse is
-// quieter and worse: `task -t Taskfile.dev.yaml cluster:plan` reaches an
-// internal include and is refused, so the documentation hands over a command
-// that cannot run.
-//
-// Nine lines were wrong the moment the split landed — in ci.md, design.md,
-// the README, the Brewfile and tools/golangci — and every one of them named a
-// task that exists.
-func TestDocs_NameTheEntryPointThatHasTheTask(t *testing.T) {
-	t.Parallel()
-
-	root := filepath.Join("..", "..")
-
-	owner := taskOwners(t, root)
-	require.NotEmpty(t, owner, "no task could be traced to an entry point")
-
-	var checked int
-
-	for _, path := range documents(t, root) {
-		raw, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var found [][]string
-		for _, pattern := range documentedCommands {
-			found = append(found, pattern.FindAllStringSubmatch(string(raw), -1)...)
-		}
-
-		for _, match := range found {
-			flag, name := match[2], match[3]
-
-			entry, known := owner[name]
-			if !known {
-				// A library task, whose names live in the other repository.
-				// The namespace is still ours: it names the entry point that
-				// includes the module.
-				namespace, _, hasNamespace := strings.Cut(name, ":")
-				if !hasNamespace {
-					continue
-				}
-
-				if entry, known = owner[namespace+":"]; !known {
-					continue
-				}
-			}
-
-			checked++
-
-			want := ""
-			if entry == devTaskfile {
-				want = devTaskfile
-			}
-
-			assert.Equal(t, want, flag,
-				"%s says `task %s`, and that task is on %s. Pasted as written it does not run",
-				relativeToRoot(path), name, entry)
-		}
-	}
-
-	assert.Positive(t, checked, "no documented command was traced to an entry point")
-}
-
-// taskOwners maps a task to the entry point that can run it: every task name
-// an entry point declares itself, plus every namespace it includes, so a
-// library task whose name lives in another repository is covered by its
-// prefix.
-func taskOwners(t *testing.T, root string) map[string]string {
-	t.Helper()
-
-	owner := map[string]string{}
-
-	for _, entry := range []string{"Taskfile.yaml", devTaskfile} {
-		raw, err := os.ReadFile(filepath.Join(root, entry))
-		require.NoError(t, err, entry)
-
-		body := string(raw)
-
-		for _, found := range declaredTask.FindAllStringSubmatch(body, -1) {
-			owner[found[1]] = entry
-		}
-
-		for name := range includesOf(t, body) {
-			// The root entry point as the dev one sees it. Its tasks are typed
-			// on the root, never through this include: it is internal, so
-			// `task -t Taskfile.dev.yaml iac:…` is refused.
-			if name == "iac" {
-				continue
-			}
-
-			owner[name+":"] = entry
-
-			// And the tasks of a local include, by name, because those are
-			// declared in this repository.
-			included := filepath.Join(root, "tasks", name+".task.yaml")
-
-			nested, readErr := os.ReadFile(included)
-			if readErr != nil {
-				continue
-			}
-
-			for _, found := range declaredTask.FindAllStringSubmatch(string(nested), -1) {
-				owner[name+":"+found[1]] = entry
-			}
-		}
-	}
-
-	return owner
-}
-
-// tableHeading matches a section heading in the command reference, and
-// commandRow one row of a task table.
-var (
-	tableHeading = regexp.MustCompile(`(?m)^#{2,3} (.+)$`)
-	commandRow   = regexp.MustCompile("(?m)^\\| `task ([^`]+)`")
-)
-
-// TestCommandReference_KeepsTheEntryPointsInSeparateTables holds the reference
-// readable.
-//
-// A table whose rows are half `task …` and half `task -t Taskfile.dev.yaml …`
-// reads as inconsistency rather than as two entry points, and the flag stops
-// carrying information: a reader who sees it on some rows and not others has
-// to check each one. One table, one entry point, and the heading above it says
-// which.
-//
-// It happened in the same change that introduced the split: the Layers table
-// gained a dev-side command in a row's description.
-func TestCommandReference_KeepsTheEntryPointsInSeparateTables(t *testing.T) {
-	t.Parallel()
-
-	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "commands.md"))
-	require.NoError(t, err)
-
-	body := string(raw)
-
-	headings := tableHeading.FindAllStringSubmatchIndex(body, -1)
-	require.NotEmpty(t, headings, "the command reference has no sections")
-
-	var checked int
-
-	for i, heading := range headings {
-		end := len(body)
-		if i+1 < len(headings) {
-			end = headings[i+1][0]
-		}
-
-		section := body[heading[2]:heading[3]]
-
-		var root, dev int
-
-		for _, row := range commandRow.FindAllStringSubmatch(body[heading[1]:end], -1) {
-			if strings.HasPrefix(row[1], "-t "+devTaskfile) {
-				dev++
-			} else {
-				root++
-			}
-		}
-
-		if root+dev == 0 {
-			continue
-		}
-
-		checked++
-
-		assert.Zero(t, min(root, dev),
-			"the %q table mixes the two entry points — %d cluster command(s) and %d on %s. "+
-				"Split it, so the flag on a row means something",
-			section, root, dev, devTaskfile)
-	}
-
-	assert.Positive(t, checked, "no task table was found, so this test proved nothing")
 }

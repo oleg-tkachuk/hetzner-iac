@@ -83,6 +83,9 @@ required check unreported and the branch waiting forever, so there is none.
 The filter names what is **inert** — markdown, `docs/`, `LICENSE`,
 `.gitignore`, issue and pull-request templates, images — rather than what is
 code, so a kind of file nobody has classified yet is relevant by default.
+Inert means no gated job reads it: the tests that do read those files live in
+[internal/ci/docs](../internal/ci/docs) and run in the ungated
+`Documentation links` job, through `task -t Taskfile.dev.yaml docs:check`.
 
 Three tests in [internal/ci](../internal/ci) hold it: the classifier against a
 table of paths, and both directions of "every gate names an output that
@@ -95,7 +98,7 @@ string and skips the job, which branch protection accepts.
 |-----|-------|
 | `Changed paths` | the diff, to answer this question |
 | `Commit messages` | the subjects, which every pull request has |
-| `Documentation links` | the markdown — this is the gate such a change exists to face |
+| `Documentation links` | the markdown and `.gitignore`: their links, and the tests in `internal/ci/docs` that read them — this is the gate such a change exists to face |
 | `Security / Committed secrets` | the whole history, because a credential can be pasted into a README |
 
 The other security scanners take the same answer as a `code` input and skip:

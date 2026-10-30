@@ -1,4 +1,4 @@
-package ci
+package docs
 
 import (
 	"os"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"unicode"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
@@ -40,10 +41,10 @@ import (
 func layerDirectories(t *testing.T) []string {
 	t.Helper()
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", "Taskfile.yaml"))
+	raw, err := os.ReadFile(filepath.Join(repoRoot, "Taskfile.yaml"))
 	require.NoError(t, err)
 
-	list := layerList.FindStringSubmatch(string(raw))
+	list := citest.LayerList.FindStringSubmatch(string(raw))
 	require.NotNil(t, list, "no LAYERS list in the root taskfile")
 
 	layers := strings.Fields(list[1])
@@ -61,10 +62,10 @@ var mermaidBlock = regexp.MustCompile("(?s)```mermaid\n(.*?)\n```")
 func diagrams(t *testing.T) []string {
 	t.Helper()
 
-	paths, err := filepath.Glob(filepath.Join("..", "..", "docs", "*.md"))
+	paths, err := filepath.Glob(filepath.Join(repoRoot, "docs", "*.md"))
 	require.NoError(t, err)
 
-	paths = append(paths, filepath.Join("..", "..", "README.md"))
+	paths = append(paths, filepath.Join(repoRoot, "README.md"))
 
 	var blocks []string
 

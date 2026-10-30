@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
@@ -32,7 +33,7 @@ func TestTaskfileVars_ReferenceOnlyWhatIsDeclaredAbove(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(root, "tasks", "*.task.yaml"))
 	require.NoError(t, err)
 
-	files = append(files, filepath.Join(root, "Taskfile.yaml"), filepath.Join(root, devTaskfile))
+	files = append(files, filepath.Join(root, "Taskfile.yaml"), filepath.Join(root, citest.DevTaskfile))
 	require.NotEmpty(t, files)
 
 	for _, file := range files {

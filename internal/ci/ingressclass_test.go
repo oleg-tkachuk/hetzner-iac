@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 
@@ -67,7 +68,7 @@ func TestNoRetiredIngressClassInCode(t *testing.T) {
 	// Pulumi state into .backups/, where the Cilium chart's own hubble-ui
 	// objects carry this word. Running that task failed this test, and with
 	// it the pre-push hook.
-	for _, name := range tracked(t, root) {
+	for _, name := range citest.Tracked(t, root) {
 		if !codeExtensions[filepath.Ext(name)] {
 			continue
 		}

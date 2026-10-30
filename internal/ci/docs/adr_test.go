@@ -1,4 +1,4 @@
-package ci
+package docs
 
 import (
 	"os"
@@ -12,7 +12,7 @@ import (
 )
 
 // adrDir holds the records and their index.
-var adrDir = filepath.Join("..", "..", "docs", "adr")
+var adrDir = filepath.Join(repoRoot, "docs", "adr")
 
 // statusField is a record's own status line, `**Status:** Accepted`.
 var statusField = regexp.MustCompile(`(?m)^\*\*Status:\*\*\s*(.+?)\s*$`)

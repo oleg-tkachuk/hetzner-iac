@@ -1,4 +1,4 @@
-package ci
+package docs
 
 import (
 	"os"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +59,7 @@ var datesThatAreData = []string{
 func TestNoDatesInProse(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	var (
 		offences []string
@@ -67,7 +68,7 @@ func TestNoDatesInProse(t *testing.T) {
 
 	// Tracked files only, which is also what CI sees: .backups/ and the
 	// gitignored notes are not prose this repository publishes.
-	for _, name := range tracked(t, root) {
+	for _, name := range citest.Tracked(t, root) {
 		// Architecture decision records keep their Date. The rule holds
 		// elsewhere because git records when a line was written, which is
 		// the same fact the prose was stating. An ADR's date is when the

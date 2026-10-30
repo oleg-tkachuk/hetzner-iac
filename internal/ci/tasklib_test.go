@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,7 +55,7 @@ func TestTasklib_EveryRemoteTaskfileHasItsChecksum(t *testing.T) {
 
 	root := filepath.Join("..", "..")
 
-	entryPoints := []string{"Taskfile.yaml", devTaskfile}
+	entryPoints := []string{"Taskfile.yaml", citest.DevTaskfile}
 
 	expected := map[string]string{}
 

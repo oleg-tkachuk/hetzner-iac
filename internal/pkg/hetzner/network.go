@@ -28,7 +28,6 @@ type Network struct {
 	NetworkID  pulumi.IntOutput    `pulumi:"networkId"`
 	IPRange    pulumi.StringOutput `pulumi:"ipRange"`
 	NodeSubnet pulumi.StringOutput `pulumi:"nodeSubnet"`
-	GatewayIP  pulumi.StringOutput `pulumi:"gatewayIp"`
 }
 
 // NetworkArgs configures the private network.
@@ -83,28 +82,16 @@ func NewNetwork(ctx *pulumi.Context, name string, args *NetworkArgs, opts ...pul
 		return nil, fmt.Errorf("hcloud network subnet: %w", err)
 	}
 
-	addressing, err := clusterspec.NewAddressing(args.NodeSubnet, clusterspec.PoolAddressStride)
-	if err != nil {
-		return nil, err
-	}
-
-	gateway, err := addressing.Gateway()
-	if err != nil {
-		return nil, err
-	}
-
 	component.Network = network
 	component.Subnet = subnet
 	component.NetworkID = idToInt(network.ID())
 	component.IPRange = pulumi.String(args.IPRange).ToStringOutput()
 	component.NodeSubnet = pulumi.String(args.NodeSubnet).ToStringOutput()
-	component.GatewayIP = pulumi.String(gateway).ToStringOutput()
 
 	if err := ctx.RegisterResourceOutputs(component, pulumi.Map{
 		"networkId":  component.NetworkID,
 		"ipRange":    component.IPRange,
 		"nodeSubnet": component.NodeSubnet,
-		"gatewayIp":  component.GatewayIP,
 	}); err != nil {
 		return nil, fmt.Errorf("register network outputs: %w", err)
 	}
