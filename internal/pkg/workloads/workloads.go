@@ -151,20 +151,7 @@ func ForChart(chart string) []Workload {
 
 // Charts lists every chart named in the table, in first-seen order.
 func Charts() []string {
-	seen := map[string]struct{}{}
-
-	var out []string
-
-	for _, w := range Expected {
-		if _, dup := seen[w.Chart]; dup {
-			continue
-		}
-
-		seen[w.Chart] = struct{}{}
-		out = append(out, w.Chart)
-	}
-
-	return out
+	return firstSeen(func(w Workload) string { return w.Chart })
 }
 
 // LayerOf returns the layer that installs a chart, and false when the table
@@ -183,17 +170,24 @@ func LayerOf(chart string) (string, bool) {
 // installs no chart — 20-network-policy writes only policies — is absent, and
 // that absence is correct rather than a gap.
 func Layers() []string {
+	return firstSeen(func(w Workload) string { return w.Layer })
+}
+
+// firstSeen lists each distinct value of one field across the table, in
+// first-seen order.
+func firstSeen(field func(Workload) string) []string {
 	seen := map[string]struct{}{}
 
 	var out []string
 
 	for _, w := range Expected {
-		if _, dup := seen[w.Layer]; dup {
+		value := field(w)
+		if _, dup := seen[value]; dup {
 			continue
 		}
 
-		seen[w.Layer] = struct{}{}
-		out = append(out, w.Layer)
+		seen[value] = struct{}{}
+		out = append(out, value)
 	}
 
 	return out
