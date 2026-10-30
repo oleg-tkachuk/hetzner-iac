@@ -790,6 +790,13 @@ func (r *Runner) checkCrossNode(ctx context.Context) Result {
 		return Result{Name: name, Status: StatusSkipped, Detail: plan.Skip}
 	}
 
+	// Replicas scheduled but not yet addressed: the prober would have no
+	// container, which the API server rejects. The verdict for "nothing to
+	// ask" is the one to report.
+	if len(replicas) == 0 {
+		return CrossNodeVerdict(plan.ProbeNode, nil)
+	}
+
 	defer r.deleteProber(ctx)
 
 	// Delete first too: a prober left by a killed run is pinned to a node, and
