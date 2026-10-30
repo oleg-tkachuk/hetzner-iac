@@ -140,6 +140,12 @@ type Component struct {
 	// believes otherwise. layers/20-network-policy makes the same argument
 	// about its own switch.
 	When func(*Runner) (bool, error)
+
+	// Declined is what the run says when When declines: the setting that
+	// decides it and what its absence means. Logged here rather than by each
+	// When, so no declined component is missing from the output; layertest
+	// refuses a When without one.
+	Declined string
 }
 
 // Key is the name other components refer to this one by: Name, or the chart
@@ -240,6 +246,8 @@ func (r *Runner) create(component Component, dependencies []pulumi.Resource) (pu
 		}
 
 		if !wanted {
+			r.Log.Skipped(component.Key(), component.Declined)
+
 			return nil, nil
 		}
 	}

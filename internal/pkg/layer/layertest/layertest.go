@@ -32,6 +32,21 @@ func Check(t *testing.T, components layer.Components) {
 	ordersDependenciesFirst(t, components)
 	declaresWorkloads(t, components)
 	workloadsNameThisLayer(t, components)
+	explainsEveryDecline(t, components)
+}
+
+// explainsEveryDecline holds each optional component to saying why it is
+// absent: a When without a Declined would leave a run silent about a
+// component it did not create.
+func explainsEveryDecline(t *testing.T, components layer.Components) {
+	t.Helper()
+
+	for _, component := range components {
+		if component.When != nil {
+			assert.NotEmpty(t, component.Declined,
+				"%s has a When and no Declined, so a run that skips it says nothing", component.Key())
+		}
+	}
 }
 
 // ordersDependenciesFirst proves the set can be ordered at all, and that

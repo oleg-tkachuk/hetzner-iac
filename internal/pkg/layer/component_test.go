@@ -10,6 +10,7 @@ import (
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilog"
 )
 
 func chartKeys(components layer.Components) []string {
@@ -322,6 +323,38 @@ func TestDeploy_AChartComponentMayDecline(t *testing.T) {
 	}))
 
 	assert.Empty(t, m.of(releaseType), "a component that declined installed a release anyway")
+}
+
+// TestDeploy_SaysWhyAComponentDeclined holds the run to reporting every
+// decision: a component its When declines is absent from the cluster, and the
+// output has to say so and why, or the absence reads as a fault.
+func TestDeploy_SaysWhyAComponentDeclined(t *testing.T) {
+	setStackRef(t, "acme/hetzner-cluster/prod")
+
+	m := newMocks()
+
+	var lines []string
+
+	require.NoError(t, run(t, m, func(runner *layer.Runner) error {
+		log, recording := pulumilog.Recorder("test")
+		runner.Log = log
+
+		_, err := runner.Deploy(layer.Components{
+			{
+				Chart:    "cilium",
+				When:     func(*layer.Runner) (bool, error) { return false, nil },
+				Declined: "ciliumEnabled is not set",
+			},
+		})
+
+		lines = recording.Lines()
+
+		return err
+	}))
+
+	require.Len(t, lines, 1)
+	assert.Contains(t, lines[0], "cilium")
+	assert.Contains(t, lines[0], "ciliumEnabled is not set")
 }
 
 // TestDeploy_AComponentAfterOneThatDeclinedIsStillCreated holds the part that

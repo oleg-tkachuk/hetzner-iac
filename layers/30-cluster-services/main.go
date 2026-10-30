@@ -114,10 +114,11 @@ var Components = layer.Components{
 	{
 		// The store the External Secrets Operator reads from, after the
 		// operator that brings its CRD.
-		Name:   SecretStoreComponent,
-		After:  []string{charts.ExternalSecrets},
-		When:   secretStoreRequested,
-		Create: createSecretStore,
+		Name:     SecretStoreComponent,
+		After:    []string{charts.ExternalSecrets},
+		When:     secretStoreRequested,
+		Create:   createSecretStore,
+		Declined: PulumiAccessTokenKey + " is not set, so no store reads secrets from Pulumi ESC",
 	},
 	{
 		// Approves the CSRs the kubelets raise once internal/pkg/clusterspec turns on
@@ -142,8 +143,9 @@ var Components = layer.Components{
 		// committed topology, so scaling past their capacity leaves pods
 		// Pending — the value here is scale-to-zero and bursts inside the
 		// capacity that is already paid for.
-		Chart: KedaChart,
-		When:  kedaRequested,
+		Chart:    KedaChart,
+		When:     kedaRequested,
+		Declined: KedaEnabledKey + " is not set, so nothing here scales on events",
 	},
 	{
 		// Admission checks on image signatures. No After: it calls only the
@@ -317,10 +319,6 @@ func kedaRequested(r *layer.Runner) (bool, error) {
 	enabled, err := r.Flag(KedaEnabledKey)
 	if err != nil {
 		return false, err
-	}
-
-	if !enabled {
-		r.Log.Skipped(KedaChart, KedaEnabledKey+" is not set, so nothing here scales on events")
 	}
 
 	return enabled, nil
