@@ -225,7 +225,7 @@ func TestRun_ListTakesOneArgument(t *testing.T) {
 		"ensure": {"ensure", "infra/cluster", "dev"},
 		"ref":    {"ref", "infra/cluster", "dev"},
 	} {
-		err := run(context.Background(), args)
+		err := run(context.Background(), args, deps{})
 
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), "usage: stack list <cluster-dir>", name)

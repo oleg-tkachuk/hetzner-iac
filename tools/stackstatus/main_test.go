@@ -237,8 +237,8 @@ func TestResult(t *testing.T) {
 func TestRun_RefusesMissingArguments(t *testing.T) {
 	t.Parallel()
 
-	require.ErrorIs(t, run("", []string{"infra/cluster"}), errNoStack)
-	require.ErrorIs(t, run(stack, nil), errNoProjects)
+	require.ErrorIs(t, run("", []string{"infra/cluster"}, deps{}), errNoStack)
+	require.ErrorIs(t, run(stack, nil, deps{}), errNoProjects)
 }
 
 // internal/pkg/stackstatus holds no Pulumi import, so it spells the change

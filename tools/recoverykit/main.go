@@ -40,6 +40,8 @@ import (
 	"time"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optlist"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilogin"
@@ -72,7 +74,7 @@ const BackupDir = "infra/backup"
 const TopologyDir = clusterspec.ClusterDir
 
 func main() {
-	if err := run(context.Background(), pulumiWorkspace{}, os.Stdout, os.Args[1:], secretout.IsTerminal()); err != nil {
+	if err := run(context.Background(), livePulumi(), os.Stdout, os.Args[1:], secretout.IsTerminal()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -92,17 +94,37 @@ type pulumiReader interface {
 
 // pulumiWorkspace reads through Pulumi's automation API, one local workspace
 // per project directory.
-type pulumiWorkspace struct{}
+type pulumiWorkspace struct {
+	requireLogin func(dirs []string) error
+	newWorkspace func(ctx context.Context, dir string) (stackReader, error)
+}
+
+// stackReader is the part of a Pulumi workspace the kit reads.
+type stackReader interface {
+	ExportStack(ctx context.Context, stack string) (apitype.UntypedDeployment, error)
+	StackOutputs(ctx context.Context, stack string) (auto.OutputMap, error)
+	ListStacks(ctx context.Context, opts ...optlist.Option) ([]auto.StackSummary, error)
+}
+
+// livePulumi reads the backend this machine is logged in to.
+func livePulumi() pulumiWorkspace {
+	return pulumiWorkspace{requireLogin: pulumilogin.Require, newWorkspace: newLocalWorkspace}
+}
+
+// newLocalWorkspace opens dir as a local workspace.
+func newLocalWorkspace(ctx context.Context, dir string) (stackReader, error) {
+	return auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+}
 
 // open is the project in dir as a workspace, after refusing a backend this
 // machine holds no credential for. Checked here, at the first read, rather
 // than in main: a terminal is refused before anything touches Pulumi.
-func (pulumiWorkspace) open(ctx context.Context, dir string) (auto.Workspace, error) {
-	if err := pulumilogin.Require([]string{dir}); err != nil {
+func (p pulumiWorkspace) open(ctx context.Context, dir string) (stackReader, error) {
+	if err := p.requireLogin([]string{dir}); err != nil {
 		return nil, err
 	}
 
-	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+	workspace, err := p.newWorkspace(ctx, dir)
 	if err != nil {
 		return nil, fmt.Errorf("open %s as a pulumi workspace: %w", dir, err)
 	}

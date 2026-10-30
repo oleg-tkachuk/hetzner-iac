@@ -90,21 +90,13 @@ func TestRun_RejectsTheWrongNumberOfArguments(t *testing.T) {
 	// Guarded because the two arguments are a file path and a stack name, and
 	// swapping them would read a topology called "dev".
 	for name, args := range map[string][]string{
-		"none":     {"image"},
-		"one":      {"image", "topology.yaml"},
-		"too many": {"image", "topology.yaml", "dev", "extra"},
+		"none":     {},
+		"one":      {"topology.yaml"},
+		"too many": {"topology.yaml", "dev", "extra"},
 	} {
-		t.Run(name, func(t *testing.T) {
-			// run reads os.Args, so it is set for the duration of the case.
-			previous := osArgs
-			osArgs = args
-
-			defer func() { osArgs = previous }()
-
-			err := run(context.Background())
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "usage:")
-		})
+		err := run(context.Background(), args, deps{})
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), "usage:", name)
 	}
 }
 
