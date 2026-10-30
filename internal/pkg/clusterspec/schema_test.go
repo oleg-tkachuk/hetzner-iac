@@ -27,6 +27,7 @@ type node struct {
 	Items                *node           `json:"items"`
 	AdditionalProperties json.RawMessage `json:"additionalProperties"`
 	MaxLength            *int            `json:"maxLength"`
+	Maximum              *int            `json:"maximum"`
 	Pattern              string          `json:"pattern"`
 	Enum                 []string        `json:"enum"`
 }
@@ -230,6 +231,12 @@ func TestSchema_BoundsMatchTheConstantsTheyMirror(t *testing.T) {
 
 	assert.Equal(t, clusterspec.MaxClusterNameLength, *name.MaxLength,
 		"the schema and internal/pkg/clusterspec disagree on how long a cluster name may be")
+
+	count := schema.Properties["controlPlane"].Properties["count"]
+	require.NotNil(t, count.Maximum, "controlPlane.count has no maximum")
+
+	assert.Equal(t, clusterspec.MaxControlPlaneCount, *count.Maximum,
+		"the schema and internal/pkg/clusterspec disagree on how many control-plane nodes fit")
 }
 
 func TestSchema_EnumsMatchTheValidator(t *testing.T) {

@@ -42,6 +42,7 @@ func runIngress(t *testing.T) *recorder {
 			LoadBalancerType: "lb11",
 			IPv4ID:           pulumi.Int(testIngressIPv4ID),
 			IPv6ID:           pulumi.Int(testIngressIPv6ID),
+			NodeSubnet:       pulumi.String(clusterspec.DefaultNodeSubnet),
 		})
 
 		return err
@@ -195,4 +196,44 @@ func TestIngressLoadBalancer_AttachesToTheClustersNetwork(t *testing.T) {
 
 	assert.Equal(t, float64(testNetworkID), registered[0]["networkId"].NumberValue(),
 		"the load balancer is not in the cluster's network, so no private target can work")
+}
+
+func TestIngressLoadBalancer_TakesItsReservedPrivateAddress(t *testing.T) {
+	t.Parallel()
+
+	rec := runIngress(t)
+
+	registered := rec.of(loadBalancerNetworkToken)
+	require.Len(t, registered, 1)
+
+	// Left to Hetzner, the attachment takes the first free address in the
+	// node subnet, which a control-plane node is configured to take later.
+	require.Contains(t, registered[0], resource.PropertyKey("ip"), "the ingress attachment leaves its address to Hetzner")
+	assert.Equal(t, "10.0.1.38", registered[0]["ip"].StringValue())
+
+	// The provider answers a second attachment of the same load balancer with
+	// the first one's address, so a create-before-delete replacement would
+	// record the old address and then detach the load balancer.
+	assert.True(t, rec.deleteFirst[loadBalancerNetworkToken],
+		"replacing the ingress attachment create-first leaves the load balancer detached")
+}
+
+func TestIngressLoadBalancer_RefusesAMissingNodeSubnet(t *testing.T) {
+	t.Parallel()
+
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		_, err := hetzner.NewIngressLoadBalancer(ctx, "ingress", hetzner.IngressLoadBalancerArgs{
+			ClusterName:      pulumi.String(testCluster),
+			Location:         pulumi.String(clusterref.ProbeLocation),
+			NetworkID:        pulumi.Int(testNetworkID),
+			LoadBalancerType: "lb11",
+			IPv4ID:           pulumi.Int(testIngressIPv4ID),
+			IPv6ID:           pulumi.Int(testIngressIPv6ID),
+		})
+
+		return err
+	}, pulumi.WithMocks("hetzner-iac", "test", newRecorder()))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "node subnet is required")
 }

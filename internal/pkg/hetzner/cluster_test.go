@@ -1160,3 +1160,109 @@ func TestNewCluster_ProtectsTheControlPlaneAndTheEndpoint(t *testing.T) {
 				"ordinary work is one that gets bypassed by habit", name)
 	}
 }
+
+// loadBalancerNetworkToken is hcloud's type for a load balancer's network
+// attachment.
+const loadBalancerNetworkToken = "hcloud:index/loadBalancerNetwork:LoadBalancerNetwork"
+
+func TestNewCluster_APILoadBalancerTakesItsReservedPrivateAddress(t *testing.T) {
+	t.Parallel()
+
+	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: true})
+
+	registered := rec.of(loadBalancerNetworkToken)
+	require.Len(t, registered, 1)
+
+	// The cluster endpoint. Left to Hetzner it took the first free address,
+	// racing control-plane-0 for .2 and taking an address a later
+	// control-plane node is configured with.
+	require.Contains(t, registered[0], resource.PropertyKey("ip"), "the API attachment leaves its address to Hetzner")
+	assert.Equal(t, "10.0.1.39", registered[0]["ip"].StringValue())
+
+	// A create-before-delete replacement "succeeds" against the existing
+	// attachment and then the delete detaches the load balancer.
+	assert.True(t, rec.deleteFirst[loadBalancerNetworkToken],
+		"replacing the API attachment create-first leaves the cluster endpoint detached")
+}
+
+func TestNewCluster_NoNodeTakesALoadBalancerAddress(t *testing.T) {
+	t.Parallel()
+
+	topology := haTopology(t)
+	// The most control-plane nodes the topology accepts, and three full pools.
+	topology.ControlPlane.Count = clusterspec.MaxControlPlaneCount - 1 + clusterspec.MaxControlPlaneCount%2
+	topology.WorkerPools = []clusterspec.WorkerPoolSpec{
+		{Name: "general", Count: clusterspec.PoolAddressStride, ServerType: "cx33"},
+		{Name: "memory", Count: clusterspec.PoolAddressStride, ServerType: "cx33"},
+		{Name: "batch", Count: clusterspec.PoolAddressStride, ServerType: "cx33"},
+	}
+	require.NoError(t, topology.Validate())
+
+	// Both load balancers in one program, as the cluster tier and 40-ingress
+	// place them in one subnet.
+	rec := newRecorder()
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		if _, err := hetzner.NewCluster(ctx, "test", &hetzner.ClusterArgs{Topology: topology, PublicIPv4: true}); err != nil {
+			return err
+		}
+
+		_, err := hetzner.NewIngressLoadBalancer(ctx, "ingress", hetzner.IngressLoadBalancerArgs{
+			ClusterName:      pulumi.String(topology.Metadata.Name),
+			Location:         pulumi.String(topology.Placement.Location),
+			NetworkID:        pulumi.Int(testNetworkID),
+			LoadBalancerType: "lb11",
+			IPv4ID:           pulumi.Int(testIngressIPv4ID),
+			IPv6ID:           pulumi.Int(testIngressIPv6ID),
+			NodeSubnet:       pulumi.String(topology.Network.NodeSubnet),
+		})
+
+		return err
+	}, pulumi.WithMocks("hetzner-iac", "test", rec))
+	require.NoError(t, err)
+
+	attachments := rec.of(loadBalancerNetworkToken)
+	require.Len(t, attachments, 2, "expected the API and the ingress attachment")
+
+	servers := rec.of("hcloud:index/server:Server")
+	require.Len(t, servers, topology.ControlPlane.Count+len(topology.WorkerPools)*clusterspec.PoolAddressStride)
+
+	nodes := make(map[string]string, len(servers))
+	for _, server := range servers {
+		nodes[server["networks"].ArrayValue()[0].ObjectValue()["ip"].StringValue()] = server["name"].StringValue()
+	}
+
+	held := map[string]bool{}
+
+	for _, attachment := range attachments {
+		address, pinned := attachment["ip"]
+		require.True(t, pinned && address.IsString(), "a load balancer attachment leaves its address to Hetzner")
+
+		owner, clash := nodes[address.StringValue()]
+		assert.False(t, clash, "%s is configured with a load balancer's address %s", owner, address.StringValue())
+		assert.False(t, held[address.StringValue()], "both load balancers hold %s", address.StringValue())
+
+		held[address.StringValue()] = true
+	}
+}
+
+func TestNewCluster_AnExistingAPIAttachmentKeepsItsAddress(t *testing.T) {
+	t.Parallel()
+
+	// The API load balancer's private address is the cluster endpoint. A
+	// stack created before it was pinned holds whatever Hetzner chose, and
+	// moving it resets the service-account issuer and every node's endpoint.
+	// So the pin is the address a new attachment is created with, and a
+	// later difference is ignored rather than planned as a replacement.
+	rec := runCluster(t, haTopology(t), &hetzner.ClusterArgs{PublicIPv4: true})
+
+	var name string
+
+	for candidate := range rec.ignoreChanges {
+		if strings.HasSuffix(candidate, "-api-network") {
+			name = candidate
+		}
+	}
+
+	require.NotEmpty(t, name, "the API load balancer attachment ignores nothing")
+	assert.Contains(t, rec.ignoreChanges[name], "ip")
+}

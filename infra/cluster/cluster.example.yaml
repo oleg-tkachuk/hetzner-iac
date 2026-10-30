@@ -156,6 +156,9 @@ controlPlane:
   # plane in a spread placement group, so three etcd members survive one host
   # failing. All three are in placement.location, so a location outage takes
   # them together.
+  #
+  # At most 36: the control plane's slice of network.nodeSubnet keeps its top
+  # two addresses for the API and ingress load balancers.
   count: 3
   # The cheapest type that can hold a control plane, read from the API rather
   # than remembered — hel1, monthly, gross:

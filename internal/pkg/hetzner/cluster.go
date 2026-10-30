@@ -142,7 +142,7 @@ func NewCluster(ctx *pulumi.Context, name string, args *ClusterArgs, opts ...pul
 		return nil, err
 	}
 
-	apiAddress, loadBalancerIP, err := apiEndpointAddress(ctx, name, topology, base.network, parent)
+	apiAddress, loadBalancerIP, err := apiEndpointAddress(ctx, name, topology, base, parent)
 	if err != nil {
 		return nil, err
 	}
@@ -418,11 +418,18 @@ func apiEndpointAddress(
 	ctx *pulumi.Context,
 	name string,
 	topology *clusterspec.Topology,
-	network *Network,
+	base foundation,
 	opts ...pulumi.ResourceOption,
 ) (pulumi.StringInput, pulumi.StringOutput, error) {
 	if !topology.APILoadBalanced() {
 		return nil, pulumi.String("").ToStringOutput(), nil
+	}
+
+	network := base.network
+
+	privateIP, err := base.addressing.APILoadBalancerIP()
+	if err != nil {
+		return nil, pulumi.StringOutput{}, fmt.Errorf("api load balancer private address: %w", err)
 	}
 
 	// Protected for the same reason the control-plane nodes are, and it is not
@@ -449,11 +456,23 @@ func apiEndpointAddress(
 	// public interface here was a port 6443 open to the internet beside a
 	// firewall that admits only network.adminCIDRs. The load balancer is the
 	// endpoint the nodes use; operators reach a node, through the firewall.
+	//
+	// A pinned address, not Hetzner's pick: left unset it takes the first free
+	// one in the node subnet, which a control-plane node is configured with.
+	//
+	// Pinned at creation only. This address is the cluster endpoint, so an
+	// attachment created before the pin keeps the address Hetzner gave it:
+	// moving it resets the service-account issuer and every node's endpoint,
+	// which is a migration to plan, not a side effect of an apply.
 	attachment, err := hcloud.NewLoadBalancerNetwork(ctx, name+"-api-network", &hcloud.LoadBalancerNetworkArgs{
 		LoadBalancerId:        idToInt(loadBalancer.ID()),
 		NetworkId:             network.NetworkID,
+		Ip:                    pulumi.String(privateIP),
 		EnablePublicInterface: pulumi.Bool(false),
-	}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{network.Subnet}))...)
+	}, pulumiopts.With(opts,
+		pulumi.DependsOn([]pulumi.Resource{network.Subnet}),
+		pulumi.DeleteBeforeReplace(attachmentDeleteFirst),
+		pulumi.IgnoreChanges([]string{fieldIP}))...)
 	if err != nil {
 		return nil, pulumi.StringOutput{}, fmt.Errorf("hcloud api load balancer network: %w", err)
 	}
