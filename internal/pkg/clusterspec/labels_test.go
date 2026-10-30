@@ -133,3 +133,9 @@ func TestWorkerPoolSpec_NodeLabels(t *testing.T) {
 	spec.NodeLabels()[clusterspec.LabelPool] = "changed"
 	assert.Equal(t, map[string]string{"workload": "gpu"}, spec.Labels, "the pool's own labels are not written to")
 }
+
+func TestControlPlaneSelector(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "cluster=platform-hel,role=control-plane", clusterspec.ControlPlaneSelector("platform-hel"))
+}

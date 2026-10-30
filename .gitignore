@@ -23,6 +23,7 @@ bin/
 /etcd
 /golangci
 /image
+/nodes
 /orphans
 /recoverykit
 /secrets

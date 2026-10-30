@@ -51,6 +51,11 @@ func ClusterSelector(cluster string) string {
 	return fmt.Sprintf("%s=%s", LabelCluster, cluster)
 }
 
+// ControlPlaneSelector matches the control-plane servers of a cluster.
+func ControlPlaneSelector(cluster string) string {
+	return fmt.Sprintf("%s,%s=%s", ClusterSelector(cluster), LabelRole, RoleControlPlane)
+}
+
 // Labels stamped on the Talos snapshot, and the value of the first.
 //
 // These are a contract between two programs that never call each other:

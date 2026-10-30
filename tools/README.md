@@ -10,6 +10,7 @@ implementation.
 | [etcd/](etcd) | is this file really an etcd snapshot, and how far had it applied |
 | [golangci/](golangci) | run golangci-lint at the version CI pins, and refuse another |
 | [image/](image) | bake the Talos snapshot the topology names, idempotently |
+| [nodes/](nodes) | the control-plane servers' public addresses, from the Hetzner API |
 | [orphans/](orphans) | which Hetzner resources no stack holds and the cluster does not use |
 | [recoverykit/](recoverykit) | the parts of a cluster that live nowhere but Pulumi's state |
 | [secrets/](secrets) | print a stack's Talos secrets bundle |

@@ -26,14 +26,12 @@ vars:
   # broken. The provider knows which servers exist whatever state they are in,
   # and role=control-plane is a label pkg/hetzner stamps.
   #
-  # Refuses an empty match rather than looping zero times and reporting
-  # success — an empty selector would match every server in the project.
+  # tools/nodes reads them through hcloud-go and refuses an empty match and a
+  # server with no public IPv4, rather than handing this a list to loop over
+  # that is empty or holds a placeholder.
   _CL_CONTROL_PLANE: |
-    HCLOUD_TOKEN="$(go run "{{.ROOT}}/tools/token" "{{._CL_STACK}}")"
-    export HCLOUD_TOKEN
     cluster="$({{._CL_CLUSTER_NAME}})"
-    nodes="$(hcloud server list -l "cluster=${cluster},role=control-plane" -o noheader -o columns=ipv4)"
-    test -n "$nodes"
+    nodes="$(go run "{{.ROOT}}/tools/nodes" "{{._CL_STACK}}" "$cluster")"
 
   # Where the API server writes its audit log, which Talos configures and this
   # repository does not.
@@ -1297,8 +1295,6 @@ tasks:
         msg: "no snapshot at {{.snapshot}} — ls .backups/ for what exists"
       - sh: command -v talosctl >/dev/null
         msg: "talosctl not installed — https://docs.siderolabs.com/talos/v1.13/getting-started/talosctl"
-      - sh: command -v hcloud >/dev/null
-        msg: "hcloud CLI not installed — brew bundle, or brew install hcloud"
     prompt: "Restore {{._CL_STACK}} from {{.snapshot}}? Every control-plane node is wiped and rebuilt from it, and everything written after it is gone."
     cmds:
       # The procedure Talos documents, and nothing invented on top of it:
