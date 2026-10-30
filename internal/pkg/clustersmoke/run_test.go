@@ -237,6 +237,50 @@ func TestCheckStorage_DeletesItsProbeEvenWhenTheClaimNeverBinds(t *testing.T) {
 	assert.Contains(t, deleted, "pods")
 }
 
+func TestCheckStorage_WaitsForALeftoverClaimToGo(t *testing.T) {
+	t.Parallel()
+
+	// A killed run's claim outlives its delete while the protection finalizer
+	// waits for the pod that used it. Creating over it is AlreadyExists.
+	leftover := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "cluster-smoke", Namespace: "default"}}
+
+	client := fake.NewSimpleClientset(node("cp-0", true), storageClass(storagev1.VolumeBindingImmediate), leftover)
+	bindClaimsOn(client)
+
+	claims := schema.GroupVersionResource{Version: "v1", Resource: "persistentvolumeclaims"}
+	reads, deleted := 0, false
+
+	client.PrependReactor("delete", "persistentvolumeclaims",
+		func(k8stesting.Action) (bool, runtime.Object, error) {
+			// Only the first delete is held: the one that clears the leftover.
+			if deleted {
+				return false, nil, nil
+			}
+
+			deleted = true
+
+			return true, nil, nil
+		})
+	client.PrependReactor("get", "persistentvolumeclaims",
+		func(k8stesting.Action) (bool, runtime.Object, error) {
+			reads++
+			if reads == 2 {
+				_ = client.Tracker().Delete(claims, leftover.Namespace, leftover.Name)
+			}
+
+			return false, nil, nil
+		})
+
+	smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+		BindTimeout:  testBindTimeout,
+	})
+
+	result := resultFor(t, smoke.Run(context.Background()), "reaches Bound")
+
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status, result.Detail)
+}
+
 func TestCheckStorage_SaysWhereToLookWhenTheClassIsMissing(t *testing.T) {
 	t.Parallel()
 
@@ -433,6 +477,49 @@ func TestCheckCrossNode_PassesAndProbesFromTheDNSFreeNode(t *testing.T) {
 	// cp-2 is the only Ready node without a DNS replica. Anywhere else and the
 	// query could be answered locally, proving nothing about crossing a node.
 	assert.Equal(t, "cp-2", probedOn)
+}
+
+func TestCheckCrossNode_WaitsForALeftoverProberToGo(t *testing.T) {
+	t.Parallel()
+
+	// A killed run leaves its prober behind. Deleting it starts a grace
+	// period; the name stays taken until it ends, and a create in between is
+	// AlreadyExists. The fake keeps the object through the delete and lets it
+	// go on the second read, as the API server does once the kubelet is done.
+	leftover := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "cluster-smoke-crossnode", Namespace: "default"}}
+
+	client := fake.NewSimpleClientset(append(threeNodeCluster(), leftover)...)
+	proberExits(0)(client)
+
+	pods := schema.GroupVersionResource{Version: "v1", Resource: "pods"}
+	reads := 0
+
+	client.PrependReactor("delete", "pods",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			return action.(k8stesting.DeleteAction).GetName() == leftover.Name, nil, nil
+		})
+	client.PrependReactor("get", "pods",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if action.(k8stesting.GetAction).GetName() != leftover.Name {
+				return false, nil, nil
+			}
+
+			reads++
+			if reads == 2 {
+				_ = client.Tracker().Delete(pods, leftover.Namespace, leftover.Name)
+			}
+
+			return false, nil, nil
+		})
+
+	smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+		BindTimeout:  testBindTimeout,
+	})
+
+	result := resultFor(t, smoke.Run(context.Background()), "another node")
+
+	assert.Equal(t, clustersmoke.StatusPassed, result.Status, result.Detail)
 }
 
 func TestCheckCrossNode_SkipsOnASingleNodeCluster(t *testing.T) {
