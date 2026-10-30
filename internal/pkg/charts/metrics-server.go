@@ -37,7 +37,6 @@ func init() {
 		Probe: metricsServerProbe,
 		Settings: []Setting{
 			{
-				Set:    []string{`args[0]=` + MetricsServerAddressTypes},
 				Expect: MetricsServerAddressTypes,
 				Why: "Talos kubelet certificates carry the internal address; the chart default " +
 					"tries the hostname and every scrape fails",

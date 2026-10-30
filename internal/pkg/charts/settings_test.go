@@ -18,9 +18,8 @@ func TestEffects_AreComplete(t *testing.T) {
 	require.NotEmpty(t, effects)
 
 	for _, effect := range effects {
-		label := effect.Chart + " " + strings.Join(effect.Set, " ")
+		label := effect.Chart + " " + effect.Expect
 
-		assert.NotEmpty(t, effect.Set, label)
 		assert.NotEmpty(t, effect.Expect, label)
 		// The release and the namespace are filled in from the chart now, so
 		// these assert the derivation rather than the declaration — which is
@@ -46,51 +45,29 @@ func TestEffects_NameRegisteredCharts(t *testing.T) {
 	}
 }
 
-func TestEffects_AssertOnOutputNotInput(t *testing.T) {
+func TestCiliumEffects_CoverTheKubePrismPort(t *testing.T) {
 	t.Parallel()
 
-	// The whole point: Helm accepts an unknown key silently, so an effect that
-	// merely echoed its own --set expression would pass while the chart
-	// ignored it. Expect must name something the chart's own template emits.
+	// Cilium reaching the API through anything but KubePrism ties the CNI to
+	// one control-plane node's life, so the port must be asserted.
+	want := strconv.Itoa(charts.KubePrismPort)
+
+	covered := false
+
 	for _, effect := range charts.Effects() {
-		for _, set := range effect.Set {
-			assert.NotEqual(t, set, effect.Expect,
-				"effect for %s asserts its own input, which proves nothing", effect.Chart)
-		}
-	}
-}
-
-func TestCiliumPortEffect_SetsTheHostToo(t *testing.T) {
-	t.Parallel()
-
-	// Measured: Cilium renders the API port ONLY when the host is set as well.
-	// An effect that set the port alone would assert against an empty render
-	// and fail for the wrong reason.
-	var found *charts.Effect
-
-	effects := charts.Effects()
-
-	for i, effect := range effects {
-		if effect.Chart != charts.Cilium {
-			continue
-		}
-
-		if strings.Contains(strings.Join(effect.Set, " "), charts.CiliumK8sServicePort) {
-			found = &effects[i]
+		if effect.Chart == charts.Cilium && strings.Contains(effect.Expect, want) {
+			covered = true
 		}
 	}
 
-	require.NotNil(t, found, "the KubePrism port must be covered")
-
-	assert.Contains(t, strings.Join(found.Set, " "), charts.CiliumK8sServiceHost)
-	assert.Contains(t, found.Expect, strconv.Itoa(charts.KubePrismPort))
+	assert.True(t, covered, "no cilium effect asserts the KubePrism port %s", want)
 }
 
 func TestKeys_AreNotEmpty(t *testing.T) {
 	t.Parallel()
 
-	// An empty key would render as `--set =value`, which helm rejects — but
-	// only at run time, and only for the charts that happen to be checked.
+	// An empty key would match anything in a template and make the template
+	// tests that look for it vacuous.
 	for name, key := range map[string]string{
 		"CiliumKubeProxyReplacement": charts.CiliumKubeProxyReplacement,
 		"CiliumK8sServiceHost":       charts.CiliumK8sServiceHost,

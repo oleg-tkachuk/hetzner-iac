@@ -14,28 +14,23 @@ package charts
 // letter short) produces `kube-proxy-replacement: "false"` and exits zero.
 // That is a cluster whose every ClusterIP blackholes.
 //
-// The keys are constants in the chart's own file so that the layer that sets
-// one and the check that verifies it cannot drift apart. That is the whole
-// point — a check holding its own copy of the key would pass while the layer
-// misspells it.
+// The check renders each chart with the values template the layer ships and
+// nothing else, so a misspelt key in the template is what fails it. It used to
+// add its own --set on top, which Helm lets override the file: the check then
+// verified its own expression, never the template.
 
-// Setting is one value a layer sets, and the string the chart must render as a
-// result. Declared in the chart's own file.
+// Setting is one value the chart's values template sets, and the string the
+// chart must render as a result. Declared in the chart's own file.
 //
 // It carries no chart, release or namespace: those are the chart's, declared
 // once in its Definition. They used to be repeated on all fourteen rows of one
 // table, which is the same repetition that let a workload row disagree with
 // the chart above it.
 type Setting struct {
-	// Set is the `--set` expressions, built from the chart's key constants.
-	// Some settings need more than one: Cilium renders the API port only when
-	// the host is set too, so setting the port alone produces nothing at all —
-	// itself a silent failure, avoided only because the layer sets both.
-	Set []string
-
-	// Expect must appear in the rendered manifests. It is the EFFECT — the
-	// line the chart's own template produces — not the input, so a key the
-	// chart ignores cannot satisfy it.
+	// Expect must appear in the manifests the chart renders from the shipped
+	// values template, rendered with the chart's probe data. It is the EFFECT
+	// — the line the chart's own template produces — not the input, so a key
+	// the chart ignores cannot satisfy it.
 	Expect string
 
 	// Why is printed when the check fails, because the failure is otherwise
@@ -50,7 +45,6 @@ type Effect struct {
 	Release   string
 	Namespace string
 
-	Set    []string
 	Expect string
 	Why    string
 }
@@ -65,7 +59,6 @@ func Effects() []Effect {
 				Chart:     definition.Key,
 				Release:   definition.Release,
 				Namespace: definition.Namespace,
-				Set:       setting.Set,
 				Expect:    setting.Expect,
 				Why:       setting.Why,
 			})

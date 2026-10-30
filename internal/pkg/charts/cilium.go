@@ -59,15 +59,10 @@ func init() {
 		Probe: ciliumProbe,
 		Settings: []Setting{
 			{
-				Set:    []string{CiliumKubeProxyReplacement + "=true"},
 				Expect: `kube-proxy-replacement: "true"`,
 				Why:    "Talos runs with kube-proxy disabled; without the replacement every ClusterIP blackholes",
 			},
 			{
-				Set: []string{
-					CiliumK8sServiceHost + "=localhost",
-					CiliumK8sServicePort + "=" + strconv.Itoa(KubePrismPort),
-				},
 				Expect: `value: "` + strconv.Itoa(KubePrismPort) + `"`,
 				Why:    "Cilium reaches the API through KubePrism on the node; a wrong port ties it to one control-plane node's life",
 			},

@@ -16,8 +16,8 @@ go run ./tools/charts repin         # move each unsigned image's digest pin to i
 `render` is the one with teeth. A chart upgrade that renames a Deployment does
 not fail `pulumi up`; it fails the e2e suite against a real cluster later. This
 runs `helm template` at the pinned versions, compares the workloads, checks
-that the values took effect — `helm template` renders a misspelt value and
-exits zero — and validates the output with `kubeconform` against
+that the values templates took effect — `helm template` renders a misspelt
+value and exits zero — and validates the output with `kubeconform` against
 `clusterspec.DefaultKubernetesVersion`.
 
 It also holds every image to [the image inventory](../../internal/pkg/imagepolicy/images.yaml),

@@ -15,8 +15,7 @@ import (
 const Traefik = "traefik"
 
 // Traefik's keys, as path segments rather than one dotted string, because the
-// layer writes them as a nested map and the render check writes them as a
-// --set expression. Assembling both from the same pieces is the point.
+// layer's tests read the rendered values as a nested map.
 //
 // Traefik accepts a PROXY protocol header only from addresses it is told to
 // trust, and the Hetzner load balancer is told to send one. Leave the trusted
@@ -47,18 +46,11 @@ const (
 	TraefikIngressClassName = "name"
 )
 
-// IngressClassProbeName is the class name the render check renders with.
-// Deliberately not platform.IngressClass: every Traefik label already reads
-// `name: traefik`, so the real name would pass whether or not the chart
-// honoured the key.
+// IngressClassProbeName is the class name the render check renders the
+// template with. Deliberately not platform.IngressClass: every Traefik label
+// already reads `name: traefik`, so the real name would pass whether or not
+// the template set the key.
 const IngressClassProbeName = "ingress-class-probe"
-
-// TraefikProxyProtocolSet is the --set expression for one entry point, built
-// from the same constants the layer nests.
-func TraefikProxyProtocolSet(entryPoint, cidr string) string {
-	return TraefikPorts + "." + entryPoint + "." + TraefikProxyProtocol + "." +
-		TraefikTrustedIPs + "[0]=" + cidr
-}
 
 // ProxyProtocolProbeCIDR is the range the render check renders with. A
 // documentation range rather than this platform's node subnet, which is a
@@ -83,44 +75,31 @@ func init() {
 		Probe: traefikProbe,
 		Settings: []Setting{
 			{
-				Set:    []string{PriorityClassName + "=" + PriorityClusterCritical},
 				Expect: PriorityLine(PriorityClusterCritical),
 				Why: "ingress is how anything reaches this cluster from outside, and with no " +
 					"priority the kubelet evicts it beside the workloads it serves",
 			},
 			{
-				Set:    []string{TraefikProxyProtocolSet(TraefikEntryPointWeb, ProxyProtocolProbeCIDR)},
 				Expect: "--entryPoints." + TraefikEntryPointWeb + ".proxyProtocol.trustedIPs=" + ProxyProtocolProbeCIDR,
 				Why:    "the Hetzner load balancer sends the PROXY header; an entry point that trusts nobody rejects it on every connection",
 			},
 			{
-				Set:    []string{TraefikProxyProtocolSet(TraefikEntryPointTLS, ProxyProtocolProbeCIDR)},
 				Expect: "--entryPoints." + TraefikEntryPointTLS + ".proxyProtocol.trustedIPs=" + ProxyProtocolProbeCIDR,
 				Why:    "the TLS entry point is behind the same load balancer and needs the same trust, and forgetting it breaks only HTTPS",
 			},
 			{
-				Set: []string{
-					TraefikService + "." + TraefikServiceSpec + "." + TraefikServiceType + "=NodePort",
-				},
 				Expect: "type: NodePort",
 				Why: "the chart's default is LoadBalancer, which asks the cloud controller " +
 					"manager for a load balancer that Pulumi already manages — both would " +
 					"reconcile one object",
 			},
 			{
-				Set: []string{
-					TraefikPorts + "." + TraefikEntryPointWeb + "." + TraefikNodePort + "=" +
-						strconv.Itoa(platform.IngressNodePortHTTP),
-				},
 				Expect: "nodePort: " + strconv.Itoa(platform.IngressNodePortHTTP),
 				Why: "the Pulumi-managed load balancer forwards to this exact port; unpinned, " +
 					"Kubernetes allocates another and every target reports unhealthy against a " +
 					"closed one",
 			},
 			{
-				Set: []string{
-					TraefikIngressClass + "." + TraefikIngressClassName + "=" + IngressClassProbeName,
-				},
 				Expect: "name: " + IngressClassProbeName,
 				Why: "every Ingress in the platform names this class; a class under any other " +
 					"name is owned by nobody, and an Ingress naming it is accepted and ignored",
@@ -147,13 +126,14 @@ type TraefikValues struct {
 
 // traefikProbe renders the template offline. The ports are the real pinned
 // ones, not placeholders: the render check asserts they reach the chart's
-// output, which is the only place the pin is observable.
+// output, which is the only place the pin is observable. The class is the
+// probe name, for the reason IngressClassProbeName gives.
 func traefikProbe() any {
 	return TraefikValues{
 		Replicas:      2,
 		NodeSubnet:    ProxyProtocolProbeCIDR,
 		NodePortHTTP:  platform.IngressNodePortHTTP,
 		NodePortHTTPS: platform.IngressNodePortHTTPS,
-		IngressClass:  platform.IngressClass,
+		IngressClass:  IngressClassProbeName,
 	}
 }

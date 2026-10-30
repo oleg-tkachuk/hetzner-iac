@@ -35,7 +35,6 @@ func init() {
 		},
 		Settings: []Setting{
 			{
-				Set:    []string{PriorityClassName + "=" + PriorityClusterCritical},
 				Expect: PriorityLineQuoted(PriorityClusterCritical),
 				Why: "the metrics API server is an aggregated API: evicted beside the workloads " +
 					"it scales, it takes external.metrics.k8s.io down with it and every " +

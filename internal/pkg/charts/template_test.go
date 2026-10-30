@@ -113,9 +113,9 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 			"the traefik template no longer spells %q the way the render check asserts it", key)
 	}
 
-	// The render check proves the CHART honours this key; it renders with its
-	// own --set and would pass whether or not any template sets it. This is
-	// the other half: that the template actually does.
+	// The render check proves the chart honours this key from the template,
+	// but needs helm and the network. This catches a template that drops it
+	// offline.
 	csi, err := charts.Source("hcloud-csi")
 	require.NoError(t, err)
 
@@ -125,13 +125,10 @@ func TestTemplates_MentionEverySettingThatFailsSilently(t *testing.T) {
 		charts.HcloudCSIDefaultLocation)
 }
 
-// TestTemplates_SetThePriorityClassEachComponentNeeds is the same half again,
-// for a setting whose absence is invisible until a node runs out of memory.
-//
-// The render check proves each chart honours the key. It renders with its own
-// `--set`, so it passes whether or not a template sets anything — and an
-// unset priority is not a failure, it is a pod ranked beside the workloads it
-// serves. Nothing else would notice.
+// TestTemplates_SetThePriorityClassEachComponentNeeds is the same offline
+// check again, for a setting whose absence is invisible until a node runs out
+// of memory: an unset priority is not a failure, it is a pod ranked beside the
+// workloads it serves.
 //
 // Argo CD is deliberately absent, and asserted absent: it reconciles rather
 // than serves, so marking it cluster-critical would let it outrank the
@@ -219,10 +216,12 @@ func TestArgoCD_AnUnsetDomainStaysAnEmptyString(t *testing.T) {
 // of field in the probe map.
 //
 // Most of it is deliberately fake — documentation CIDRs, example.com — because
-// the render check only needs the keys to reach the chart's output. Four
+// the render check only needs the keys to reach the chart's output. Three
 // fields are not: they are the platform's own pinned values, and the check
 // asserts those numbers appear in what the chart renders. A copy of one here
-// keeps a passing check pointed at a value the cluster no longer uses.
+// keeps a passing check pointed at a value the cluster no longer uses. The
+// ingress class is the other way round: a probe name, because the real one
+// appears in every Traefik label anyway.
 func TestProbeData_CarriesThePinnedValuesRatherThanACopy(t *testing.T) {
 	t.Parallel()
 
@@ -244,7 +243,8 @@ func TestProbeData_CarriesThePinnedValuesRatherThanACopy(t *testing.T) {
 
 	assert.Equal(t, platform.IngressNodePortHTTP, ingress.NodePortHTTP)
 	assert.Equal(t, platform.IngressNodePortHTTPS, ingress.NodePortHTTPS)
-	assert.Equal(t, platform.IngressClass, ingress.IngressClass)
+	assert.Equal(t, charts.IngressClassProbeName, ingress.IngressClass)
+	assert.NotEqual(t, platform.IngressClass, ingress.IngressClass)
 
 	csi, err := charts.Probe("hcloud-csi")
 	require.NoError(t, err)
