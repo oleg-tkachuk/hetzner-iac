@@ -15,3 +15,8 @@ const (
 	healthCheckTimeout  = 5
 	healthCheckRetries  = 3
 )
+
+// targetLabelSelector is hcloud's target type for "every server these labels
+// match", which both load balancers use so a new node joins without a change
+// here.
+const targetLabelSelector = "label_selector"

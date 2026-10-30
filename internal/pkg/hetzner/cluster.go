@@ -490,7 +490,7 @@ func apiEndpointAddress(
 	// configuration hides: the code was never wrong anywhere a test could see.
 	if _, err := hcloud.NewLoadBalancerTarget(ctx, name+"-api-targets", &hcloud.LoadBalancerTargetArgs{
 		LoadBalancerId: idToInt(loadBalancer.ID()),
-		Type:           pulumi.String("label_selector"),
+		Type:           pulumi.String(targetLabelSelector),
 		LabelSelector: pulumi.String(fmt.Sprintf("%s,%s=%s",
 			clusterspec.ClusterSelector(topology.Metadata.Name), clusterspec.LabelRole, clusterspec.RoleControlPlane)),
 		UsePrivateIp: pulumi.Bool(true),
