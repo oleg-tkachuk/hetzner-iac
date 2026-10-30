@@ -214,6 +214,33 @@ The talosconfig keeps one endpoint: with several listed and the first one
 silent, as a powered-off server is, talosctl times out rather than moving to
 the next.
 
+## Addresses in the node subnet
+
+Every private address is fixed at plan time; nothing in `network.nodeSubnet`
+is left to Hetzner to choose. The subnet is cut into 40-address slices
+(`PoolAddressStride`). For the default `10.0.1.0/24`:
+
+| Offset | Address | Holder |
+|---|---|---|
+| 0 | 10.0.1.0 | network address |
+| 1 | 10.0.1.1 | never assigned |
+| 2–37 | 10.0.1.2–37 | control-plane nodes, by ordinal |
+| 38 | 10.0.1.38 | ingress load balancer (`layers/40-ingress`) |
+| 39 | 10.0.1.39 | API load balancer, the cluster endpoint |
+| 40 + 40·N | 10.0.1.40… | worker pool slot N |
+
+The load balancers sit at the top of the control plane's slice so no
+control-plane ordinal moves. An attachment without an address takes the first
+free one in the subnet, which a later control-plane node is configured with —
+so `controlPlane.count` is capped at 36, and validation says so.
+
+The API load balancer's address is pinned when its attachment is created and
+not changed after. It is the cluster endpoint, and a cluster created before the
+pin keeps the address Hetzner gave it: moving that resets the service-account
+issuer and every node's endpoint, which is a migration of its own. The ingress
+load balancer's address carries nothing else, so an existing attachment is
+replaced to take it, with its targets unreachable while it is.
+
 ## How pod traffic crosses a node boundary
 
 A single-node cluster cannot test this.

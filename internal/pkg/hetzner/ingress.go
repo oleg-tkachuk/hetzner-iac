@@ -1,6 +1,7 @@
 package hetzner
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
 )
 
 // Ports the ingress load balancer listens on. HTTP and HTTPS, and nothing
@@ -38,6 +40,9 @@ type IngressLoadBalancerArgs struct {
 	// ingress. See NewIngressAddresses.
 	IPv4ID pulumi.IntInput
 	IPv6ID pulumi.IntInput
+	// NodeSubnet is the subnet the load balancer takes its reserved private
+	// address in. See clusterspec.Addressing.
+	NodeSubnet pulumi.StringInput
 }
 
 // Primary IP types, as hcloud spells them.
@@ -50,6 +55,7 @@ const (
 // Pulumi matches IgnoreChanges against these spellings, and a misspelt one is
 // ignored without a word.
 const (
+	fieldIP           = "ip"
 	fieldIPv4ID       = "ipv4Id"
 	fieldIPv6ID       = "ipv6Id"
 	fieldAssigneeID   = "assigneeId"
@@ -140,6 +146,10 @@ func NewIngressLoadBalancer(
 	args IngressLoadBalancerArgs,
 	opts ...pulumi.ResourceOption,
 ) (*hcloud.LoadBalancer, error) {
+	if args.NodeSubnet == nil {
+		return nil, errors.New("hcloud ingress load balancer: the node subnet is required to pin its private address")
+	}
+
 	labels := pulumi.StringMap{
 		clusterspec.LabelCluster:   args.ClusterName,
 		clusterspec.LabelManagedBy: pulumi.String(clusterspec.ManagedBy),
@@ -168,11 +178,16 @@ func NewIngressLoadBalancer(
 	// the subnet in DependsOn, Pulumi created the attachment and the target in
 	// parallel and the apply failed with
 	// `load_balancer_not_attached_to_network`.
+	//
+	// A pinned address, for the reason the API load balancer's is pinned: left
+	// unset Hetzner takes the first free one in the node subnet, which a
+	// control-plane node is configured with.
 	attachment, err := hcloud.NewLoadBalancerNetwork(ctx, name+"-network",
 		&hcloud.LoadBalancerNetworkArgs{
 			LoadBalancerId: ingressID(loadBalancer),
 			NetworkId:      args.NetworkID,
-		}, opts...)
+			Ip:             pulumix.Cast[pulumi.StringOutput](pulumix.ApplyErr(args.NodeSubnet.ToStringOutput(), ingressPrivateIP)),
+		}, pulumiopts.With(opts, pulumi.DeleteBeforeReplace(attachmentDeleteFirst))...)
 	if err != nil {
 		return nil, fmt.Errorf("hcloud ingress load balancer network: %w", err)
 	}
@@ -244,6 +259,17 @@ func NewIngressLoadBalancer(
 	// it. That is why this layer's Hetzner half sat outside the table. The
 	// hcloud resource carries both addresses already.
 	return loadBalancer, nil
+}
+
+// ingressPrivateIP is the ingress load balancer's reserved address in the
+// node subnet.
+func ingressPrivateIP(nodeSubnet string) (string, error) {
+	addressing, err := clusterspec.NewAddressing(nodeSubnet, clusterspec.PoolAddressStride)
+	if err != nil {
+		return "", fmt.Errorf("ingress load balancer private address: %w", err)
+	}
+
+	return addressing.IngressLoadBalancerIP()
 }
 
 // ingressID is idToInt for a load balancer, named so its call sites read as

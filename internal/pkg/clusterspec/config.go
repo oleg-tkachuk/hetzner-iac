@@ -366,6 +366,11 @@ const (
 	// replace every node in it.
 	PoolAddressStride = 40
 
+	// MaxControlPlaneCount is how many control-plane nodes fit in the first
+	// slice once its reserved start and the load balancers at its top are
+	// taken out. See Addressing.
+	MaxControlPlaneCount = PoolAddressStride - reservedPerSubnet - loadBalancerAddresses
+
 	// MaxServerName is hcloud's limit on a server name.
 	MaxServerName = 63
 
@@ -830,6 +835,11 @@ func (t *Topology) validateControlPlane() []string {
 	switch {
 	case t.ControlPlane.Count < 1:
 		problems = append(problems, fmt.Sprintf("controlPlane.count is %d, must be at least 1", t.ControlPlane.Count))
+	case t.ControlPlane.Count > MaxControlPlaneCount:
+		// The next node's address is a load balancer's, and Hetzner refuses
+		// the server only once the apply has reached it.
+		problems = append(problems, fmt.Sprintf("controlPlane.count is %d, more than the %d addresses the control plane owns in the node subnet",
+			t.ControlPlane.Count, MaxControlPlaneCount))
 	case t.ControlPlane.Count%2 == 0:
 		problems = append(problems, fmt.Sprintf("controlPlane.count is %d: an even count costs more without tolerating more failures — use %d or %d",
 			t.ControlPlane.Count, t.ControlPlane.Count-1, t.ControlPlane.Count+1))
@@ -992,9 +1002,10 @@ func (t *Topology) highestPoolSlot() int {
 }
 
 // validatePoolCapacity checks that every pool's fixed address slice fits in
-// the node subnet. Control-plane nodes take the first slice, so the pool on
-// slot N starts at (N+1)*PoolAddressStride — and it is the highest slot that
-// must fit, not the number of pools, once a slot can be pinned past a gap.
+// the node subnet. The control plane and the load balancers take the first
+// slice, so the pool on slot N starts at (N+1)*PoolAddressStride — and it is
+// the highest slot that must fit, not the number of pools, once a slot can be
+// pinned past a gap.
 func (t *Topology) validatePoolCapacity() []string {
 	prefix, err := netip.ParsePrefix(t.Network.NodeSubnet)
 	if err != nil {

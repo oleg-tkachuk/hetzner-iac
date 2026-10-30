@@ -33,14 +33,24 @@ const (
 type clusterTier struct {
 	token     string
 	balancers *[]resource.PropertyMap
+	// attachments, when set, collects the inputs of every network attachment.
+	attachments *[]resource.PropertyMap
 }
 
 // loadBalancerType is hcloud's type token for a load balancer.
 const loadBalancerType = "hcloud:index/loadBalancer:LoadBalancer"
 
+// loadBalancerNetworkType is hcloud's type token for a load balancer's network
+// attachment.
+const loadBalancerNetworkType = "hcloud:index/loadBalancerNetwork:LoadBalancerNetwork"
+
 func (m clusterTier) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
 	if args.TypeToken == loadBalancerType && m.balancers != nil {
 		*m.balancers = append(*m.balancers, args.Inputs)
+	}
+
+	if args.TypeToken == loadBalancerNetworkType && m.attachments != nil {
+		*m.attachments = append(*m.attachments, args.Inputs)
 	}
 
 	if args.TypeToken != "pulumi:pulumi:StackReference" {
@@ -136,4 +146,22 @@ func TestDeploy_CreatesTheBalancerOnTheClusterTiersAddresses(t *testing.T) {
 
 	assert.EqualValues(t, testIngressIPv4ID, balancers[0]["ipv4Id"].NumberValue())
 	assert.EqualValues(t, testIngressIPv6ID, balancers[0]["ipv6Id"].NumberValue())
+}
+
+// TestDeploy_AttachesTheBalancerAtItsReservedAddress holds the other half of
+// that wiring: the subnet the tier publishes is the one the reserved private
+// address is taken from.
+func TestDeploy_AttachesTheBalancerAtItsReservedAddress(t *testing.T) {
+	var attachments []resource.PropertyMap
+
+	require.NoError(t, deployTo(t, clusterTier{token: "token-from-the-cluster-tier", attachments: &attachments}))
+	require.Len(t, attachments, 1)
+
+	addressing, err := clusterspec.NewAddressing(testNodeSubnet, clusterspec.PoolAddressStride)
+	require.NoError(t, err)
+
+	want, err := addressing.IngressLoadBalancerIP()
+	require.NoError(t, err)
+
+	assert.Equal(t, want, attachments[0]["ip"].StringValue())
 }

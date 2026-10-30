@@ -18,11 +18,17 @@ import (
 //
 // Layout of the node subnet:
 //
-//	offset 0             network address (unusable)
-//	offset 1             never assigned (see reservedPerSubnet)
-//	offset 2..stride-1   control-plane nodes
-//	offset stride..      worker slot 0
-//	offset 2*stride..    worker slot 1, and so on
+//	offset 0               network address (unusable)
+//	offset 1               never assigned (see reservedPerSubnet)
+//	offset 2..stride-3     control-plane nodes
+//	offset stride-2        ingress load balancer
+//	offset stride-1        API load balancer
+//	offset stride..        worker slot 0
+//	offset 2*stride..      worker slot 1, and so on
+//
+// The load balancers are pinned rather than left to Hetzner, which otherwise
+// hands one the first free address in the subnet: an address a control-plane
+// node is configured to take later, or races the first one for.
 type Addressing struct {
 	subnet netip.Prefix
 	stride int
@@ -38,12 +44,29 @@ type Addressing struct {
 // message that check produces, and in the arithmetic that skips them.
 const reservedPerSubnet = 2
 
+// Load balancer addresses, counted down from the top of the control plane's
+// slice so control-plane ordinals keep the offsets they always had.
+const (
+	apiLoadBalancerFromTop     = 1
+	ingressLoadBalancerFromTop = 2
+
+	// loadBalancerAddresses is how many addresses the slice's top holds back.
+	loadBalancerAddresses = ingressLoadBalancerFromTop
+)
+
+// controlPlaneCapacity is how many control-plane nodes a slice of `stride`
+// addresses seats between the reserved start and the load balancers.
+func controlPlaneCapacity(stride int) int {
+	return stride - reservedPerSubnet - loadBalancerAddresses
+}
+
 // NewAddressing prepares address allocation over a node subnet.
 func NewAddressing(nodeSubnet string, stride int) (*Addressing, error) {
-	if stride < reservedPerSubnet {
-		// Slice 0 loses its reserved addresses, so a smaller stride cannot
-		// seat even one control-plane node.
-		return nil, fmt.Errorf("addressing stride %d is too small: a slice must hold at least the %d reserved addresses", stride, reservedPerSubnet)
+	if controlPlaneCapacity(stride) < 1 {
+		// Slice 0 loses its reserved addresses and the load balancers', so a
+		// smaller stride cannot seat even one control-plane node.
+		return nil, fmt.Errorf("addressing stride %d is too small: a slice must hold the %d reserved addresses, the %d load balancers and a control-plane node",
+			stride, reservedPerSubnet, loadBalancerAddresses)
 	}
 
 	prefix, err := netip.ParsePrefix(nodeSubnet)
@@ -67,12 +90,24 @@ func (a *Addressing) ControlPlaneIP(ordinal int) (string, error) {
 		return "", fmt.Errorf("control-plane ordinal %d is negative", ordinal)
 	}
 
-	if ordinal+reservedPerSubnet >= a.stride {
-		return "", fmt.Errorf("control-plane ordinal %d does not fit in a %d-address slice (%d addresses are reserved)",
-			ordinal, a.stride, reservedPerSubnet)
+	if ordinal >= controlPlaneCapacity(a.stride) {
+		return "", fmt.Errorf("control-plane ordinal %d does not fit in a %d-address slice: "+
+			"%d addresses at its start are reserved and %d at its end are reserved for the load balancers",
+			ordinal, a.stride, reservedPerSubnet, loadBalancerAddresses)
 	}
 
 	return a.at(reservedPerSubnet + ordinal)
+}
+
+// APILoadBalancerIP returns the API load balancer's private address. It is the
+// cluster endpoint, so it must never move.
+func (a *Addressing) APILoadBalancerIP() (string, error) {
+	return a.at(a.stride - apiLoadBalancerFromTop)
+}
+
+// IngressLoadBalancerIP returns the ingress load balancer's private address.
+func (a *Addressing) IngressLoadBalancerIP() (string, error) {
+	return a.at(a.stride - ingressLoadBalancerFromTop)
 }
 
 // WorkerIP returns the private address of node `ordinal` in worker pool

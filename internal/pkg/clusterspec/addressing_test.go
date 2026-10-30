@@ -21,6 +21,9 @@ func TestNewAddressing_Rejects(t *testing.T) {
 		{"not a CIDR", "10.0.1.0", 40, "node subnet"},
 		{"IPv6", "fd00::/64", 40, "must be IPv4"},
 		{"stride too small", "10.0.1.0/24", 1, "too small"},
+		// Two reserved at the start, two load balancers at the end: four
+		// addresses seat no control-plane node.
+		{"stride holds only the reserved addresses", "10.0.1.0/24", 4, "too small"},
 	}
 
 	for _, tc := range tests {
@@ -188,4 +191,65 @@ func TestAddressing_NormalisesHostBits(t *testing.T) {
 	addr, err := addressing.ControlPlaneIP(0)
 	require.NoError(t, err)
 	assert.Equal(t, "10.0.1.2", addr)
+}
+
+func TestAddressing_LoadBalancersTakeTheTopOfTheControlPlaneSlice(t *testing.T) {
+	t.Parallel()
+
+	addressing, err := clusterspec.NewAddressing("10.0.1.0/24", 40)
+	require.NoError(t, err)
+
+	api, err := addressing.APILoadBalancerIP()
+	require.NoError(t, err)
+	assert.Equal(t, "10.0.1.39", api)
+
+	ingress, err := addressing.IngressLoadBalancerIP()
+	require.NoError(t, err)
+	assert.Equal(t, "10.0.1.38", ingress)
+}
+
+func TestAddressing_NoNodeTakesALoadBalancerAddress(t *testing.T) {
+	t.Parallel()
+
+	addressing, err := clusterspec.NewAddressing("10.0.1.0/24", clusterspec.PoolAddressStride)
+	require.NoError(t, err)
+
+	api, err := addressing.APILoadBalancerIP()
+	require.NoError(t, err)
+
+	ingress, err := addressing.IngressLoadBalancerIP()
+	require.NoError(t, err)
+
+	// Every ordinal the control plane may use, and the first slots' worth of
+	// pools: none of them is allowed to land on a load balancer.
+	for ordinal := range clusterspec.MaxControlPlaneCount {
+		addr, ipErr := addressing.ControlPlaneIP(ordinal)
+		require.NoError(t, ipErr)
+		assert.NotContains(t, []string{api, ingress}, addr, "control-plane ordinal %d", ordinal)
+	}
+
+	for pool := range 3 {
+		for ordinal := range clusterspec.PoolAddressStride {
+			addr, ipErr := addressing.WorkerIP(pool, ordinal)
+			require.NoError(t, ipErr)
+			assert.NotContains(t, []string{api, ingress}, addr, "pool %d ordinal %d", pool, ordinal)
+		}
+	}
+}
+
+func TestAddressing_ControlPlaneStopsBelowTheLoadBalancers(t *testing.T) {
+	t.Parallel()
+
+	addressing, err := clusterspec.NewAddressing("10.0.1.0/24", clusterspec.PoolAddressStride)
+	require.NoError(t, err)
+
+	// The last ordinal that fits keeps the address it always had: reserving
+	// the top of the slice moves no existing node.
+	last, err := addressing.ControlPlaneIP(clusterspec.MaxControlPlaneCount - 1)
+	require.NoError(t, err)
+	assert.Equal(t, "10.0.1.37", last)
+
+	_, err = addressing.ControlPlaneIP(clusterspec.MaxControlPlaneCount)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reserved for the load balancers")
 }

@@ -171,8 +171,9 @@
       "properties": {
         "count": {
           "type": "integer",
-          "description": "Odd and positive: etcd needs a quorum, and an even count costs more without tolerating more failures. Default 1.",
-          "minimum": 1
+          "description": "Odd and positive: etcd needs a quorum, and an even count costs more without tolerating more failures. At most 36: the rest of the node subnet's first slice is reserved, its top two addresses for the load balancers. Default 1.",
+          "minimum": 1,
+          "maximum": 36
         },
         "serverType": {
           "type": "string",

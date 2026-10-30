@@ -20,3 +20,10 @@ const (
 // match", which both load balancers use so a new node joins without a change
 // here.
 const targetLabelSelector = "label_selector"
+
+// attachmentDeleteFirst is DeleteBeforeReplace for both load balancers'
+// network attachments. Changing `ip` replaces one, and a load balancer joins a
+// network once: created first, the provider takes the existing attachment as
+// success and records its old address, then deleting the old one detaches
+// the load balancer with nothing reporting it.
+const attachmentDeleteFirst = true

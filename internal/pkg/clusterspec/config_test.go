@@ -1,6 +1,7 @@
 package clusterspec_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -224,6 +225,12 @@ func TestValidate_Rejects(t *testing.T) {
 			name:    "zero control plane count",
 			mutate:  func(top *clusterspec.Topology) { top.ControlPlane.Count = -1 },
 			wantMsg: "must be at least 1",
+		},
+		{
+			// The next node would take an address a load balancer holds.
+			name:    "control plane count reaches the load balancer addresses",
+			mutate:  func(top *clusterspec.Topology) { top.ControlPlane.Count = clusterspec.MaxControlPlaneCount + 1 },
+			wantMsg: fmt.Sprintf("more than the %d addresses the control plane owns", clusterspec.MaxControlPlaneCount),
 		},
 		{
 			name: "HA without a load balancer",
@@ -619,4 +626,14 @@ func TestValidate_RefusesAContractNewerThanTheNodes(t *testing.T) {
 		require.Error(t, err, contract)
 		assert.Contains(t, err.Error(), want, contract)
 	}
+}
+
+func TestValidate_AcceptsTheLargestControlPlaneThatFits(t *testing.T) {
+	t.Parallel()
+
+	topology := clusterspectest.MustParseValid(t)
+	// The largest odd count: an even one is refused for a different reason.
+	topology.ControlPlane.Count = clusterspec.MaxControlPlaneCount - 1 + clusterspec.MaxControlPlaneCount%2
+
+	require.NoError(t, topology.Validate())
 }
