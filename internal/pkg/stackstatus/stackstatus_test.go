@@ -162,6 +162,7 @@ func TestNotes(t *testing.T) {
 	clusterBehind := stackstatus.Project{Name: cluster, IsCluster: true, HasStack: true, Contract: intPtr(contract - 1)}
 	clusterUnversioned := stackstatus.Project{Name: cluster, IsCluster: true, HasStack: true}
 	clusterCurrent := stackstatus.Project{Name: cluster, IsCluster: true, HasStack: true, Contract: intPtr(contract)}
+	clusterAhead := stackstatus.Project{Name: cluster, IsCluster: true, HasStack: true, Contract: intPtr(contract + 1)}
 
 	for _, tc := range []struct {
 		name    string
@@ -179,6 +180,7 @@ func TestNotes(t *testing.T) {
 		{"cluster current", clusterCurrent, nil},
 		{"cluster behind", clusterBehind, []string{"publishes contract v2, this checkout reads v3 — apply the cluster tier"}},
 		{"cluster unversioned", clusterUnversioned, []string{"publishes contract v0, this checkout reads v3 — apply the cluster tier"}},
+		{"cluster ahead", clusterAhead, []string{"publishes contract v4, this checkout reads v3 — update this checkout"}},
 	} {
 		assert.Equal(t, tc.want, stackstatus.Notes(tc.project, header()), tc.name)
 	}
@@ -239,7 +241,7 @@ func TestRenderEveryRowShape(t *testing.T) {
 		"50-gitops            ○  never run",
 		"60-broken            ✖  unreadable: could not export: 403 forbidden",
 		// The worst row's mark leads the verdict.
-		"  ✖ 8 stacks · 3 succeeded · 1 failed · 1 running · 3 without a run · 1 need attention · 42 resources · all applied from HEAD\n",
+		"  ✖ 8 stacks · 3 succeeded · 1 failed · 1 running · 1 unreadable · 2 without a run · 1 need attention · 42 resources · all applied from HEAD\n",
 	} {
 		assert.Contains(t, out, want)
 	}
@@ -284,6 +286,29 @@ func TestRenderFlagsCommitDrift(t *testing.T) {
 	assert.Contains(t, out, "6963f05f")
 	assert.Contains(t, out, "1495bea4*")
 	assert.Contains(t, out, "applied from 2 commit(s), HEAD is 1495bea4")
+}
+
+// TestRenderFailsOnAnUnreadableStackAlone holds the summary to its own rule:
+// the worst row's mark. An unreadable row is ✖, so the verdict is too.
+func TestRenderFailsOnAnUnreadableStackAlone(t *testing.T) {
+	t.Parallel()
+
+	out := render(t, header(), []stackstatus.Project{
+		healthy(ingress),
+		{Name: "60-broken", HasStack: true, Err: errUnreadable},
+	})
+
+	assert.Contains(t, out, "  ✖ 2 stacks · 1 succeeded · 1 unreadable ·")
+	assert.NotContains(t, out, "without a run")
+}
+
+func TestRenderFlagsAClusterAheadOfTheCheckout(t *testing.T) {
+	t.Parallel()
+
+	h := header()
+	h.Cluster.Contract = intPtr(contract + 1)
+
+	assert.Contains(t, render(t, h, nil), "v4 published · this checkout reads v3  ▲ ahead")
 }
 
 func TestRenderFlagsAClusterBehindTheCheckout(t *testing.T) {

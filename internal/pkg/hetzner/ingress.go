@@ -229,8 +229,8 @@ func NewIngressLoadBalancer(
 	if _, err := hcloud.NewLoadBalancerTarget(ctx, name+"-targets",
 		&hcloud.LoadBalancerTargetArgs{
 			LoadBalancerId: ingressID(loadBalancer),
-			Type:           pulumi.String("label_selector"),
-			LabelSelector:  pulumi.Sprintf("%s=%s", clusterspec.LabelCluster, args.ClusterName),
+			Type:           pulumi.String(targetLabelSelector),
+			LabelSelector:  args.ClusterName.ToStringOutput().ApplyT(clusterspec.ClusterSelector).(pulumi.StringOutput),
 			UsePrivateIp:   pulumi.Bool(true),
 		}, pulumiopts.With(opts, pulumi.DependsOn([]pulumi.Resource{attachment}))...); err != nil {
 		return nil, fmt.Errorf("hcloud ingress load balancer target: %w", err)
