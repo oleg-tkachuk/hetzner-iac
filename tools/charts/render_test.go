@@ -257,6 +257,25 @@ spec:
 			namespace: "keda",
 		},
 		{
+			// A manifest carried as data is text, not a pod. Matching the
+			// text refused a chart for a document that creates nothing.
+			name: "a ConfigMap quoting a manifest is not a pod asking for host access",
+			manifests: `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example-dashboards
+  namespace: observability
+data:
+  example.yaml: |
+    volumes:
+      - hostPath:
+          path: /
+    hostNetwork: true
+`,
+			namespace: "observability",
+		},
+		{
 			name:      "host access in an exempt namespace is fine",
 			manifests: daemonSet("kube-system"),
 			namespace: "kube-system",
