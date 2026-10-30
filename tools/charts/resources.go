@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 
@@ -105,28 +106,28 @@ const (
 // settings whose misspelling is silent. A substring cannot notice a container
 // that a chart upgrade ADDS — and that is the case worth catching, because a
 // new sidecar arrives unbounded and nothing says so.
-func checkResources(ctx context.Context) int {
+func checkResources(ctx context.Context, w io.Writer, render renderFunc) int {
 	failures := 0
 
 	for _, key := range charts.Keys() {
 		if reason, skip := unmeasuredCharts[key]; skip {
-			fmt.Printf("skip  %-14s resources: %s\n", key, reason)
+			fmt.Fprintf(w, "skip  %-14s resources: %s\n", key, reason)
 
 			continue
 		}
 
 		chart, err := charts.Get(key)
 		if err != nil {
-			fmt.Printf("MISS  %-14s unknown chart\n", key)
+			fmt.Fprintf(w, "MISS  %-14s %v\n", key, errUnknownChart)
 
 			failures++
 
 			continue
 		}
 
-		output, err := renderRaw(ctx, chart, key, chart.Namespace, key)
+		output, err := render(ctx, chart, key, chart.Namespace, key)
 		if err != nil {
-			fmt.Printf("MISS  %-14s render failed: %v\n", key, err)
+			fmt.Fprintf(w, "MISS  %-14s render failed: %v\n", key, err)
 
 			failures++
 
@@ -135,7 +136,7 @@ func checkResources(ctx context.Context) int {
 
 		problems := unboundedContainers(output)
 		if len(problems) == 0 {
-			fmt.Printf("ok    %-14s every container has requests and a memory limit\n", key)
+			fmt.Fprintf(w, "ok    %-14s every container has requests and a memory limit\n", key)
 
 			continue
 		}
@@ -143,10 +144,10 @@ func checkResources(ctx context.Context) int {
 		sort.Strings(problems)
 
 		for _, problem := range problems {
-			fmt.Printf("MISS  %-14s %s\n", key, problem)
+			fmt.Fprintf(w, "MISS  %-14s %s\n", key, problem)
 		}
 
-		fmt.Printf("      set it in %s/%s%s, from `kubectl top pods --containers`\n", charts.Dir, key, charts.Extension)
+		fmt.Fprintf(w, "      set it in %s/%s%s, from `kubectl top pods --containers`\n", charts.Dir, key, charts.Extension)
 
 		failures += len(problems)
 	}

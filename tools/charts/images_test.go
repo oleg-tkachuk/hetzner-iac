@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/imagepolicy"
 )
 
@@ -214,4 +216,77 @@ func TestImageProblems_MarksWhatItFindsAndReportsTheRest(t *testing.T) {
 	assert.Contains(t, problems[0], "busybox:1 has no entry")
 	assert.Contains(t, problems[1], "traefik:v3.7.13 is not pinned")
 	assert.Equal(t, map[string]bool{"quay.io/cilium/cilium": true, "docker.io/library/traefik": true}, used)
+}
+
+func TestImageFailures(t *testing.T) {
+	t.Parallel()
+
+	render := renderFixture{
+		manifests: map[string]string{
+			charts.Cilium:    podManifest("cilium", "quay.io/cilium/cilium:v1"),
+			charts.Traefik:   podManifest("busybox", "docker.io/library/busybox:1"),
+			charts.HcloudCSI: "kind: [unclosed",
+		},
+		failing: map[string]bool{charts.HcloudCCM: true},
+	}.render
+
+	var out bytes.Buffer
+
+	failures := imageFailures(t.Context(), &out, render, testInventory(t))
+
+	assert.Equal(t, 4, failures)
+	assert.Equal(t, failures, missLines(out.String()))
+	assert.Contains(t, out.String(), "MISS  hcloud-ccm     render failed: boom\n")
+	assert.Contains(t, out.String(), "MISS  hcloud-csi     the rendered manifests could not be read")
+	assert.Contains(t, out.String(), "MISS  traefik        docker.io/library/busybox:1 has no entry in images.yaml\n")
+	assert.Contains(t, out.String(), "MISS  images         docker.io/library/traefik is in images.yaml and no chart renders it\n")
+	assert.NotContains(t, out.String(), "ok ")
+}
+
+func TestImageFailures_PassesWhenEveryImageHasAnEntry(t *testing.T) {
+	t.Parallel()
+
+	inventory, err := imagepolicy.Parse([]byte("images:\n  - repository: quay.io/cilium/cilium\n" +
+		"    signed: {issuer: i, subject: s}\n"))
+	require.NoError(t, err)
+
+	render := renderFixture{manifests: map[string]string{
+		charts.Cilium: podManifest("cilium", "quay.io/cilium/cilium:v1"),
+	}}.render
+
+	var out bytes.Buffer
+
+	assert.Zero(t, imageFailures(t.Context(), &out, render, inventory))
+	assert.Equal(t, "ok    images         every rendered image is in images.yaml\n", out.String())
+}
+
+func TestPinFailures(t *testing.T) {
+	t.Parallel()
+
+	inventory := testInventory(t)
+
+	var out bytes.Buffer
+
+	current := renderFixture{manifests: map[string]string{
+		charts.Traefik: podManifest("traefik", "docker.io/traefik:v3.7.13"),
+	}}.render
+
+	assert.Zero(t, pinFailures(t.Context(), &out, current, inventory))
+	assert.Equal(t, "ok    pins           every digest pin is for the tag its chart renders\n", out.String())
+
+	out.Reset()
+
+	moved := renderFixture{
+		manifests: map[string]string{charts.Traefik: podManifest("traefik", "docker.io/traefik:v3.8.0")},
+		failing:   map[string]bool{charts.Cilium: true},
+	}.render
+
+	assert.Equal(t, 2, pinFailures(t.Context(), &out, moved, inventory))
+	assert.Contains(t, out.String(), "MISS  cilium         default render failed: boom\n")
+	assert.Contains(t, out.String(), `MISS  traefik        docker.io/library/traefik: the chart now renders tag "v3.8.0"`)
+
+	out.Reset()
+
+	assert.Equal(t, 1, pinFailures(t.Context(), &out, renderFixture{}.render, inventory))
+	assert.Contains(t, out.String(), "MISS  pins           docker.io/library/traefik is pinned but no chart renders it")
 }

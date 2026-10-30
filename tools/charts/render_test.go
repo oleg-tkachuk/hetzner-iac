@@ -1,10 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -539,4 +545,308 @@ func TestCheckStorageClasses_RunsForTheCSIChart(t *testing.T) {
 	assert.Contains(t, err.Error(), "renders no StorageClass")
 
 	assert.NoError(t, checkStorageClasses(charts.Cilium, noClasses), "other charts declare no classes")
+}
+
+// errFixture is the error a fixture render fails with.
+var errFixture = errors.New("boom")
+
+// renderFixture stands in for helm: a chart renders its manifest from
+// manifests, empty when it has none, and a chart in failing fails.
+//
+// Keyed by the values key, or by the release for a render on the chart's
+// defaults, which names no values key and is released under the registry key.
+type renderFixture struct {
+	manifests map[string]string
+	failing   map[string]bool
+}
+
+func (f renderFixture) render(_ context.Context, _ charts.Chart, release, _, key string, _ ...string) ([]byte, error) {
+	if key == "" {
+		key = release
+	}
+
+	if f.failing[key] {
+		return nil, errFixture
+	}
+
+	return []byte(f.manifests[key]), nil
+}
+
+// podManifest is a Deployment running one container of image, labelled with
+// its name.
+func podManifest(name, image string) string {
+	return `apiVersion: apps/v1
+kind: Deployment
+metadata: {name: ` + name + `}
+spec:
+  template:
+    metadata: {labels: {app.kubernetes.io/name: ` + name + `}}
+    spec:
+      containers: [{name: ` + name + `, image: "` + image + `"}]
+`
+}
+
+// missLines counts the lines a report marks as failed.
+func missLines(out string) int {
+	count := 0
+
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.HasPrefix(line, "MISS") {
+			count++
+		}
+	}
+
+	return count
+}
+
+func TestVerdict(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, verdict(0, nil))
+	require.ErrorIs(t, verdict(0, errFixture), errFixture, "a run that could not finish says why")
+
+	err := verdict(3, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "3 check(s) failed")
+}
+
+// rendered keeps what helm template can show: everything but what an
+// operator creates later.
+func TestRendered_DropsOperatorCreatedWorkloads(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range workloads.Charts() {
+		var want []workloads.Workload
+
+		for _, w := range workloads.Rendered() {
+			if w.Chart == key {
+				want = append(want, w)
+			}
+		}
+
+		assert.Equal(t, want, rendered(key), key)
+	}
+}
+
+func TestReportWorkloads(t *testing.T) {
+	t.Parallel()
+
+	expected := []workloads.Workload{
+		{Kind: workloads.Deployment, Namespace: "traefik", Name: "traefik"},
+		{Kind: workloads.DaemonSet, Namespace: "traefik", Name: "agent", Optional: true},
+		{Kind: workloads.StatefulSet, Namespace: "traefik", Name: "store"},
+	}
+
+	var out bytes.Buffer
+
+	failures := reportWorkloads(&out, "traefik", expected, map[string]bool{"Deployment/traefik/traefik": true})
+
+	assert.Equal(t, 1, failures, "an optional workload missing is not a failure")
+	assert.Equal(t, "ok    traefik        Deployment traefik/traefik\n"+
+		"skip  traefik        DaemonSet traefik/agent (optional, not rendered)\n"+
+		"MISS  traefik        StatefulSet traefik/store\n"+
+		"      chart rendered: Deployment/traefik/traefik\n", out.String())
+
+	out.Reset()
+
+	assert.Equal(t, 1, reportWorkloads(&out, "traefik", expected[2:], map[string]bool{}))
+	assert.NotContains(t, out.String(), "chart rendered", "nothing rendered is nothing to list")
+}
+
+// foundAll renders every workload the table expects of a chart.
+func foundAll(_ context.Context, _ charts.Chart, _, _, key string) (map[string]bool, error) {
+	found := map[string]bool{}
+	for _, w := range workloads.ForChart(key) {
+		found[string(w.Kind)+"/"+w.Namespace+"/"+w.Name] = true
+	}
+
+	return found, nil
+}
+
+func TestCheckWorkloads(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+
+	failures, err := checkWorkloads(t.Context(), &out, foundAll)
+	require.NoError(t, err)
+	assert.Zero(t, failures)
+	assert.Equal(t, len(workloads.Rendered()), strings.Count(out.String(), "ok    "),
+		"one line per workload helm template shows")
+
+	none := func(context.Context, charts.Chart, string, string, string) (map[string]bool, error) {
+		return map[string]bool{}, nil
+	}
+
+	failures, err = checkWorkloads(t.Context(), &out, none)
+	require.NoError(t, err)
+	assert.Positive(t, failures)
+
+	failing := func(context.Context, charts.Chart, string, string, string) (map[string]bool, error) {
+		return nil, errFixture
+	}
+
+	_, err = checkWorkloads(t.Context(), &out, failing)
+	require.ErrorIs(t, err, errFixture)
+	assert.Contains(t, err.Error(), "render "+workloads.Charts()[0]+": ")
+}
+
+// Every failure the run counts is a line the operator can read, and a render
+// that stops the run stops it.
+func TestRunChecks_CountsWhatItPrints(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+
+	failures, err := runChecks(t.Context(), &out, foundAll, renderFixture{}.render)
+	require.NoError(t, err)
+	assert.Positive(t, failures, "empty renders leave every effect and pin unproven")
+	assert.Equal(t, missLines(out.String()), failures)
+
+	failing := func(context.Context, charts.Chart, string, string, string) (map[string]bool, error) {
+		return nil, errFixture
+	}
+
+	_, err = runChecks(t.Context(), &out, failing, renderFixture{}.render)
+	require.ErrorIs(t, err, errFixture)
+}
+
+func TestCheckEffects(t *testing.T) {
+	t.Parallel()
+
+	render := renderFixture{
+		manifests: map[string]string{charts.Cilium: "kube-proxy-replacement: \"true\"\n"},
+		failing:   map[string]bool{charts.HcloudCCM: true},
+	}.render
+
+	var out bytes.Buffer
+
+	failures := checkEffects(t.Context(), &out, render, []charts.Effect{
+		{Chart: charts.Cilium, Expect: `kube-proxy-replacement: "true"`},
+		{Chart: charts.Traefik, Expect: "proxyProtocol", Why: "the client address is lost"},
+		{Chart: charts.HcloudCCM, Expect: "x"},
+		{Chart: "no-such-chart", Expect: "x"},
+	})
+
+	assert.Equal(t, 3, failures)
+	assert.Equal(t, "ok    cilium         kube-proxy-replacement: \"true\"\n"+
+		"MISS  traefik        values template produced no \"proxyProtocol\"\n"+
+		"      the client address is lost\n"+
+		"MISS  hcloud-ccm     render failed: boom\n"+
+		"MISS  no-such-chart  unknown chart\n", out.String())
+}
+
+func TestCheckedWorkloads(t *testing.T) {
+	t.Parallel()
+
+	valid := func(context.Context, string, []byte) error { return nil }
+	deployment := []byte(podManifest("traefik", "traefik:v3"))
+
+	found, err := checkedWorkloads(t.Context(), charts.Traefik, "traefik", deployment, valid)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"Deployment/traefik/traefik": true}, found)
+
+	invalid := func(context.Context, string, []byte) error { return errFixture }
+	_, err = checkedWorkloads(t.Context(), charts.Traefik, "traefik", deployment, invalid)
+	require.ErrorIs(t, err, errFixture, "a render that does not validate goes no further")
+
+	hostNetwork := []byte("apiVersion: apps/v1\nkind: DaemonSet\nmetadata: {name: x}\n" +
+		"spec: {template: {spec: {hostNetwork: true}}}\n")
+	_, err = checkedWorkloads(t.Context(), charts.Traefik, "traefik", hostNetwork, valid)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "asks for host access")
+
+	_, err = checkedWorkloads(t.Context(), charts.HcloudCSI, "kube-system", deployment, valid)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "renders no StorageClass")
+
+	_, err = checkedWorkloads(t.Context(), charts.HcloudCCM, "kube-system", []byte(ccmDeployment), valid)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "renders an environment variable twice")
+}
+
+func TestValidateWith(t *testing.T) {
+	t.Parallel()
+
+	manifests := []byte(podManifest("traefik", "traefik:v3"))
+
+	require.NoError(t, validateWith(t.Context(), "true", charts.Traefik, manifests))
+
+	err := validateWith(t.Context(), "false", charts.Traefik, manifests)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "traefik does not validate against Kubernetes "+pinnedKubernetesVersion())
+
+	err = validateWith(t.Context(), "no-such-kubeconform", charts.Traefik, manifests)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "kubeconform is not installed")
+}
+
+func TestHelmOutput(t *testing.T) {
+	t.Parallel()
+
+	out, err := helmOutput(t.Context(), "sh", []string{"-c", "printf rendered"})
+	require.NoError(t, err)
+	assert.Equal(t, "rendered", string(out))
+
+	_, err = helmOutput(t.Context(), "sh", []string{"-c", "printf ' line 3: bad key \\n' >&2; exit 1"})
+	require.Error(t, err)
+	assert.Equal(t, "helm template failed: line 3: bad key", err.Error(), "helm's stderr is the useful part")
+
+	_, err = helmOutput(t.Context(), "no-such-helm", nil)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "helm template failed", "a missing program is not a template error")
+}
+
+// echo prints the argv it was given, which is the invocation renderRaw makes.
+func TestRenderWith_PassesTheValuesTemplateAndRemovesIt(t *testing.T) {
+	t.Parallel()
+
+	chart := charts.MustGet(charts.Traefik)
+
+	out, err := renderWith(t.Context(), "echo", chart, "traefik", "traefik", charts.Traefik, "a=b")
+	require.NoError(t, err)
+
+	args := strings.Fields(string(out))
+	assert.Equal(t, helmArgs(chart, "traefik", "traefik", []string{"a=b"}), args[:len(args)-2])
+	assert.Equal(t, "--values", args[len(args)-2])
+
+	_, statErr := os.Stat(args[len(args)-1])
+	require.ErrorIs(t, statErr, os.ErrNotExist, "the values file is removed once helm has read it")
+
+	out, err = renderWith(t.Context(), "echo", chart, "x", "x", "a-chart-with-no-values-template")
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "--values", "no template is no values file")
+}
+
+func TestCheckStorageClasses(t *testing.T) {
+	t.Parallel()
+
+	class := func(name, policy string) string {
+		return "---\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata: {name: " + name +
+			"}\nreclaimPolicy: " + policy + "\n"
+	}
+	both := class(platform.StorageClass, "Delete") + class(platform.StorageClassDatabase, "Retain")
+
+	require.NoError(t, checkStorageClasses(charts.HcloudCSI, []byte(both)))
+
+	for name, tc := range map[string]struct {
+		manifests string
+		want      string
+	}{
+		"wrong policy": {
+			class(platform.StorageClass, "Delete") + class(platform.StorageClassDatabase, "Delete"),
+			`reclaimPolicy "Delete", wanted "Retain"`,
+		},
+		"an extra class": {both + class("extra", "Delete"), "renders 3 storage classes, wanted 2"},
+		"unreadable":     {"kind: [unclosed", "hcloud-csi: "},
+	} {
+		err := checkStorageClasses(charts.HcloudCSI, []byte(tc.manifests))
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), tc.want, name)
+	}
+
+	unnamed := "apiVersion: storage.k8s.io/v1\nkind: StorageClass\nreclaimPolicy: Delete\n"
+	classes, err := storageClassesIn([]byte(both + unnamed))
+	require.NoError(t, err)
+	assert.Len(t, classes, 2, "a class with no name is not one a claim can name")
 }

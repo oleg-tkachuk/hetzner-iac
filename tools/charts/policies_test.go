@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 )
 
 func selectorOf(namespace string, labels map[string]string) metav1.LabelSelector {
@@ -103,4 +106,85 @@ metadata: {name: s}
 	require.Len(t, pods, 2)
 	assert.Equal(t, renderedPod{namespace: "traefik", labels: map[string]string{"app.kubernetes.io/name": "traefik"}}, pods[0])
 	assert.Equal(t, "kube-system", pods[1].namespace)
+}
+
+// writePolicy writes one policy file into a new directory and returns it.
+func writePolicy(t *testing.T, policy string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "10-x.yaml"), []byte(policy), 0o600))
+
+	return dir
+}
+
+func TestCheckPolicySelectors(t *testing.T) {
+	t.Parallel()
+
+	render := renderFixture{manifests: map[string]string{
+		charts.Traefik: podManifest("traefik", "traefik:v3"),
+	}}.render
+
+	policy := func(name string) string {
+		return `apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata: {name: x}
+spec:
+  endpointSelector: {matchLabels: {"k8s:io.kubernetes.pod.namespace": traefik, "k8s:app.kubernetes.io/name": ` + name + `}}
+`
+	}
+
+	var out bytes.Buffer
+
+	assert.Zero(t, checkPolicySelectors(t.Context(), &out, render, writePolicy(t, policy("traefik"))))
+	assert.Equal(t, "ok    policies       every policy selector names a pod a chart renders\n", out.String())
+
+	out.Reset()
+
+	assert.Equal(t, 1, checkPolicySelectors(t.Context(), &out, render, writePolicy(t, policy("gone"))))
+	assert.Contains(t, out.String(), "MISS  policies       10-x.yaml x selects")
+
+	out.Reset()
+
+	assert.Equal(t, 1, checkPolicySelectors(t.Context(), &out, render, writePolicy(t, "kind: [unclosed")))
+	assert.Contains(t, out.String(), "MISS  policies       ")
+	assert.Contains(t, out.String(), "10-x.yaml")
+
+	out.Reset()
+
+	failing := renderFixture{failing: map[string]bool{charts.Traefik: true}}.render
+	assert.Equal(t, 1, checkPolicySelectors(t.Context(), &out, failing, writePolicy(t, policy("traefik"))))
+	assert.Equal(t, "MISS  policies       traefik: boom\n", out.String())
+}
+
+func TestRenderedPods_NamesTheChartItCouldNotRead(t *testing.T) {
+	t.Parallel()
+
+	unreadable := renderFixture{manifests: map[string]string{
+		charts.Cilium: "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: d}\nspec: {replicas: many}\n",
+	}}.render
+
+	_, err := renderedPods(t.Context(), unreadable)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cilium: ")
+
+	split := renderFixture{manifests: map[string]string{charts.Cilium: "kind: [unclosed"}}.render
+
+	_, err = renderedPods(t.Context(), split)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cilium: ")
+}
+
+func TestPodTemplateOf(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []string{"Deployment", "StatefulSet", "DaemonSet"} {
+		template, err := podTemplateOf(kind, []byte("spec: {template: {metadata: {labels: {a: b}}}}"))
+		require.NoError(t, err, kind)
+		assert.Equal(t, map[string]string{"a": "b"}, template.Labels, kind)
+	}
+
+	template, err := podTemplateOf("Job", []byte("spec: {template: {metadata: {labels: {a: b}}}}"))
+	require.NoError(t, err)
+	assert.Nil(t, template, "a kind this check does not track has no template here")
 }

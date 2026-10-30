@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -239,4 +240,125 @@ func TestAppVersionInRepo_SaysWhenThePinIsNotUpstreamAtAll(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not in index", "a pin that does not exist is worse than a stale app version")
+}
+
+func TestDispatch_RefusesAnUnknownCommand(t *testing.T) {
+	t.Parallel()
+
+	err := dispatch([]string{"lsit"})
+	require.Error(t, err)
+	assert.Equal(t, `unknown command "lsit"; use list, outdated, render, appversions or repin`, err.Error())
+}
+
+// The arguments after the command are the command's own: appversions reads
+// them and refuses this one before anything reaches the network.
+func TestDispatch_HandsTheRestToTheCommand(t *testing.T) {
+	t.Parallel()
+
+	err := dispatch([]string{"appversions", "--force"})
+	require.Error(t, err)
+	assert.Equal(t, `appversions takes only --write, got "--force"`, err.Error())
+}
+
+func TestAppversionsWrite(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		args      []string
+		wantWrite bool
+		wantErr   bool
+	}{
+		"no arguments only reports": {nil, false, false},
+		"--write sets":              {[]string{"--write"}, true, false},
+		"anything else":             {[]string{"--dry-run"}, false, true},
+		"--write and more":          {[]string{"--write", "--write"}, false, true},
+	} {
+		write, err := appversionsWrite(tc.args)
+
+		assert.Equal(t, tc.wantErr, err != nil, name)
+		assert.Equal(t, tc.wantWrite, write, name)
+	}
+}
+
+func TestRegistryPins_IsEveryChartInKeyOrder(t *testing.T) {
+	t.Parallel()
+
+	pins := registryPins()
+
+	require.Len(t, pins, len(charts.Keys()))
+
+	for i, key := range charts.Keys() {
+		assert.Equal(t, pin{Key: key, Chart: charts.MustGet(key)}, pins[i])
+	}
+}
+
+// appVersionPin is the test chart pinned at version, claiming appVersion.
+func appVersionPin(key, repo, version, appVersion string) pin {
+	chart := testChart(repo)
+	chart.Version, chart.AppVersion = version, appVersion
+
+	return pin{Key: key, Chart: chart}
+}
+
+func TestReportAppVersions_ReportsWithoutWriting(t *testing.T) {
+	t.Parallel()
+
+	good := indexServer(t, http.StatusOK, testIndex)
+	broken := indexServer(t, http.StatusInternalServerError, "boom")
+
+	var stdout, stderr bytes.Buffer
+
+	err := reportAppVersions(t.Context(), good.Client(), &stdout, &stderr, []pin{
+		appVersionPin("current", good.URL, "41.4.0", "v3.6.11"),
+		appVersionPin("stale", good.URL, "41.5.0", "v3.6.11"),
+		appVersionPin("unreachable", broken.URL, "41.5.0", ""),
+	}, nil)
+
+	require.Error(t, err)
+	assert.Equal(t, "app version mismatch: stale, unreachable", err.Error())
+	assert.Equal(t, `CHART        VERSION  PINNED APP  UPSTREAM APP  STATUS
+current      41.4.0   v3.6.11     v3.6.11       ok
+stale        41.5.0   v3.6.11     v3.6.12       WRONG
+unreachable  41.5.0               ?             index returned 500 Internal Server Error
+`, stdout.String())
+	assert.Contains(t, stderr.String(), "2 chart entr(ies) claim the wrong app version")
+
+	stdout.Reset()
+	stderr.Reset()
+
+	require.NoError(t, reportAppVersions(t.Context(), good.Client(), &stdout, &stderr, []pin{
+		appVersionPin("current", good.URL, "41.4.0", "v3.6.11"),
+	}, nil))
+	assert.Empty(t, stderr.String())
+}
+
+func TestReportAppVersions_WritesWhatIsWrong(t *testing.T) {
+	t.Parallel()
+
+	server := indexServer(t, http.StatusOK, testIndex)
+	stale := appVersionPin("stale", server.URL, "41.5.0", "v3.6.11")
+
+	var written []string
+
+	set := func(key string, _ charts.Chart, appVersion string) error {
+		written = append(written, key+"="+appVersion)
+
+		return nil
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	require.NoError(t, reportAppVersions(t.Context(), server.Client(), &stdout, &stderr, []pin{
+		appVersionPin("current", server.URL, "41.4.0", "v3.6.11"), stale,
+	}, set), "a value the command set is no longer wrong")
+	assert.Equal(t, []string{"stale=v3.6.12"}, written, "only the wrong one is written")
+	assert.Contains(t, stdout.String(), "v3.6.12       set")
+
+	refuse := func(string, charts.Chart, string) error { return errors.New("no AppVersion field") }
+
+	stdout.Reset()
+
+	err := reportAppVersions(t.Context(), server.Client(), &stdout, &stderr, []pin{stale}, refuse)
+	require.Error(t, err)
+	assert.Contains(t, stdout.String(), "v3.6.12       no AppVersion field", "the refusal is the status")
 }

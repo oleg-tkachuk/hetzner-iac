@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -34,17 +35,55 @@ func repin(ctx context.Context) error {
 		return err
 	}
 
-	tags, err := renderedPinTags(ctx, inventory)
+	return repinFile(ctx, os.Stdout, inventory, inventoryPath, renderRaw, resolveDigest)
+}
+
+// resolveFunc is the digest a tag points to now: resolveDigest, or a fixture
+// in a test.
+type resolveFunc func(ctx context.Context, repository, tag string) (string, error)
+
+// repinFile is repin with its inputs passed in, so a test can rewrite a
+// temporary inventory against fixtures.
+func repinFile(
+	ctx context.Context, w io.Writer, inventory *imagepolicy.Inventory, path string,
+	render renderFunc, resolve resolveFunc,
+) error {
+	tags, err := renderedPinTags(ctx, render, inventory)
 	if err != nil {
 		return err
 	}
 
-	// #nosec G304 -- a fixed path inside this repository, not user input.
-	raw, err := os.ReadFile(inventoryPath)
+	// #nosec G304 -- inventoryPath in production, a temporary file in tests; never user input.
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
+	raw, moved, err := movePins(ctx, w, inventory, tags, raw, resolve)
+	if err != nil {
+		return err
+	}
+
+	if moved == 0 {
+		fmt.Fprintln(w, "every pin already follows its chart")
+
+		return nil
+	}
+
+	// The result must still be an inventory a policy can be built from.
+	if _, err := imagepolicy.Parse(raw); err != nil {
+		return fmt.Errorf("the rewritten %s does not parse: %w", imagepolicy.File, err)
+	}
+
+	return os.WriteFile(path, raw, inventoryMode) // #nosec G306,G703 -- a committed text file at a constant path
+}
+
+// movePins rewrites, in the inventory's text, each pin whose rendered tag or
+// resolved digest moved, and returns the text and how many moved.
+func movePins(
+	ctx context.Context, w io.Writer, inventory *imagepolicy.Inventory, tags map[string]string,
+	raw []byte, resolve resolveFunc,
+) ([]byte, int, error) {
 	moved := 0
 
 	for _, repository := range inventory.Repositories() {
@@ -55,12 +94,12 @@ func repin(ctx context.Context) error {
 
 		pin, err := inventory.Pinned(repository)
 		if err != nil {
-			return err
+			return nil, 0, err
 		}
 
-		digest, err := resolveDigest(ctx, repository, tag)
+		digest, err := resolve(ctx, repository, tag)
 		if err != nil {
-			return err
+			return nil, 0, err
 		}
 
 		if tag == pin.Tag && digest == pin.Digest {
@@ -69,31 +108,20 @@ func repin(ctx context.Context) error {
 
 		raw, err = setPin(raw, repository, tag, digest)
 		if err != nil {
-			return err
+			return nil, 0, err
 		}
 
-		fmt.Printf("pinned  %s  %s → %s@%s\n", repository, pin.Reference(), tag, digest)
+		fmt.Fprintf(w, "pinned  %s  %s → %s@%s\n", repository, pin.Reference(), tag, digest)
 
 		moved++
 	}
 
-	if moved == 0 {
-		fmt.Println("every pin already follows its chart")
-
-		return nil
-	}
-
-	// The result must still be an inventory a policy can be built from.
-	if _, err := imagepolicy.Parse(raw); err != nil {
-		return fmt.Errorf("the rewritten %s does not parse: %w", imagepolicy.File, err)
-	}
-
-	return os.WriteFile(inventoryPath, raw, inventoryMode) // #nosec G306,G703 -- a committed text file at a constant path
+	return raw, moved, nil
 }
 
 // renderedPinTags is the tag each unsigned repository's chart renders by
 // default, by repository.
-func renderedPinTags(ctx context.Context, inventory *imagepolicy.Inventory) (map[string]string, error) {
+func renderedPinTags(ctx context.Context, render renderFunc, inventory *imagepolicy.Inventory) (map[string]string, error) {
 	tags := map[string]string{}
 
 	for _, key := range charts.Keys() {
@@ -102,24 +130,34 @@ func renderedPinTags(ctx context.Context, inventory *imagepolicy.Inventory) (map
 			return nil, chartErr
 		}
 
-		images, renderErr := defaultImages(ctx, key, chart)
+		images, renderErr := defaultImages(ctx, render, key, chart)
 		if renderErr != nil {
 			return nil, fmt.Errorf("%s: %w", key, renderErr)
 		}
 
-		for _, image := range images {
-			entry, found, lookupErr := inventory.Lookup(image)
-			if lookupErr != nil {
-				return nil, lookupErr
-			}
-
-			if found && entry.Unsigned != nil {
-				tags[entry.Repository] = tagOf(image)
-			}
+		if err := addUnsignedTags(tags, images, inventory); err != nil {
+			return nil, err
 		}
 	}
 
 	return tags, nil
+}
+
+// addUnsignedTags records the tag of each image whose repository is pinned
+// rather than signed.
+func addUnsignedTags(tags map[string]string, images []string, inventory *imagepolicy.Inventory) error {
+	for _, image := range images {
+		entry, found, err := inventory.Lookup(image)
+		if err != nil {
+			return err
+		}
+
+		if found && entry.Unsigned != nil {
+			tags[entry.Repository] = tagOf(image)
+		}
+	}
+
+	return nil
 }
 
 // inventoryMode is the file's mode when rewritten: a committed text file.
