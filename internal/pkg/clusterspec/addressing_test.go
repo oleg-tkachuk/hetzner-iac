@@ -40,17 +40,12 @@ func TestAddressing_ControlPlane(t *testing.T) {
 	addressing, err := clusterspec.NewAddressing("10.0.1.0/24", 40)
 	require.NoError(t, err)
 
-	// Offsets 0 and 1 are the network address and the Hetzner gateway, so the
-	// first control-plane node lands on .2.
+	// Offsets 0 and 1 are reserved, so the first control-plane node lands on .2.
 	for ordinal, want := range map[int]string{0: "10.0.1.2", 1: "10.0.1.3", 2: "10.0.1.4"} {
 		got, ipErr := addressing.ControlPlaneIP(ordinal)
 		require.NoError(t, ipErr)
 		assert.Equal(t, want, got)
 	}
-
-	gateway, err := addressing.Gateway()
-	require.NoError(t, err)
-	assert.Equal(t, "10.0.1.1", gateway)
 }
 
 func TestAddressing_WorkerPoolsDoNotOverlapControlPlane(t *testing.T) {
@@ -81,10 +76,6 @@ func TestAddressing_WorkerPoolsDoNotOverlapControlPlane(t *testing.T) {
 		seen[addr] = who
 	}
 
-	gateway, err := addressing.Gateway()
-	require.NoError(t, err)
-	record("gateway", gateway)
-
 	for ordinal := range 3 {
 		addr, err := addressing.ControlPlaneIP(ordinal)
 		require.NoError(t, err)
@@ -99,7 +90,7 @@ func TestAddressing_WorkerPoolsDoNotOverlapControlPlane(t *testing.T) {
 		}
 	}
 
-	assert.Len(t, seen, 1+3+5*40)
+	assert.Len(t, seen, 3+5*40)
 }
 
 func TestAddressing_StableUnderGrowth(t *testing.T) {
