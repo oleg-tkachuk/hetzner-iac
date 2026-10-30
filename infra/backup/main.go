@@ -235,6 +235,10 @@ const (
 // refusal that needs one.
 const TokenTask = "task backup:token stack=<stack>"
 
+// StorageBoxTypeKey is the config key that overrides
+// hetzner.DefaultStorageBoxType, declared in Pulumi.yaml.
+const StorageBoxTypeKey = "storageBoxType"
+
 // ownToken reads the Hetzner token this tier is configured with.
 //
 // Required, with no fallback to the cluster tier's exported token. A fallback
@@ -358,7 +362,7 @@ func deploy(r *layer.Runner) error {
 	box, err := hetzner.NewStorageBox(r.Ctx, "backup", hetzner.StorageBoxArgs{
 		ClusterName:        r.Cluster.ClusterName,
 		Location:           r.Cluster.Location,
-		Type:               r.StringOr("storageBoxType", hetzner.DefaultStorageBoxType),
+		Type:               r.StringOr(StorageBoxTypeKey, hetzner.DefaultStorageBoxType),
 		Password:           boxPassword.Result,
 		SubaccountPassword: snapshotPassword.Result,
 		SnapshotsKept:      hetzner.DefaultSnapshotsKept,

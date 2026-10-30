@@ -29,6 +29,10 @@ import (
 // availability.
 const DefaultLoadBalancerType = "lb11"
 
+// LoadBalancerTypeKey is the config key that overrides it, declared in
+// Pulumi.yaml.
+const LoadBalancerTypeKey = "loadBalancerType"
+
 // ControllerReplicas is how many Traefik pods to run. Two, so losing one node
 // does not take ingress with it.
 const ControllerReplicas = 2
@@ -95,7 +99,7 @@ func createBalancer(provider pulumi.ProviderResource) layer.CreateFunc {
 	return func(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
 		// Said out loud, because this is the one billable resource a platform
 		// layer creates and its size is a config decision.
-		balancerType := r.StringOr("loadBalancerType", DefaultLoadBalancerType)
+		balancerType := r.StringOr(LoadBalancerTypeKey, DefaultLoadBalancerType)
 		// Type only: the location is the cluster's, and the cluster tier
 		// reports it. Reading it here would mean resolving an Output to print
 		// a word.
