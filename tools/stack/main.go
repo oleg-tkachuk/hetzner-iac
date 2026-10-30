@@ -149,20 +149,20 @@ func list(ctx context.Context, dir string, out io.Writer) error {
 // The example is skipped: it is a template with a documentation CIDR in it,
 // not an environment anybody applies.
 func topologies(dir string) (map[string]topologyFile, error) {
-	paths, err := filepath.Glob(filepath.Join(dir, "cluster.*.yaml"))
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("look for topologies in %s: %w", dir, err)
 	}
 
 	files := map[string]topologyFile{}
 
-	for _, path := range paths {
-		name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "cluster."), ".yaml")
-		if name == "example" {
+	for _, entry := range entries {
+		name, ok := clusterspec.TopologyStack(entry.Name())
+		if entry.IsDir() || !ok || name == clusterspec.ExampleTopologyStack {
 			continue
 		}
 
-		topology, loadErr := clusterspec.LoadTopology(path)
+		topology, loadErr := clusterspec.LoadTopology(filepath.Join(dir, entry.Name()))
 		files[name] = topologyFile{Topology: topology, Err: loadErr}
 	}
 

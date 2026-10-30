@@ -55,11 +55,6 @@ func main() {
 	pulumi.Run(program)
 }
 
-// topologyPath names the committed file that describes one stack's cluster.
-func topologyPath(stack string) string {
-	return "cluster." + stack + ".yaml"
-}
-
 // program is the cluster tier, separated from main so tests can run it under
 // pulumi.WithMocks. Nothing here is reachable otherwise: a package main cannot
 // be imported, so this program used to be the one Pulumi project checked by
@@ -69,7 +64,7 @@ func program(ctx *pulumi.Context) error {
 	// shell block wrote. `pulumi config` keeps only what must not be in
 	// git — the Hetzner token — plus the few switches that are properties
 	// of the operator's position rather than of the cluster.
-	path := topologyPath(ctx.Stack())
+	path := clusterspec.TopologyFile(ctx.Stack())
 
 	topology, err := clusterspec.LoadTopology(path)
 	if err != nil {
