@@ -289,9 +289,15 @@ func Notes(project Project, header Header) []string {
 	notes := project.State.Problems()
 
 	if project.IsCluster {
-		if published := contractOf(project.Contract); published < header.WantContract {
+		// Either direction stops a layer apply: clusterref refuses an older
+		// contract and a newer one alike.
+		switch published := contractOf(project.Contract); {
+		case published < header.WantContract:
 			notes = append(notes, fmt.Sprintf(
 				"publishes contract v%d, this checkout reads v%d — apply the cluster tier", published, header.WantContract))
+		case published > header.WantContract:
+			notes = append(notes, fmt.Sprintf(
+				"publishes contract v%d, this checkout reads v%d — update this checkout", published, header.WantContract))
 		}
 
 		return notes
@@ -438,8 +444,11 @@ func contractLine(header Header, r *report.Report) string {
 	published := *header.Cluster.Contract
 	line := fmt.Sprintf("v%d published · this checkout reads v%d", published, header.WantContract)
 
-	if published < header.WantContract {
+	switch {
+	case published < header.WantContract:
 		return line + "  " + r.Paint(report.Yellow, report.MarkWarning+" behind")
+	case published > header.WantContract:
+		return line + "  " + r.Paint(report.Yellow, report.MarkWarning+" ahead")
 	}
 
 	return line + "  " + r.Paint(report.Green, report.MarkOK)
@@ -521,8 +530,8 @@ func count(n *int) string {
 
 // tally counts the projects by outcome.
 type tally struct {
-	succeeded, failed, running, missing, attention, resources int
-	commits                                                   map[string]bool
+	succeeded, failed, running, unreadable, missing, attention, resources int
+	commits                                                               map[string]bool
 }
 
 func countProjects(header Header, projects []Project) tally {
@@ -538,7 +547,9 @@ func countProjects(header Header, projects []Project) tally {
 		}
 
 		switch {
-		case project.Err != nil || !project.HasStack || project.Last == nil:
+		case project.Err != nil:
+			counts.unreadable++
+		case !project.HasStack || project.Last == nil:
 			counts.missing++
 		case project.InProgress || project.Last.Result == ResultInProgress:
 			counts.running++
@@ -573,6 +584,7 @@ func summary(header Header, projects []Project, r *report.Report) (report.Cell, 
 	}{
 		{counts.failed, " failed", report.Red},
 		{counts.running, " running", report.Cyan},
+		{counts.unreadable, " unreadable", report.Red},
 		{counts.missing, " without a run", report.Yellow},
 		{counts.attention, " need attention", report.Yellow},
 	} {
@@ -594,7 +606,7 @@ func summary(header Header, projects []Project, r *report.Report) (report.Cell, 
 	mark := report.OK
 
 	switch {
-	case counts.failed > 0:
+	case counts.failed > 0 || counts.unreadable > 0:
 		mark = report.Failed
 	case counts.missing > 0 || counts.attention > 0:
 		mark = report.Warning
