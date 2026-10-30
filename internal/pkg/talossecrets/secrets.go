@@ -7,9 +7,10 @@
 // exist to get it out, `tools/secrets` and `tools/recoverykit`.
 //
 // Separate from internal/pkg/hcloudtoken, which also reads a stack, because
-// this one reads it by running the `pulumi` binary and that one needs the
+// Bundle reads it by running the `pulumi` binary and that one needs the
 // automation API. Together they would put 800 packages behind a function that
-// shells out.
+// shells out. A caller that links the automation API anyway, as
+// tools/recoverykit does, exports the stack itself and hands it to BundleFrom.
 package talossecrets
 
 import (
@@ -95,7 +96,7 @@ func Bundle(ctx context.Context, stack string) ([]byte, error) {
 		return nil, fmt.Errorf("pulumi stack export: %w\n%s", err, message)
 	}
 
-	return bundleFrom(out, stack)
+	return BundleFrom(out, stack)
 }
 
 // exportedStack is the part of `pulumi stack export` this reads.
@@ -109,8 +110,10 @@ type exportedStack struct {
 	} `json:"deployment"`
 }
 
-// bundleFrom picks the secrets resource out of an exported stack, separated
-// from the call so it can be tested without a backend.
+// BundleFrom picks the secrets resource out of an exported stack — the JSON
+// `pulumi stack export --show-secrets` prints, or the automation API's
+// apitype.UntypedDeployment marshalled back to it — separated from the call
+// so it can be tested without a backend.
 //
 // Exactly one, or an error. Zero means the stack has never been applied, or
 // is not the cluster tier at all — and an empty file stored as a backup is
@@ -118,7 +121,7 @@ type exportedStack struct {
 // than one means an assumption this repository is built on has stopped
 // holding, and guessing which is the cluster's own is not a thing to do with
 // a certificate authority.
-func bundleFrom(raw []byte, stack string) ([]byte, error) {
+func BundleFrom(raw []byte, stack string) ([]byte, error) {
 	var exported exportedStack
 	if err := json.Unmarshal(raw, &exported); err != nil {
 		return nil, fmt.Errorf("pulumi stack export returned no usable json: %w", err)

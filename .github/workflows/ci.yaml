@@ -437,7 +437,7 @@ jobs:
     # too, but under `--new-from-merge-base`, so a finding already on main is
     # invisible to it for ever. The two also disagree on rules — a plain G204,
     # a subprocess built from a variable, is reported here and not there, which
-    # is what the #nosec G204 in tools/stack is for.
+    # is what the #nosec G204 in tools/orphans is for.
     #
     # Here rather than in security.yaml because that workflow is scheduled for
     # findings that appear without anyone touching the code. gosec's are a pure

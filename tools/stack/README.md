@@ -13,6 +13,7 @@ gitignored, so a stack described in somebody else's clone shows as `missing`
 rather than as a failure three tasks later, and a topology with no stack yet
 shows as `no stack`.
 
-Needs `pulumi` in PATH. Run by `task cluster:stacks`. The `exists`, `ensure`
+Reads the backend through Pulumi's automation API, so it needs `pulumi` in
+PATH and refuses a backend it is not logged in to. Run by `task cluster:stacks`. The `exists`, `ensure`
 and `ref` commands the taskfiles call are
 [pulumi-kit](https://github.com/oleg-tkachuk/pulumi-kit)'s `cmd/stack`.

@@ -29,10 +29,12 @@ const specPackage = Module + "internal/pkg/clusterspec"
 // Measured before this package existed, when the topology lived beside the
 // component resources: `tools/topology`, which validates a YAML file, linked
 // 816 packages into a 44 MB binary. It is 84 packages and 4.7 MB now, and so
-// are `tools/stack`, `tools/talos`, `tools/secrets` and `tools/recoverykit`.
+// are `tools/talos` and `tools/secrets`. (`tools/stack` and
+// `tools/recoverykit` read the backend through the automation API, and pay
+// for Pulumi's SDK there on purpose.)
 //
 // One import undoes all of it, and nothing about the failure would say so — the
-// build stays green, the tests stay green, and five binaries quietly grow by a
+// build stays green, the tests stay green, and three binaries quietly grow by a
 // factor of nine. The weight is not the provider SDKs, which are three packages
 // each; it is Pulumi's own SDK underneath them, which is 768.
 func TestClusterSpec_PullsNoPulumi(t *testing.T) {
@@ -48,7 +50,7 @@ func TestClusterSpec_PullsNoPulumi(t *testing.T) {
 	for imported := range reached {
 		assert.False(t, strings.HasPrefix(imported, citest.PulumiPrefix),
 			"%s reaches %s. Every program that only reads a topology now links Pulumi's "+
-				"SDK again — 768 packages, and five binaries that were 4.7 MB are 44 MB. "+
+				"SDK again — 768 packages, and three binaries that were 4.7 MB are 44 MB. "+
 				"Whatever needed it belongs in %s",
 			specPackage, imported, componentPackage)
 	}

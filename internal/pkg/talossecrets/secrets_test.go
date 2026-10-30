@@ -10,7 +10,7 @@ import (
 )
 
 // The shape `pulumi stack export --show-secrets` returns, trimmed to what
-// bundleFrom reads. The engine keys are real: a live export carries both.
+// BundleFrom reads. The engine keys are real: a live export carries both.
 const exportedWithSecrets = `{
   "deployment": {
     "resources": [
@@ -31,7 +31,7 @@ const exportedWithSecrets = `{
 func TestBundleFrom_ReturnsTheSecretsResourceOutputs(t *testing.T) {
 	t.Parallel()
 
-	out, err := bundleFrom([]byte(exportedWithSecrets), "dev")
+	out, err := BundleFrom([]byte(exportedWithSecrets), "dev")
 	require.NoError(t, err)
 
 	var bundle map[string]any
@@ -45,7 +45,7 @@ func TestBundleFrom_ReturnsTheSecretsResourceOutputs(t *testing.T) {
 func TestBundleFrom_DropsTheEngineBookkeeping(t *testing.T) {
 	t.Parallel()
 
-	out, err := bundleFrom([]byte(exportedWithSecrets), "dev")
+	out, err := BundleFrom([]byte(exportedWithSecrets), "dev")
 	require.NoError(t, err)
 
 	var bundle map[string]any
@@ -82,7 +82,7 @@ func TestBundleFrom_Errors(t *testing.T) {
 
 		"unparseable": {"not json", "no usable json"},
 	} {
-		_, err := bundleFrom([]byte(tc.raw), "dev")
+		_, err := BundleFrom([]byte(tc.raw), "dev")
 
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), tc.want, name)
@@ -103,7 +103,7 @@ func TestBundle_RefusesAnEmptyStack(t *testing.T) {
 func TestBundleFrom_UnwrapsThePulumiSecretEnvelope(t *testing.T) {
 	t.Parallel()
 
-	out, err := bundleFrom([]byte(exportedWithSecrets), "dev")
+	out, err := BundleFrom([]byte(exportedWithSecrets), "dev")
 	require.NoError(t, err)
 
 	var bundle map[string]any

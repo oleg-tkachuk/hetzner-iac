@@ -423,7 +423,7 @@ func kubectlNames(ctx context.Context, kubeconfig, kind, template string) ([]str
 	// #nosec G204,G702 -- kind and template are literals from this file, the
 	// kubeconfig path comes from the Taskfile, and CommandContext takes an
 	// argument vector: there is no shell to interpret any of it. The taint
-	// analysis cannot see that, the same way it cannot in tools/stack.
+	// analysis cannot see that the vector form is the mitigation.
 	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
 		"get", kind, "--all-namespaces", "-o", "jsonpath="+template)
 
