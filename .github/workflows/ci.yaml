@@ -41,6 +41,11 @@ env:
   GOLANGCI_VERSION: "v2.15.0"
   # renovate: datasource=pypi depName=checkov
   CHECKOV_VERSION: "3.4.0"
+  # uv runs the Python scanners, at the versions pinned here, through uvx.
+  # Pinned in security.yaml too, to the same version — a test holds the two
+  # together, and Renovate bumps both in one pull request.
+  # renovate: datasource=pypi depName=uv
+  UV_VERSION: "0.13.6"
 
   # Same reason: a kubeconform release changing which schemas it accepts would
   # turn CI red with no commit of ours in between.
@@ -530,9 +535,14 @@ jobs:
           # so the 4.4 GB build cache has no reader here — it was 313 seconds
           # of the job's 355, the single slowest step in the whole workflow.
           cache-mode: "off"
-      - run: pipx install "checkov==${CHECKOV_VERSION}"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          # Nothing to cache: no lockfile, and uvx fetches one pinned tool.
+          enable-cache: false
       # The same task an operator runs, so the flags live in .checkov.yaml
-      # rather than being restated here.
+      # rather than being restated here. With no checkov on PATH the shared
+      # module runs CHECKOV_VERSION through uvx.
       - run: task -t Taskfile.dev.yaml checkov:scan
 
   charts:

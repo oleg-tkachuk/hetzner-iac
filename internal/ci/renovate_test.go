@@ -134,7 +134,9 @@ func TestRenovateMatchesEveryPinnedTool(t *testing.T) {
 			require.NotEmpty(t, byName["datasource"], "a match with no datasource in %s", path)
 			require.NotEmpty(t, byName["depName"], "a match with no depName in %s", path)
 
-			matched[byName["currentValue"]] = byName["depName"]
+			// Keyed by file as well: uv is pinned in both workflows, to the
+			// same version, and is two pins.
+			matched[path+"/"+byName["currentValue"]] = byName["depName"]
 		}
 	}
 
@@ -142,7 +144,7 @@ func TestRenovateMatchesEveryPinnedTool(t *testing.T) {
 	// assertion is per-pin rather than a count, so the message names the tool
 	// nobody would upgrade.
 	for _, pin := range pins {
-		_, found := matched[pin.value]
+		_, found := matched[pin.file+"/"+pin.value]
 		assert.True(t, found,
 			"%s in %s is pinned to %q and Renovate's pattern does not match it — "+
 				"add a `# renovate: datasource=… depName=…` comment above it, or it is upgraded by nobody",
@@ -164,7 +166,7 @@ func TestRenovateAnnotationsNameARealDatasource(t *testing.T) {
 
 	annotation := regexp.MustCompile(`# renovate: datasource=(\S+) depName=(\S+)`)
 
-	// The three this repository installs from: GitHub release tarballs, pipx
+	// The three this repository installs from: GitHub release tarballs, uvx
 	// from PyPI, and `go install`.
 	allowed := map[string]bool{"github-releases": true, "pypi": true, "go": true}
 
@@ -559,4 +561,29 @@ func TestRenovateMatchesEveryTaskfilePin(t *testing.T) {
 
 	assert.Equal(t, wanted, found,
 		"the pins Renovate can see are %v, and the ones that must be watched are %v", found, wanted)
+}
+
+// TestUvVersion_IsTheSameInBothWorkflows holds the one pin that has to live
+// twice. security.yaml also runs on its own schedule, so it cannot take the
+// version from ci.yaml; Renovate bumps both in one pull request, and this
+// says so when a hand edit moves one.
+func TestUvVersion_IsTheSameInBothWorkflows(t *testing.T) {
+	t.Parallel()
+
+	pin := regexp.MustCompile(`(?m)^\s*UV_VERSION:\s*"([^"]+)"`)
+
+	versions := map[string]string{}
+
+	for _, name := range []string{ciWorkflow, securityWorkflow} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
+		require.NoError(t, err)
+
+		found := pin.FindStringSubmatch(string(raw))
+		require.NotNil(t, found, "%s pins no UV_VERSION, so setup-uv installs whatever is latest", name)
+
+		versions[name] = found[1]
+	}
+
+	assert.Equal(t, versions[ciWorkflow], versions[securityWorkflow],
+		"ci.yaml and security.yaml pin different uv versions")
 }

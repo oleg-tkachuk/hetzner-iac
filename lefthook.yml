@@ -193,7 +193,7 @@ pre-commit:
       run: |
         set -euo pipefail
         command -v zizmor >/dev/null 2>&1 || {
-          printf '%s\n' "SKIP: zizmor not installed — pipx install zizmor (CI still checks)" >&2
+          printf '%s\n' "SKIP: zizmor not installed — uv tool install zizmor (CI still checks)" >&2
           exit 0
         }
         zizmor --config .github/zizmor.yml --persona=regular --format=plain .github/workflows/

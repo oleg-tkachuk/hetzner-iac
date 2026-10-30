@@ -128,8 +128,8 @@ includes:
 
   # checkov, at the version CI pins. The module resolves that itself since
   # taskfiles v7.3.0: PATH's checkov when it already reports that version,
-  # `pipx run checkov==<version>` otherwise — which is what a machine without
-  # it gets, and what this repository's own task used to do by hand.
+  # `uvx checkov@<version>` otherwise — which is what a machine without
+  # it gets.
   #
   # The version is READ from the workflow rather than written here. It was
   # written here once, as `${CHECKOV_VERSION:-3.3.17}`, and that default is
