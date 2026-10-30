@@ -435,6 +435,51 @@ func TestCheckCrossNode_PassesAndProbesFromTheDNSFreeNode(t *testing.T) {
 	assert.Equal(t, "cp-2", probedOn)
 }
 
+func TestCheckCrossNode_FailsWithoutSubmittingAnEmptyProber(t *testing.T) {
+	t.Parallel()
+
+	// CoreDNS scheduled but not yet given an address — ContainerCreating. The
+	// prober would have one container per replica with an address, so none,
+	// and the API server rejects a pod with no containers.
+	unaddressed := func(name, node string) runtime.Object {
+		pod := dnsPod(name, node)
+		pod.Status.PodIP = ""
+
+		return pod
+	}
+
+	client := fake.NewSimpleClientset(
+		node("cp-0", true), node("cp-1", true), node("cp-2", true),
+		storageClass(storagev1.VolumeBindingWaitForFirstConsumer),
+		unaddressed("coredns-a", "cp-0"),
+		unaddressed("coredns-b", "cp-1"),
+	)
+	proberExits(0)(client)
+
+	submitted := false
+
+	client.PrependReactor("create", "pods",
+		func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if pod, ok := action.(k8stesting.CreateAction).GetObject().(*corev1.Pod); ok &&
+				pod.Name == "cluster-smoke-crossnode" {
+				submitted = true
+			}
+
+			return false, nil, nil
+		})
+
+	smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+		BindTimeout:  testBindTimeout,
+	})
+
+	result := resultFor(t, smoke.Run(context.Background()), "another node")
+
+	assert.Equal(t, clustersmoke.StatusFailed, result.Status)
+	assert.Contains(t, result.Detail, "no cluster DNS replica had an address")
+	assert.False(t, submitted, "a prober with no replica to ask has no containers")
+}
+
 func TestCheckCrossNode_SkipsOnASingleNodeCluster(t *testing.T) {
 	t.Parallel()
 
