@@ -276,6 +276,13 @@ func reportOutdated(ctx context.Context, client *http.Client, stdout, stderr io.
 }
 
 // repoIndex is the subset of a Helm repository index this tool reads.
+//
+// Decoded here rather than through Helm's own IndexFile, and that is a
+// measured choice: helm.sh/helm/v4/pkg/repo/v1 links about 700 packages —
+// the OCI registry client, the WASM plugin runtime, cli-runtime and
+// client-go — to read two fields, and it loads an index only from a file on
+// disk. The two fields are the stable part of the format; anything else in
+// an entry is ignored, so a field Helm adds cannot break this.
 type repoIndex struct {
 	Entries map[string][]indexEntry `json:"entries"`
 }
