@@ -1,0 +1,23 @@
+{
+  "images": [
+    {
+      "id": 501,
+      "type": "snapshot",
+      "description": "talos v1.13.9",
+      "image_size": 0.5,
+      "labels": {
+        "talos-version": "v1.13.9"
+      }
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "page": 1,
+      "per_page": 50,
+      "previous_page": null,
+      "next_page": null,
+      "last_page": 1,
+      "total_entries": 1
+    }
+  }
+}

@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optlist"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 )
@@ -60,6 +61,21 @@ func heldKinds() map[tokens.Type]string {
 	}
 }
 
+// stackStates is the part of a Pulumi workspace readHeld uses.
+type stackStates interface {
+	ListStacks(ctx context.Context, opts ...optlist.Option) ([]auto.StackSummary, error)
+	ExportStack(ctx context.Context, stackName string) (apitype.UntypedDeployment, error)
+}
+
+// workspaceOpener opens the Pulumi workspace of one project directory.
+type workspaceOpener func(ctx context.Context, dir string) (stackStates, error)
+
+// openWorkspace is the workspaceOpener for the backend this machine is logged
+// in to.
+func openWorkspace(ctx context.Context, dir string) (stackStates, error) {
+	return auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+}
+
 // readHeld exports every stack of every project directory and collects what
 // their states hold.
 //
@@ -69,43 +85,52 @@ func heldKinds() map[tokens.Type]string {
 // truth after a teardown. A stack that exists and cannot be exported is an
 // error, for the reason kubectlNames gives: an empty set would call every
 // resource in the project an orphan.
-func readHeld(ctx context.Context, dirs []string) (Held, error) {
+func readHeld(ctx context.Context, dirs []string, open workspaceOpener) (Held, error) {
 	held := NewHeld()
 
 	for _, dir := range dirs {
-		workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+		workspace, err := open(ctx, dir)
 		if err != nil {
 			return held, fmt.Errorf("%s: %w", dir, err)
 		}
 
-		stacks, err := workspace.ListStacks(ctx)
+		read, err := addStacks(ctx, held, workspace, dir)
 		if err != nil {
-			return held, fmt.Errorf("%s: list stacks: %w", dir, err)
+			return held, err
 		}
 
-		for _, stack := range stacks {
-			exported, err := workspace.ExportStack(ctx, stack.Name)
-			if err != nil {
-				return held, fmt.Errorf("%s: export %s: %w", dir, stack.Name, err)
-			}
-
-			if err := addDeployment(held, exported); err != nil {
-				return held, fmt.Errorf("%s: %s: %w", dir, stack.Name, err)
-			}
-
-			held.Stacks++
-		}
+		held.Stacks += read
 	}
 
 	return held, nil
 }
 
+// addStacks records every stack of one workspace in held, and says how many
+// it read.
+func addStacks(ctx context.Context, held Held, workspace stackStates, dir string) (int, error) {
+	stacks, err := workspace.ListStacks(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("%s: list stacks: %w", dir, err)
+	}
+
+	for _, stack := range stacks {
+		exported, err := workspace.ExportStack(ctx, stack.Name)
+		if err != nil {
+			return 0, fmt.Errorf("%s: export %s: %w", dir, stack.Name, err)
+		}
+
+		if err := addDeployment(held, exported); err != nil {
+			return 0, fmt.Errorf("%s: %s: %w", dir, stack.Name, err)
+		}
+	}
+
+	return len(stacks), nil
+}
+
 // addDeployment records one exported state's Hetzner resources in held.
 func addDeployment(held Held, exported apitype.UntypedDeployment) error {
-	if exported.Version < apitype.DeploymentSchemaVersionCurrent ||
-		exported.Version > apitype.DeploymentSchemaVersionLatest {
-		return fmt.Errorf("state schema version %d, this check reads %d to %d",
-			exported.Version, apitype.DeploymentSchemaVersionCurrent, apitype.DeploymentSchemaVersionLatest)
+	if err := checkSchema(exported.Version); err != nil {
+		return err
 	}
 
 	var deployment apitype.DeploymentV3
@@ -116,31 +141,55 @@ func addDeployment(held Held, exported apitype.UntypedDeployment) error {
 	kinds := heldKinds()
 
 	for _, res := range deployment.Resources {
-		// A record set claims the zone it is written to. The zone itself is
-		// usually made by hand and delegated, so no stack holds it.
-		if res.Type == typeZoneRrset {
-			if zone, ok := res.Inputs[zoneInput].(string); ok && zone != "" {
-				held.Zones[zone] = true
-			}
-
-			continue
+		if err := addResource(held, kinds, res); err != nil {
+			return err
 		}
-
-		kind, ok := kinds[res.Type]
-		if !ok || res.ID == "" {
-			continue
-		}
-
-		// Every listed kind has a numeric ID in the API. One that does not
-		// parse is a provider change, and matching around it would report
-		// the resource as unheld.
-		id, err := strconv.ParseInt(string(res.ID), 10, 64)
-		if err != nil {
-			return fmt.Errorf("%s %s: id %q is not the API's numeric id", res.Type, res.URN.Name(), res.ID)
-		}
-
-		held.Add(kind, id)
 	}
 
 	return nil
+}
+
+// checkSchema refuses a state schema this check does not read.
+func checkSchema(version int) error {
+	if version < apitype.DeploymentSchemaVersionCurrent || version > apitype.DeploymentSchemaVersionLatest {
+		return fmt.Errorf("state schema version %d, this check reads %d to %d",
+			version, apitype.DeploymentSchemaVersionCurrent, apitype.DeploymentSchemaVersionLatest)
+	}
+
+	return nil
+}
+
+// addResource records one state resource in held, when it is a listed kind.
+func addResource(held Held, kinds map[tokens.Type]string, res apitype.ResourceV3) error {
+	// A record set claims the zone it is written to. The zone itself is
+	// usually made by hand and delegated, so no stack holds it.
+	if res.Type == typeZoneRrset {
+		addZone(held, res)
+
+		return nil
+	}
+
+	kind, ok := kinds[res.Type]
+	if !ok || res.ID == "" {
+		return nil
+	}
+
+	// Every listed kind has a numeric ID in the API. One that does not parse
+	// is a provider change, and matching around it would report the resource
+	// as unheld.
+	id, err := strconv.ParseInt(string(res.ID), 10, 64)
+	if err != nil {
+		return fmt.Errorf("%s %s: id %q is not the API's numeric id", res.Type, res.URN.Name(), res.ID)
+	}
+
+	held.Add(kind, id)
+
+	return nil
+}
+
+// addZone records the zone a record set is written to.
+func addZone(held Held, rrset apitype.ResourceV3) {
+	if zone, ok := rrset.Inputs[zoneInput].(string); ok && zone != "" {
+		held.Zones[zone] = true
+	}
 }

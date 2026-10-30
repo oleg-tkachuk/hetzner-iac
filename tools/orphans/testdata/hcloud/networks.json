@@ -1,0 +1,22 @@
+{
+  "networks": [
+    {
+      "id": 602,
+      "name": "platform-dev",
+      "ip_range": "10.0.0.0/16",
+      "labels": {
+        "cluster": "platform-dev"
+      }
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "page": 1,
+      "per_page": 50,
+      "previous_page": null,
+      "next_page": null,
+      "last_page": 1,
+      "total_entries": 1
+    }
+  }
+}
