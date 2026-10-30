@@ -568,8 +568,10 @@ pinned Talos minor, and a running Docker.
 Helm accepts an unknown key silently, even for a chart shipping a
 `values.schema.json`, so a misspelt value keeps its default and `pulumi up`
 succeeds. That is why each chart's file names its settings: the values whose
-misspelling fails silently are constants there, and `render-check` asserts the
-**effect** each one has on the rendered chart rather than that the key was set.
+misspelling fails silently are constants there, and `render-check` renders each
+chart with the values template the layer ships — no `--set`, which would
+override it — and asserts the **effect** each one has on the rendered chart
+rather than that the key was set.
 
 ## What a run prints
 

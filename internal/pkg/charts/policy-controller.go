@@ -85,12 +85,6 @@ func policyControllerProbe() any {
 	}
 }
 
-// The values keys this file's settings write, in the chart's own spelling.
-const (
-	policyControllerReplicas = "webhook.replicaCount"
-	policyControllerPriority = "webhook.priorityClass"
-)
-
 func init() {
 	register(Definition{
 		Key:   PolicyController,
@@ -108,13 +102,11 @@ func init() {
 		Probe: policyControllerProbe,
 		Settings: []Setting{
 			{
-				Set:    []string{policyControllerReplicas + "=" + strconv.Itoa(PolicyControllerReplicas)},
 				Expect: "replicas: " + strconv.Itoa(PolicyControllerReplicas),
 				Why: "the chart's budget keeps one webhook available, so a single replica " +
 					"blocks every drain of the node it runs on",
 			},
 			{
-				Set:    []string{policyControllerPriority + "=" + PriorityClusterCritical},
 				Expect: PriorityLine(PriorityClusterCritical),
 				Why: "once a namespace is enforced the webhook is in the admission path for " +
 					"its pods, and evicting it stops them being scheduled",

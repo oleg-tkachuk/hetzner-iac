@@ -129,11 +129,12 @@ func run() (int, error) {
 }
 
 // checkEffects verifies that the settings whose misspelling fails silently
-// actually reach the chart's output.
+// reach the chart's output from the values template the layers ship.
 //
-// Rendering with the value is not enough on its own — Helm accepts any key,
-// including one no template reads. The assertion is on the EFFECT: the line
-// the chart's own template produces. A key the chart ignores cannot satisfy it.
+// Rendered with that template alone: a --set on top would override it, and
+// the check would verify its own expression instead. The assertion is on the
+// EFFECT — the line the chart's own template produces — so a key the chart
+// ignores cannot satisfy it.
 func checkEffects(ctx context.Context) int {
 	failures := 0
 
@@ -147,7 +148,7 @@ func checkEffects(ctx context.Context) int {
 			continue
 		}
 
-		output, err := renderRaw(ctx, chart, effect.Release, effect.Namespace, effect.Chart, effect.Set...)
+		output, err := renderRaw(ctx, chart, effect.Release, effect.Namespace, effect.Chart)
 		if err != nil {
 			fmt.Printf("MISS  %-14s render failed: %v\n", effect.Chart, err)
 
@@ -157,12 +158,12 @@ func checkEffects(ctx context.Context) int {
 		}
 
 		if strings.Contains(string(output), effect.Expect) {
-			fmt.Printf("ok    %-14s %s\n", effect.Chart, strings.Join(effect.Set, " "))
+			fmt.Printf("ok    %-14s %s\n", effect.Chart, effect.Expect)
 
 			continue
 		}
 
-		fmt.Printf("MISS  %-14s %s produced no %q\n", effect.Chart, strings.Join(effect.Set, " "), effect.Expect)
+		fmt.Printf("MISS  %-14s values template produced no %q\n", effect.Chart, effect.Expect)
 		fmt.Printf("      %s\n", effect.Why)
 
 		failures++
