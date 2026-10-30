@@ -1,4 +1,4 @@
-![A building site at dawn: Talos and the platform layers 10 to 40 stand as floors on a Hetzner Cloud foundation, a "pulumi up" crane lowers layer 50 with the Argo CD octopus, and pods in hard hats build it](docs/assets/banner.png)
+![A building site at dawn: Talos and the platform layers 10 to 40 stand as floors on a Hetzner Cloud foundation, a "pulumi up" crane lowers layer 50 with the Argo CD octopus, and pods in hard hats build it](docs/assets/social-preview@2x.png)
 
 # hetzner-iac
 
