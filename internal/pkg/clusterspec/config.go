@@ -858,6 +858,11 @@ func (t *Topology) validateWorkerPools() []string {
 			problems = append(problems, field+".name is required")
 		case !dns1123.MatchString(pool.Name):
 			problems = append(problems, fmt.Sprintf("%s.name %q must be lowercase alphanumeric with internal hyphens", field, pool.Name))
+		case pool.Name == RoleControlPlane:
+			// NodeName builds control-plane names from the role, so a pool of
+			// that name produces the same server names and hcloud rejects the
+			// second halfway through an apply.
+			problems = append(problems, fmt.Sprintf("%s.name %q is reserved for the control plane", field, pool.Name))
 		}
 
 		if first, duplicate := seen[pool.Name]; duplicate && pool.Name != "" {

@@ -43,7 +43,7 @@ const driftTimeout = 10 * time.Minute
 var (
 	errNoStack    = errors.New("--stack is required")
 	errNoProjects = errors.New("name at least one project directory")
-	errDrifted    = errors.New("the cloud differs from the state, or a stack could not be read")
+	errDrifted    = errors.New("the cloud differs from the state, a stack could not be read, or no stack exists")
 )
 
 func main() {

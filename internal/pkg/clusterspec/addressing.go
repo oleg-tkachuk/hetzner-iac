@@ -19,7 +19,7 @@ import (
 // Layout of the node subnet:
 //
 //	offset 0             network address (unusable)
-//	offset 1             gateway (Hetzner reserves it)
+//	offset 1             never assigned (see reservedPerSubnet)
 //	offset 2..stride-1   control-plane nodes
 //	offset stride..      worker slot 0
 //	offset 2*stride..    worker slot 1, and so on
@@ -28,22 +28,22 @@ type Addressing struct {
 	stride int
 }
 
-// Offsets inside a slice, which the layout above describes. Named because the
-// count of reserved addresses appeared three times — in the bounds check, in
-// the message that check produces, and in the arithmetic that skips them.
-const (
-	gatewayOffset = 1
-	// reservedPerSubnet covers the network address and the gateway, the two
-	// Hetzner does not let a server hold.
-	reservedPerSubnet = 2
-)
+// reservedPerSubnet is the addresses at the start of the node subnet that no
+// node is given: the network address, and the one after it. That one is the
+// private network's gateway when the node subnet starts the range — the
+// gateway itself is NetworkGateway's to derive — and it stays skipped
+// otherwise, because moving the first node would readdress every node.
+//
+// Named because the count appeared three times — in the bounds check, in the
+// message that check produces, and in the arithmetic that skips them.
+const reservedPerSubnet = 2
 
 // NewAddressing prepares address allocation over a node subnet.
 func NewAddressing(nodeSubnet string, stride int) (*Addressing, error) {
 	if stride < reservedPerSubnet {
-		// Slice 0 loses two addresses to the network and the gateway, so a
-		// stride below 2 cannot seat even one control-plane node.
-		return nil, fmt.Errorf("addressing stride %d is too small: a slice must hold at least the network and gateway addresses", stride)
+		// Slice 0 loses its reserved addresses, so a smaller stride cannot
+		// seat even one control-plane node.
+		return nil, fmt.Errorf("addressing stride %d is too small: a slice must hold at least the %d reserved addresses", stride, reservedPerSubnet)
 	}
 
 	prefix, err := netip.ParsePrefix(nodeSubnet)
@@ -91,12 +91,6 @@ func (a *Addressing) WorkerIP(poolIndex, ordinal int) (string, error) {
 	}
 
 	return a.at((poolIndex+1)*a.stride + ordinal)
-}
-
-// Gateway is the subnet's gateway, which Hetzner fixes at the first usable
-// address. Talos needs it to build the node's default route.
-func (a *Addressing) Gateway() (string, error) {
-	return a.at(gatewayOffset)
 }
 
 // at converts an offset within the subnet to an address, refusing anything

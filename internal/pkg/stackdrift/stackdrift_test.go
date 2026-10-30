@@ -42,6 +42,7 @@ func TestDrifted(t *testing.T) {
 		{"every stack matches", []stackdrift.Project{{Name: "cluster", HasStack: true}, {Name: "backup"}}, false},
 		{"a changed resource", []stackdrift.Project{{Name: "20-network-policy", HasStack: true, Changes: []stackdrift.Change{policy}}}, true},
 		{"an unread stack is not a clean one", []stackdrift.Project{{Name: "cluster", Err: errors.New("timeout")}}, true},
+		{"no stack anywhere checked nothing", []stackdrift.Project{{Name: "cluster"}, {Name: "backup"}}, true},
 	} {
 		assert.Equal(t, tc.want, stackdrift.Drifted(tc.projects), tc.name)
 	}
@@ -83,6 +84,15 @@ func TestRender_SaysWhenDriftIsUnknown(t *testing.T) {
 
 	assert.Contains(t, report, "  40-ingress  ✖  dial tcp: i/o timeout\n")
 	assert.Contains(t, report, "  ✖ 1 stack could not be read, so drift is unknown there\n")
+	assert.NotContains(t, report, "every stack matches the cloud")
+}
+
+func TestRender_SaysWhenNoStackExists(t *testing.T) {
+	t.Parallel()
+
+	report := render(t, []stackdrift.Project{{Name: "cluster"}, {Name: "backup"}})
+
+	assert.True(t, strings.HasSuffix(report, "  ✖ no dev stack in any project, so nothing was checked\n"))
 	assert.NotContains(t, report, "every stack matches the cloud")
 }
 
