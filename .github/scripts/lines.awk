@@ -71,7 +71,7 @@ BEGIN {
 # 52 MB one was committed and pushed before any of this existed.
 op == "staged-binaries" && $1 == "-" && $2 == "-" {
     # `allow` is a colon-separated list of paths that are binary on purpose:
-    # lefthook.yml passes the README's images, the only binaries tracked.
+    # lefthook.yml passes the social preview images, the only binaries tracked.
     if (allowed($3)) next
 
     binaries[++found] = $3
