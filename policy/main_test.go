@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/property"
@@ -57,6 +59,31 @@ func TestWorldOpenAdminPorts_CoversEveryAdminPortAndBothWorldSpellings(t *testin
 	}
 }
 
+func TestWorldOpenAdminPorts_SeesAdminPortsInsideRangesAndAny(t *testing.T) {
+	t.Parallel()
+
+	// hcloud takes a port, a range "low-high" or "any", and the last two open
+	// an admin port as surely as naming it does.
+	for spec, want := range map[string][]string{
+		"6000-7000":   {"6443"},
+		"6443-6443":   {"6443"},
+		"1-65535":     {"6443", "50000"},
+		portAny:       {"6443", "50000"},
+		"7000-8000":   nil,
+		"50001-50010": nil,
+	} {
+		violations := worldOpenAdminPorts(rule(spec, worldCIDR))
+
+		require.Len(t, violations, len(want), spec)
+
+		for _, port := range want {
+			assert.True(t, slices.ContainsFunc(violations, func(v string) bool {
+				return strings.Contains(v, "port "+port+" ")
+			}), "%s: no violation for %s in %q", spec, port, violations)
+		}
+	}
+}
+
 func TestWorldOpenAdminPorts_ReportsEachWorldOpenSourceSeparately(t *testing.T) {
 	t.Parallel()
 
@@ -82,10 +109,12 @@ func TestWorldOpenAdminPorts_SaysNothingAboutRulesThatAreFine(t *testing.T) {
 		"http from the world":  rule("80", worldCIDR),
 		"https from the world": rule("443", worldCIDR),
 		// Shapes the policy must survive rather than panic on.
-		"no port":        property.NewMap(map[string]property.Value{"sourceIps": property.New(property.NewArray(nil))}),
-		"no sources":     property.NewMap(map[string]property.Value{"port": property.New("6443")}),
-		"port not a str": property.NewMap(map[string]property.Value{"port": property.New(6443.0)}),
-		"empty":          property.NewMap(nil),
+		"no port":         property.NewMap(map[string]property.Value{"sourceIps": property.New(property.NewArray(nil))}),
+		"no sources":      property.NewMap(map[string]property.Value{"port": property.New("6443")}),
+		"port not a str":  property.NewMap(map[string]property.Value{"port": property.New(6443.0)}),
+		"malformed range": rule("7000-", worldCIDR),
+		"reversed range":  rule("7000-6000", worldCIDR),
+		"empty":           property.NewMap(nil),
 	} {
 		assert.Empty(t, worldOpenAdminPorts(subject), name)
 	}

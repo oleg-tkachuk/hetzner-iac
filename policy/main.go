@@ -33,7 +33,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/blang/semver"
@@ -84,6 +87,9 @@ var adminPorts = map[string]string{
 	"6443":  "the Kubernetes API",
 	"50000": "the Talos API, which can apply machine config and reset a node",
 }
+
+// portAny is hcloud's spelling of every port of the rule's protocol.
+const portAny = "any"
 
 func main() {
 	// The same line and the same exit code as every other program here. It
@@ -155,33 +161,58 @@ func firewallAdminPortsNotWorldOpen() policyx.ResourceValidationPolicy {
 // can be tested without running a policy plugin. It returns one message per
 // world-open admin port in the rule, and nothing for a rule that is fine.
 func worldOpenAdminPorts(rule property.Map) []string {
-	port := stringOf(rule, "port")
-
-	what, isAdminPort := adminPorts[port]
-	if !isAdminPort {
-		return nil
-	}
+	spec := stringOf(rule, "port")
 
 	var out []string
 
-	for _, source := range arrayOf(rule, "sourceIps") {
-		if !source.IsString() {
+	for _, port := range slices.Sorted(maps.Keys(adminPorts)) {
+		if !portSpecCovers(spec, port) {
 			continue
 		}
 
-		cidr := source.AsString()
-		if cidr != worldCIDR && cidr != worldCIDRIPv6 {
-			continue
-		}
+		for _, source := range arrayOf(rule, "sourceIps") {
+			if !source.IsString() {
+				continue
+			}
 
-		out = append(out, fmt.Sprintf(
-			"firewall rule opens port %s (%s) to %s. Restrict it to network.adminCIDRs "+
-				"in the topology: a world-open Talos API is a remote node reset, and a "+
-				"world-open Kubernetes API is an authentication attempt away from the cluster.",
-			port, what, cidr))
+			cidr := source.AsString()
+			if cidr != worldCIDR && cidr != worldCIDRIPv6 {
+				continue
+			}
+
+			out = append(out, fmt.Sprintf(
+				"firewall rule port %s opens port %s (%s) to %s. Restrict it to network.adminCIDRs "+
+					"in the topology: a world-open Talos API is a remote node reset, and a "+
+					"world-open Kubernetes API is an authentication attempt away from the cluster.",
+				spec, port, adminPorts[port], cidr))
+		}
 	}
 
 	return out
+}
+
+// portSpecCovers reports whether a rule's port field — a port, a "low-high"
+// range or "any", the three forms hcloud accepts — includes port. A malformed
+// spec covers nothing: hcloud rejects it before it can open anything.
+func portSpecCovers(spec, port string) bool {
+	if spec == portAny || spec == port {
+		return true
+	}
+
+	low, high, isRange := strings.Cut(spec, "-")
+	if !isRange {
+		return false
+	}
+
+	lo, loErr := strconv.Atoi(low)
+	hi, hiErr := strconv.Atoi(high)
+	p, pErr := strconv.Atoi(port)
+
+	if loErr != nil || hiErr != nil || pErr != nil {
+		return false
+	}
+
+	return lo <= p && p <= hi
 }
 
 // serverJoinsPrivateNetwork guards the assumption the whole design rests on.
