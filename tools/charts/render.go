@@ -41,6 +41,7 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/workloads"
 
+	corev1 "k8s.io/api/core/v1"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 )
@@ -223,18 +224,6 @@ func renderChart(ctx context.Context, chart charts.Chart, release, namespace, ke
 	return parseWorkloads(output, namespace)
 }
 
-// hostAccessMarkers are the pod-spec fields Pod Security Admission's baseline
-// level forbids. Matched on the rendered text rather than by unmarshalling
-// every manifest: the question is only whether a chart asks for host access at
-// all, and a false positive here is a comment away from being explained.
-var hostAccessMarkers = []string{
-	"hostNetwork: true",
-	"hostPID: true",
-	"hostIPC: true",
-	"hostPort:",
-	"hostPath:",
-}
-
 // checkHostAccess refuses a chart that needs host access in a namespace Talos
 // does not exempt from Pod Security Admission.
 //
@@ -255,13 +244,11 @@ func checkHostAccess(key, releaseNamespace string, manifests []byte) error {
 	}
 
 	for _, doc := range docs {
-		// A schema is not a pod. Skipped before the markers are looked for,
-		// because they are certainly there: see SchemaKind.
-		if doc.Kind == SchemaKind {
-			continue
+		needs, err := hostAccessIn(doc)
+		if err != nil {
+			return fmt.Errorf("%s: %s %s: %w", key, doc.Kind, doc.Name, err)
 		}
 
-		needs := hostAccessIn(doc.Text)
 		if len(needs) == 0 {
 			continue
 		}
@@ -283,40 +270,49 @@ func checkHostAccess(key, releaseNamespace string, manifests []byte) error {
 	return nil
 }
 
-// hostAccessIn returns the host-access markers present in one document.
-func hostAccessIn(doc string) []string {
+// hostAccessIn names the pod-spec fields Pod Security Admission's baseline
+// level forbids that one document's pod asks for.
+//
+// Read from the parsed PodSpec, not the text. Matching the text refused
+// documents that run no pod at all: a CRD whose schema names these fields as
+// properties, and a ConfigMap carrying a manifest as data. A kind that runs no
+// pod has no PodSpec here, and so asks for nothing.
+func hostAccessIn(doc document) ([]string, error) {
+	pod, err := podOf(doc.Kind, []byte(doc.Text))
+	if err != nil || pod == nil {
+		return nil, err
+	}
+
 	var found []string
 
-	for _, marker := range hostAccessMarkers {
-		if strings.Contains(doc, marker) {
-			found = append(found, strings.TrimSuffix(strings.TrimSuffix(marker, ": true"), ":"))
+	for _, field := range []struct {
+		name  string
+		asked bool
+	}{
+		{"hostNetwork", pod.HostNetwork},
+		{"hostPID", pod.HostPID},
+		{"hostIPC", pod.HostIPC},
+		{"hostPort", asksHostPort(pod)},
+		{"hostPath", slices.ContainsFunc(pod.Volumes, func(v corev1.Volume) bool { return v.HostPath != nil })},
+	} {
+		if field.asked {
+			found = append(found, field.name)
 		}
 	}
 
-	return found
+	return found, nil
 }
 
-// SchemaKind is the one kind whose text names host access with no pod asking
-// for it.
-//
-// A CustomResourceDefinition carries an OpenAPI schema, and a CRD with a pod
-// template in it carries the whole PodSpec schema — so `hostPath` and
-// `hostPort` appear as PROPERTY NAMES in a document that creates nothing.
-// KEDA's ScaledJob is the first chart pinned here to do that, and the check
-// reported the entire chart as asking for host access in a namespace Talos
-// does not exempt. This is the case render.go's own comment predicted when it
-// said the check is per document "because the next one will".
-const SchemaKind = "CustomResourceDefinition"
+// asksHostPort reports whether any container of the pod binds a host port.
+func asksHostPort(pod *corev1.PodSpec) bool {
+	for _, container := range slices.Concat(pod.InitContainers, pod.Containers) {
+		if slices.ContainsFunc(container.Ports, func(p corev1.ContainerPort) bool { return p.HostPort != 0 }) {
+			return true
+		}
+	}
 
-// isSchemaDocument answers whether a document is a SchemaKind.
-//
-// Its own reader rather than documentKind next door, which deliberately
-// answers "" for anything that is not a workload and so cannot tell a CRD from
-// a Service.
-//
-// Answered from the parsed object rather than by finding a `kind:` line, which
-// is what this file used to do everywhere and defended as "not a YAML parser
-// and does not need to be". It did need to be — see documents below.
+	return false
+}
 
 // objectFields is what one rendered document is read into.
 //
