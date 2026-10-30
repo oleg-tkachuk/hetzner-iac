@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -74,28 +75,53 @@ func main() {
 	// No overall timeout: the upload creates a server, writes an image to its
 	// disk and snapshots it, which takes as long as Hetzner takes. Ctrl-C is
 	// what cancels it, and CommandContext is what makes that reach the child.
-	if err := run(context.Background()); err != nil {
+	if err := run(context.Background(), os.Args[1:], liveDeps()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// osArgs is os.Args, indirected so the argument check can be tested without
-// a topology file or a Pulumi backend.
-var osArgs = os.Args
+// The arguments either form of the command takes.
+const wantArgs = 2
 
-func run(ctx context.Context) error {
-	if len(osArgs) == 3 && osArgs[1] == installerCommand {
-		return printInstaller(ctx, osArgs[2])
+// deps are what run reads from outside the process, so a test can stand in
+// for each one.
+type deps struct {
+	topology func(path string) (*clusterspec.Topology, error)
+	token    func(ctx context.Context, stack string) (string, error)
+	images   func(token string) imageLister
+	factory  func() (schematicCreator, error)
+	upload   func(ctx context.Context, token, url, arch, location, selector string) error
+	out      io.Writer
+}
+
+// liveDeps are the real backend, Hetzner API, Image Factory and terminal.
+func liveDeps() deps {
+	return deps{
+		topology: clusterspec.LoadTopology,
+		token:    hcloudtoken.Token,
+		images:   func(token string) imageLister { return &hcloud.NewClient(hcloud.WithToken(token)).Image },
+		factory:  newFactory,
+		upload:   upload,
+		out:      os.Stdout,
+	}
+}
+
+func run(ctx context.Context, args []string, d deps) error {
+	if len(args) == wantArgs && args[0] == installerCommand {
+		return printInstaller(ctx, args[1], d)
 	}
 
-	if len(osArgs) != 3 {
+	if len(args) != wantArgs {
 		return fmt.Errorf("usage: image <topology.yaml> <stack> | image %s <topology.yaml>", installerCommand)
 	}
 
-	topologyPath, stack := osArgs[1], osArgs[2]
+	return bake(ctx, args[0], args[1], d)
+}
 
-	topology, err := clusterspec.LoadTopology(topologyPath)
+// bake uploads the topology's snapshot unless it is already there.
+func bake(ctx context.Context, topologyPath, stack string, d deps) error {
+	topology, err := d.topology(topologyPath)
 	if err != nil {
 		return err
 	}
@@ -112,14 +138,14 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	token, err := hcloudtoken.Token(ctx, stack)
+	token, err := d.token(ctx, stack)
 	if err != nil {
 		return err
 	}
 
 	selector := clusterspec.TalosImageSelector(version)
 
-	present, err := snapshotExists(ctx, &hcloud.NewClient(hcloud.WithToken(token)).Image, selector, arch)
+	present, err := snapshotExists(ctx, d.images(token), selector, arch)
 	if err != nil {
 		return err
 	}
@@ -128,12 +154,12 @@ func run(ctx context.Context) error {
 	// resolves, so re-baking would cost money and leave two candidates behind
 	// for `mostRecent` to choose between.
 	if present {
-		fmt.Printf("snapshot already present for %s (%s) — nothing to do\n", selector, arch)
+		fmt.Fprintf(d.out, "snapshot already present for %s (%s) — nothing to do\n", selector, arch)
 
 		return nil
 	}
 
-	factory, err := newFactory()
+	factory, err := d.factory()
 	if err != nil {
 		return err
 	}
@@ -146,26 +172,26 @@ func run(ctx context.Context) error {
 	url := imageURL(id, version, factoryArch)
 	location := topology.Placement.Location
 
-	fmt.Printf("baking %s (%s) in %s from %s\n", version, arch, location, url)
+	fmt.Fprintf(d.out, "baking %s (%s) in %s from %s\n", version, arch, location, url)
 
-	if err := upload(ctx, token, url, arch, location, selector); err != nil {
+	if err := d.upload(ctx, token, url, arch, location, selector); err != nil {
 		return err
 	}
 
-	fmt.Printf("snapshot ready — next: task cluster:apply stack=%s\n", stack)
+	fmt.Fprintf(d.out, "snapshot ready — next: task cluster:apply stack=%s\n", stack)
 
 	return nil
 }
 
 // printInstaller prints the installer image for the topology's Talos
 // version, from the same schematic the snapshot is baked from.
-func printInstaller(ctx context.Context, topologyPath string) error {
-	topology, err := clusterspec.LoadTopology(topologyPath)
+func printInstaller(ctx context.Context, topologyPath string, d deps) error {
+	topology, err := d.topology(topologyPath)
 	if err != nil {
 		return err
 	}
 
-	factory, err := newFactory()
+	factory, err := d.factory()
 	if err != nil {
 		return err
 	}
@@ -175,7 +201,7 @@ func printInstaller(ctx context.Context, topologyPath string) error {
 		return err
 	}
 
-	fmt.Println(installerImage(id, topology.Talos.Version))
+	fmt.Fprintln(d.out, installerImage(id, topology.Talos.Version))
 
 	return nil
 }
@@ -268,7 +294,7 @@ type schematicCreator interface {
 // body — and so could not bake anything at all until the first bake for a
 // second architecture found it. The client is the factory's own reading of
 // its API, and moves with it.
-func newFactory() (*client.Client, error) {
+func newFactory() (schematicCreator, error) {
 	factory, err := client.New(factoryURL)
 	if err != nil {
 		return nil, fmt.Errorf("image factory client: %w", err)

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optlist"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilogin"
@@ -31,21 +32,45 @@ import (
 )
 
 func main() {
-	if err := run(context.Background(), os.Args[1:]); err != nil {
+	if err := run(context.Background(), os.Args[1:], liveDeps()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
+// stackLister is the part of a Pulumi workspace list reads.
+type stackLister interface {
+	ListStacks(ctx context.Context, opts ...optlist.Option) ([]auto.StackSummary, error)
+}
+
+// deps are what run reads from outside the process, so a test can stand in
+// for each one.
+type deps struct {
+	requireLogin func(dirs []string) error
+	open         func(ctx context.Context, dir string) (stackLister, error)
+	out          io.Writer
+}
+
+// liveDeps are the real backend and terminal.
+func liveDeps() deps {
+	return deps{requireLogin: pulumilogin.Require, open: openWorkspace, out: os.Stdout}
+}
+
+// openWorkspace opens dir as a workspace of the backend this machine is
+// logged in to.
+func openWorkspace(ctx context.Context, dir string) (stackLister, error) {
+	return auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+}
+
 // Usage is what a wrong argument list gets.
 const Usage = "usage: stack list <cluster-dir>"
 
-func run(ctx context.Context, args []string) error {
+func run(ctx context.Context, args []string, d deps) error {
 	if len(args) != 2 || args[0] != "list" {
 		return errors.New(Usage)
 	}
 
-	return list(ctx, args[1], os.Stdout)
+	return list(ctx, args[1], d)
 }
 
 // listTimeout bounds the one backend read: listing the project's stacks.
@@ -91,8 +116,8 @@ const missing = "-"
 
 // list prints every environment the cluster tier has, from the backend and
 // from the committed topologies at once.
-func list(ctx context.Context, dir string, out io.Writer) error {
-	listing, err := stacks(ctx, dir)
+func list(ctx context.Context, dir string, d deps) error {
+	listing, err := stacks(ctx, dir, d)
 	if err != nil {
 		return err
 	}
@@ -102,22 +127,22 @@ func list(ctx context.Context, dir string, out io.Writer) error {
 		return err
 	}
 
-	_, err = io.WriteString(out, table(merge(listing, files)))
+	_, err = io.WriteString(d.out, table(merge(listing, files)))
 
 	return err
 }
 
 // stacks lists the project's stacks in dir through the automation API, after
 // refusing a backend this machine holds no credential for.
-func stacks(ctx context.Context, dir string) ([]auto.StackSummary, error) {
-	if err := pulumilogin.Require([]string{dir}); err != nil {
+func stacks(ctx context.Context, dir string, d deps) ([]auto.StackSummary, error) {
+	if err := d.requireLogin([]string{dir}); err != nil {
 		return nil, err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, listTimeout)
 	defer cancel()
 
-	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+	workspace, err := d.open(ctx, dir)
 	if err != nil {
 		return nil, fmt.Errorf("open %s as a pulumi workspace: %w", dir, err)
 	}

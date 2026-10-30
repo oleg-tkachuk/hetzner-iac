@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,15 +37,71 @@ import (
 
 const clusterEndpoint = "https://10.0.1.2:6443"
 
-func main() {
-	dir := "infra/cluster"
-	if len(os.Args) > 1 {
-		dir = os.Args[1]
-	}
+// checkTimeout bounds the whole check: one gen config and two validations per
+// topology.
+const checkTimeout = 5 * time.Minute
 
-	if err := run(dir); err != nil {
+func main() {
+	if err := run(targetDir(os.Args[1:]), liveDeps()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+// targetDir is the directory named on the command line, or the cluster tier's.
+func targetDir(args []string) string {
+	if len(args) > 0 {
+		return args[0]
+	}
+
+	return clusterspec.ClusterDir
+}
+
+// runner is talosctl as this check calls it, and where its report goes.
+type runner struct {
+	// output runs talosctl and returns its stdout.
+	output func(ctx context.Context, args ...string) ([]byte, error)
+	// combined runs talosctl and returns its stdout and stderr together, and
+	// whether it ran and exited non-zero rather than failing to run at all.
+	combined       func(ctx context.Context, args ...string) (out []byte, exited bool, err error)
+	stdout, stderr io.Writer
+}
+
+// binary is a talosctl on disk.
+type binary string
+
+func (b binary) output(ctx context.Context, args ...string) ([]byte, error) {
+	// #nosec G204,G702 -- the binary is the resolved talosctl, and every
+	// argument is a literal or a path this program made; nothing reaches a
+	// shell.
+	return exec.CommandContext(ctx, string(b), args...).Output()
+}
+
+func (b binary) combined(ctx context.Context, args ...string) ([]byte, bool, error) {
+	// #nosec G204,G702 -- as output: an argument vector, never a shell string.
+	out, err := exec.CommandContext(ctx, string(b), args...).CombinedOutput()
+
+	var exitErr *exec.ExitError
+
+	return out, errors.As(err, &exitErr), err
+}
+
+// deps are what run reads from outside the process, so a test can stand in
+// for each one.
+type deps struct {
+	talosctlPath func() (string, error)
+	topology     func(path string) (*clusterspec.Topology, error)
+	runner       func(talosctl string) runner
+}
+
+// liveDeps are the real talosctl, topology files and terminal.
+func liveDeps() deps {
+	return deps{
+		talosctlPath: talosctlPath,
+		topology:     clusterspec.LoadTopology,
+		runner: func(talosctl string) runner {
+			return runner{output: binary(talosctl).output, combined: binary(talosctl).combined, stdout: os.Stdout, stderr: os.Stderr}
+		},
 	}
 }
 
@@ -80,14 +137,16 @@ func talosctlPath() (string, error) {
 	return found, nil
 }
 
-func run(dir string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+func run(dir string, d deps) error {
+	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
 	defer cancel()
 
-	talosctl, err := talosctlPath()
+	talosctl, err := d.talosctlPath()
 	if err != nil {
 		return err
 	}
+
+	r := d.runner(talosctl)
 
 	paths, err := topologyFiles(dir)
 	if err != nil {
@@ -95,16 +154,16 @@ func run(dir string) error {
 	}
 
 	for _, path := range paths {
-		topology, err := clusterspec.LoadTopology(path)
+		topology, err := d.topology(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 
-		if err := checkVersion(ctx, talosctl, topology.Talos.Version); err != nil {
+		if err := checkVersion(ctx, r, topology.Talos.Version); err != nil {
 			return err
 		}
 
-		if err := validateTopology(ctx, talosctl, path, topology); err != nil {
+		if err := validateTopology(ctx, r, path, topology); err != nil {
 			return err
 		}
 	}
@@ -149,11 +208,11 @@ func topologyFiles(dir string) ([]string, error) {
 // This is the check that matters most, because without it the tool lies
 // confidently: a 1.14 binary validating a 1.13 configuration reports document
 // conflicts that will not occur on the cluster being built.
-func checkVersion(ctx context.Context, talosctl, pinned string) error {
-	output, err := exec.CommandContext(ctx, talosctl, "version", "--client", "--short").Output()
+func checkVersion(ctx context.Context, r runner, pinned string) error {
+	output, err := r.output(ctx, "version", "--client", "--short")
 	if err != nil {
 		// --short is not in every release; fall back to the long form.
-		output, err = exec.CommandContext(ctx, talosctl, "version", "--client").Output()
+		output, err = r.output(ctx, "version", "--client")
 		if err != nil {
 			return fmt.Errorf("talosctl version: %w", err)
 		}
@@ -173,7 +232,7 @@ func checkVersion(ctx context.Context, talosctl, pinned string) error {
 		// are both known to it and a pasted curl is wrong the moment the pin
 		// moves. It writes bin/talosctl, which talosctlPath prefers over
 		// PATH — so Homebrew's newest can stay where it is.
-		fmt.Fprintf(os.Stderr,
+		fmt.Fprintf(r.stderr,
 			"Talos moves configuration between documents across minor versions, so a\n"+
 				"mismatched binary reports conflicts that will not happen — or misses real\n"+
 				"ones. Get the matching one:\n\n"+
@@ -192,7 +251,7 @@ func checkVersion(ctx context.Context, talosctl, pinned string) error {
 
 // validateTopology renders the patches for one topology and validates the
 // control-plane and worker configurations they produce.
-func validateTopology(ctx context.Context, talosctl, path string, topology *clusterspec.Topology) error {
+func validateTopology(ctx context.Context, r runner, path string, topology *clusterspec.Topology) error {
 	clusterPatch, err := clusterspec.BuildClusterPatch(clusterspec.ClusterPatchArgs{
 		PodCIDR:                        topology.Network.PodCIDR,
 		ServiceCIDR:                    topology.Network.ServiceCIDR,
@@ -222,16 +281,21 @@ func validateTopology(ctx context.Context, talosctl, path string, topology *clus
 	// removal costs a directory in /tmp, not correctness.
 	defer func() { _ = os.RemoveAll(workDir) }()
 
-	if err := generate(ctx, talosctl, workDir, topology); err != nil {
+	if err := generate(ctx, r, workDir, topology); err != nil {
 		return err
 	}
 
-	if err := validateMachine(ctx, talosctl, workDir, machineControlPlane, []string{clusterPatch, nodePatch}); err != nil {
+	if err := validateMachine(ctx, r, workDir, machineControlPlane, []string{clusterPatch, nodePatch}); err != nil {
 		return fmt.Errorf("%s (%s): %w", path, machineControlPlane, err)
 	}
 
-	fmt.Printf("ok    %-34s %s\n", filepath.Base(path), machineControlPlane)
+	fmt.Fprintf(r.stdout, "ok    %-34s %s\n", filepath.Base(path), machineControlPlane)
 
+	return validateWorkers(ctx, r, workDir, path, topology, clusterPatch)
+}
+
+// validateWorkers validates the worker configuration of every pool.
+func validateWorkers(ctx context.Context, r runner, workDir, path string, topology *clusterspec.Topology, clusterPatch string) error {
 	// Every worker takes the cluster patch AND a node patch of its own, which
 	// carries the pool's labels and taints. Validating the cluster patch alone
 	// is how a node patch Talos refuses — labels written where Talos has no
@@ -242,11 +306,11 @@ func validateTopology(ctx context.Context, talosctl, path string, topology *clus
 			return patchErr
 		}
 
-		if err := validateMachine(ctx, talosctl, workDir, machineWorker, []string{clusterPatch, patch}); err != nil {
+		if err := validateMachine(ctx, r, workDir, machineWorker, []string{clusterPatch, patch}); err != nil {
 			return fmt.Errorf("%s (%s pool %s): %w", path, machineWorker, pool.Name, err)
 		}
 
-		fmt.Printf("ok    %-34s %s pool %s\n", filepath.Base(path), machineWorker, pool.Name)
+		fmt.Fprintf(r.stdout, "ok    %-34s %s pool %s\n", filepath.Base(path), machineWorker, pool.Name)
 	}
 
 	return nil
@@ -297,7 +361,7 @@ func workerNodePatch(cluster string, pool clusterspec.WorkerPoolSpec) (string, e
 	return patch, nil
 }
 
-func generate(ctx context.Context, talosctl, workDir string, topology *clusterspec.Topology) error {
+func generate(ctx context.Context, r runner, workDir string, topology *clusterspec.Topology) error {
 	args := []string{
 		"gen", "config", topology.Metadata.Name, clusterEndpoint,
 		"--output-dir", workDir,
@@ -306,18 +370,17 @@ func generate(ctx context.Context, talosctl, workDir string, topology *clustersp
 		"--force",
 	}
 
-	// #nosec G204,G702 -- the only non-literal arguments are the cluster name
-	// and the Talos version, both of which internal/pkg/clusterspec validated before this
-	// ran: the name against DNS-1123, the version against vX.Y.Z. Nothing
-	// reaches a shell.
-	if output, err := exec.CommandContext(ctx, talosctl, args...).CombinedOutput(); err != nil {
+	// The only non-literal arguments are the cluster name and the Talos
+	// version, both of which internal/pkg/clusterspec validated before this
+	// ran: the name against DNS-1123, the version against vX.Y.Z.
+	if output, _, err := r.combined(ctx, args...); err != nil {
 		return fmt.Errorf("talosctl gen config: %s", strings.TrimSpace(string(output)))
 	}
 
 	return nil
 }
 
-func validateMachine(ctx context.Context, talosctl, workDir, machine string, patches []string) error {
+func validateMachine(ctx context.Context, r runner, workDir, machine string, patches []string) error {
 	base := filepath.Join(workDir, machine+".yaml")
 	patched := filepath.Join(workDir, machine+"-patched.yaml")
 
@@ -334,23 +397,17 @@ func validateMachine(ctx context.Context, talosctl, workDir, machine string, pat
 
 	args = append(args, "-o", patched)
 
-	// #nosec G204,G702 -- every element of argv is either a literal or a path
-	// this program created under its own temp directory. Nothing reaches a
-	// shell, and the topology values that gosec traces here were validated
-	// before they got this far.
-	if output, err := exec.CommandContext(ctx, talosctl, args...).CombinedOutput(); err != nil {
+	// Every element of argv is either a literal or a path this program
+	// created under its own temp directory.
+	if output, _, err := r.combined(ctx, args...); err != nil {
 		return fmt.Errorf("applying the patches failed: %s", strings.TrimSpace(string(output)))
 	}
 
 	// cloud mode: these nodes are cloud instances, and the mode changes which
 	// rules apply — a container-mode validation would pass configurations a
 	// real node rejects.
-	// #nosec G204 -- fixed argv.
-	cmd := exec.CommandContext(ctx, talosctl, "validate", "--config", patched, "--mode", "cloud")
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+	if output, exited, err := r.combined(ctx, "validate", "--config", patched, "--mode", "cloud"); err != nil {
+		if exited {
 			return fmt.Errorf("talos rejected the configuration:\n%s", indent(string(output)))
 		}
 

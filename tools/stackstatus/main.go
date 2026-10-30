@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,8 +31,10 @@ import (
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/opthistory"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optlist"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
+	pulumiworkspace "github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
@@ -71,13 +74,80 @@ func main() {
 
 	flag.Parse()
 
-	if err := run(*stack, flag.Args()); err != nil {
+	if err := run(*stack, flag.Args(), liveDeps()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(stack string, dirs []string) error {
+// projectWorkspace is the part of a Pulumi workspace this report reads.
+type projectWorkspace interface {
+	ProjectSettings(ctx context.Context) (*pulumiworkspace.Project, error)
+	WhoAmIDetails(ctx context.Context) (auto.WhoAmIResult, error)
+	PulumiVersion() string
+	ListStacks(ctx context.Context, opts ...optlist.Option) ([]auto.StackSummary, error)
+	ExportStack(ctx context.Context, stack string) (apitype.UntypedDeployment, error)
+	GetConfig(ctx context.Context, stack, key string) (auto.ConfigValue, error)
+	SelectStack(ctx context.Context, stack string) error
+	// Select is auto.SelectStack: the stack a history is read through.
+	Select(ctx context.Context, stack string) (stackHistory, error)
+}
+
+// stackHistory is the part of a selected stack lastUpdate reads.
+type stackHistory interface {
+	History(ctx context.Context, pageSize, page int, opts ...opthistory.Option) ([]auto.UpdateSummary, error)
+}
+
+// workspaceOpener opens the Pulumi workspace of one project directory.
+type workspaceOpener func(ctx context.Context, dir string) (projectWorkspace, error)
+
+// liveWorkspace is a local workspace with the SDK's stack selection beside it.
+type liveWorkspace struct{ auto.Workspace }
+
+func (w liveWorkspace) Select(ctx context.Context, stack string) (stackHistory, error) {
+	selected, err := auto.SelectStack(ctx, stack, w.Workspace)
+	if err != nil {
+		return nil, err
+	}
+
+	return &selected, nil
+}
+
+// openWorkspace is the workspaceOpener for the backend this machine is logged
+// in to.
+func openWorkspace(ctx context.Context, dir string) (projectWorkspace, error) {
+	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+	if err != nil {
+		return nil, err
+	}
+
+	return liveWorkspace{workspace}, nil
+}
+
+// deps are what run reads from outside the process, so a test can stand in
+// for each one.
+type deps struct {
+	requireLogin func(dirs []string) error
+	open         workspaceOpener
+	head         func(ctx context.Context) stackstatus.Commit
+	now          func() time.Time
+	out          io.Writer
+	paint        report.Painter
+}
+
+// liveDeps are the real backend, git and terminal.
+func liveDeps() deps {
+	return deps{
+		requireLogin: pulumilogin.Require,
+		open:         openWorkspace,
+		head:         gitHead,
+		now:          time.Now,
+		out:          os.Stdout,
+		paint:        report.PainterFor(os.Stdout),
+	}
+}
+
+func run(stack string, dirs []string, d deps) error {
 	switch {
 	case stack == "":
 		return errNoStack
@@ -85,14 +155,14 @@ func run(stack string, dirs []string) error {
 		return errNoProjects
 	}
 
-	if err := pulumilogin.Require(dirs); err != nil {
+	if err := d.requireLogin(dirs); err != nil {
 		return err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), statusTimeout)
 	defer cancel()
 
-	header, err := readHeader(ctx, stack, dirs[0])
+	header, err := readHeader(ctx, d, stack, dirs[0])
 	if err != nil {
 		return err
 	}
@@ -104,7 +174,7 @@ func run(stack string, dirs []string) error {
 		result := make(chan reading, 1)
 		pending = append(pending, result)
 
-		go func() { result <- readProject(ctx, dir, stack) }()
+		go func() { result <- readProject(ctx, d.open, dir, stack) }()
 	}
 
 	projects := make([]stackstatus.Project, 0, len(dirs))
@@ -118,19 +188,19 @@ func run(stack string, dirs []string) error {
 		projects = append(projects, read.project)
 	}
 
-	return stackstatus.Render(os.Stdout, header, projects, time.Now(), report.PainterFor(os.Stdout))
+	return stackstatus.Render(d.out, header, projects, d.now(), d.paint)
 }
 
-func readHeader(ctx context.Context, stack, anyProject string) (stackstatus.Header, error) {
+func readHeader(ctx context.Context, d deps, stack, anyProject string) (stackstatus.Header, error) {
 	header := stackstatus.Header{
 		Stack:        stack,
-		Head:         gitHead(ctx),
+		Head:         d.head(ctx),
 		WantContract: clusterref.ContractVersion,
 	}
 
 	// Backend and CLI version are the same for every project, since each
 	// declares the same backend; any workspace answers them.
-	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(anyProject))
+	workspace, err := d.open(ctx, anyProject)
 	if err != nil {
 		return header, fmt.Errorf("open %s as a pulumi workspace: %w", anyProject, err)
 	}
@@ -176,14 +246,14 @@ type reading struct {
 	console     string
 }
 
-func readProject(ctx context.Context, dir, stack string) reading {
+func readProject(ctx context.Context, open workspaceOpener, dir, stack string) reading {
 	read := reading{project: stackstatus.Project{
 		Name:      filepath.Base(dir),
 		Dir:       dir,
 		IsCluster: filepath.Clean(dir) == clusterspec.ClusterDir,
 	}}
 
-	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+	workspace, err := open(ctx, dir)
 	if err != nil {
 		read.project.Err = err
 
@@ -260,7 +330,7 @@ func findStack(summaries []auto.StackSummary, stack string) (*auto.StackSummary,
 // outputs. ExportStack always passes --show-secrets, so secrets arrive
 // decrypted, inside Pulumi's secret envelope; the readers below skip any
 // value that is not a bare string, and this report prints none.
-func readState(ctx context.Context, workspace auto.Workspace, stack string, read *reading) error {
+func readState(ctx context.Context, workspace projectWorkspace, stack string, read *reading) error {
 	untyped, err := workspace.ExportStack(ctx, stack)
 	if err != nil {
 		return fmt.Errorf("export %s: %w", stack, err)
@@ -433,8 +503,8 @@ func clusterOf(read reading, stack string) stackstatus.Cluster {
 // the operator's own selection for this directory. So the selection found
 // before is put back after. With nothing selected before there is nothing to
 // put back, and the CLI has no way to unselect.
-func lastUpdate(ctx context.Context, workspace auto.Workspace, stack, previous string) (*stackstatus.Update, error) {
-	selected, err := auto.SelectStack(ctx, stack, workspace)
+func lastUpdate(ctx context.Context, workspace projectWorkspace, stack, previous string) (*stackstatus.Update, error) {
+	selected, err := workspace.Select(ctx, stack)
 	if err != nil {
 		return nil, fmt.Errorf("select %s: %w", stack, err)
 	}

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/events"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optlist"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optrefresh"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
@@ -51,13 +53,81 @@ func main() {
 
 	flag.Parse()
 
-	if err := run(*stack, flag.Args()); err != nil {
+	if err := run(*stack, flag.Args(), liveDeps()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(stack string, dirs []string) error {
+// projectWorkspace is the part of a Pulumi workspace this report reads.
+type projectWorkspace interface {
+	ListStacks(ctx context.Context, opts ...optlist.Option) ([]auto.StackSummary, error)
+	SelectStack(ctx context.Context, stack string) error
+	// Select is auto.SelectStack: the stack a refresh preview runs on.
+	Select(ctx context.Context, stack string) (refresher, error)
+}
+
+// refresher runs a selected stack's refresh preview, sending its engine
+// events to stream and closing it when done.
+type refresher interface {
+	PreviewRefresh(ctx context.Context, stream chan<- events.EngineEvent) error
+}
+
+// workspaceOpener opens the Pulumi workspace of one project directory.
+type workspaceOpener func(ctx context.Context, dir string) (projectWorkspace, error)
+
+// liveWorkspace is a local workspace with the SDK's stack selection beside it.
+type liveWorkspace struct{ auto.Workspace }
+
+func (w liveWorkspace) Select(ctx context.Context, stack string) (refresher, error) {
+	selected, err := auto.SelectStack(ctx, stack, w.Workspace)
+	if err != nil {
+		return nil, err
+	}
+
+	return liveStack{&selected}, nil
+}
+
+// liveStack is a selected stack of the real backend.
+type liveStack struct{ stack *auto.Stack }
+
+func (s liveStack) PreviewRefresh(ctx context.Context, stream chan<- events.EngineEvent) error {
+	_, err := s.stack.PreviewRefresh(ctx, optrefresh.EventStreams(stream))
+
+	return err
+}
+
+// openWorkspace is the workspaceOpener for the backend this machine is logged
+// in to.
+func openWorkspace(ctx context.Context, dir string) (projectWorkspace, error) {
+	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+	if err != nil {
+		return nil, err
+	}
+
+	return liveWorkspace{workspace}, nil
+}
+
+// deps are what run reads from outside the process, so a test can stand in
+// for each one.
+type deps struct {
+	requireLogin func(dirs []string) error
+	open         workspaceOpener
+	out          io.Writer
+	paint        report.Painter
+}
+
+// liveDeps are the real backend and terminal.
+func liveDeps() deps {
+	return deps{
+		requireLogin: pulumilogin.Require,
+		open:         openWorkspace,
+		out:          os.Stdout,
+		paint:        report.PainterFor(os.Stdout),
+	}
+}
+
+func run(stack string, dirs []string, d deps) error {
 	switch {
 	case stack == "":
 		return errNoStack
@@ -65,7 +135,7 @@ func run(stack string, dirs []string) error {
 		return errNoProjects
 	}
 
-	if err := pulumilogin.Require(dirs); err != nil {
+	if err := d.requireLogin(dirs); err != nil {
 		return err
 	}
 
@@ -79,7 +149,7 @@ func run(stack string, dirs []string) error {
 		result := make(chan stackdrift.Project, 1)
 		pending = append(pending, result)
 
-		go func() { result <- readProject(ctx, dir, stack) }()
+		go func() { result <- readProject(ctx, d.open, dir, stack) }()
 	}
 
 	projects := make([]stackdrift.Project, 0, len(dirs))
@@ -87,7 +157,7 @@ func run(stack string, dirs []string) error {
 		projects = append(projects, <-result)
 	}
 
-	if err := stackdrift.Render(os.Stdout, stack, projects, report.PainterFor(os.Stdout)); err != nil {
+	if err := stackdrift.Render(d.out, stack, projects, d.paint); err != nil {
 		return err
 	}
 
@@ -98,10 +168,10 @@ func run(stack string, dirs []string) error {
 	return nil
 }
 
-func readProject(ctx context.Context, dir, stack string) stackdrift.Project {
+func readProject(ctx context.Context, open workspaceOpener, dir, stack string) stackdrift.Project {
 	project := stackdrift.Project{Name: filepath.Base(dir)}
 
-	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+	workspace, err := open(ctx, dir)
 	if err != nil {
 		project.Err = err
 
@@ -147,8 +217,8 @@ func findStack(summaries []auto.StackSummary, stack string) (found, current stri
 // The SDK builds a Stack only by selecting it — `pulumi stack select`, which
 // rewrites the operator's selection for this directory — so the selection
 // found before is put back after, as tools/stackstatus does.
-func previewRefresh(ctx context.Context, workspace auto.Workspace, stack, previous string) ([]stackdrift.Change, error) {
-	selected, err := auto.SelectStack(ctx, stack, workspace)
+func previewRefresh(ctx context.Context, workspace projectWorkspace, stack, previous string) ([]stackdrift.Change, error) {
+	selected, err := workspace.Select(ctx, stack)
 	if err != nil {
 		return nil, fmt.Errorf("select %s: %w", stack, err)
 	}
@@ -158,7 +228,7 @@ func previewRefresh(ctx context.Context, workspace auto.Workspace, stack, previo
 
 	go func() { collected <- collect(stream) }()
 
-	_, err = selected.PreviewRefresh(ctx, optrefresh.EventStreams(stream))
+	err = selected.PreviewRefresh(ctx, stream)
 
 	// The SDK closes the stream once its log is drained, error or not.
 	changes := <-collected

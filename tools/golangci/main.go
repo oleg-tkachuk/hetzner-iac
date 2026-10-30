@@ -44,40 +44,70 @@ const pinKey = "GOLANGCI_VERSION"
 var reported = regexp.MustCompile(`has version (\S+)`)
 
 func main() {
-	if err := run(context.Background(), os.Args[1:]); err != nil {
+	code, err := run(context.Background(), os.Args[1:], liveDeps())
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+
+	os.Exit(code)
 }
 
-func run(ctx context.Context, args []string) error {
-	root, err := repositoryRoot(ctx)
+// deps are what run reads from outside the process, so a test can stand in
+// for each one.
+type deps struct {
+	root    func(ctx context.Context) (string, error)
+	version func(ctx context.Context, binary string) (string, error)
+	// lint runs the linter in root and returns its exit code.
+	lint func(ctx context.Context, binary, root string, args []string) (int, error)
+}
+
+// liveDeps are the real repository and linter.
+func liveDeps() deps {
+	return deps{root: repositoryRoot, version: version, lint: lint}
+}
+
+// run is the linter's own exit code, so a finding stays a finding rather than
+// becoming "the wrapper failed".
+func run(ctx context.Context, args []string, d deps) (int, error) {
+	root, err := d.root(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	pinned, err := pin(filepath.Join(root, workflow))
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	binary, err := resolve(root)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	installed, err := version(ctx, binary)
+	installed, err := d.version(ctx, binary)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if installed != pinned {
-		return fmt.Errorf("%s is %s and CI pins %s: a different linter reports different "+
+		return 0, fmt.Errorf("%s is %s and CI pins %s: a different linter reports different "+
 			"findings, which is a red local run against a green pull request.\n"+
 			"`task -t Taskfile.dev.yaml lint:install` writes the pinned one into %s, which this prefers over PATH",
 			binary, installed, pinned, LocalBinary)
 	}
 
+	code, err := d.lint(ctx, binary, root, args)
+	if err != nil {
+		return 0, fmt.Errorf("run %s: %w", binary, err)
+	}
+
+	return code, nil
+}
+
+// lint runs the linter with the operator's own arguments, and returns the
+// code it exited with.
+func lint(ctx context.Context, binary, root string, args []string) (int, error) {
 	// Exec rather than capture: golangci-lint colours its own output and
 	// reports progress, and a wrapper that buffers both makes a slow run look
 	// like a hung one.
@@ -88,18 +118,14 @@ func run(ctx context.Context, args []string) error {
 	linter.Stdin, linter.Stdout, linter.Stderr = os.Stdin, os.Stdout, os.Stderr
 	linter.Dir = root
 
-	if runErr := linter.Run(); runErr != nil {
-		var exit *exec.ExitError
-		if errors.As(runErr, &exit) {
-			// The linter's own exit code, so a finding stays a finding rather
-			// than becoming "the wrapper failed".
-			os.Exit(exit.ExitCode())
-		}
+	runErr := linter.Run()
 
-		return fmt.Errorf("run %s: %w", binary, runErr)
+	var exit *exec.ExitError
+	if errors.As(runErr, &exit) {
+		return exit.ExitCode(), nil
 	}
 
-	return nil
+	return 0, runErr
 }
 
 // repositoryRoot is where the pin and bin/ are, whichever directory this was

@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -37,7 +38,7 @@ import (
 )
 
 func main() {
-	if err := run(context.Background(), os.Args[1:]); err != nil {
+	if err := run(context.Background(), os.Args[1:], liveDeps()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -153,45 +154,45 @@ func (f Finding) String() string {
 		f.Block.Taskfile, f.Line, f.Column, task, f.Code, f.Level, f.Message)
 }
 
-func run(ctx context.Context, args []string) error {
+// deps are what run reads from outside the process, so a test can stand in
+// for each one.
+type deps struct {
+	root  func(ctx context.Context) (string, error)
+	check func(ctx context.Context, files []Taskfile) ([]Finding, error)
+	out   io.Writer
+}
+
+// liveDeps are the real repository, shellcheck and terminal.
+func liveDeps() deps {
+	return deps{root: repositoryRoot, check: check, out: os.Stdout}
+}
+
+func run(ctx context.Context, args []string, d deps) error {
 	if len(args) != 0 {
 		return errors.New("usage: taskshell (no arguments; it reads the taskfiles this repository has)")
 	}
 
-	root, err := repositoryRoot(ctx)
+	root, err := d.root(ctx)
 	if err != nil {
 		return err
 	}
 
-	files := make([]Taskfile, 0, len(Paths))
-	blocks := 0
-
-	for _, path := range Paths {
-		raw, readErr := os.ReadFile(filepath.Join(root, path)) // #nosec G304 -- a path from Paths, a constant in this file
-		if readErr != nil {
-			return fmt.Errorf("read %s: %w", path, readErr)
-		}
-
-		parsed, parseErr := Parse(path, raw)
-		if parseErr != nil {
-			return parseErr
-		}
-
-		files = append(files, parsed)
-		blocks += len(parsed.Blocks)
+	files, blocks, err := readTaskfiles(root)
+	if err != nil {
+		return err
 	}
 
 	if blocks == 0 {
 		return errors.New("no shell found in any taskfile, so this checked nothing")
 	}
 
-	findings, err := check(ctx, files)
+	findings, err := d.check(ctx, files)
 	if err != nil {
 		return err
 	}
 
 	for _, finding := range findings {
-		fmt.Println(finding)
+		fmt.Fprintln(d.out, finding)
 	}
 
 	if len(findings) > 0 {
@@ -199,9 +200,33 @@ func run(ctx context.Context, args []string) error {
 			len(findings), blocks, len(Paths))
 	}
 
-	fmt.Printf("%d shell blocks in %d taskfiles, no shellcheck findings\n", blocks, len(Paths))
+	fmt.Fprintf(d.out, "%d shell blocks in %d taskfiles, no shellcheck findings\n", blocks, len(Paths))
 
 	return nil
+}
+
+// readTaskfiles parses every taskfile in Paths under root, and counts their
+// shell blocks.
+func readTaskfiles(root string) ([]Taskfile, int, error) {
+	files := make([]Taskfile, 0, len(Paths))
+	blocks := 0
+
+	for _, path := range Paths {
+		raw, readErr := os.ReadFile(filepath.Join(root, path)) // #nosec G304 -- a path from Paths, a constant in this file
+		if readErr != nil {
+			return nil, 0, fmt.Errorf("read %s: %w", path, readErr)
+		}
+
+		parsed, parseErr := Parse(path, raw)
+		if parseErr != nil {
+			return nil, 0, parseErr
+		}
+
+		files = append(files, parsed)
+		blocks += len(parsed.Blocks)
+	}
+
+	return files, blocks, nil
 }
 
 // Parse reads one taskfile's variables and shell.
