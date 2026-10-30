@@ -94,7 +94,13 @@ func Source(chart string) (string, error) {
 // pinned, because an unsigned image's digest is held in one place — the image
 // inventory the admission policies are generated from — and a values file
 // that wrote it again would be a second copy free to disagree.
+//
+// hcloudSecret, because the Secret's name and keys are a contract with
+// layers/10-node-platform, which creates it from the same constants.
 var helpers = template.FuncMap{
+	"hcloudSecret": func() HcloudSecretRef {
+		return HcloudSecretRef{Name: HcloudSecret, Token: HcloudSecretToken, Network: HcloudSecretNetwork}
+	},
 	"pinned": func(repository string) (imagepolicy.Pin, error) {
 		inventory, err := imagepolicy.Load()
 		if err != nil {

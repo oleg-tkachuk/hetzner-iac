@@ -9,6 +9,7 @@ package main
 import (
 	"strconv"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/cni"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/layer"
@@ -58,11 +59,11 @@ func createCredentials(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.
 		// plans to replace the Secret, every time, for ever. This apply is the
 		// last one that replaces it.
 		Data: pulumi.StringMap{
-			"token": layer.Base64Of(r.HcloudToken()),
+			charts.HcloudSecretToken: layer.Base64Of(r.HcloudToken()),
 			// The route controller programmes pod routes inside this network.
 			// Without it the CCM starts and silently manages no routes, which
 			// surfaces as pods unable to reach pods on other nodes.
-			"network": layer.Base64Of(pulumix.Cast[pulumi.StringOutput](pulumix.Apply(r.Cluster.NetworkID, strconv.Itoa))),
+			charts.HcloudSecretNetwork: layer.Base64Of(pulumix.Cast[pulumi.StringOutput](pulumix.Apply(r.Cluster.NetworkID, strconv.Itoa))),
 		},
 	}, r.With(layer.DependsOn(dependencies)...)...)
 }

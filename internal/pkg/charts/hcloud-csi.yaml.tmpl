@@ -71,6 +71,14 @@ controller:
   # and its test use.
   hcloudVolumeDefaultLocation: {{ .Location }}
 
+  # Named rather than left to the chart's default, which matches today: the
+  # Secret is layers/10-node-platform's, and a default that moved would leave
+  # the controller unable to read its token with nothing said here.
+  hcloudToken:
+    existingSecret:
+      name: {{ (hcloudSecret).Name }}
+      key: {{ (hcloudSecret).Token }}
+
   resources:
     hcloudCSIDriver:
       requests:

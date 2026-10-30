@@ -106,6 +106,6 @@ func CSIData(location pulumi.StringInput) pulumi.Output {
 // CCMData resolves what the cloud-controller-manager template needs.
 func CCMData(podCIDR pulumi.StringInput) pulumi.Output {
 	return podCIDR.ToStringOutput().ApplyT(func(cidr string) any {
-		return charts.CCMValues{PodCIDR: cidr, SecretName: CredentialsSecret}
+		return charts.CCMValues{PodCIDR: cidr}
 	})
 }
