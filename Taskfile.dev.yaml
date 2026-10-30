@@ -326,6 +326,16 @@ tasks:
           lychee --offline --include-fragments=full --include-mail=false --no-progress \
             '**/*.md' '.github/**/*.md'
 
+  docs:check:
+    desc: "Do the tests that read the documentation and .gitignore pass? — the gates a prose-only pull request still runs"
+    cmds:
+      # Their own package, so CI can run them on a pull request whose every
+      # other Go gate is skipped as inert. go:test runs them too, through ./...
+      - cmd: |
+          set -euo pipefail
+          cd "{{.ROOT}}"
+          go test ./internal/ci/docs/
+
   fmt-check:
     desc: "Fail if any Go file is not gofmt-clean"
     # The library's gate rather than eight lines of `gofmt -l` here. It

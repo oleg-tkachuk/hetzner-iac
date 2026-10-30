@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +45,7 @@ func TestDiscardedErrors_SayWhy(t *testing.T) {
 
 	// Tracked files only: vendored, generated and build output never is, and
 	// what git ignores is not code this repository ships.
-	for _, name := range tracked(t, root) {
+	for _, name := range citest.Tracked(t, root) {
 		// Tests discard freely and legibly — a t.TempDir cleanup needs no
 		// paragraph — and holding them to this would turn the gate into noise.
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {

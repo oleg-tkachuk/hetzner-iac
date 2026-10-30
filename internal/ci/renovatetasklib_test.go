@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -163,7 +164,7 @@ func repoFixture(t *testing.T) string {
 	cache := filepath.Join(dir, remoteCache)
 	require.NoError(t, os.MkdirAll(cache, 0o700))
 
-	for _, name := range []string{"Taskfile.yaml", devTaskfile} {
+	for _, name := range []string{"Taskfile.yaml", citest.DevTaskfile} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), nil, 0o600))
 	}
 

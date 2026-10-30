@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +49,7 @@ func TestNoAppendOntoASharedOptionSlice(t *testing.T) {
 	// Tracked files only: an ignored build cache or scratch file is not code
 	// this repository ships, and reading it made the gate's answer depend on
 	// what happened to be lying in the working directory.
-	for _, name := range tracked(t, root) {
+	for _, name := range citest.Tracked(t, root) {
 		if filepath.Ext(name) != ".go" {
 			continue
 		}

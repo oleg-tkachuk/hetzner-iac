@@ -1,4 +1,4 @@
-package ci
+package docs
 
 import (
 	"os"
@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ var documentedTrees = []string{"tools", "internal"}
 func TestEveryToolDocumentsItself(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	var checked int
 
@@ -99,11 +100,11 @@ var namedFile = regexp.MustCompile("`([A-Za-z0-9_.-]+\\.(?:go|awk|yaml|yml|json|
 func TestREADMEs_NameFilesThatExist(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	var checked int
 
-	for _, name := range tracked(t, root) {
+	for _, name := range citest.Tracked(t, root) {
 		if filepath.Base(name) != "README.md" {
 			continue
 		}
@@ -171,7 +172,7 @@ var docsLink = regexp.MustCompile(`\]\(([^)]+)\)`)
 func TestToolsIndex_ListsEveryTool(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	index, err := os.ReadFile(filepath.Join(root, "tools", "README.md"))
 	require.NoError(t, err)
@@ -217,7 +218,7 @@ func TestToolsIndex_ListsEveryTool(t *testing.T) {
 func TestDocsIndex_ListsEveryDocument(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	listed, err := exec.CommandContext(t.Context(), "git", "-C", root, "ls-files", "docs").Output()
 	require.NoError(t, err)

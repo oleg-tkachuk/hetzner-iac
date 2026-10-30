@@ -1,14 +1,14 @@
-package ci
+package docs
 
 import (
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,21 +24,6 @@ import (
 // to say which.
 //
 // Both were written for going public, and both found something.
-
-// tracked is every file git knows about, which is what "published" means.
-//
-// Read from git rather than walked from disk on purpose: the gitignored files
-// are the ones holding an operator's real values — the topology with their
-// admin CIDR, the stack config with their token — and a sweep that read those
-// would refuse the very files that are allowed to hold them.
-func tracked(t *testing.T, root string) []string {
-	t.Helper()
-
-	listed, err := exec.CommandContext(t.Context(), "git", "-C", root, "ls-files").Output()
-	require.NoError(t, err)
-
-	return strings.Split(strings.TrimSpace(string(listed)), "\n")
-}
 
 // dottedQuad matches an IPv4 address, and not the middle of a longer one: a
 // version like 1.2.3.4.5 or a chart's 2.23.0 must not be read as an address.
@@ -84,7 +69,7 @@ var publicAddressesWithAReason = map[string]string{
 func TestTrackedFiles_NameNoRealAddressOfTheirOwn(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	var documentation []*net.IPNet
 
@@ -99,8 +84,8 @@ func TestTrackedFiles_NameNoRealAddressOfTheirOwn(t *testing.T) {
 
 	used := map[string]bool{}
 
-	for _, name := range tracked(t, root) {
-		if name == "" || name == filepath.Join("internal", "ci", "identifiers_test.go") {
+	for _, name := range citest.Tracked(t, root) {
+		if name == "" || name == filepath.Join("internal", "ci", "docs", "identifiers_test.go") {
 			continue
 		}
 
@@ -220,12 +205,12 @@ const reservedLabel = "example"
 func TestTrackedFiles_NameNoDomainOfTheirOwn(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	var domains, emails int
 
-	for _, name := range tracked(t, root) {
-		if name == "" || name == filepath.Join("internal", "ci", "identifiers_test.go") {
+	for _, name := range citest.Tracked(t, root) {
+		if name == "" || name == filepath.Join("internal", "ci", "docs", "identifiers_test.go") {
 			continue
 		}
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,11 +22,11 @@ const goGetTool = "go get tool"
 func devTasks(t *testing.T) map[string]string {
 	t.Helper()
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", devTaskfile))
+	raw, err := os.ReadFile(filepath.Join("..", "..", citest.DevTaskfile))
 	require.NoError(t, err)
 
 	tasks := tasksIn(string(raw))
-	require.NotEmpty(t, tasks, "%s declares no tasks", devTaskfile)
+	require.NotEmpty(t, tasks, "%s declares no tasks", citest.DevTaskfile)
 
 	for name, body := range tasks {
 		tasks[name] = withoutComments(body)
@@ -55,7 +56,7 @@ func TestDevTaskfile_DependencyTasks(t *testing.T) {
 			t.Parallel()
 
 			body, found := tasks[tt.task]
-			require.True(t, found, "%s has no `%s` task", devTaskfile, tt.task)
+			require.True(t, found, "%s has no `%s` task", citest.DevTaskfile, tt.task)
 
 			for _, want := range tt.runs {
 				assert.Contains(t, body, want, "`%s` no longer runs %q", tt.task, want)

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,7 +69,7 @@ func TestTasks_ThatNeedAStackSaySoWhenItIsMissing(t *testing.T) {
 
 	var checked int
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -125,7 +126,7 @@ func TestDependencies_NameTheTaskThatWasRun(t *testing.T) {
 
 	var checked int
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -223,9 +224,6 @@ func needsStack(body string) bool {
 // layerEnum matches the anchor that feeds every per-layer task's enum.
 var layerEnum = regexp.MustCompile(`x-layers: &layers \[([^\]]+)\]`)
 
-// layerList matches the whitespace-separated list the apply loop walks.
-var layerList = regexp.MustCompile(`(?s)LAYERS: >-\n((?:    [^\n]+\n)+)`)
-
 // TestLayerEnum_MatchesTheLayerList holds the two forms of the layer list
 // equal.
 //
@@ -249,7 +247,7 @@ func TestLayerEnum_MatchesTheLayerList(t *testing.T) {
 	enum := layerEnum.FindStringSubmatch(string(platform))
 	require.NotNil(t, enum, "no x-layers anchor: the per-layer tasks have nothing to validate against")
 
-	list := layerList.FindStringSubmatch(string(rootfile))
+	list := citest.LayerList.FindStringSubmatch(string(rootfile))
 	require.NotNil(t, list, "no LAYERS list in the root taskfile")
 
 	// `all` is the selector, not a layer, and it is in the enum so that
@@ -316,7 +314,7 @@ func TestPolicyAnchors_MatchTheRootLists(t *testing.T) {
 	policy, err := os.ReadFile(filepath.Join(root, "tasks", "policy.task.yaml"))
 	require.NoError(t, err)
 
-	layers := layerList.FindStringSubmatch(string(rootfile))
+	layers := citest.LayerList.FindStringSubmatch(string(rootfile))
 	require.NotNil(t, layers, "no LAYERS list in the root taskfile")
 
 	tiers := tierList.FindStringSubmatch(string(rootfile))
@@ -430,7 +428,7 @@ func TestTasks_ThatChangeInfrastructureAskFirst(t *testing.T) {
 
 	var checked int
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -532,7 +530,7 @@ func TestTasks_DoNotDemandAStackTheyIgnore(t *testing.T) {
 
 	var checked int
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -605,7 +603,7 @@ func TestUsage_NamesEveryArgumentTheTaskRequires(t *testing.T) {
 
 	messages := map[string]string{}
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -618,7 +616,7 @@ func TestUsage_NamesEveryArgumentTheTaskRequires(t *testing.T) {
 
 	var checked int
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -663,7 +661,7 @@ func TestUsage_NamesALayerThatExists(t *testing.T) {
 		enums    [][]string
 	)
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -724,7 +722,7 @@ func TestTierTasks_RefuseATargetTheyCannotHonour(t *testing.T) {
 
 	var checked int
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		if !slices.Contains(tierTaskfiles, filepath.Base(path)) {
 			continue
 		}
@@ -769,7 +767,7 @@ func TestTaskLoops_DoNotIterateOverACommandSubstitution(t *testing.T) {
 		scanned  int
 	)
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 

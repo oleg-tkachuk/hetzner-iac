@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 )
 
@@ -88,7 +89,7 @@ func TestChartsPackage_StaysALeaf(t *testing.T) {
 	require.NotEmpty(t, reached, "no imports were read, so this proved nothing")
 
 	for imported := range reached {
-		assert.False(t, strings.HasPrefix(imported, pulumiPrefix),
+		assert.False(t, strings.HasPrefix(imported, citest.PulumiPrefix),
 			"%s reaches %s. Every gate and every tool that names a chart now links Pulumi's "+
 				"SDK, and a chart declaration is not the place to pay for that",
 			chartsPackage, imported)
