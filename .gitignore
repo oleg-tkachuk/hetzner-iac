@@ -9,6 +9,12 @@
 # lands here and the repository root stays clean.
 bin/
 
+# Reports of the crapper, dryer and mutator quality tools, which write them
+# into the directory they run in. They describe one run of one tree and were
+# once committed by accident.
+/.metrics/
+/target/
+
 # A bare `go build ./...` still names each binary after its main package and
 # leaves it in the working directory, where those names collide with the
 # tools/, layers/ and infra/ directory names. The pre-commit forbid-binaries
