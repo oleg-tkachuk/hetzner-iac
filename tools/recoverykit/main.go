@@ -39,7 +39,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilogin"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/secretout"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/talossecrets"
@@ -54,8 +57,9 @@ var stackName = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9._-]*$`)
 // pattern cannot drift into disagreeing about what is allowed.
 const stackNameExtra = "hyphens, underscores and periods, and not a leading period"
 
-// timeout covers up to three Pulumi reads, two of them decrypting through the
-// backend.
+// timeout covers every Pulumi read this makes: the cluster tier's export, the
+// backup tier's outputs — which the automation API reads twice, once with
+// secrets — and, when those fail, its stack listing.
 const timeout = 120 * time.Second
 
 // BackupDir is the layer whose outputs hold the backup credentials. Every
@@ -68,7 +72,7 @@ const BackupDir = "infra/backup"
 const TopologyDir = clusterspec.ClusterDir
 
 func main() {
-	if err := run(context.Background(), pulumiCLI{}, os.Stdout, os.Args[1:], secretout.IsTerminal()); err != nil {
+	if err := run(context.Background(), pulumiWorkspace{}, os.Stdout, os.Args[1:], secretout.IsTerminal()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -86,40 +90,132 @@ type pulumiReader interface {
 	Stacks(ctx context.Context, dir string) ([]string, error)
 }
 
-// pulumiCLI reads through the pulumi binary.
-type pulumiCLI struct{}
+// pulumiWorkspace reads through Pulumi's automation API, one local workspace
+// per project directory.
+type pulumiWorkspace struct{}
 
-func (pulumiCLI) Bundle(ctx context.Context, stack string) ([]byte, error) {
-	return talossecrets.Bundle(ctx, stack)
+// open is the project in dir as a workspace, after refusing a backend this
+// machine holds no credential for. Checked here, at the first read, rather
+// than in main: a terminal is refused before anything touches Pulumi.
+func (pulumiWorkspace) open(ctx context.Context, dir string) (auto.Workspace, error) {
+	if err := pulumilogin.Require([]string{dir}); err != nil {
+		return nil, err
+	}
+
+	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+	if err != nil {
+		return nil, fmt.Errorf("open %s as a pulumi workspace: %w", dir, err)
+	}
+
+	return workspace, nil
 }
 
-func (pulumiCLI) Outputs(ctx context.Context, dir, stack string) ([]byte, error) {
-	return pulumiJSON(ctx, dir, "--stack", stack, "stack", "output", "--json", "--show-secrets")
-}
-
-// listedStack is the part of `pulumi stack ls --json` this reads — the field
-// the automation API's StackSummary decodes as `name`.
-type listedStack struct {
-	Name string `json:"name"`
-}
-
-func (pulumiCLI) Stacks(ctx context.Context, dir string) ([]string, error) {
-	raw, err := pulumiJSON(ctx, dir, "stack", "ls", "--json")
+func (p pulumiWorkspace) Bundle(ctx context.Context, stack string) ([]byte, error) {
+	workspace, err := p.open(ctx, TopologyDir)
 	if err != nil {
 		return nil, err
 	}
 
-	var listed []listedStack
-	if err := json.Unmarshal(raw, &listed); err != nil {
-		return nil, fmt.Errorf("pulumi stack ls in %s returned no usable json: %w", dir, err)
+	// ExportStack always passes --show-secrets: without it the bundle would
+	// be the ciphertext only this backend can read.
+	exported, err := workspace.ExportStack(ctx, stack)
+	if err != nil {
+		return nil, fmt.Errorf("export %s in %s: %w", stack, TopologyDir, withoutCapturedOutput(err))
 	}
 
-	names := make([]string, 0, len(listed))
-	for _, stack := range listed {
-		names = append(names, stack.Name)
+	raw, err := json.Marshal(exported)
+	if err != nil {
+		return nil, fmt.Errorf("re-encode the export of %s: %w", stack, err)
 	}
 
-	return names, nil
+	return talossecrets.BundleFrom(raw, stack)
+}
+
+func (p pulumiWorkspace) Outputs(ctx context.Context, dir, stack string) ([]byte, error) {
+	workspace, err := p.open(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+
+	outputs, err := workspace.StackOutputs(ctx, stack)
+	if err != nil {
+		return nil, fmt.Errorf("outputs of %s in %s: %w", stack, dir, withoutCapturedOutput(err))
+	}
+
+	return outputsJSON(outputs)
+}
+
+func (p pulumiWorkspace) Stacks(ctx context.Context, dir string) ([]string, error) {
+	workspace, err := p.open(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries, err := workspace.ListStacks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list stacks in %s: %w", dir, err)
+	}
+
+	return stackNames(summaries), nil
+}
+
+// stackNames is a listing reduced to the names, as the backend spells them:
+// `acme/dev` stays qualified, and stackstatus.SameStack matches it to `dev`.
+func stackNames(summaries []auto.StackSummary) []string {
+	names := make([]string, 0, len(summaries))
+	for _, summary := range summaries {
+		names = append(names, summary.Name)
+	}
+
+	return names
+}
+
+// outputsIndent is the indentation `pulumi stack output --json` prints with,
+// kept so the stored kit reads as it did when this called the CLI.
+const outputsIndent = "  "
+
+// outputsJSON is every output's value as one JSON object, the document
+// `pulumi stack output --json --show-secrets` prints.
+//
+// Secret outputs arrive already decrypted: the automation API reads them with
+// --show-secrets and keeps only a flag saying they were secret, which is
+// dropped here — the kit exists to hold the plaintext.
+func outputsJSON(outputs auto.OutputMap) ([]byte, error) {
+	values := make(map[string]any, len(outputs))
+	for key, output := range outputs {
+		values[key] = output.Value
+	}
+
+	var out bytes.Buffer
+
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", outputsIndent)
+
+	if err := encoder.Encode(values); err != nil {
+		return nil, fmt.Errorf("encode the backup tier outputs: %w", err)
+	}
+
+	return out.Bytes(), nil
+}
+
+// withoutCapturedOutput keeps a decrypted read off stderr.
+//
+// The automation API's error carries the command's whole stdout. For a
+// command that failed that is empty — the CLI prints its JSON only once the
+// read succeeded — and the stderr beside it is the diagnosis worth keeping.
+// For one that succeeded and could not be decoded, it is the decrypted export
+// or the plaintext outputs, so only the SDK's own message is kept.
+func withoutCapturedOutput(err error) error {
+	if exited, ok := errors.AsType[*exec.ExitError](err); ok && exited != nil {
+		return err
+	}
+
+	if inner := errors.Unwrap(err); inner != nil {
+		return inner
+	}
+
+	return err
 }
 
 func run(ctx context.Context, pulumi pulumiReader, out io.Writer, args []string, terminal bool) error {
@@ -200,7 +296,7 @@ func backupOutputs(ctx context.Context, pulumi pulumiReader, stack string) (outp
 	if readErr == nil {
 		var decoded map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &decoded); err != nil {
-			return nil, "", fmt.Errorf("pulumi stack output in %s returned no usable json: %w", BackupDir, err)
+			return nil, "", fmt.Errorf("the outputs of %s in %s are not usable json: %w", stack, BackupDir, err)
 		}
 
 		if len(decoded) == 0 {
@@ -223,40 +319,6 @@ func backupOutputs(ctx context.Context, pulumi pulumiReader, stack string) (outp
 	}
 
 	return nil, "no stack " + stack + " in " + BackupDir + ": the layer was never applied", nil
-}
-
-// pulumiJSON runs one pulumi command in dir and returns its JSON.
-//
-// The CLI as an argument vector and its JSON, rather than the automation API:
-// this is the same call tasks/cluster.task.yaml already makes for the upload
-// task, and `--show-secrets` on `stack output` is the documented way to get
-// the generated passwords out. Nothing is interpolated into a shell.
-func pulumiJSON(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	// #nosec G204,G702 -- the arguments are literals from this file plus a
-	// stack name, passed as a VECTOR: there is no shell to interpret any of
-	// it, so a name carrying shell metacharacters reaches pulumi as one
-	// argument and is rejected there. Both codes are needed — G702's taint
-	// analysis reports this separately from G204, which is how the pinned
-	// linter caught a G204-only directive here.
-	cmd := exec.CommandContext(ctx, "pulumi", append([]string{"--non-interactive", "--cwd", dir}, args...)...)
-
-	var stderr bytes.Buffer
-
-	cmd.Stderr = &stderr
-
-	out, err := cmd.Output()
-	if err != nil {
-		command := strings.Join(args, " ")
-
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			return nil, fmt.Errorf("pulumi %s in %s: %w", command, dir, err)
-		}
-
-		return nil, fmt.Errorf("pulumi %s in %s: %w\n%s", command, dir, err, message)
-	}
-
-	return out, nil
 }
 
 // Kit is what a recovery needs from Pulumi's state, and what could not be

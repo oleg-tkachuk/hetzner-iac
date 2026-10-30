@@ -31,6 +31,7 @@ written — is named in the document rather than left out, so the reader does
 not believe snapshots are recoverable when they are not. A part that exists
 and could not be read — a timeout, an expired login — fails the command.
 
-Needs `pulumi` in PATH, logged in to the stack's backend.
+Reads Pulumi through its automation API: needs `pulumi` in PATH, and refuses
+a backend it is not logged in to.
 
 Run by `task cluster:recovery-kit`.

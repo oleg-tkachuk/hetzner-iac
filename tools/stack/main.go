@@ -12,21 +12,21 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
+	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/pulumilogin"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/stackstatus"
 )
 
@@ -48,39 +48,8 @@ func run(ctx context.Context, args []string) error {
 	return list(ctx, args[1], os.Stdout)
 }
 
-// stackRow is the part of `pulumi stack ls --json` this needs.
-type stackRow struct {
-	Name       string `json:"name"`
-	LastUpdate string `json:"lastUpdate"`
-	Resources  int    `json:"resourceCount"`
-}
-
-// pulumi runs the CLI in dir, returning stdout and folding stderr into the
-// error so the CLI's own diagnosis reaches the operator.
-func pulumi(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	// #nosec G204,G702 -- args are literals from this file plus a stack name
-	// from the Taskfile, and CommandContext takes an argument vector: there is
-	// no shell to interpret any of it. The taint analysis cannot see that the
-	// vector form is the mitigation.
-	cmd := exec.CommandContext(ctx, "pulumi", append([]string{"--non-interactive"}, args...)...)
-	cmd.Dir = dir
-
-	var stderr bytes.Buffer
-
-	cmd.Stderr = &stderr
-
-	out, err := cmd.Output()
-	if err != nil {
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			return nil, fmt.Errorf("pulumi %s: %w", strings.Join(args, " "), err)
-		}
-
-		return nil, fmt.Errorf("pulumi %s: %w\n%s", strings.Join(args, " "), err, message)
-	}
-
-	return out, nil
-}
+// listTimeout bounds the one backend read: listing the project's stacks.
+const listTimeout = time.Minute
 
 // Environment is one stack of the cluster tier and what is known about it
 // from two independent places: the Pulumi backend, and the committed topology
@@ -123,7 +92,7 @@ const missing = "-"
 // list prints every environment the cluster tier has, from the backend and
 // from the committed topologies at once.
 func list(ctx context.Context, dir string, out io.Writer) error {
-	listing, err := pulumi(ctx, dir, "stack", "ls", "--json")
+	listing, err := stacks(ctx, dir)
 	if err != nil {
 		return err
 	}
@@ -133,14 +102,32 @@ func list(ctx context.Context, dir string, out io.Writer) error {
 		return err
 	}
 
-	environments, err := merge(listing, files)
-	if err != nil {
-		return err
-	}
-
-	_, err = io.WriteString(out, table(environments))
+	_, err = io.WriteString(out, table(merge(listing, files)))
 
 	return err
+}
+
+// stacks lists the project's stacks in dir through the automation API, after
+// refusing a backend this machine holds no credential for.
+func stacks(ctx context.Context, dir string) ([]auto.StackSummary, error) {
+	if err := pulumilogin.Require([]string{dir}); err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, listTimeout)
+	defer cancel()
+
+	workspace, err := auto.NewLocalWorkspace(ctx, auto.WorkDir(dir))
+	if err != nil {
+		return nil, fmt.Errorf("open %s as a pulumi workspace: %w", dir, err)
+	}
+
+	summaries, err := workspace.ListStacks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list stacks in %s: %w", dir, err)
+	}
+
+	return summaries, nil
 }
 
 // topologies loads every committed topology in dir, keyed by the stack its
@@ -171,20 +158,15 @@ func topologies(dir string) (map[string]topologyFile, error) {
 
 // merge is the union of the two sources, sorted by name, separated from both
 // so it can be tested without a Pulumi backend or a filesystem.
-func merge(listing []byte, files map[string]topologyFile) ([]Environment, error) {
-	var rows []stackRow
-	if err := json.Unmarshal(listing, &rows); err != nil {
-		return nil, fmt.Errorf("pulumi stack ls returned no usable json: %w", err)
-	}
-
+func merge(listing []auto.StackSummary, files map[string]topologyFile) []Environment {
 	found := map[string]*Environment{}
 
-	for _, row := range rows {
-		found[row.Name] = &Environment{
-			Name:      row.Name,
+	for _, summary := range listing {
+		found[summary.Name] = &Environment{
+			Name:      summary.Name,
 			InBackend: true,
-			Updated:   row.LastUpdate,
-			Resources: row.Resources,
+			Updated:   summary.LastUpdate,
+			Resources: resourceCount(summary),
 		}
 	}
 
@@ -217,7 +199,17 @@ func merge(listing []byte, files map[string]topologyFile) ([]Environment, error)
 		environments = append(environments, *found[name])
 	}
 
-	return environments, nil
+	return environments
+}
+
+// resourceCount is the listing's count, or zero where the backend leaves it
+// out — a stack that has never been updated, which holds none.
+func resourceCount(summary auto.StackSummary) int {
+	if summary.ResourceCount == nil {
+		return 0
+	}
+
+	return *summary.ResourceCount
 }
 
 // listedAs finds the listed stack a topology's name refers to. Pulumi Cloud

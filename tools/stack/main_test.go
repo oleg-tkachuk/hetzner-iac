@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -58,6 +59,10 @@ workerPools:
     count: 2
 `
 
+// counted is a listing's resource count, which the SDK leaves nil when the
+// backend sends none.
+func counted(n int) *int { return &n }
+
 func loaded(t *testing.T, raw string) topologyFile {
 	t.Helper()
 
@@ -78,17 +83,16 @@ func loaded(t *testing.T, raw string) topologyFile {
 func TestMerge_IsTheUnionOfBothSources(t *testing.T) {
 	t.Parallel()
 
-	listing := []byte(`[
-	  {"name": "dev", "lastUpdate": "2026-09-15T13:42:52.000Z", "resourceCount": 24},
-	  {"name": "orphan", "resourceCount": 0}
-	]`)
+	listing := []auto.StackSummary{
+		{Name: "dev", LastUpdate: "2026-09-15T13:42:52.000Z", ResourceCount: counted(24)},
+		{Name: "orphan", ResourceCount: counted(0)},
+	}
 
-	environments, err := merge(listing, map[string]topologyFile{
+	environments := merge(listing, map[string]topologyFile{
 		"dev":     loaded(t, sparse),
 		"planned": loaded(t, armWithAPool),
 		"broken":  {Err: assert.AnError},
 	})
-	require.NoError(t, err)
 
 	names := make([]string, 0, len(environments))
 	for _, environment := range environments {
@@ -124,10 +128,12 @@ func TestMerge_IsTheUnionOfBothSources(t *testing.T) {
 func TestMerge_MatchesAStackTheBackendQualifiesByOrganisation(t *testing.T) {
 	t.Parallel()
 
-	listing := []byte(`[{"name": "acme/dev", "resourceCount": 24}, {"name": "acme/predev", "resourceCount": 3}]`)
+	listing := []auto.StackSummary{
+		{Name: "acme/dev", ResourceCount: counted(24)},
+		{Name: "acme/predev", ResourceCount: counted(3)},
+	}
 
-	environments, err := merge(listing, map[string]topologyFile{"dev": loaded(t, sparse)})
-	require.NoError(t, err)
+	environments := merge(listing, map[string]topologyFile{"dev": loaded(t, sparse)})
 
 	byName := map[string]Environment{}
 	for _, environment := range environments {
@@ -141,13 +147,18 @@ func TestMerge_MatchesAStackTheBackendQualifiesByOrganisation(t *testing.T) {
 		"a stack whose name merely ends in the same letters is another stack")
 }
 
-func TestMerge_UnparseableListingIsAnError(t *testing.T) {
+// TestMerge_AStackWithNoCountHoldsNone is a stack created and never updated:
+// the backend sends no resource count, the SDK leaves it nil, and the row says
+// zero rather than failing or dropping the stack.
+func TestMerge_AStackWithNoCountHoldsNone(t *testing.T) {
 	t.Parallel()
 
-	_, err := merge([]byte("not json"), nil)
+	environments := merge([]auto.StackSummary{{Name: "fresh"}}, nil)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no usable json")
+	require.Len(t, environments, 1)
+	assert.True(t, environments[0].InBackend)
+	assert.Equal(t, 0, environments[0].Resources)
+	assert.Equal(t, "missing", state(environments[0]))
 }
 
 // TestTable_LeavesNoCellBlank pins the marker rather than the widths: a blank
@@ -156,9 +167,8 @@ func TestMerge_UnparseableListingIsAnError(t *testing.T) {
 func TestTable_LeavesNoCellBlank(t *testing.T) {
 	t.Parallel()
 
-	environments, err := merge([]byte(`[{"name": "orphan", "resourceCount": 0}]`),
+	environments := merge([]auto.StackSummary{{Name: "orphan", ResourceCount: counted(0)}},
 		map[string]topologyFile{"planned": loaded(t, armWithAPool)})
-	require.NoError(t, err)
 
 	rendered := table(environments)
 	lines := strings.Split(strings.TrimSpace(rendered), "\n")
