@@ -1,0 +1,74 @@
+{
+  "servers": [
+    {
+      "id": 302,
+      "name": "platform-dev-control-plane-2",
+      "labels": {
+        "cluster": "platform-dev",
+        "role": "control-plane"
+      },
+      "status": "running",
+      "public_net": {
+        "ipv4": {
+          "id": 402,
+          "ip": "203.0.113.12",
+          "blocked": false,
+          "dns_ptr": ""
+        },
+        "ipv6": null,
+        "floating_ips": [],
+        "firewalls": []
+      }
+    },
+    {
+      "id": 300,
+      "name": "platform-dev-control-plane-0",
+      "labels": {
+        "cluster": "platform-dev",
+        "role": "control-plane"
+      },
+      "status": "running",
+      "public_net": {
+        "ipv4": {
+          "id": 400,
+          "ip": "203.0.113.10",
+          "blocked": false,
+          "dns_ptr": ""
+        },
+        "ipv6": null,
+        "floating_ips": [],
+        "firewalls": []
+      }
+    },
+    {
+      "id": 301,
+      "name": "platform-dev-control-plane-1",
+      "labels": {
+        "cluster": "platform-dev",
+        "role": "control-plane"
+      },
+      "status": "running",
+      "public_net": {
+        "ipv4": {
+          "id": 401,
+          "ip": "203.0.113.11",
+          "blocked": false,
+          "dns_ptr": ""
+        },
+        "ipv6": null,
+        "floating_ips": [],
+        "firewalls": []
+      }
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "page": 1,
+      "per_page": 50,
+      "previous_page": null,
+      "next_page": null,
+      "last_page": 1,
+      "total_entries": 3
+    }
+  }
+}

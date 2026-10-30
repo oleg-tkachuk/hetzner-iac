@@ -13,9 +13,9 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -41,32 +41,28 @@ func main() {
 
 	flag.Parse()
 
-	err := run(*kubeconfig, *kubeContext, *storageClass, *timeout, *verbose)
+	passed, err := run(invocation{
+		kubeconfig: *kubeconfig, kubeContext: *kubeContext, storageClass: *storageClass,
+		timeout: *timeout, verbose: *verbose,
+	}, liveDeps())
 
 	// Exiting here rather than inside run, so run's deferred cancel actually
 	// runs. os.Exit does not unwind defers, and the first version called it
 	// from inside run with a `defer cancel()` above it — the context was never
 	// cancelled on the failing path.
-	switch {
-	case errors.Is(err, errChecksFailed):
-		// The report is already printed and says which check failed; a second
-		// "error:" line above it would add nothing.
-		os.Exit(exitFailed)
-	case err != nil:
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+
+	// A failed check exits without an "error:" line: the report is already
+	// printed and says which check failed, and a second line would add
+	// nothing.
+	os.Exit(exitCode(passed))
 }
 
-// errChecksFailed means the checks ran and the cluster did not pass, as
-// distinct from the checks not running at all.
-// colour is whether stdout is a terminal that has not asked for none —
-// https://no-color.org.
-func colour() bool {
-	return os.Getenv("NO_COLOR") == "" && term.IsTerminal(int(os.Stdout.Fd()))
-}
-
-var errChecksFailed = errors.New("cluster failed the smoke checks")
+// exitPassed is the status for a cluster that passed every check it reached.
+const exitPassed = 0
 
 // exitFailed is the status for "the checks ran and the cluster did not pass",
 // kept distinct from the 1 that means "the checks could not run at all" — a
@@ -85,45 +81,96 @@ var errChecksFailed = errors.New("cluster failed the smoke checks")
 // costs nothing — rather than flattened to match the wrappers.
 const exitFailed = 2
 
-func run(kubeconfig, kubeContext, storageClass string, timeout time.Duration, verbose bool) error {
+// exitCode is the status for checks that ran: exitFailed when any failed.
+func exitCode(passed bool) int {
+	if passed {
+		return exitPassed
+	}
+
+	return exitFailed
+}
+
+// invocation is the command line, named.
+type invocation struct {
+	kubeconfig, kubeContext, storageClass string
+	timeout                               time.Duration
+	verbose                               bool
+}
+
+// deps are what run reaches outside the process, so a test can stand in for
+// each one.
+type deps struct {
+	// smoke runs the checks against the cluster the options name.
+	smoke func(ctx context.Context, opts clustersmoke.Options) (clustersmoke.Report, error)
+	// out receives the report; progress receives -v's lines.
+	out, progress io.Writer
+	paint         clustersmoke.Paint
+}
+
+// liveDeps are the real cluster and terminal.
+func liveDeps() deps {
+	return deps{smoke: smokeCluster, out: os.Stdout, progress: os.Stderr, paint: painter(colour())}
+}
+
+// smokeCluster builds a Runner from a kubeconfig and runs every check.
+func smokeCluster(ctx context.Context, opts clustersmoke.Options) (clustersmoke.Report, error) {
+	runner, err := clustersmoke.New(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return runner.Run(ctx), nil
+}
+
+// colour is whether stdout is a terminal that has not asked for none —
+// https://no-color.org.
+func colour() bool {
+	return os.Getenv("NO_COLOR") == "" && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// painter is ANSI on a colour terminal and Plain everywhere else.
+func painter(colour bool) clustersmoke.Paint {
+	if colour {
+		return clustersmoke.ANSI
+	}
+
+	return clustersmoke.Plain
+}
+
+// run executes the checks and prints the report. passed is false when any
+// check failed; err means the checks could not run, or the report could not
+// be written.
+func run(inv invocation, d deps) (passed bool, err error) {
 	// Progress only when asked for: the probes it names are the check's own
 	// machinery, and the report below says what each one found.
 	var logf func(string, ...any)
-	if verbose {
-		logf = func(format string, args ...any) { fmt.Fprintf(os.Stderr, "  · "+format+"\n", args...) }
-	}
-
-	runner, err := clustersmoke.New(clustersmoke.Options{
-		Kubeconfig:   kubeconfig,
-		Context:      kubeContext,
-		StorageClass: storageClass,
-		BindTimeout:  timeout,
-		Logf:         logf,
-	})
-	if err != nil {
-		return err
+	if inv.verbose {
+		logf = func(format string, args ...any) {
+			// Progress only: a line that cannot be written must not stop the checks.
+			_, _ = fmt.Fprintf(d.progress, "  · "+format+"\n", args...)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	report := runner.Run(ctx)
-
-	paint := clustersmoke.Plain
-	if colour() {
-		paint = clustersmoke.ANSI
+	report, err := d.smoke(ctx, clustersmoke.Options{
+		Kubeconfig:   inv.kubeconfig,
+		Context:      inv.kubeContext,
+		StorageClass: inv.storageClass,
+		BindTimeout:  inv.timeout,
+		Logf:         logf,
+	})
+	if err != nil {
+		return false, err
 	}
 
 	// Rendered with a count of each verdict, skipped apart from passed:
 	// "2 passed, 1 skipped" is three checks and two answers, and rounding that
 	// to "passed" is the failure this whole tool exists to avoid.
-	if err := clustersmoke.Render(os.Stdout, report, paint); err != nil {
-		return err
+	if err := clustersmoke.Render(d.out, report, d.paint); err != nil {
+		return false, err
 	}
 
-	if report.Failed() {
-		return errChecksFailed
-	}
-
-	return nil
+	return !report.Failed(), nil
 }
