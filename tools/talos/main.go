@@ -129,7 +129,7 @@ func topologyFiles(dir string) ([]string, error) {
 	var paths []string
 
 	for _, entry := range entries {
-		if entry.IsDir() || !isTopologyFile(entry.Name()) {
+		if entry.IsDir() || !isTopology(entry.Name()) {
 			continue
 		}
 
@@ -360,18 +360,6 @@ func validateMachine(ctx context.Context, talosctl, workDir, machine string, pat
 	return nil
 }
 
-// isTopologyFile mirrors the naming infra/cluster/main.go derives from the
-// stack name.
-func isTopologyFile(name string) bool {
-	if !strings.HasSuffix(name, ".yaml") {
-		return false
-	}
-
-	stack, found := strings.CutPrefix(strings.TrimSuffix(name, ".yaml"), "cluster.")
-
-	return found && stack != "" && !strings.Contains(stack, ".")
-}
-
 // extractTag pulls a vX.Y.Z tag out of talosctl's version output.
 //
 // The format differs between invocations — `--short` prints "Talos v1.13.10",
@@ -402,4 +390,12 @@ func indent(text string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// isTopology reports whether a filename is a committed topology. The template
+// counts, so cluster:machine-config:check validates it against talosctl too.
+func isTopology(name string) bool {
+	_, ok := clusterspec.TopologyStack(name)
+
+	return ok
 }

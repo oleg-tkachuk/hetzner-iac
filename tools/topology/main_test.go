@@ -32,26 +32,6 @@ controlPlane:
   serverType: cx23
 `
 
-func TestIsTopologyFile(t *testing.T) {
-	t.Parallel()
-
-	// The shape matters: infra/cluster/main.go derives the path from the stack
-	// name, so a file that does not follow it is never loaded by anything and
-	// sits in the repository looking like configuration that is in effect.
-	for name, want := range map[string]bool{
-		"cluster.prod.yaml":     true,
-		"cluster.staging.yaml":  true,
-		"cluster.yaml":          false, // no stack name
-		"cluster.prod.yml":      false, // wrong extension
-		"cluster.prod.old.yaml": false, // not a stack name main.go would build
-		"Pulumi.yaml":           false,
-		"prod.yaml":             false,
-		"":                      false,
-	} {
-		assert.Equal(t, want, IsTopologyFile(name), name)
-	}
-}
-
 func TestValidate_AcceptsAValidTopology(t *testing.T) {
 	t.Parallel()
 
