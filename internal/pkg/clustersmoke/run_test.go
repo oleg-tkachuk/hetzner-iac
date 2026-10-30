@@ -281,6 +281,52 @@ func TestCheckStorage_WaitsForALeftoverClaimToGo(t *testing.T) {
 	assert.Equal(t, clustersmoke.StatusPassed, result.Status, result.Detail)
 }
 
+func TestCheckStorage_HandsARetainedVolumeBackToTheDriver(t *testing.T) {
+	t.Parallel()
+
+	// On a class that retains, deleting the claim leaves the volume Released
+	// and still billed. The probe's volume is the probe's own, so cleanup
+	// switches it to Delete before letting the claim go.
+	retain := corev1.PersistentVolumeReclaimRetain
+	volume := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "pvc-probe"},
+		Spec:       corev1.PersistentVolumeSpec{PersistentVolumeReclaimPolicy: retain},
+	}
+
+	client := fake.NewSimpleClientset(node("cp-0", true), storageClass(storagev1.VolumeBindingImmediate), volume)
+	bindClaimsOn(client)
+
+	var order []string
+
+	client.PrependReactor("patch", "persistentvolumes",
+		func(k8stesting.Action) (bool, runtime.Object, error) {
+			order = append(order, "patch volume")
+
+			return false, nil, nil
+		})
+	client.PrependReactor("delete", "persistentvolumeclaims",
+		func(k8stesting.Action) (bool, runtime.Object, error) {
+			order = append(order, "delete claim")
+
+			return false, nil, nil
+		})
+
+	smoke := clustersmoke.NewWithClient(client, nil, clustersmoke.Options{
+		StorageClass: platform.StorageClass,
+		BindTimeout:  testBindTimeout,
+	})
+
+	result := resultFor(t, smoke.Run(context.Background()), "reaches Bound")
+	require.Equal(t, clustersmoke.StatusPassed, result.Status, result.Detail)
+
+	after, err := client.CoreV1().PersistentVolumes().Get(context.Background(), "pvc-probe", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, corev1.PersistentVolumeReclaimDelete, after.Spec.PersistentVolumeReclaimPolicy)
+	assert.Equal(t, "patch volume", order[len(order)-2], "the policy changes before the claim goes: %v", order)
+	assert.Equal(t, "delete claim", order[len(order)-1], "%v", order)
+}
+
 func TestCheckStorage_SaysWhereToLookWhenTheClassIsMissing(t *testing.T) {
 	t.Parallel()
 

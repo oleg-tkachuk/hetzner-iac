@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -718,10 +719,49 @@ func (r *Runner) cleanupStorageProbe(ctx context.Context, late bool) {
 		}
 	}
 
+	r.releaseProbeVolume(ctx)
+
 	if err := r.client.CoreV1().PersistentVolumeClaims(probeNamespace).
 		Delete(ctx, probeClaim, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		r.opts.Logf("could not delete claim %s/%s: %v", probeNamespace, probeClaim, err)
 	}
+}
+
+// reclaimDelete is the merge patch that hands a volume back to its driver.
+var reclaimDelete = []byte(`{"spec":{"persistentVolumeReclaimPolicy":"` +
+	string(corev1.PersistentVolumeReclaimDelete) + `"}}`)
+
+// releaseProbeVolume makes the probe's volume go with its claim.
+//
+// On a class that retains — the one --storage-class may name — deleting the
+// claim leaves the volume Released, and its Hetzner volume billed, on every
+// run. The volume is the probe's own and holds nothing, so its policy is
+// switched to Delete first and the driver removes it with the claim.
+func (r *Runner) releaseProbeVolume(ctx context.Context) {
+	claim, err := r.client.CoreV1().PersistentVolumeClaims(probeNamespace).Get(ctx, probeClaim, metav1.GetOptions{})
+	if err != nil || claim.Spec.VolumeName == "" {
+		return
+	}
+
+	volume, err := r.client.CoreV1().PersistentVolumes().Get(ctx, claim.Spec.VolumeName, metav1.GetOptions{})
+	if err != nil {
+		r.opts.Logf("could not read volume %s behind claim %s/%s: %v", claim.Spec.VolumeName, probeNamespace, probeClaim, err)
+
+		return
+	}
+
+	if volume.Spec.PersistentVolumeReclaimPolicy != corev1.PersistentVolumeReclaimRetain {
+		return
+	}
+
+	if _, err := r.client.CoreV1().PersistentVolumes().
+		Patch(ctx, volume.Name, types.MergePatchType, reclaimDelete, metav1.PatchOptions{}); err != nil {
+		r.opts.Logf("could not switch volume %s to Delete, so it stays Released and billed: %v", volume.Name, err)
+
+		return
+	}
+
+	r.opts.Logf("volume %s was on a retaining class; switched to Delete so it goes with the probe", volume.Name)
 }
 
 // deletionTimeout bounds the wait for a previous run's probe object to go. A
