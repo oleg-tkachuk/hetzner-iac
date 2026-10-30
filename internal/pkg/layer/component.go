@@ -3,6 +3,7 @@ package layer
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
@@ -383,12 +384,7 @@ func order(components Components) (Components, error) {
 		return nil, err
 	}
 
-	keys := make([]string, 0, len(byName))
-	for key := range byName {
-		keys = append(keys, key)
-	}
-
-	slices.Sort(keys)
+	keys := slices.Sorted(maps.Keys(byName))
 
 	var (
 		ordered Components

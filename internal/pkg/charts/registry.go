@@ -19,6 +19,7 @@ package charts
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 )
@@ -80,14 +81,7 @@ func MustGet(key string) Chart {
 
 // Keys lists every registry key, sorted.
 func Keys() []string {
-	keys := make([]string, 0, len(definitions))
-	for key := range definitions {
-		keys = append(keys, key)
-	}
-
-	slices.Sort(keys)
-
-	return keys
+	return slices.Sorted(maps.Keys(definitions))
 }
 
 // All returns a copy of the pins, for tooling that reports on them.

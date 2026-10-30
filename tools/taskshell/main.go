@@ -24,10 +24,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -398,7 +400,7 @@ func Preamble(b Block, taskVars map[string]Var) []PreambleLine {
 		lines = append(lines, PreambleLine{Text: Assignment})
 	}
 
-	for _, name := range sortedNames(taskVars) {
+	for _, name := range slices.Sorted(maps.Keys(taskVars)) {
 		declared := taskVars[name]
 		if !strings.Contains(declared.Value, "\n") || !strings.Contains(b.Shell, "{{."+name+"}}") {
 			continue
@@ -456,17 +458,6 @@ func Resolve(shell string, taskVars map[string]Var) string {
 	// findings about the taskfile — `[ "" != "yes" ]` reported as a constant
 	// expression, and `{{.ROOT}}/.known_hosts` as the path `/.known_hosts`.
 	return templateAction.ReplaceAllLiteralString(substituted, "${"+TemplateVariable+"}")
-}
-
-func sortedNames(taskVars map[string]Var) []string {
-	names := make([]string, 0, len(taskVars))
-	for name := range taskVars {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	return names
 }
 
 // comments is shellcheck's json1 output.

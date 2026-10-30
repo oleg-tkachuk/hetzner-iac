@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -85,7 +86,7 @@ func duplicateEnv(manifests []byte) ([]string, error) {
 				counts[variable.Name]++
 			}
 
-			for _, name := range sortedNames(counts) {
+			for _, name := range slices.Sorted(maps.Keys(counts)) {
 				if counts[name] > 1 {
 					found = append(found, fmt.Sprintf("%s/%s container %s sets %s %d times",
 						pod.Kind, pod.Metadata.Name, c.Name, name, counts[name]))
@@ -95,16 +96,4 @@ func duplicateEnv(manifests []byte) ([]string, error) {
 	}
 
 	return found, nil
-}
-
-// sortedNames keeps the message in the same order from one run to the next.
-func sortedNames(counts map[string]int) []string {
-	names := make([]string, 0, len(counts))
-	for name := range counts {
-		names = append(names, name)
-	}
-
-	slices.Sort(names)
-
-	return names
 }

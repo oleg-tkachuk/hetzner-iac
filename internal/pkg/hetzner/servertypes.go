@@ -2,6 +2,7 @@ package hetzner
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -112,7 +113,7 @@ func namesFor(architecture map[string]string, want string) []string {
 		}
 	}
 
-	return sortedNames(set)
+	return slices.Sorted(maps.Keys(set))
 }
 
 func archLabel(want string) string {
@@ -136,7 +137,7 @@ func wantedServerTypes(topology *clusterspec.Topology) []string {
 		}
 	}
 
-	return sortedNames(seen)
+	return slices.Sorted(maps.Keys(seen))
 }
 
 func workerServerTypes(topology *clusterspec.Topology) []string {
@@ -144,17 +145,6 @@ func workerServerTypes(topology *clusterspec.Topology) []string {
 	for _, pool := range topology.WorkerPools {
 		out = append(out, pool.ServerType)
 	}
-
-	return out
-}
-
-func sortedNames(set map[string]bool) []string {
-	out := make([]string, 0, len(set))
-	for name := range set {
-		out = append(out, name)
-	}
-
-	slices.Sort(out)
 
 	return out
 }
