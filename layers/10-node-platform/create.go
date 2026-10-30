@@ -20,13 +20,16 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumix"
 )
 
+// CNIKey is the config key that chooses the CNI, declared in Pulumi.yaml.
+const CNIKey = "cni"
+
 // createCNI installs the CNI this stack asks for.
 //
 // A Create component rather than a Chart one because the chart key is not
 // known until the config is read, and because the choice has to be checked
 // against what the cluster tier did to kube-proxy before anything is created.
 func createCNI(r *layer.Runner, dependencies []pulumi.Resource) (pulumi.Resource, error) {
-	name := r.StringOr("cni", cni.Default)
+	name := r.StringOr(CNIKey, cni.Default)
 
 	chosen, err := cni.Select(name, clusterspec.KubeProxyDisabled)
 	if err != nil {
