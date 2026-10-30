@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -28,13 +29,29 @@ const timeout = 30 * time.Second
 var errUsage = errors.New("usage: nodes <stack> <cluster-name>")
 
 func main() {
-	if err := run(context.Background(), os.Args[1:]); err != nil {
+	if err := run(context.Background(), os.Args[1:], liveDeps()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(parent context.Context, args []string) error {
+// deps are what run reaches outside the process, so a test can stand in for
+// each one.
+type deps struct {
+	// token reads the stack's Hetzner token.
+	token func(ctx context.Context, stack string) (string, error)
+	// clientOptions are added after the token, so a test can point the real
+	// client at a fake API.
+	clientOptions []hcloud.ClientOption
+	out           io.Writer
+}
+
+// liveDeps are the real stack, Hetzner API and terminal.
+func liveDeps() deps {
+	return deps{token: hcloudtoken.Token, out: os.Stdout}
+}
+
+func run(parent context.Context, args []string, d deps) error {
 	if len(args) != 2 || args[0] == "" || args[1] == "" {
 		return errUsage
 	}
@@ -44,14 +61,15 @@ func run(parent context.Context, args []string) error {
 
 	stack, cluster := args[0], args[1]
 
-	token, err := hcloudtoken.Token(ctx, stack)
+	token, err := d.token(ctx, stack)
 	if err != nil {
 		return err
 	}
 
 	selector := clusterspec.ControlPlaneSelector(cluster)
+	client := hcloud.NewClient(append([]hcloud.ClientOption{hcloud.WithToken(token)}, d.clientOptions...)...)
 
-	servers, err := hcloud.NewClient(hcloud.WithToken(token)).Server.AllWithOpts(ctx, hcloud.ServerListOpts{
+	servers, err := client.Server.AllWithOpts(ctx, hcloud.ServerListOpts{
 		ListOpts: hcloud.ListOpts{LabelSelector: selector},
 	})
 	if err != nil {
@@ -63,7 +81,9 @@ func run(parent context.Context, args []string) error {
 		return fmt.Errorf("%s: %w", selector, err)
 	}
 
-	fmt.Println(strings.Join(found, "\n"))
+	// Discarded as fmt.Println's always was: nothing is left to report a
+	// failed write to but the same stream.
+	_, _ = fmt.Fprintln(d.out, strings.Join(found, "\n"))
 
 	return nil
 }

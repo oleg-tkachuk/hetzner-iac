@@ -10,6 +10,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -20,9 +21,45 @@ import (
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 )
 
-func main() {
-	args := os.Args[1:]
+// Exit codes: a topology that does not load fails a run the same way an error
+// does, since both mean CI must stop.
+const (
+	exitValid   = 0
+	exitInvalid = 1
+)
 
+func main() {
+	invalid, err := run(os.Args[1:], os.Stdout, os.Stderr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	os.Exit(exitCode(invalid))
+}
+
+// exitCode is non-zero when any topology failed to load.
+func exitCode(invalid bool) int {
+	if invalid {
+		return exitInvalid
+	}
+
+	return exitValid
+}
+
+// getCommand and getArgs are the `get <field> <file>` form.
+const (
+	getCommand = "get"
+	getArgs    = 3
+)
+
+// defaultDir is where the committed topologies live.
+const defaultDir = "infra/cluster"
+
+// run validates the topologies under the given directories, or with
+// `get <field> <file>` prints one value from a topology. invalid reports that
+// at least one topology failed; err that the run could not complete.
+func run(args []string, stdout, stderr io.Writer) (invalid bool, err error) {
 	// `get <field> <file>` prints one value from a topology, for the tasks that
 	// need it — which talosctl to install, which image to bake, which
 	// Kubernetes version to upgrade to.
@@ -39,36 +76,43 @@ func main() {
 	// and still be a hand-rolled YAML reader — it would break on a quoted
 	// value, an anchor, or a nested key of the same name. This asks the parser
 	// the cluster itself is built from.
-	if len(args) == 3 && args[0] == "get" {
-		value, err := get(args[1], args[2])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
+	if len(args) == getArgs && args[0] == getCommand {
+		command := [getArgs]string(args)
 
-		fmt.Println(value)
-
-		return
+		return false, printField(command[1], command[2], stdout)
 	}
 
 	dirs := args
 	if len(dirs) == 0 {
-		dirs = []string{"infra/cluster"}
+		dirs = []string{defaultDir}
 	}
 
-	failures, err := Validate(dirs)
+	failures, err := Validate(dirs, stdout)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		return false, err
 	}
 
-	if len(failures) > 0 {
-		for _, failure := range failures {
-			fmt.Fprintln(os.Stderr, failure)
-		}
-
-		os.Exit(1)
+	for _, failure := range failures {
+		// Discarded as fmt.Fprintln's always was: the exit code still says the
+		// topology is invalid.
+		_, _ = fmt.Fprintln(stderr, failure)
 	}
+
+	return len(failures) > 0, nil
+}
+
+// printField writes one topology field, or nothing when it cannot be read.
+func printField(field, path string, stdout io.Writer) error {
+	value, err := get(field, path)
+	if err != nil {
+		return err
+	}
+
+	// Discarded as fmt.Println's always was: nothing is left to report a
+	// failed write to but the same stream.
+	_, _ = fmt.Fprintln(stdout, value)
+
+	return nil
 }
 
 // ErrNoTopologies is returned when a directory holds no cluster files at all.
@@ -79,8 +123,9 @@ func main() {
 var ErrNoTopologies = errors.New("no cluster.<stack>.yaml files found")
 
 // Validate loads every cluster.<stack>.yaml under the given directories and
-// returns one message per invalid file.
-func Validate(dirs []string) ([]string, error) {
+// returns one message per invalid file, writing a line to out for each valid
+// one.
+func Validate(dirs []string, out io.Writer) ([]string, error) {
 	var (
 		failures []string
 		checked  int
@@ -101,7 +146,8 @@ func Validate(dirs []string) ([]string, error) {
 				continue
 			}
 
-			fmt.Printf("ok  %s\n", path)
+			// Progress only, discarded as fmt.Printf's always was.
+			_, _ = fmt.Fprintf(out, "ok  %s\n", path)
 		}
 	}
 

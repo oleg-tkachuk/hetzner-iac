@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,7 +39,7 @@ func TestValidate_AcceptsAValidTopology(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cluster.prod.yaml"), []byte(validTopology), 0o600))
 
-	failures, err := Validate([]string{dir})
+	failures, err := Validate([]string{dir}, io.Discard)
 	require.NoError(t, err)
 	assert.Empty(t, failures)
 }
@@ -57,7 +58,7 @@ func TestValidate_ReportsEveryInvalidFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cluster.malformed.yaml"),
 		[]byte("this is not: [valid: yaml\n"), 0o600))
 
-	failures, err := Validate([]string{dir})
+	failures, err := Validate([]string{dir}, io.Discard)
 	require.NoError(t, err)
 	require.Len(t, failures, 2)
 
@@ -85,7 +86,7 @@ controlPlane: {count: 1, serverType: cx23}
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cluster.prod.yaml"), []byte(open), 0o600))
 
-	failures, err := Validate([]string{dir})
+	failures, err := Validate([]string{dir}, io.Discard)
 	require.NoError(t, err)
 	require.Len(t, failures, 1)
 	assert.Contains(t, failures[0], "open to the internet")
@@ -96,7 +97,7 @@ func TestValidate_FailsWhenThereIsNothingToCheck(t *testing.T) {
 
 	// A validator that reports green because it found no files is worse than
 	// none: it reports success while checking nothing.
-	_, err := Validate([]string{t.TempDir()})
+	_, err := Validate([]string{t.TempDir()}, io.Discard)
 
 	require.ErrorIs(t, err, ErrNoTopologies)
 }
@@ -104,7 +105,7 @@ func TestValidate_FailsWhenThereIsNothingToCheck(t *testing.T) {
 func TestValidate_FailsOnAMissingDirectory(t *testing.T) {
 	t.Parallel()
 
-	_, err := Validate([]string{filepath.Join(t.TempDir(), "absent")})
+	_, err := Validate([]string{filepath.Join(t.TempDir(), "absent")}, io.Discard)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not exist")
@@ -117,7 +118,7 @@ func TestValidate_IgnoresFilesThatAreNotTopologies(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cluster.prod.yaml"), []byte(validTopology), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Pulumi.yaml"), []byte("name: broken\n{{{"), 0o600))
 
-	failures, err := Validate([]string{dir})
+	failures, err := Validate([]string{dir}, io.Discard)
 	require.NoError(t, err)
 	assert.Empty(t, failures)
 }
@@ -127,7 +128,7 @@ func TestValidate_ChecksTheRepositoryTopologies(t *testing.T) {
 
 	// The committed topologies must always be valid — this is the same check
 	// CI runs, kept as a test so `go test ./...` catches it too.
-	failures, err := Validate([]string{filepath.Join("..", "..", "infra", "cluster")})
+	failures, err := Validate([]string{filepath.Join("..", "..", "infra", "cluster")}, io.Discard)
 	require.NoError(t, err)
 	assert.Empty(t, failures)
 }

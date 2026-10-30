@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"net"
 	"testing"
 
@@ -60,6 +62,15 @@ func TestRun_TakesAStackAndACluster(t *testing.T) {
 	t.Parallel()
 
 	for _, args := range [][]string{nil, {"dev"}, {"dev", ""}, {"", "platform-dev"}, {"dev", "platform-dev", "extra"}} {
-		assert.ErrorIs(t, run(t.Context(), args), errUsage, "%q", args)
+		d := deps{
+			token: func(context.Context, string) (string, error) {
+				t.Error("token read before the arguments were checked")
+
+				return "", nil
+			},
+			out: &bytes.Buffer{},
+		}
+
+		assert.ErrorIs(t, run(t.Context(), args, d), errUsage, "%q", args)
 	}
 }
