@@ -44,15 +44,29 @@ func init() {
 	})
 }
 
+// HcloudSecret is the Secret layers/10-node-platform creates and both hcloud
+// charts read, and HcloudSecretToken and HcloudSecretNetwork are its keys.
+// Spelled once: a chart pointed at another name or key still starts, and
+// fails to read its token only in its own log. The templates reach these
+// through the hcloudSecret helper.
+const (
+	HcloudSecret        = "hcloud"
+	HcloudSecretToken   = "token"
+	HcloudSecretNetwork = "network"
+)
+
+// HcloudSecretRef is what the hcloudSecret template helper returns.
+type HcloudSecretRef struct {
+	Name, Token, Network string
+}
+
 // CCMValues is what hcloud-ccm.yaml.tmpl is executed against.
 type CCMValues struct {
 	// PodCIDR is what the route controller programmes routes for.
 	PodCIDR string
-	// SecretName is the Secret both hcloud charts read credentials from.
-	SecretName string
 }
 
 // ccmProbe renders the template offline.
 func ccmProbe() any {
-	return CCMValues{PodCIDR: "198.51.100.0/24", SecretName: "hcloud"}
+	return CCMValues{PodCIDR: "198.51.100.0/24"}
 }

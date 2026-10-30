@@ -369,3 +369,42 @@ func TestSecretStoreNamespace_IsTheOperatorsNamespace(t *testing.T) {
 
 	assert.Equal(t, charts.MustGet(charts.ExternalSecrets).Namespace, platform.SecretStoreNamespace)
 }
+
+// TestHcloudCharts_ReadTheSecretLayerTenCreates holds both charts to the one
+// Secret contract. A mismatch is not rejected anywhere: the pod starts, fails
+// to read its token, and says so only in its own log.
+func TestHcloudCharts_ReadTheSecretLayerTenCreates(t *testing.T) {
+	t.Parallel()
+
+	ref := func(name, key string) map[string]any { return map[string]any{"name": name, "key": key} }
+
+	for chart, want := range map[string]map[string]map[string]any{
+		charts.HcloudCSI: {
+			"controller.hcloudToken.existingSecret": ref(charts.HcloudSecret, charts.HcloudSecretToken),
+		},
+		charts.HcloudCCM: {
+			"env.HCLOUD_TOKEN.valueFrom.secretKeyRef":   ref(charts.HcloudSecret, charts.HcloudSecretToken),
+			"networking.network.valueFrom.secretKeyRef": ref(charts.HcloudSecret, charts.HcloudSecretNetwork),
+		},
+	} {
+		data, err := charts.Probe(chart)
+		require.NoError(t, err, chart)
+
+		rendered, err := charts.Render(chart, data)
+		require.NoError(t, err, chart)
+
+		var values map[string]any
+		require.NoError(t, yaml.Unmarshal([]byte(rendered), &values), chart)
+
+		for path, ref := range want {
+			node := any(values)
+			for _, key := range strings.Split(path, ".") {
+				m, ok := node.(map[string]any)
+				require.True(t, ok, "%s: %s stops before %s", chart, path, key)
+				node = m[key]
+			}
+
+			assert.Equal(t, ref, node, "%s: %s", chart, path)
+		}
+	}
+}

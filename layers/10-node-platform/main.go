@@ -34,8 +34,9 @@ import (
 )
 
 const (
-	// CredentialsSecret is the name both charts default to reading.
-	CredentialsSecret = "hcloud"
+	// CredentialsSecret is the Secret both charts read, whose name and keys
+	// internal/pkg/charts owns.
+	CredentialsSecret = charts.HcloudSecret
 	// CCMChart and CSIChart are the registry keys, from the charts' own
 	// declarations, so the component table, the values and the namespace
 	// below cannot disagree with the registry.

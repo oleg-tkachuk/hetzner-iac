@@ -29,15 +29,15 @@ networking:
   network:
     valueFrom:
       secretKeyRef:
-        name: {{ .SecretName }}
-        key: network
+        name: {{ (hcloudSecret).Name }}
+        key: {{ (hcloudSecret).Network }}
 
 env:
   HCLOUD_TOKEN:
     valueFrom:
       secretKeyRef:
-        name: {{ .SecretName }}
-        key: token
+        name: {{ (hcloudSecret).Name }}
+        key: {{ (hcloudSecret).Token }}
 
 # Resources. Requests are measured, limits are memory-only.
 #
