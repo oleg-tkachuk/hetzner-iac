@@ -67,6 +67,11 @@ env:
   GOVULNCHECK_VERSION: "v1.9.0"
   # renovate: datasource=pypi depName=zizmor
   ZIZMOR_VERSION: "1.31.1"
+  # uv runs the Python scanners, at the versions pinned here, through uvx.
+  # Pinned in ci.yaml too, to the same version — a test holds the two
+  # together, and Renovate bumps both in one pull request.
+  # renovate: datasource=pypi depName=uv
+  UV_VERSION: "0.13.6"
   # renovate: datasource=go depName=github.com/rhysd/actionlint
   ACTIONLINT_VERSION: "v1.7.12"
   # renovate: datasource=github-releases depName=aquasecurity/trivy extractVersion=^v(?<version>.+)$
@@ -207,7 +212,12 @@ jobs:
       # false positives, which is the wrong contract for a blocking gate — it
       # would be red forever and then ignored. Exceptions live in
       # .github/zizmor.yml, each with the reason it stands.
-      - run: pipx run "zizmor==${ZIZMOR_VERSION}" --config .github/zizmor.yml --persona=regular --format=plain .github/workflows/
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          # Nothing to cache: no lockfile, and uvx fetches one pinned tool.
+          enable-cache: false
+      - run: uvx "zizmor@${ZIZMOR_VERSION}" --config .github/zizmor.yml --persona=regular --format=plain .github/workflows/
 
   # actionlint is the other half of auditing these workflows, and the halves do
   # not overlap. zizmor covers security — unpinned actions, leaked credentials,

@@ -92,12 +92,12 @@ brew "trivy"         # security:trivy
 # gosec is not here: go.mod pins it as a tool, and security:gosec runs that
 # one through `go tool`. The formula's build cannot read this Go's export data.
 
-# checkov, and pipx rather than the formula on purpose. `checkov:scan` runs the
+# checkov, and uv rather than the formula on purpose. `checkov:scan` runs the
 # version .github/workflows/ci.yaml pins, and uses an installed checkov only
 # when it already reports that version — Homebrew's trails the pin, so the
-# formula would be downloaded and then bypassed. pipx is what fetches the
+# formula would be downloaded and then bypassed. uvx is what fetches the
 # pinned one, and the shared taskfiles module does it.
-brew "pipx"          # checkov:scan
+brew "uv"            # checkov:scan
 brew "lefthook"      # the commit and push hooks; opt in with `lefthook install`
 brew "actionlint"    # workflow syntax, the same check CI runs
 brew "shellcheck"    # the shell inside the taskfiles, through `task -t Taskfile.dev.yaml shell`

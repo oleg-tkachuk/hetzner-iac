@@ -288,7 +288,7 @@ locally. On macOS `brew bundle` installs every one.
 | `gitleaks` | `security:secrets` |
 | `gosec` | `security:gosec` |
 | `trivy` | `security:trivy` |
-| `checkov` | `task -t Taskfile.dev.yaml checkov:scan`, and `pipx` when checkov itself is not installed — the shared module runs the pinned version through it, reading the version out of this workflow |
+| `checkov` | `task -t Taskfile.dev.yaml checkov:scan`, and `uvx` when checkov itself is not installed — the shared module runs the pinned version through it, reading the version out of this workflow |
 | `shellcheck` | `task -t Taskfile.dev.yaml shell` — the shell inside the taskfiles, through `tools/taskshell` |
 | `actionlint` | workflow syntax — run by hand, the same check CI runs |
 | `zizmor` | workflow permissions — the same |
