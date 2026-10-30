@@ -18,6 +18,7 @@ package clusterspec
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -430,7 +431,7 @@ var (
 // clusterref.ProbeLocation all read one set rather than four copies of it.
 // Mirrors Architectures, which tools/image's factory map is held to the same
 // way.
-var Locations = sortedKeys(validLocations)
+var Locations = slices.Sorted(maps.Keys(validLocations))
 
 // validLocations maps each hcloud location to the network zone that contains
 // it. Hetzner rejects a location/zone mismatch when the subnet is created,
@@ -708,7 +709,7 @@ func (t *Topology) validatePlacement() []string {
 	zone, known := validLocations[t.Placement.Location]
 	if !known {
 		problems = append(problems, fmt.Sprintf("placement.location %q is not an hcloud location (%s)",
-			t.Placement.Location, strings.Join(sortedKeys(validLocations), ", ")))
+			t.Placement.Location, strings.Join(Locations, ", ")))
 
 		return problems
 	}
@@ -1073,17 +1074,6 @@ func record(problems *[]string, problem string) bool {
 	*problems = append(*problems, problem)
 
 	return false
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	slices.Sort(keys)
-
-	return keys
 }
 
 // validateConfigContract refuses a contract the nodes cannot honour: Talos

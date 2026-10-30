@@ -136,14 +136,6 @@ func TestWriteValues_NoFileMeansNoOverrides(t *testing.T) {
 	assert.Empty(t, path)
 }
 
-func TestSortedKeys(t *testing.T) {
-	t.Parallel()
-
-	// Sorted so a failure report reads the same on every run.
-	got := sortedKeys(map[string]bool{"z": true, "a": true, "m": true})
-	assert.Equal(t, []string{"a", "m", "z"}, got)
-}
-
 func TestKubeconformArgs_NeverIgnoresMissingSchemas(t *testing.T) {
 	t.Parallel()
 

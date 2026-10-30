@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -186,12 +187,5 @@ func get(field, path string) (string, error) {
 }
 
 func fieldNames() []string {
-	names := make([]string, 0, len(fields))
-	for name := range fields {
-		names = append(names, name)
-	}
-
-	slices.Sort(names)
-
-	return names
+	return slices.Sorted(maps.Keys(fields))
 }

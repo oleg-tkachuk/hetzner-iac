@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"slices"
@@ -113,7 +114,7 @@ func run() (int, error) {
 
 			failures++
 
-			if names := sortedKeys(found); len(names) > 0 {
+			if names := slices.Sorted(maps.Keys(found)); len(names) > 0 {
 				fmt.Printf("      chart rendered: %s\n", strings.Join(names, ", "))
 			}
 		}
@@ -633,17 +634,6 @@ var workloadKinds = []string{
 	string(workloads.Deployment),
 	string(workloads.StatefulSet),
 	string(workloads.DaemonSet),
-}
-
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-
-	slices.Sort(out)
-
-	return out
 }
 
 // writeValues materialises the embedded values file for a chart, if it has

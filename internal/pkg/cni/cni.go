@@ -20,6 +20,7 @@ package cni
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -84,12 +85,5 @@ func Select(name string, kubeProxyDisabled bool) (CNI, error) {
 
 // Names lists the implementations, sorted so an error message is stable.
 func Names() []string {
-	out := make([]string, 0, len(implementations))
-	for name := range implementations {
-		out = append(out, name)
-	}
-
-	slices.Sort(out)
-
-	return out
+	return slices.Sorted(maps.Keys(implementations))
 }
