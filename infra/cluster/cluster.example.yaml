@@ -235,8 +235,9 @@ workerPools: []
 # ─── Workers of their own, for when the platform outgrows three nodes ────────
 #
 # Nothing to implement: worker pools are built already — pkg/hetzner/workerpool
-# creates them, validation refuses duplicate pool names and a node subnet too
-# small for the pools asked for, and the server type defaults from
+# creates them, validation refuses duplicate pool names, the name
+# control-plane, and a node subnet too small for the pools asked for, and the
+# server type defaults from
 # talos.architecture like the control plane's does. This block is the
 # configuration, and it is commented because the cluster does not need it yet.
 #

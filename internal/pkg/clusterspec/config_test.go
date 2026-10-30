@@ -300,6 +300,13 @@ func TestValidate_Rejects(t *testing.T) {
 			wantMsg: "longer than 47 characters",
 		},
 		{
+			name: "worker pool named after the control plane",
+			mutate: func(top *clusterspec.Topology) {
+				top.WorkerPools[0].Name = clusterspec.RoleControlPlane
+			},
+			wantMsg: `workerPools[0].name "control-plane" is reserved for the control plane`,
+		},
+		{
 			name: "duplicate worker pool names",
 			mutate: func(top *clusterspec.Topology) {
 				top.WorkerPools = append(top.WorkerPools, clusterspec.WorkerPoolSpec{
