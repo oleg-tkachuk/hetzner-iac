@@ -70,8 +70,8 @@ BEGIN {
 # Two Go binaries reached the working tree twice in this repository, and a
 # 52 MB one was committed and pushed before any of this existed.
 op == "staged-binaries" && $1 == "-" && $2 == "-" {
-    # `allow` is a colon-separated list of paths that are binary on purpose.
-    # Empty today, because this repository tracks none.
+    # `allow` is a colon-separated list of paths that are binary on purpose:
+    # lefthook.yml passes the README's images, the only binaries tracked.
     if (allowed($3)) next
 
     binaries[++found] = $3
