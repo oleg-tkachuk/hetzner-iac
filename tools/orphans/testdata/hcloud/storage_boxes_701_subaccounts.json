@@ -1,0 +1,13 @@
+{
+  "subaccounts": [
+    {
+      "id": 702,
+      "name": "etcd",
+      "username": "u1-sub1",
+      "storage_box": 701,
+      "labels": {
+        "cluster": "platform-dev"
+      }
+    }
+  ]
+}

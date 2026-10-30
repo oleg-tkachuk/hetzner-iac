@@ -202,6 +202,17 @@ type Claims struct {
 	TalosVersion string
 }
 
+// NewClaims is an empty Claims, ready to add to: what a cluster that is gone
+// claims.
+func NewClaims() Claims {
+	return Claims{
+		PersistentVolumes: map[string]bool{},
+		ReleasedVolumes:   map[string]bool{},
+		ServiceUIDs:       map[string]bool{},
+		Nodes:             map[string]bool{},
+	}
+}
+
 // ClusterServers are the servers labelled as belonging to one cluster.
 //
 // This is the question the check could not previously answer, and everything
@@ -257,10 +268,31 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 	var found []Finding
 
 	found = append(found, volumeFindings(inventory.Volumes, claims)...)
-
 	found = append(found, loadBalancerFindings(inventory.LoadBalancers, claims)...)
+	found = append(found, serverFindings(inventory.Servers, claims)...)
+	found = append(found, primaryIPFindings(inventory.PrimaryIPs, claims)...)
+	found = append(found, snapshotFindings(inventory.Snapshots, claims)...)
+	found = append(found, resourceFindings(inventory.Resources, claims)...)
 
-	for _, server := range inventory.Servers {
+	sort.SliceStable(found, func(i, j int) bool { return lessFinding(found[i], found[j]) })
+
+	return found
+}
+
+// lessFinding orders findings by kind, then name, so two runs read the same.
+func lessFinding(a, b Finding) bool {
+	if a.Kind != b.Kind {
+		return a.Kind < b.Kind
+	}
+
+	return a.Name < b.Name
+}
+
+// serverFindings is the server half of Orphans.
+func serverFindings(servers []Server, claims Claims) []Finding {
+	var found []Finding
+
+	for _, server := range servers {
 		if claims.Nodes[server.Name] || claims.Held.Holds(KindServer, server.ID) {
 			continue
 		}
@@ -274,7 +306,15 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 		})
 	}
 
-	for _, address := range inventory.PrimaryIPs {
+	return found
+}
+
+// primaryIPFindings is the primary-IP half of Orphans: an assigned address is
+// in use, whoever made it.
+func primaryIPFindings(addresses []PrimaryIP, claims Claims) []Finding {
+	var found []Finding
+
+	for _, address := range addresses {
 		if address.AssigneeID != 0 || claims.Held.Holds(KindPrimaryIP, address.ID) {
 			continue
 		}
@@ -285,23 +325,20 @@ func Orphans(inventory Inventory, claims Claims) []Finding {
 		})
 	}
 
-	found = append(found, snapshotFindings(inventory.Snapshots, claims)...)
+	return found
+}
 
-	for _, res := range inventory.Resources {
+// resourceFindings is the half of Orphans for kinds only a stack can claim.
+func resourceFindings(resources []Resource, claims Claims) []Finding {
+	var found []Finding
+
+	for _, res := range resources {
 		if claims.Held.Holds(res.Kind, res.ID) || (res.Kind == KindZone && claims.Held.HoldsZone(res)) {
 			continue
 		}
 
 		found = append(found, Finding{Kind: res.Kind, Name: res.Name, Why: unheld(res.Labels)})
 	}
-
-	sort.SliceStable(found, func(i, j int) bool {
-		if found[i].Kind != found[j].Kind {
-			return found[i].Kind < found[j].Kind
-		}
-
-		return found[i].Name < found[j].Name
-	})
 
 	return found
 }

@@ -1,0 +1,33 @@
+{
+  "servers": [
+    {
+      "id": 301,
+      "name": "platform-dev-control-plane-0",
+      "labels": {
+        "cluster": "platform-dev"
+      },
+      "server_type": {
+        "id": 1,
+        "name": "cx32"
+      },
+      "status": "running"
+    },
+    {
+      "id": 302,
+      "name": "rescue-bake",
+      "labels": {},
+      "server_type": null,
+      "status": "running"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "page": 1,
+      "per_page": 50,
+      "previous_page": null,
+      "next_page": null,
+      "last_page": 1,
+      "total_entries": 1
+    }
+  }
+}

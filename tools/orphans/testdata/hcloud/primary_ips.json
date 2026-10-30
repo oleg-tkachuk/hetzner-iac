@@ -1,0 +1,23 @@
+{
+  "primary_ips": [
+    {
+      "id": 401,
+      "name": "spare",
+      "ip": "203.0.113.7",
+      "type": "ipv4",
+      "assignee_id": null,
+      "assignee_type": "server",
+      "labels": {}
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "page": 1,
+      "per_page": 50,
+      "previous_page": null,
+      "next_page": null,
+      "last_page": 1,
+      "total_entries": 1
+    }
+  }
+}

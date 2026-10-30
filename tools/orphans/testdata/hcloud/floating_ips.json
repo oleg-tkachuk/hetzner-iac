@@ -1,0 +1,23 @@
+{
+  "floating_ips": [
+    {
+      "id": 601,
+      "name": "egress",
+      "ip": "203.0.113.8",
+      "type": "ipv4",
+      "labels": {
+        "cluster": "platform-dev"
+      }
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "page": 1,
+      "per_page": 50,
+      "previous_page": null,
+      "next_page": null,
+      "last_page": 1,
+      "total_entries": 1
+    }
+  }
+}
