@@ -1,3 +1,5 @@
+![A building site at dawn: Talos and the platform layers 10 to 40 stand as floors on a Hetzner Cloud foundation, a "pulumi up" crane lowers layer 50 with the Argo CD octopus, and pods in hard hats build it](docs/assets/banner.png)
+
 # hetzner-iac
 
 [![ci](https://github.com/oleg-tkachuk/hetzner-iac/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/oleg-tkachuk/hetzner-iac/actions/workflows/ci.yaml)
