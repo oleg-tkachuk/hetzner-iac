@@ -45,12 +45,25 @@ type Project struct {
 	Err      error
 }
 
-// Drifted reports whether any project found drift or could not be read. An
-// unread stack counts: a report that cannot say "no drift" must not exit as
+// Drifted reports whether any project found drift or could not be read, or
+// whether no project has the stack at all. An unread stack counts, and so does
+// a run that read none: a report that cannot say "no drift" must not exit as
 // though it had.
 func Drifted(projects []Project) bool {
 	for _, project := range projects {
 		if project.Err != nil || len(project.Changes) > 0 {
+			return true
+		}
+	}
+
+	return !anyStack(projects)
+}
+
+// anyStack reports whether at least one project has the stack. None is a
+// mistyped stack or the wrong backend, not a clean environment.
+func anyStack(projects []Project) bool {
+	for _, project := range projects {
+		if project.HasStack {
 			return true
 		}
 	}
@@ -93,7 +106,7 @@ func Render(out io.Writer, stack string, projects []Project, paint report.Painte
 		}
 	}
 
-	mark, line, hints := summary(drifted, unread)
+	mark, line, hints := summary(drifted, unread, anyStack(projects), stack)
 	r.Summary(mark, line, hints...)
 
 	if _, err := io.WriteString(out, r.String()); err != nil {
@@ -139,10 +152,12 @@ func describe(changes []Change) []string {
 }
 
 // summary is the closing line and what to do about it.
-func summary(drifted, unread int) (report.Cell, string, []string) {
+func summary(drifted, unread int, anyStack bool, stack string) (report.Cell, string, []string) {
 	switch {
 	case unread > 0:
 		return report.Failed, report.Count(unread, "stack", "stacks") + " could not be read, so drift is unknown there", nil
+	case !anyStack:
+		return report.Failed, "no " + stack + " stack in any project, so nothing was checked", nil
 	case drifted > 0:
 		return report.Warning, report.Count(drifted, "resource", "resources") + " changed outside Pulumi",
 			[]string{"A refresh adopts the cloud's version into the state; an apply puts the code's back."}
