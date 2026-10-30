@@ -9,38 +9,12 @@ package ci
 // clustertasks now, and this is what they share.
 
 import (
-	"path/filepath"
 	"regexp"
 	"strings"
-	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 // taskName matches a task declaration at the top of a taskfile's tasks block.
 var taskName = regexp.MustCompile(`^  ([a-zA-Z_][\w:-]*):\s*$`)
-
-// taskfiles is every taskfile in the repository: both entry points and each
-// include.
-//
-// Derived from the directory rather than listed, because both tests below
-// walked a hardcoded list of three — so a new taskfile would not have been
-// checked and nothing would have said so. That is the failure mode these
-// tests exist to prevent, one level up.
-func taskfiles(t *testing.T) []string {
-	t.Helper()
-
-	root := filepath.Join("..", "..")
-
-	includes, err := filepath.Glob(filepath.Join(root, "tasks", "*.task.yaml"))
-	require.NoError(t, err)
-	require.NotEmpty(t, includes, "no taskfiles under tasks/")
-
-	return append([]string{
-		filepath.Join(root, "Taskfile.yaml"),
-		filepath.Join(root, devTaskfile),
-	}, includes...)
-}
 
 // tasksIn splits a taskfile's tasks block into one body per task.
 func tasksIn(text string) map[string]string {

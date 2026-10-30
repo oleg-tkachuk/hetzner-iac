@@ -7,13 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// declaredKey matches one entry in a Pulumi.yaml `config:` block — two leading
-// spaces, `project:key`, and nothing else on the line.
-var declaredKey = regexp.MustCompile(`(?m)^  ([a-z-]+):(\w+):$`)
 
 // configRead matches a stack config read, capturing either the literal key or
 // the identifier holding it. Both forms are in use: most layers pass a string,
@@ -28,80 +25,6 @@ var declaredKey = regexp.MustCompile(`(?m)^  ([a-z-]+):(\w+):$`)
 // announces itself rather than passing unnoticed.
 var configRead = regexp.MustCompile(
 	`(?:(?i:cfg)\.(?:GetBool|GetInt|Get|RequireSecret|Require)|StringOr|Flag)\(\s*(?:"(\w+)"|([A-Z]\w+))`)
-
-// tableRow matches a `project:key` in the first column of a markdown table.
-var tableRow = regexp.MustCompile("(?m)^\\| `([a-z-]+|<layer>):(\\w+)` \\|")
-
-// deliberatelyUndeclared are keys a layer reads and its Pulumi.yaml does not
-// declare, on purpose, with the reason written in that Pulumi.yaml. The value
-// is text that must still be there: an exception whose reason has been deleted
-// is no longer an exception.
-var deliberatelyUndeclared = map[string]string{
-	"node-platform:hcloudToken": "deliberately NOT declared",
-	"ingress:hcloudToken":       "deliberately NOT declared",
-}
-
-// configTables are the two places stack config is written down for a reader.
-// configuration.md is the full reference and must name every declared key;
-// README.md is a summary and may name fewer, but neither may name a key that
-// does not exist.
-var configTables = []struct {
-	path       string
-	exhaustive bool
-}{
-	{filepath.Join("docs", "configuration.md"), true},
-	{"README.md", false},
-}
-
-// projectRoots are the directories whose children are Pulumi projects that
-// read stack config: the layers, and the tiers under infra/.
-//
-// The tiers were missing, and it cost the gate its reach without a word: the
-// backup tier moved from layers/ to infra/, and from then on nothing checked
-// that the keys it reads are declared, or that the tables documenting them
-// name keys that exist — every `backup:` row was skipped as "not a layer".
-var projectRoots = []string{"layers", "infra"}
-
-// layerProjects returns each project's Pulumi project name and the directory
-// it lives in, read from the Pulumi.yaml rather than assumed from the directory
-// — the two differ on purpose (`layers/40-ingress` is project `ingress`).
-func layerProjects(t *testing.T) map[string]string {
-	t.Helper()
-
-	root := filepath.Join("..", "..")
-
-	projects := map[string]string{}
-
-	name := regexp.MustCompile(`(?m)^name: (\S+)$`)
-
-	for _, parent := range projectRoots {
-		entries, err := os.ReadDir(filepath.Join(root, parent))
-		require.NoError(t, err)
-
-		var found int
-
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-
-			dir := filepath.Join(root, parent, entry.Name())
-
-			project, err := os.ReadFile(filepath.Join(dir, "Pulumi.yaml"))
-			require.NoError(t, err)
-
-			match := name.FindSubmatch(project)
-			require.NotNil(t, match, "%s/%s has no `name:` in its Pulumi.yaml", parent, entry.Name())
-
-			projects[string(match[1])] = dir
-			found++
-		}
-
-		require.Positive(t, found, "no projects under %s/; this test is not reaching it", parent)
-	}
-
-	return projects
-}
 
 // goSources concatenates every non-test Go file in dir. Config reads are in the
 // layer's own code, and a test fixture naming a key proves nothing about it.
@@ -173,13 +96,13 @@ func TestConfigKeys_DeclaredAndReadAreTheSameSet(t *testing.T) {
 	shared := keysRead(t, filepath.Join("..", "..", "internal", "pkg", "layer"))
 	require.NotEmpty(t, shared, "internal/pkg/layer reads no config; the exemption below is hiding a real gap")
 
-	for project, dir := range layerProjects(t) {
+	for project, dir := range citest.LayerProjects(t, filepath.Join("..", "..")) {
 		pulumiYAML, err := os.ReadFile(filepath.Join(dir, "Pulumi.yaml"))
 		require.NoError(t, err)
 
 		declared := map[string]bool{}
 
-		for _, match := range declaredKey.FindAllStringSubmatch(string(pulumiYAML), -1) {
+		for _, match := range citest.DeclaredKey.FindAllStringSubmatch(string(pulumiYAML), -1) {
 			assert.Equal(t, project, match[1],
 				"%s declares %q under a project prefix that is not its own, so Pulumi ignores it",
 				dir, match[1]+":"+match[2])
@@ -197,7 +120,7 @@ func TestConfigKeys_DeclaredAndReadAreTheSameSet(t *testing.T) {
 
 		for key := range read {
 			qualified := project + ":" + key
-			if reason, ok := deliberatelyUndeclared[qualified]; ok {
+			if reason, ok := citest.DeliberatelyUndeclared[qualified]; ok {
 				assert.Contains(t, string(pulumiYAML), reason,
 					"%s is exempt from being declared and %s no longer says why",
 					qualified, filepath.Join(dir, "Pulumi.yaml"))
@@ -208,94 +131,6 @@ func TestConfigKeys_DeclaredAndReadAreTheSameSet(t *testing.T) {
 			assert.True(t, declared[key],
 				"%s reads %q and its Pulumi.yaml does not declare it, so `pulumi config` cannot describe it",
 				dir, key)
-		}
-	}
-}
-
-// providerNamespaces are config namespaces that belong to a provider rather
-// than to a project here, and so are declared by no Pulumi.yaml —
-// `hcloud:token` is set per stack and cannot be declared at all.
-var providerNamespaces = map[string]bool{"hcloud": true}
-
-// TestConfigKeys_TheTablesNameKeysThatExist holds the documented stack config
-// to the declared stack config.
-//
-// This is the one that had a failure in it. Both tables listed `gitops:domain`
-// as a key of 50-gitops; no such key exists and none ever did — the layer reads
-// `metadata.domain` from the cluster tier, deliberately, so that 40-ingress and
-// 50-gitops cannot spell one hostname two ways. An operator following the table
-// would have run `pulumi config set gitops:domain …`, been told nothing, and
-// got no Ingress.
-func TestConfigKeys_TheTablesNameKeysThatExist(t *testing.T) {
-	t.Parallel()
-
-	root := filepath.Join("..", "..")
-
-	declared := map[string]bool{}
-
-	for project, dir := range layerProjects(t) {
-		pulumiYAML, err := os.ReadFile(filepath.Join(dir, "Pulumi.yaml"))
-		require.NoError(t, err)
-
-		for _, match := range declaredKey.FindAllStringSubmatch(string(pulumiYAML), -1) {
-			declared[project+":"+match[2]] = true
-		}
-	}
-
-	require.NotEmpty(t, declared, "no layer declares any config key; this test is checking nothing")
-
-	projects := layerProjects(t)
-
-	for _, table := range configTables {
-		body, err := os.ReadFile(filepath.Join(root, table.path))
-		require.NoError(t, err)
-
-		documented := map[string]bool{}
-
-		for _, match := range tableRow.FindAllStringSubmatch(string(body), -1) {
-			project, key := match[1], match[2]
-
-			// `<layer>:clusterStackRef` stands for every layer's own copy, and
-			// `hcloud:token` belongs to the provider rather than to a layer.
-			if project == "<layer>" {
-				for name := range projects {
-					documented[name+":"+key] = true
-				}
-
-				continue
-			}
-
-			if _, ok := projects[project]; !ok {
-				// A provider's own key, which no project here declares. Any
-				// other prefix is a project that does not exist, and skipping
-				// it is how every `backup:` row went unchecked.
-				assert.True(t, providerNamespaces[project],
-					"%s documents %q under %q, which is neither a project here nor a provider",
-					table.path, key, project)
-
-				continue
-			}
-
-			qualified := project + ":" + key
-			documented[qualified] = true
-
-			if _, exempt := deliberatelyUndeclared[qualified]; exempt {
-				continue
-			}
-
-			assert.True(t, declared[qualified],
-				"%s documents %q and no layer declares it, so setting it does nothing",
-				table.path, qualified)
-		}
-
-		if !table.exhaustive {
-			continue
-		}
-
-		for key := range declared {
-			assert.True(t, documented[key],
-				"%s is the full stack config reference and does not mention %q",
-				table.path, key)
 		}
 	}
 }
@@ -329,7 +164,7 @@ func TestConfigKeys_NoLayerReadsASwitchThroughAnAccessorThatSwallowsIt(t *testin
 
 	scanned := 0
 
-	for project, dir := range layerProjects(t) {
+	for project, dir := range citest.LayerProjects(t, filepath.Join("..", "..")) {
 		scanned++
 
 		assert.NotRegexp(t, swallowingBoolRead, goSources(t, dir),

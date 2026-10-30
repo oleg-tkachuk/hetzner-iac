@@ -84,8 +84,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Inert paths — what no check in this repository reads. Everything
-          # else is relevant, and the direction matters more than the list.
+          # Inert paths — what only the docs job reads: its links check and
+          # the internal/ci/docs tests, which run on every pull request.
+          # Everything else is relevant, and the direction matters more than
+          # the list.
           #
           # This used to be an inclusion list: "code" meant a .go file, go.mod
           # or .golangci.yaml. But the test suite asserts against Taskfile.yaml,
@@ -339,6 +341,10 @@ jobs:
     # is in the inert list precisely so a prose-only change skips the heavy
     # gates, which would skip this one exactly when it matters most.
     #
+    # The same holds for the tests that read documentation and .gitignore,
+    # so they run here too, from internal/ci/docs: the build job skips them
+    # on exactly the change that can break them.
+    #
     # It is affordable at any rate: lychee is offline here, and answers in
     # three milliseconds over fifteen files.
     if: github.event_name == 'pull_request'
@@ -350,15 +356,14 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-go
         with:
-          # For the task below. The flags belong in the task an operator runs,
+          # For the tasks below. The flags belong in the task an operator runs,
           # not in a second copy of them here that drifts from it.
           task: "true"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          # No cache. lychee is a Rust binary and this job compiles nothing,
-          # so the shared Go build cache has no reader — and this is the one
-          # job a documentation-only pull request always runs. Measured on the
-          # run before this line existed: 211 seconds of restore, 1 second to
-          # install lychee, 1 second to check every link.
+          # No cache. The one package this job compiles links no Pulumi: cold,
+          # on one core, it built and ran in 63 seconds, against a 211-second
+          # restore of the shared Go build cache measured on this job — the
+          # one a documentation-only pull request always runs.
           cache-mode: "off"
       - name: Install lychee
         env:
@@ -369,6 +374,8 @@ jobs:
             | tar -xz -C /usr/local/bin --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
       - name: Documentation links
         run: task -t Taskfile.dev.yaml docs:links
+      - name: Documentation tests
+        run: task -t Taskfile.dev.yaml docs:check
 
   lint:
     name: Go lint

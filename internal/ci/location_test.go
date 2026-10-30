@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/charts"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterref"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
@@ -83,7 +84,7 @@ func TestYAMLFixtures_NameALocationThatExists(t *testing.T) {
 	// Every tracked test file rather than a list of directories. The list
 	// named two, and clusterspec and tools/stack carry topology fixtures too —
 	// a location that stopped existing would have gone stale in them unseen.
-	for _, name := range tracked(t, root) {
+	for _, name := range citest.Tracked(t, root) {
 		if !strings.HasSuffix(name, "_test.go") {
 			continue
 		}

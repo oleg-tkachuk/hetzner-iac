@@ -290,6 +290,7 @@ Everything below is on the second entry point,
 | `task -t Taskfile.dev.yaml fmt-check` † | fail if `gofmt -s` would change anything |
 | `task -t Taskfile.dev.yaml tidy-check` | fail if `go.mod` or `go.sum` is not what `go mod tidy` writes, or a download differs from `go.sum` |
 | `task -t Taskfile.dev.yaml docs:links` † | do the documentation's own links point at files and headings that exist? — needs lychee |
+| `task -t Taskfile.dev.yaml docs:check` † | the tests that read the documentation and `.gitignore` — the gates a prose-only pull request still runs |
 | `task -t Taskfile.dev.yaml checkov:scan` † | hardening rules over the manifests and workflows this repository ships |
 | `task -t Taskfile.dev.yaml checkov:triage` | every finding, including the ones `.checkov.yaml` skips — for deciding what to fix, never a gate |
 | `task -t Taskfile.dev.yaml layers` † | the layer order, for CI's matrix — a pass-through to `platform:layers` |

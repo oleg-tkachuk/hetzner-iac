@@ -1,4 +1,4 @@
-package ci
+package docs
 
 import (
 	"os"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,11 +51,11 @@ var wherePeopleLook = []string{"README.md", filepath.Join("docs", "ci.md"), "Bre
 func TestExternalTools_AreNamedWhereSomebodyWouldLook(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	needed := map[string][]string{}
 
-	for _, path := range tracked(t, root) {
+	for _, path := range citest.Tracked(t, root) {
 		switch {
 		case strings.HasSuffix(path, "_test.go"):
 			continue

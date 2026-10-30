@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,7 +68,7 @@ func TestTaskGlyphs_MatchThePulumiLogger(t *testing.T) {
 	// empty string, so a status line loses its glyph and prints anyway.
 	defined := map[string]bool{}
 
-	for _, name := range []string{"Taskfile.yaml", devTaskfile} {
+	for _, name := range []string{"Taskfile.yaml", citest.DevTaskfile} {
 		raw, readErr := os.ReadFile(filepath.Join(root, name))
 		require.NoError(t, readErr, name)
 
@@ -155,7 +156,7 @@ func TestLayerLoops_NameTheLayerWhenItFinishes(t *testing.T) {
 
 	var checked int
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 

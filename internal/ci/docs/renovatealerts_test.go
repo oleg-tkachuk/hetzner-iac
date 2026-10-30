@@ -1,4 +1,4 @@
-package ci
+package docs
 
 import (
 	"encoding/json"
@@ -35,7 +35,7 @@ const alertPermission = "Dependabot alerts"
 func TestRenovateAlerts_AgreeWithWhatTheTokenIsToldToAllow(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	raw, err := os.ReadFile(filepath.Join(root, ".github", "renovate.json"))
 	require.NoError(t, err)

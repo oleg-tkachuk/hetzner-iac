@@ -13,7 +13,7 @@
 // This was tools/repo, and the first of these tests was written inside
 // tools/topology, which parses cluster topologies and has nothing to do with
 // .gitignore — a test in the wrong package is a test nobody looks for.
-package ci
+package docs
 
 import (
 	"os"
@@ -42,7 +42,7 @@ import (
 func TestGitignore_CoversEveryBinaryName(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	raw, err := os.ReadFile(filepath.Join(root, ".gitignore"))
 	require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestGitignore_KeepsClaudeCodesWorkingStateOut(t *testing.T) {
 		".claude/worktrees/agent-0/go.mod",
 		".claude/.cc-writes/state",
 	} {
-		err := exec.CommandContext(t.Context(), "git", "-C", filepath.Join("..", ".."),
+		err := exec.CommandContext(t.Context(), "git", "-C", repoRoot,
 			"check-ignore", "--quiet", "--no-index", path).Run()
 		assert.NoError(t, err, "%s is not ignored", path)
 	}
@@ -142,7 +142,7 @@ func TestGitignore_KeepsClaudeCodesWorkingStateOut(t *testing.T) {
 func TestGitignore_KeepsThePolicyPackBinaryOut(t *testing.T) {
 	t.Parallel()
 
-	err := exec.CommandContext(t.Context(), "git", "-C", filepath.Join("..", ".."),
+	err := exec.CommandContext(t.Context(), "git", "-C", repoRoot,
 		"check-ignore", "--quiet", "--no-index", "policy/policy").Run()
 	assert.NoError(t, err, "policy/policy is not ignored")
 }

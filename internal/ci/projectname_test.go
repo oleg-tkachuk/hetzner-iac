@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/clusterspec"
 	"github.com/oleg-tkachuk/hetzner-iac/internal/pkg/platform"
 )
@@ -65,7 +66,7 @@ func TestProjectName_IsWrittenInOnePlace(t *testing.T) {
 
 	var checked int
 
-	for _, path := range tracked(t, root) {
+	for _, path := range citest.Tracked(t, root) {
 		switch {
 		case path == nameDefinition:
 			continue

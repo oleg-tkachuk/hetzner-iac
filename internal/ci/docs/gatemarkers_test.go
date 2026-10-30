@@ -1,4 +1,4 @@
-package ci
+package docs
 
 import (
 	"os"
@@ -43,7 +43,7 @@ var workflowInvocation = regexp.MustCompile(`\btask ` + entryPoint + `([a-z][a-z
 func TestGateMarkers_MatchTheWorkflows(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join("..", "..")
+	root := repoRoot
 
 	reference := filepath.Join("docs", "commands.md")
 

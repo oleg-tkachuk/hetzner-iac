@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/siderolabs/talos/pkg/machinery/config/machine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,7 +104,7 @@ func TestTalosctlCalls_NameAnEndpointWithEveryNode(t *testing.T) {
 
 	var checked int
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -275,7 +276,7 @@ func TestTaskfiles_DoNotCallUmask(t *testing.T) {
 
 	var scanned int
 
-	for _, path := range taskfiles(t) {
+	for _, path := range citest.Taskfiles(t, filepath.Join("..", "..")) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 

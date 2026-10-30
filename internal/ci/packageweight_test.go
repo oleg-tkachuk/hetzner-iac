@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,9 +22,6 @@ const componentPackage = Module + "internal/pkg/hetzner"
 // specPackage is the same cluster as a document rather than as a resource, and
 // the whole point of it is that it costs nothing to read.
 const specPackage = Module + "internal/pkg/clusterspec"
-
-// pulumiPrefix matches every package of Pulumi's SDK, providers included.
-const pulumiPrefix = "github.com/pulumi/"
 
 // TestClusterSpec_PullsNoPulumi holds the line that makes the command-line
 // tools cheap.
@@ -48,7 +46,7 @@ func TestClusterSpec_PullsNoPulumi(t *testing.T) {
 	require.NotEmpty(t, reached, "no imports were read, so this proved nothing")
 
 	for imported := range reached {
-		assert.False(t, strings.HasPrefix(imported, pulumiPrefix),
+		assert.False(t, strings.HasPrefix(imported, citest.PulumiPrefix),
 			"%s reaches %s. Every program that only reads a topology now links Pulumi's "+
 				"SDK again — 768 packages, and five binaries that were 4.7 MB are 44 MB. "+
 				"Whatever needed it belongs in %s",

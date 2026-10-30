@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -276,7 +277,8 @@ func TestCI_ClassifiesDocumentationAsInert(t *testing.T) {
 	require.NoError(t, err, "the workflow's pattern does not compile as a regexp")
 
 	for path, inert := range map[string]bool{
-		// Documentation, and the files that are only ever read by a person.
+		// Documentation, and the files only the docs job reads: its links
+		// check and the internal/ci/docs tests, which ignore relevance.
 		"README.md":                       true,
 		"docs/design.md":                  true,
 		"docs/img/topology.png":           true,
@@ -302,7 +304,7 @@ func TestCI_ClassifiesDocumentationAsInert(t *testing.T) {
 		".github/workflows/ci.yaml":                      false,
 		".github/actions/setup-go/action.yml":            false,
 		".checkov.yaml":                                  false,
-		"internal/ci/gitignore_test.go":                  false,
+		"internal/ci/docs/gitignore_test.go":             false,
 		// A kind of file nobody has classified yet. Relevant by default is
 		// what makes forgetting safe.
 		"tools/something/new.awk": false,
@@ -312,7 +314,8 @@ func TestCI_ClassifiesDocumentationAsInert(t *testing.T) {
 }
 
 // TestCI_DocumentationLinkGateIgnoresRelevance holds the one thing about the
-// docs job that a tidy-up would get wrong.
+// docs job that a tidy-up would get wrong. It runs the links check and the
+// documentation tests, and both are only worth anything ungated.
 //
 // Every other check in ci.yaml is gated on `changes.outputs.relevant`, and
 // adding that `&&` here reads like consistency. It would disable the gate in
@@ -351,6 +354,48 @@ func TestCI_DocumentationLinkGateIgnoresRelevance(t *testing.T) {
 		"the documentation link gate runs outside a pull request:\n  if: %s", condition[1])
 }
 
+// docsTestTask runs the tests that read documentation, in the one job a
+// prose-only pull request does not skip.
+const docsTestTask = "docs:check"
+
+// docsTestPackage is where those tests live, relative to the repository root.
+const docsTestPackage = "./internal/ci/docs/"
+
+// TestCI_DocsJobRunsTheDocumentationTests keeps the documentation tests on the
+// job that ignores relevance.
+//
+// Documentation is inert, so on a prose-only pull request the build job is
+// skipped and `go test ./...` never reads the ADR index, the diagrams or
+// .gitignore. Those tests ran only there once, and a change that broke one
+// went green and failed on main.
+func TestCI_DocsJobRunsTheDocumentationTests(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", ciWorkflow))
+	require.NoError(t, err)
+
+	block := regexp.MustCompile(`(?ms)^  docs:\n(.*?)(?:^  [a-z][a-z0-9-]*:\n)`).
+		FindStringSubmatch(string(raw))
+	require.Len(t, block, 2, "no docs job in %s", ciWorkflow)
+
+	assert.Contains(t, block[1], "task -t "+citest.DevTaskfile+" "+docsTestTask,
+		"the docs job does not run %s, so a prose-only pull request skips the tests that read prose",
+		docsTestTask)
+
+	devTaskfile, err := os.ReadFile(filepath.Join("..", "..", citest.DevTaskfile))
+	require.NoError(t, err)
+
+	body, declared := tasksIn(string(devTaskfile))[docsTestTask]
+	require.True(t, declared, "%s declares no %s task", citest.DevTaskfile, docsTestTask)
+
+	assert.Contains(t, body, "go test "+docsTestPackage,
+		"the %s task does not test %s, which is where the documentation tests live",
+		docsTestTask, docsTestPackage)
+
+	_, statErr := os.Stat(filepath.Join("..", "..", docsTestPackage))
+	assert.NoError(t, statErr, "%s is not there", docsTestPackage)
+}
+
 // TestDocsLinkTask_ChecksFragmentsOffline pins the two flags that decide what
 // the gate is worth.
 //
@@ -366,12 +411,12 @@ func TestDocsLinkTask_ChecksFragmentsOffline(t *testing.T) {
 
 	// In the dev taskfile, not the root one: the root manages the IaC, and the
 	// checks live beside each other in the other entry point.
-	raw, err := os.ReadFile(filepath.Join("..", "..", devTaskfile))
+	raw, err := os.ReadFile(filepath.Join("..", "..", citest.DevTaskfile))
 	require.NoError(t, err)
 
 	block := regexp.MustCompile(`(?ms)^  docs:links:\n(.*?)(?:^  [a-z][a-z0-9:-]*:\n)`).
 		FindStringSubmatch(string(raw))
-	require.Len(t, block, 2, "no docs:links task in %s", devTaskfile)
+	require.Len(t, block, 2, "no docs:links task in %s", citest.DevTaskfile)
 
 	for _, flag := range []string{"--offline", "--include-fragments"} {
 		assert.Contains(t, block[1], flag,

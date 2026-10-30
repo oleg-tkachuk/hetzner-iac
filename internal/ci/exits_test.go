@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-tkachuk/hetzner-iac/internal/ci/citest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -167,7 +168,7 @@ func mainPackages(t *testing.T, root string) ([]string, error) {
 
 	// Tracked files only: a main package that exists only in somebody's
 	// working directory is not a program this repository ships.
-	for _, name := range tracked(t, root) {
+	for _, name := range citest.Tracked(t, root) {
 		// Any Go file in a main package, not main.go alone: a program that
 		// splits its entry point from its wiring — layers/10-node-platform
 		// does — would otherwise be able to move the failure line into a file
