@@ -40,12 +40,12 @@ env:
   # renovate: datasource=github-releases depName=golangci/golangci-lint
   GOLANGCI_VERSION: "v2.15.0"
   # renovate: datasource=pypi depName=checkov
-  CHECKOV_VERSION: "3.4.0"
+  CHECKOV_VERSION: "3.4.3"
   # uv runs the Python scanners, at the versions pinned here, through uvx.
   # Pinned in security.yaml too, to the same version — a test holds the two
   # together, and Renovate bumps both in one pull request.
   # renovate: datasource=pypi depName=uv
-  UV_VERSION: "0.13.6"
+  UV_VERSION: "0.13.7"
 
   # Same reason: a kubeconform release changing which schemas it accepts would
   # turn CI red with no commit of ours in between.
