@@ -66,12 +66,12 @@ env:
   # renovate: datasource=go depName=golang.org/x/vuln
   GOVULNCHECK_VERSION: "v1.9.0"
   # renovate: datasource=pypi depName=zizmor
-  ZIZMOR_VERSION: "1.31.1"
+  ZIZMOR_VERSION: "1.32.0"
   # uv runs the Python scanners, at the versions pinned here, through uvx.
   # Pinned in ci.yaml too, to the same version — a test holds the two
   # together, and Renovate bumps both in one pull request.
   # renovate: datasource=pypi depName=uv
-  UV_VERSION: "0.13.6"
+  UV_VERSION: "0.13.7"
   # renovate: datasource=go depName=github.com/rhysd/actionlint
   ACTIONLINT_VERSION: "v1.7.12"
   # renovate: datasource=github-releases depName=aquasecurity/trivy extractVersion=^v(?<version>.+)$
