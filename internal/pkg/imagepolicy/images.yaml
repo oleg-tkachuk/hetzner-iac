@@ -110,8 +110,8 @@ images:
   - repository: docker.io/library/traefik
     unsigned:
       reason: Traefik publishes no cosign signature.
-      tag: v3.7.16
-      digest: sha256:1336e85aaed293bd63d005086e0dd013b04078b26aaeb1c18b26a2f928af7e65
+      tag: v3.7.17
+      digest: sha256:68ae5fe5b64ca166704b746a9e8afcd385e36b3f569a5691401bf652d57b3748
 
   # Sigstore's policy-controller, and the kubectl its uninstall hook runs.
   # Chainguard signs from a branch, so that identity cannot be held to a tag.
