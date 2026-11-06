@@ -12,10 +12,10 @@ require (
 	github.com/pulumi/pulumi-hcloud/sdk v1.43.4
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.34.3
 	github.com/pulumi/pulumi-random/sdk/v4 v4.21.6
-	github.com/pulumi/pulumi/sdk/v3 v3.273.0
+	github.com/pulumi/pulumi/sdk/v3 v3.274.1
 	github.com/pulumiverse/pulumi-talos/sdk v0.8.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
-	github.com/siderolabs/image-factory v1.7.2
+	github.com/siderolabs/image-factory v1.8.0
 	github.com/siderolabs/talos/pkg/machinery v1.14.5
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/bbolt v1.5.0
@@ -33,7 +33,7 @@ require (
 	cloud.google.com/go/auth v0.24.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
-	github.com/Microsoft/go-winio v0.6.3-0.20251027160822-ad3df93bed29 // indirect
+	github.com/Microsoft/go-winio v0.6.3 // indirect
 	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.82.0 // indirect
@@ -62,7 +62,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/deckarep/golang-set/v2 v2.9.0 // indirect
 	github.com/djherbis/times v1.6.0 // indirect
-	github.com/docker/cli v29.8.0+incompatible // indirect
+	github.com/docker/cli v29.8.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.8 // indirect
 	github.com/ebitengine/purego v0.11.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
@@ -71,7 +71,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/go-git/gcfg/v2 v2.0.2 // indirect
 	github.com/go-git/go-billy/v6 v6.0.0-beta.1 // indirect
 	github.com/go-git/go-git/v6 v6.0.0-beta.1 // indirect
@@ -109,13 +109,13 @@ require (
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-version v1.9.0 // indirect
-	github.com/hashicorp/hcl/v2 v2.24.0 // indirect
+	github.com/hashicorp/hcl/v2 v2.25.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/iwdgo/sigintwindows v0.2.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
@@ -145,14 +145,14 @@ require (
 	github.com/prometheus/common v0.72.0 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/pulumi/appdash v0.0.0-20231130102222-75f619a67231 // indirect
-	github.com/pulumi/pulumi-cloud-sdk/go v1.20260918.0 // indirect
+	github.com/pulumi/pulumi-cloud-sdk/go v1.20261104.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/securego/gosec/v2 v2.30.0 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/siderolabs/gen v0.8.8 // indirect
-	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
