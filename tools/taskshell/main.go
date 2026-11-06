@@ -34,7 +34,7 @@ import (
 	"sort"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func main() {
@@ -343,7 +343,7 @@ func descend(path, task string, node *yaml.Node, into *[]Block) {
 		for _, item := range node.Content {
 			descend(path, task, item, into)
 		}
-	case yaml.ScalarNode, yaml.AliasNode, yaml.DocumentNode:
+	case yaml.ScalarNode, yaml.AliasNode, yaml.DocumentNode, yaml.StreamNode:
 	}
 }
 
@@ -372,7 +372,7 @@ func appendShell(path, task string, node *yaml.Node, into *[]Block) {
 			// is what also covers that mapping's own `defer`.
 			descend(path, task, item, into)
 		}
-	case yaml.AliasNode, yaml.DocumentNode:
+	case yaml.AliasNode, yaml.DocumentNode, yaml.StreamNode:
 	}
 }
 
