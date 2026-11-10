@@ -3,7 +3,6 @@ package ci
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -20,8 +19,16 @@ import (
 const (
 	// tasklibDepName is how renovate.json names the shared task library.
 	tasklibDepName = "oleg-tkachuk/taskfiles"
-	// trustTasklibScript replaces the library's checksums after a bump.
-	trustTasklibScript = ".github/scripts/trust-tasklib.sh"
+	// tasklibPreset is the library's own Renovate preset, which finds the pin
+	// in any Taskfile with no annotation above it.
+	tasklibPreset = "github>oleg-tkachuk/taskfiles//renovate/tasklib"
+	// tasklibModule is the include that carries the library's lock tasks.
+	tasklibModule = "tasklib"
+	// tasklibLockCommand refreshes the lock after a bump. Through the dev
+	// entry point, because that is the one including the module; --yes is the
+	// trust decision, and the two flags after it override .taskrc.yml, which
+	// keeps every other run offline.
+	tasklibLockCommand = "task -t " + citest.DevTaskfile + " --yes --offline=false --download " + tasklibModule + ":lock"
 	// renovateWorkflow runs Renovate and holds its global configuration.
 	renovateWorkflow = ".github/workflows/renovate.yaml"
 	// allowedCommandsEnv is the global option postUpgradeTasks are matched against.
@@ -59,7 +66,7 @@ func tasklibPostUpgrade(t *testing.T) postUpgradeTasks {
 		}
 	}
 
-	t.Fatalf("no rule for %s has postUpgradeTasks, so a bump leaves its checksums stale", tasklibDepName)
+	t.Fatalf("no rule for %s has postUpgradeTasks, so a bump leaves its lock stale", tasklibDepName)
 
 	return postUpgradeTasks{}
 }
@@ -95,11 +102,13 @@ func renovateStep(t *testing.T) (env, with map[string]string) {
 	return nil, nil
 }
 
-// TestRenovate_TasklibBumpReplacesItsChecksums holds renovate.json and the
-// workflow together. Each half fails quietly on its own: a command missing
-// from the allowed list is skipped with a warning, and a command without Task
-// in the container fails inside Renovate, so the branch is left red either way.
-func TestRenovate_TasklibBumpReplacesItsChecksums(t *testing.T) {
+// TestRenovate_TasklibBumpRefreshesItsLock holds renovate.json, the workflow
+// and the dev entry point together. Each part fails quietly on its own: a
+// command missing from the allowed list is skipped with a warning, a command
+// without Task in the container fails inside Renovate, a filter that misses a
+// file leaves it out of the commit, and a command naming a task no entry point
+// has fails the same way — so the branch is left red in every case.
+func TestRenovate_TasklibBumpRefreshesItsLock(t *testing.T) {
 	t.Parallel()
 
 	tasks := tasklibPostUpgrade(t)
@@ -109,114 +118,93 @@ func TestRenovate_TasklibBumpReplacesItsChecksums(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(env[allowedCommandsEnv]), &allowed),
 		"%s must be a JSON array of regexes", allowedCommandsEnv)
 
-	require.NotEmpty(t, tasks.Commands)
+	assert.Equal(t, []string{tasklibLockCommand}, tasks.Commands,
+		"the lock is refreshed by the library's own task and by nothing else")
 
 	for _, command := range tasks.Commands {
-		matched := false
-
-		for _, pattern := range allowed {
-			if regexp.MustCompile(pattern).MatchString(command) {
-				matched = true
-			}
-		}
-
+		matched := slices.ContainsFunc(allowed, func(pattern string) bool {
+			return regexp.MustCompile(pattern).MatchString(command)
+		})
 		assert.True(t, matched, "%q matches nothing in %s, so Renovate skips it", command, allowedCommandsEnv)
 	}
 
-	assert.Contains(t, tasks.Commands, "bash "+trustTasklibScript)
-	assert.FileExists(t, filepath.Join("..", "..", trustTasklibScript))
+	// Both halves of the lock: the checksum is the trust decision, and the
+	// copy beside it is what an offline run loads. The task replaces the
+	// directory, so the same filter is what commits the removal of the old
+	// ref's files.
+	for _, extension := range []string{lockChecksum, lockTaskfile} {
+		locked := remoteCache + "/git.github.com.go.0123" + extension
+		covered := false
 
-	checksum := remoteCache + "/git.github.com.go.0123.checksum"
-	covered := false
+		for _, filter := range tasks.FileFilters {
+			ok, err := path.Match(filter, locked)
+			require.NoError(t, err, filter)
 
-	for _, filter := range tasks.FileFilters {
-		ok, err := path.Match(filter, checksum)
-		require.NoError(t, err, filter)
+			covered = covered || ok
+		}
 
-		covered = covered || ok
+		assert.True(t, covered, "fileFilters %v do not cover %s, so the new lock is never committed",
+			tasks.FileFilters, locked)
 	}
-
-	assert.True(t, covered, "fileFilters %v do not cover %s, so the new checksums are never committed",
-		tasks.FileFilters, checksum)
 
 	assert.Contains(t, with["docker-volumes"], ":"+containerTask+":ro",
 		"Renovate's container does not ship Task; the workflow has to mount it")
-}
 
-// stubTask puts a task on PATH that logs its arguments and exits with code.
-func stubTask(t *testing.T, code string) (bin, log string) {
-	t.Helper()
-
-	bin = t.TempDir()
-	log = filepath.Join(t.TempDir(), "calls")
-	stub := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> " + log + "\nexit " + code + "\n"
-	require.NoError(t, os.WriteFile(filepath.Join(bin, "task"), []byte(stub), 0o700))
-
-	return bin, log
-}
-
-// repoFixture lays out what the script touches: two entry points, a stale
-// checksum and a cached taskfile that is not a checksum.
-func repoFixture(t *testing.T) string {
-	t.Helper()
-
-	dir := t.TempDir()
-	cache := filepath.Join(dir, remoteCache)
-	require.NoError(t, os.MkdirAll(cache, 0o700))
-
-	for _, name := range []string{"Taskfile.yaml", citest.DevTaskfile} {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), nil, 0o600))
-	}
-
-	for _, name := range []string{"git.github.com.go.old.checksum", "git.github.com.go.old.yaml"} {
-		require.NoError(t, os.WriteFile(filepath.Join(cache, name), nil, 0o600))
-	}
-
-	return dir
-}
-
-func runTrustTasklib(t *testing.T, dir, bin string) error {
-	t.Helper()
-
-	script, err := filepath.Abs(filepath.Join("..", "..", trustTasklibScript))
+	raw, err := os.ReadFile(filepath.Join("..", "..", citest.DevTaskfile))
 	require.NoError(t, err)
 
-	cmd := exec.CommandContext(t.Context(), "bash", script)
-	cmd.Dir = dir
-
-	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	return cmd.Run()
+	assert.True(t, citest.IncludesOf(t, string(raw))[tasklibModule],
+		"%s does not include %q, so `%s` names a task that does not exist",
+		citest.DevTaskfile, tasklibModule, tasklibLockCommand)
 }
 
-func TestTrustTasklib_ReplacesEveryChecksum(t *testing.T) {
+// tasklibPresetPin is the shape the library's preset matches: `?ref=` on an include
+// of taskfiles.git. A copy of the preset's own expression, which is fetched by
+// Renovate and cannot be read from here; `tasklib:check` is the other reader
+// of the same shape and fails when no entry point carries it.
+var tasklibPresetPin = regexp.MustCompile(`github\.com/oleg-tkachuk/taskfiles\.git//[^?\s'"]*\?ref=[^\s'"&]+`)
+
+// TestRenovate_FindsTheTasklibPinThroughThePreset holds the half of a bump
+// that comes before the lock: somebody has to propose it.
+//
+// The preset replaced an annotation above each pin and a pattern of this
+// repository's own. Dropping the preset from `extends` leaves the pins watched
+// by nothing; restoring an annotation gives one line two managers. Both are
+// silent. TestRenovateMatchesEveryTaskfilePin holds the second from the other
+// side: the local manager may match the pulumi-kit pin and nothing else.
+func TestRenovate_FindsTheTasklibPinThroughThePreset(t *testing.T) {
 	t.Parallel()
 
-	dir := repoFixture(t)
-	bin, log := stubTask(t, "0")
+	root := filepath.Join("..", "..")
 
-	require.NoError(t, runTrustTasklib(t, dir, bin))
-
-	assert.NoFileExists(t, filepath.Join(dir, remoteCache, "git.github.com.go.old.checksum"),
-		"a checksum for the old ref is a stale trust decision")
-	assert.FileExists(t, filepath.Join(dir, remoteCache, "git.github.com.go.old.yaml"),
-		"only checksums are removed")
-
-	calls, err := os.ReadFile(log)
+	raw, err := os.ReadFile(filepath.Join(root, ".github", "renovate.json"))
 	require.NoError(t, err)
-	assert.Equal(t,
-		"--yes --taskfile Taskfile.dev.yaml --list\n--yes --taskfile Taskfile.yaml --list\n",
-		string(calls), "every entry point loads, since each includes different modules")
-}
 
-func TestTrustTasklib_FailsWhenTaskFails(t *testing.T) {
-	t.Parallel()
+	var config struct {
+		Extends []string `json:"extends"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &config))
 
-	dir := repoFixture(t)
-	bin, _ := stubTask(t, "1")
+	assert.Contains(t, config.Extends, tasklibPreset,
+		"renovate.json no longer extends the task library's preset, and no manager of "+
+			"its own matches the pin — nobody proposes the next version")
 
-	require.Error(t, runTrustTasklib(t, dir, bin),
-		"a library Task cannot load must fail the upgrade, not commit no checksums")
+	annotated := regexp.MustCompile(`# renovate:[^\n]*\n\s*TASKLIB:`)
+
+	for _, name := range taskfileEntryPoints {
+		entry, readErr := os.ReadFile(filepath.Join(root, name))
+		require.NoError(t, readErr, name)
+
+		pin := tasklibPin.FindStringSubmatch(string(entry))
+		require.NotNil(t, pin, "%s declares no TASKLIB", name)
+
+		assert.Regexp(t, tasklibPresetPin, pin[1],
+			"%s pins the task library in a shape the preset does not match, so Renovate "+
+				"moves the other entry point and leaves this one", name)
+
+		assert.NotRegexp(t, annotated, string(entry),
+			"%s annotates TASKLIB for Renovate, and the preset already matches that line", name)
+	}
 }
 
 // TestRenovate_EveryPostUpgradeCommandIsAllowed holds every rule's post-upgrade

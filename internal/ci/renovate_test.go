@@ -469,8 +469,8 @@ func taskfilePinManager(t *testing.T) []*regexp.Regexp {
 			continue
 		}
 
-		require.Len(t, manager.MatchStrings, 2,
-			"one pattern for the pin inside a URL and one for the bare version")
+		require.Len(t, manager.MatchStrings, 1,
+			"one pattern, for the bare version; the task library's ref belongs to its preset")
 
 		patterns := make([]*regexp.Regexp, 0, len(manager.MatchStrings))
 
@@ -505,11 +505,11 @@ func TestRenovateMatchesEveryTaskfilePin(t *testing.T) {
 
 	patterns := taskfilePinManager(t)
 
-	// The two pins, and which file each is expected in: TASKLIB is written
-	// twice because Task resolves `includes:` before it loads `dotenv:`, so
-	// there is no third file both entry points could read it from.
+	// The one pin this manager owns. TASKLIB is absent on purpose: the task
+	// library's preset matches it, so a count for it here would mean one line
+	// with two managers — TestRenovate_FindsTheTasklibPinThroughThePreset
+	// holds the preset's half.
 	wanted := map[string]int{
-		"oleg-tkachuk/taskfiles":             2,
 		"github.com/oleg-tkachuk/pulumi-kit": 1,
 	}
 
@@ -517,9 +517,8 @@ func TestRenovateMatchesEveryTaskfilePin(t *testing.T) {
 
 	annotation := regexp.MustCompile(`# renovate: datasource=(\S+) depName=(\S+)`)
 
-	// The datasources these two pins resolve from: GitHub tags for the task
-	// library, and the Go module proxy for pulumi-kit.
-	allowed := map[string]bool{"github-tags": true, "go": true}
+	// The datasource this pin resolves from: the Go module proxy.
+	allowed := map[string]bool{"go": true}
 
 	for _, name := range taskfileEntryPoints {
 		raw, err := os.ReadFile(filepath.Join("..", "..", name))
@@ -527,8 +526,10 @@ func TestRenovateMatchesEveryTaskfilePin(t *testing.T) {
 
 		text := string(raw)
 
+		// None at all is a valid answer for one file — the dev entry point
+		// pins only the task library — and `wanted` below is what fails when
+		// the pin that must be annotated is not.
 		annotations := annotation.FindAllStringSubmatch(text, -1)
-		require.NotEmpty(t, annotations, "%s carries no renovate annotation", name)
 
 		var matched int
 
@@ -551,11 +552,6 @@ func TestRenovateMatchesEveryTaskfilePin(t *testing.T) {
 		for _, match := range annotations {
 			assert.True(t, allowed[match[1]],
 				"%s: datasource %q is not one these pins resolve from", name, match[1])
-
-			if match[1] == "github-tags" {
-				assert.Contains(t, match[2], "/",
-					"%s: github-tags depName %q is not owner/repo", name, match[2])
-			}
 		}
 	}
 
