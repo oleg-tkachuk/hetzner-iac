@@ -1,0 +1,202 @@
+version: "3"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# helm — what is installed on a cluster, and removing it.
+#
+#   includes:
+#     helm: { taskfile: '{{printf .TASKLIB "helm"}}', dir: . }
+#
+# Cluster-wide, not component-scoped: `list` answers "what is on this cluster"
+# and `uninstall` can empty it. That is why they are not in `k8s`, which acts
+# on one component's deployment and is included by every component — a
+# cluster-wide delete does not belong in each of their task lists.
+#
+# Packaging, linting and pushing a chart live in `release`; installing one
+# component's chart lives in `k8s:upgrade`. This module is the cluster view.
+#
+# ── Inputs ───────────────────────────────────────────────────────────────────
+# Pass these at the include's own `vars:`, not the consumer's top-level
+# `vars:`. In a repository with more than one component the top level is
+# shared with every other component — see README.md#variable-scoping.
+#
+#   K8S_CONTEXT   pin a cluster                            (default: current)
+#   HELM_NS       limit to one namespace          (default: every namespace)
+#   HELM_UNINSTALL_FLAGS  verbatim extra flags for `helm uninstall`
+#   RELEASE       required by uninstall: one release name, or `all`
+#   CONFIRM       required by uninstall: must name the context being emptied
+# ─────────────────────────────────────────────────────────────────────────────
+# shell-verbatim: _HELM_CTX _HELM_KCTX _HELM_SCOPE _HELM_EVERY_STATE _HELM_UNINSTALL_FLAGS HELM_UNINSTALL_FLAGS
+
+silent: true
+
+vars:
+  # helm spells it --kube-context, kubectl spells it --context. Mixing them up
+  # does not error loudly: kubectl rejects the flag, the substitution captures
+  # nothing, and a guard comparing against that empty string passes.
+  # Flag fragments, spliced into commands as shell: the values inside them are
+  # quoted here, where they are built.
+  _HELM_CTX: '{{if .K8S_CONTEXT}} --kube-context {{.K8S_CONTEXT | q}}{{end}}'
+  # How long a reachability probe waits before calling the cluster gone: the
+  # skip guards below would otherwise hang on a dead context.
+  _HELM_PROBE_TIMEOUT: 3s
+  _HELM_KCTX: '{{if .K8S_CONTEXT}} --context {{.K8S_CONTEXT | q}}{{end}}'
+  _HELM_SCOPE: '{{if .HELM_NS}}--namespace {{.HELM_NS | q}}{{else}}--all-namespaces{{end}}'
+  _HELM_UNINSTALL_FLAGS: '{{.HELM_UNINSTALL_FLAGS | default ""}}'
+  # Without it helm list shows deployed and failed releases only, so one stuck
+  # pending-install or uninstalling is neither listed before the prompt nor
+  # removed after it.
+  _HELM_EVERY_STATE: '-a'
+  # How many pages of releases RELEASE=all works through before it stops and
+  # says what is left: helm list returns one page (256 by default) at a time,
+  # and a release that reports gone but stays listed must not loop for ever.
+  _HELM_MAX_PASSES: '20'
+  # Status markers. The shape carries the meaning, so a line still reads in
+  # a monochrome log; the colour sits on top and drops out under NO_COLOR.
+  _HELM_RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
+  _HELM_OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
+  _HELM_ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+
+tasks:
+
+  list:
+    desc: "Show every Helm release on the cluster"
+    # Skipped, not failed, when there is no cluster to talk to. The guard sits
+    # here rather than on the internal task because Task evaluates
+    # preconditions BEFORE status, so a status guard cannot skip past the
+    # internal task's own preconditions — a status meant to no-op this on a
+    # laptop with no cluster running would otherwise still demand helm be
+    # installed just to decide there was nothing to list.
+    status:
+      - "! kubectl{{._HELM_KCTX}} version --request-timeout={{._HELM_PROBE_TIMEOUT | q}} >/dev/null 2>&1"
+    cmds:
+      - task: _list
+
+  _list:
+    internal: true
+    preconditions:
+      - sh: command -v helm >/dev/null
+        msg: "helm is not installed — https://helm.sh/docs/intro/install/"
+    cmds:
+      - helm list{{._HELM_CTX}} {{._HELM_SCOPE}}
+
+  uninstall:
+    desc: "Uninstall one Helm release, or RELEASE=all for every one in scope — destructive, asks first"
+    # One verb, and RELEASE says how much of it.
+    #
+    # It was `uninstall-all`, with no way to remove a single release — so the
+    # only uninstall this module offered was the one that empties a cluster.
+    # RELEASE is required, which keeps that property: the shortest command
+    # cannot be the widest, and `all` has to be typed on purpose.
+    #
+    # Three locks now, because one is not enough for a task that can empty a
+    # cluster.
+    #
+    # CONFIRM must name the context being emptied. A prompt alone guards against
+    # not meaning it; it does nothing about meaning it on the wrong cluster,
+    # which is the mistake that actually happens — kubectl's current context is
+    # ambient state nobody re-reads before typing a command.
+    #
+    # The context being emptied is K8S_CONTEXT when one is pinned, and only
+    # otherwise the current one. `kubectl --context X config current-context`
+    # does not answer that: it prints the kubeconfig's current context whatever
+    # --context says, so comparing against it let CONFIRM=dev through while
+    # every helm call below went to the pinned prod.
+    requires:
+      vars: [CONFIRM, RELEASE]
+    preconditions:
+      - sh: command -v helm >/dev/null
+        msg: "helm is not installed — https://helm.sh/docs/intro/install/"
+      - sh: >-
+          ctx={{if .K8S_CONTEXT}}{{.K8S_CONTEXT | q}}{{else}}"$(kubectl config current-context 2>/dev/null)"{{end}};
+          test -n "$ctx"
+          && kubectl config get-contexts -o name 2>/dev/null | grep -qxF -- "$ctx"
+          && test {{.CONFIRM | q}} = "$ctx"
+        msg: |-
+          CONFIRM does not name the context this would empty.
+          Re-run with CONFIRM=<the context you mean>, after checking
+          which one that is:  {{if .K8S_CONTEXT}}K8S_CONTEXT={{.K8S_CONTEXT}}{{else}}kubectl config current-context{{end}}
+    prompt: "Uninstall {{if eq .RELEASE \"all\"}}EVERY Helm release{{else}}the Helm release {{.RELEASE}}{{end}} {{if .HELM_NS}}in {{.HELM_NS}}{{else}}in every namespace{{end}} on {{.CONFIRM}}. This cannot be undone. Continue?"
+    cmds:
+      # Listed before removing, so the prompt above is answered with the list in
+      # view rather than from memory.
+      - printf '%s\n' "{{._HELM_RUN}} helm · about to uninstall:"
+      - cmd: |-
+          helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q \
+            | awk -v want={{.RELEASE | q}} 'want == "all" || $1 == want' \
+            | sed 's/^/    /'
+      # awk over helm's table rather than a JSON parse: a release name is a DNS
+      # label, so the first two columns cannot contain a space, and this asks
+      # nothing of the machine that helm has not already asked. The earlier
+      # version piped through python3 — an interpreter this module has no reason
+      # to require, and whose absence would surface only after the prompt had
+      # been answered.
+      - cmd: |-
+          # A release named `all` would be shadowed by the selector. Refuse
+          # rather than silently emptying the cluster instead of removing one
+          # release: a helm release name is a DNS label, so `all` is legal.
+          if [ {{.RELEASE | q}} = all ] \
+             && helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q | grep -qx all; then
+            printf '%s\n' "{{._HELM_ERR}} helm · a release is named 'all', and RELEASE=all means EVERY release." >&2
+            printf '%s\n' "         Refusing rather than guessing. Scope it with HELM_NS=<namespace>, or rename it." >&2
+            exit 1
+          fi
+
+          # A named release that is not there is a typo, not a no-op: the
+          # operator asked for something to be gone and it never was. Saying so
+          # is the difference between "done" and "you removed nothing".
+          if [ {{.RELEASE | q}} != all ] \
+             && ! helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q | grep -qx {{.RELEASE | q}}; then
+            printf '%s helm · no release named %s in scope\n' "{{._HELM_ERR}}" {{.RELEASE | q}} >&2
+            exit 1
+          fi
+
+          # awk over helm's table rather than a JSON parse: a release name is a
+          # DNS label, so the first two columns cannot contain a space, and
+          # this asks nothing of the machine that helm has not already asked.
+          # The earlier version piped through python3 — an interpreter this
+          # module has no reason to require, and whose absence would surface
+          # only after the prompt had been answered.
+          #
+          # Every release that fails to go is named, and the task fails after
+          # trying the rest: a `cmd && say` per release dropped the failure on
+          # the floor, and the step after it reported nothing left in scope.
+          #
+          # RELEASE=all lists again after each pass, because helm lists one
+          # page at a time; it stops when a pass finds nothing, removes
+          # nothing, or _HELM_MAX_PASSES is spent. The step below says what,
+          # if anything, is left.
+          set -euo pipefail
+          want={{.RELEASE | q}}
+          passes=0
+          while [ "$passes" -lt {{._HELM_MAX_PASSES | q}} ]; do
+            passes=$((passes + 1))
+            listed=$(helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} \
+              | awk -v want="$want" 'NR > 1 && (want == "all" || $1 == want) { print $1, $2 }')
+            [ -n "$listed" ] || break
+            failed=0; removed=0
+            while read -r name ns; do
+              if helm uninstall{{._HELM_CTX}} {{._HELM_UNINSTALL_FLAGS}} "$name" --namespace "$ns" >/dev/null; then
+                printf '%s\n' "{{._HELM_OK}} helm · uninstalled $ns/$name"
+                removed=$((removed + 1))
+              else
+                printf '%s\n' "{{._HELM_ERR}} helm · could not uninstall $ns/$name" >&2
+                failed=1
+              fi
+            done <<EOF
+          $listed
+          EOF
+            [ "$failed" = 0 ] || exit 1
+            [ "$want" = all ] && [ "$removed" -gt 0 ] || break
+          done
+      # Checked, not assumed: helm list returns one page of releases (256 by
+      # default, and --max 0 means the server's default, not "all"), so a
+      # cluster holding more keeps the rest after a pass that went cleanly.
+      - cmd: |-
+          if [ {{.RELEASE | q}} = all ]; then
+            left=$(helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q | grep -c . || true)
+            if [ "$left" -ne 0 ]; then
+              printf '%s helm · %s release(s) still in scope after %s passes — see what is left with helm list\n' "{{._HELM_ERR}}" "$left" {{._HELM_MAX_PASSES | q}} >&2
+              exit 1
+            fi
+            printf '%s\n' "{{._HELM_OK}} helm · nothing left in scope"
+          fi

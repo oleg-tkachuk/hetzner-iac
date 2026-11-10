@@ -1,0 +1,305 @@
+version: "3"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# checkov — policy scanning for infrastructure: manifests, charts, Dockerfiles
+# and workflows.
+#
+#   includes:
+#     checkov: { taskfile: '{{printf .TASKLIB "checkov"}}', dir: . }
+#
+# Separate from `security` because it asks a different question of a different
+# tree. `security` scans a repository's code and the artifacts built from it —
+# every task there wants Go modules or a git history. This one wants YAML a
+# cluster will apply. A repository usually has one or the other, and a module
+# should not fill a consumer's task list with work it has nothing to run
+# against.
+#
+# ── Inputs ───────────────────────────────────────────────────────────────────
+# Pass these at the include's own `vars:`, not the consumer's top-level
+# `vars:`. In a repository with more than one component the top level is
+# shared with every other component — see README.md#variable-scoping.
+#
+#   CHECKOV_CONFIG      default .checkov.yaml
+#   CHECKOV_BASELINE    default .checkov.baseline; required to exist only
+#                       when CHECKOV_CONFIG names a baseline
+#   CHECKOV_FRAMEWORKS  list of frameworks the triage view walks
+#                       (default: ["github_actions", "dockerfile", "helm",
+#                       "kubernetes"])
+#   CHECKOV_TARGET      list of directories the triage view walks
+#                       (default ["."])
+#   CHECKOV_FLAGS       extra checkov flags, appended to every invocation
+#   CHECKOV_VERSION     the version to run, whatever is installed
+#   CHECKOV_VERSION_CMD a command printing one, when it already lives
+#                       somewhere — a workflow's env, a .tool-versions
+# ─────────────────────────────────────────────────────────────────────────────
+# shell-verbatim: _CKV_RESOLVE _CKV_FLAGS CHECKOV_FLAGS CHECKOV_VERSION_CMD
+
+silent: true
+
+vars:
+  _CKV_CFG: '{{.CHECKOV_CONFIG | default ".checkov.yaml"}}'
+  # The one name checkov writes a baseline under, in the directory it scans;
+  # --create-baseline takes no path.
+  _CKV_BASE_NAME: .checkov.baseline
+  _CKV_BASE: '{{.CHECKOV_BASELINE | default ._CKV_BASE_NAME}}'
+  _CKV_FW:
+    ref: 'default (list "github_actions" "dockerfile" "helm" "kubernetes") .CHECKOV_FRAMEWORKS'
+  # A real list, not a string this module splits. `ref:` is what keeps it one
+  # — interpolating it into a template flattens it to "[a b]", which is then
+  # a directory name with a bracket in it.
+  _CKV_TARGET:
+    ref: 'default (list ".") .CHECKOV_TARGET'
+  _CKV_FLAGS: '{{.CHECKOV_FLAGS | default ""}}'
+  # Status markers. The shape carries the meaning, so a line still reads in
+  # a monochrome log; the colour sits on top and drops out under NO_COLOR.
+  _CKV_RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
+  _CKV_OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
+  _CKV_WARN: '{{if .NO_COLOR}}▲{{else}}{{"\x1b[33m▲\x1b[0m"}}{{end}}'
+  _CKV_ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+
+  # Which checkov runs. A contract rather than a convenience: the rules a scan
+  # asserts against change between releases, so a repository that names a
+  # version gets THAT version whatever the machine has installed. A local run
+  # reporting different findings from the pipeline's is worse than no local run
+  # — it is a red result nobody else can reproduce, or a green one that means
+  # nothing.
+  #
+  # Unpinned is unchanged: whatever is on PATH, and the install page when there
+  # is nothing there. Pinned and absent goes through `uvx`, because checkov
+  # is a Python tool and that is how it runs at a version without touching
+  # what else the machine has.
+  #
+  # CHECKOV_VERSION_CMD is for a version that already lives somewhere, so that
+  # naming it here does not make a second copy to keep in step — the same
+  # shape, and the same reason, as the hcloud module's *_CMD inputs.
+  #
+  # Interpolated by every task below rather than repeated in each. It defines
+  # `run_checkov`, and every invocation goes through that.
+  _CKV_RESOLVE: |
+    # The branch is in the TEMPLATE, not in the shell, so the command only
+    # ever appears inside `$( )` — where the shell parses it as a command in
+    # its own right and its quoting is its own business.
+    #
+    # It was a shell `[ -n "…" ]` test on the input first, which put the
+    # command inside double quotes. A command with an ODD number of double
+    # quotes then closes them and everything after re-parses: the first
+    # consumer to pass one — `awk -F'"' '/CHECKOV_VERSION:/ {print $2}' …` —
+    # died with "`fi` can only be used to end an `if`", naming neither the
+    # input nor the quote. Balanced quotes survive it, which is why the same
+    # shape elsewhere has not been caught.
+    #
+    # A command that prints nothing has lost the pin — a renamed file, a moved
+    # key — and a pipeline's exit status is its last stage's, so set -e does
+    # not see it. Read as "unpinned", it ran whatever was on PATH in silence.
+    {{if .CHECKOV_VERSION_CMD -}}
+    checkov_version="$({{.CHECKOV_VERSION_CMD}})"
+    if [ -z "$checkov_version" ]; then
+      printf '%s CHECKOV_VERSION_CMD printed no version: %s\n' "{{._CKV_ERR}}" {{.CHECKOV_VERSION_CMD | q}} >&2
+      exit 1
+    fi
+    {{- else -}}
+    checkov_version={{.CHECKOV_VERSION | default "" | q}}
+    {{- end}}
+
+    checkov_installed=""
+    if command -v checkov >/dev/null 2>&1; then
+      # checkov prints the bare version and nothing else.
+      checkov_installed="$(checkov --version 2>/dev/null | tr -d '\r')"
+    fi
+
+    if [ -z "$checkov_version" ]; then
+      if [ -z "$checkov_installed" ]; then
+        printf '%s\n' "{{._CKV_ERR}} checkov is not installed — https://www.checkov.io/2.Basics/Installing%20Checkov.html" >&2
+        exit 1
+      fi
+      run_checkov() { checkov "$@"; }
+    elif [ "$checkov_installed" = "$checkov_version" ]; then
+      run_checkov() { checkov "$@"; }
+    elif command -v uvx >/dev/null 2>&1; then
+      printf '%s\n' "{{._CKV_RUN}} checkov · ${checkov_version} through uvx, not the ${checkov_installed:-none} on PATH"
+      run_checkov() { uvx "checkov@${checkov_version}" "$@"; }
+    else
+      printf '%s\n' "{{._CKV_ERR}} checkov ${checkov_version} is pinned, ${checkov_installed:-nothing} is installed, and uv is absent — https://docs.astral.sh/uv/getting-started/installation/" >&2
+      exit 1
+    fi
+
+tasks:
+
+  scan:
+    desc: "Policy-scan manifests, charts, Dockerfiles and workflows against the baseline"
+    preconditions:
+      # Either is enough: a pinned version runs through uvx, so a machine
+      # with uv and no checkov is a working one. Which of the two applies is
+      # decided by _CKV_RESOLVE, whose messages name the exact case.
+      - sh: command -v checkov >/dev/null || command -v uvx >/dev/null
+        msg: "neither checkov nor uv is installed — https://www.checkov.io/2.Basics/Installing%20Checkov.html"
+      - sh: test -f {{._CKV_CFG | q}}
+        msg: "{{._CKV_CFG}} not found — set CHECKOV_CONFIG"
+      # A missing baseline that the config NAMES is not "no findings accepted
+      # yet" — it is checkov reading a file that is not there. A config that
+      # names none has nothing to be missing, and this refused it anyway:
+      # `test -f` was unconditional while the comment beside it already said
+      # "the config names the baseline". A consumer whose .checkov.yaml has no
+      # `baseline:` key could not run the scan at all, and the message told it
+      # to create a file its config would ignore.
+      #
+      # One awk pass over the config, and the file test only if it named one.
+      - sh: |
+          named="$(awk '/^[ \t]*baseline:[ \t]*[^ \t]/ { print "yes"; exit }' {{._CKV_CFG | q}})"
+          [ -z "$named" ] || test -f {{._CKV_BASE | q}}
+        msg: "{{._CKV_CFG}} names a baseline and {{._CKV_BASE}} does not exist — create it with checkov:baseline, or point CHECKOV_BASELINE at the one it names"
+    cmds:
+      # One block, so the resolution above and the run it defines are the same
+      # shell. `set -e` because a merged block would otherwise print the OK
+      # line after a failing scan.
+      #
+      # The output is captured rather than streamed, because a zero exit is not
+      # enough to believe here. checkov reports a directory it cannot open as
+      # "Directory X does not exist; skipping it" on stderr AND THEN EXITS 0 —
+      # so this task printed "no findings outside the baseline" over a scan of
+      # no files at all. The directory comes from the config's own `directory:`
+      # key, which nothing else validates, so the marker checkov prints is the
+      # honest detector; a precondition here would have to parse that YAML.
+      #
+      # A gate that cannot fail is worse than no gate: the first one is trusted.
+      - cmd: |
+          set -eu
+          {{._CKV_RESOLVE}}
+          out="$(mktemp)"
+          trap 'rm -f "$out"' EXIT
+          status=0
+          run_checkov --config-file {{._CKV_CFG | q}} {{._CKV_FLAGS}} >"$out" 2>&1 || status=$?
+          cat "$out"
+          [ "$status" -eq 0 ] || exit "$status"
+          if grep -q 'does not exist; skipping it' "$out"; then
+            printf '%s checkov · a directory in %s does not exist, so part of the tree went unscanned — the line above names it\n' "{{._CKV_ERR}}" {{._CKV_CFG | q}} >&2
+            exit 1
+          fi
+          printf '%s\n' "{{._CKV_OK}} checkov · no findings outside the baseline"
+
+  # Named for what it is, and it used to be called `all`.
+  #
+  # That name said "every target" and meant "every finding" — a MODE of one
+  # scan, not an aggregate of several. Beside `scan` it read as the stronger
+  # gate, while its own description says "never a gate": it ignores the
+  # baseline and the config on purpose, so it always exits 0 with a list. A
+  # consumer reaching for the thorough check found the one that cannot fail.
+  #
+  # This module's own prose already called it the triage view — see
+  # CHECKOV_FRAMEWORKS and CHECKOV_TARGET above. The task name was the last
+  # place still calling it `all`.
+  triage:
+    desc: "Every checkov finding, baselined ones included — a triage view, never a gate"
+    preconditions:
+      # Either is enough — see _CKV_RESOLVE.
+      - sh: command -v checkov >/dev/null || command -v uvx >/dev/null
+        msg: "neither checkov nor uv is installed — https://www.checkov.io/2.Basics/Installing%20Checkov.html"
+      # checkov reports a directory it cannot open on stderr — "Directory X
+      # does not exist; skipping it" — and then exits 0. A wrong target is
+      # therefore a scan of NOTHING wearing a green exit code, which is the
+      # one result a triage view must never produce: an empty finding list
+      # reads as a clean tree.
+      #
+      # A string gets no message of its own here. One was tried: Task renders
+      # a task's cmds before it evaluates any precondition, so the `range` in
+      # the command below raises "range can't iterate over ." first and a
+      # guard above it can never speak. It said "must be a list" and could
+      # not fire — a dead precondition reads like a live one, so it is gone
+      # and Go's error stands.
+      - sh: '{{range $d := ._CKV_TARGET}}test -d {{$d | q}} && {{end}}true'
+        msg: 'CHECKOV_TARGET names a directory that does not exist ({{._CKV_TARGET | join ", "}}) — checkov would skip it and still exit 0'
+    # Deliberately ignores the baseline and the config: this is the view for
+    # deciding what to fix next, not a pass/fail check. checkov exits 1 on any
+    # finding, so --soft-fail is what keeps a list of them from failing.
+    cmds:
+      - cmd: |
+          set -eu
+          {{._CKV_RESOLVE}}
+          run_checkov --compact --soft-fail {{._CKV_FLAGS}} \
+            {{range $d := ._CKV_TARGET}}-d {{$d | q}} {{end}}\
+            {{range $f := ._CKV_FW}}--framework {{$f | q}} {{end}}
+
+  baseline:
+    desc: "Regenerate the checkov baseline — only after deliberately fixing findings"
+    vars:
+      # Lines of checkov's output shown when a run did not write the baseline.
+      _CKV_LOG_TAIL: '20'
+    preconditions:
+      # Either is enough — see _CKV_RESOLVE.
+      - sh: command -v checkov >/dev/null || command -v uvx >/dev/null
+        msg: "neither checkov nor uv is installed — https://www.checkov.io/2.Basics/Installing%20Checkov.html"
+      # A baseline under any other name is one checkov never writes, so the run
+      # below always ended in "the baseline was not written".
+      - sh: test {{base ._CKV_BASE | q}} = {{._CKV_BASE_NAME | q}}
+        msg: "CHECKOV_BASELINE is {{._CKV_BASE}}, and checkov writes {{._CKV_BASE_NAME}} into the directory it scans and nowhere else — point it at <that directory>/{{._CKV_BASE_NAME}}"
+    prompt: |
+      Regenerating the baseline accepts every CURRENT finding as permitted,
+      including any regression introduced since the last run. Do this after
+      fixing findings, never to make a red build green. Continue?
+    cmds:
+      # Counted before and after, because the failure mode is silent: a baseline
+      # regenerated to clear one fixed finding also swallows anything that broke
+      # since, and the run that does it looks exactly like the run that does not.
+      - cmd: |-
+          # Each accepted finding's check_ids sit one per line in checkov's own
+          # baseline writer, indent=4 regardless of --compact — a resource with
+          # several failing checks (Kubernetes groups them per-resource) lists
+          # every id on its own line, so counting "CKV lines counts findings the
+          # same way len(check_ids) summed across them does. No interpreter
+          # required — an interpreter this task has no reason to require, and
+          # whose absence would surface only after the prompt above had already
+          # been answered. `grep -c` alone is not enough here: on zero matches it
+          # both prints 0 AND exits 1, so `|| echo 0` would double that 0 — the
+          # missing-file case is handled separately instead.
+          count() {
+            [ -f "$1" ] || { printf '%s' 0; return; }
+            grep -c '"CKV' "$1" || true
+          }
+          {{._CKV_RESOLVE}}
+          before=$(count {{._CKV_BASE | q}})
+          # checkov exits 1 when it finds anything, which a baseline run always
+          # may, so its status cannot tell a scan from a crash. Whether it wrote
+          # the baseline can: a run that crashed left the old file in place,
+          # and discarding its status and output reported that as "N → N".
+          stamp=$(mktemp); log=$(mktemp)
+          trap 'rm -f "$stamp" "$log"' EXIT
+          status=0
+          run_checkov --config-file {{._CKV_CFG | q}} {{._CKV_FLAGS}} --create-baseline >"$log" 2>&1 || status=$?
+          if ! [ {{._CKV_BASE | q}} -nt "$stamp" ]; then
+            printf '%s checkov · %s was not written (checkov exited %s); checkov writes %s into the directory it scans. The last of its output:\n' \
+              "{{._CKV_ERR}}" {{._CKV_BASE | q}} "$status" {{._CKV_BASE_NAME | q}} >&2
+            tail -n {{._CKV_LOG_TAIL | q}} "$log" | sed 's/^/    /' >&2
+            # Where it did write, when that is somewhere else: the config's
+            # directory is not CHECKOV_BASELINE's. Found rather than parsed
+            # out of the config, which would need a YAML reader here.
+            written=$(find . -name .git -prune -o -name {{._CKV_BASE_NAME | q}} -newer "$stamp" -print 2>/dev/null | sed 's|^\./||')
+            if [ -n "$written" ]; then
+              printf '%s checkov · it wrote %s instead — point CHECKOV_BASELINE there\n' "{{._CKV_ERR}}" "$(echo $written)" >&2
+            fi
+            exit 1
+          fi
+          after=$(count {{._CKV_BASE | q}})
+          printf '%s\n' "{{._CKV_RUN}} checkov · baselined findings: ${before} → ${after}"
+          if [ "${after}" -gt "${before}" ]; then
+            printf '%s\n' "{{._CKV_WARN}} checkov · the baseline GREW — something new was accepted rather than fixed" >&2
+          fi
+          # And the other direction, which used to print as ordinary news. A
+          # regenerated baseline REPLACES the file, so every record the current
+          # scan does not reproduce is gone — and the scan reproduces only what
+          # its config and frameworks reach today. A repository whose config has
+          # narrowed since the baseline was written loses the rest of it here,
+          # with "177 → 5" reading exactly like "12 → 5".
+          #
+          # Two conditions, because either alone misfires. Proportional alone
+          # flags "12 → 5", which is somebody fixing seven findings and is the
+          # whole point of the task. Absolute alone flags a big baseline losing
+          # a fifth of itself, which is a good day's work. Most of the file AND
+          # at least twenty records is the shape of a config that narrowed.
+          lost=$(( before - after ))
+          if [ "${before}" -gt 0 ] && [ "$(( after * 2 ))" -lt "${before}" ] && [ "${lost}" -ge 20 ]; then
+            printf '%s\n' "{{._CKV_WARN}} checkov · the baseline LOST most of itself — ${before} accepted findings became ${after}, ${lost} gone." >&2
+            printf '%s\n' "         Findings the current scan cannot see are not in the new file. If the" >&2
+            printf '%s\n' "         config or the framework list has narrowed since it was written, those" >&2
+            printf '         records were decisions, not noise: git diff %s before committing,\n' {{._CKV_BASE | q}} >&2
+            printf '         and git checkout -- %s to put them back.\n' {{._CKV_BASE | q}} >&2
+          fi

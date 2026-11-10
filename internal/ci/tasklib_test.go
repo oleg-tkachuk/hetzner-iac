@@ -25,11 +25,19 @@ var (
 	tasklibInclude = regexp.MustCompile(`{{printf \.TASKLIB "([a-z0-9-]+)"}}`)
 )
 
-// remoteCache is where Task keeps what it fetched, and where the checksum
-// lockfiles this repository commits live.
+// remoteCache is where Task keeps what it fetched, and where the lock this
+// repository commits lives.
 const remoteCache = ".task/remote"
 
-// TestTasklib_EveryRemoteTaskfileHasItsChecksum is the gate for a CI failure
+// The two files Task keeps per remote taskfile, both committed: the checksum
+// is the trust decision, and the copy is what `offline: true` in .taskrc.yml
+// loads instead of fetching. A third, `.timestamp`, is local and ignored.
+const (
+	lockChecksum = ".checksum"
+	lockTaskfile = ".yaml"
+)
+
+// TestTasklib_TheLockIsExactlyWhatThePinsName is the gate for a CI failure
 // that reads like a permissions problem and is a missing lockfile.
 //
 // Task refuses a remote taskfile it has not been told to trust:
@@ -37,9 +45,14 @@ const remoteCache = ".task/remote"
 //	task: Taskfile "https://…/taskfiles.git//go?ref=v7.1.0" not trusted by user
 //
 // What tells it is a checksum file under .task/remote, named for the sha256 of
-// the URL — ref included. So bumping the ref invalidates all four at once, and
-// a commit that moves the pin without swapping them fails every job that runs
-// a task, with a message about trust rather than about the bump.
+// the URL — ref included. So bumping the ref invalidates all of them at once,
+// and a commit that moves the pin without swapping them fails every job that
+// runs a task, with a message about trust rather than about the bump.
+//
+// `task -t Taskfile.dev.yaml tasklib:check` asks Task the same question by
+// loading both entry points offline, and is the gate `verify` runs. This one
+// stays because it needs no Task and so runs with the unit suite, and because
+// it is the only one of the two that notices what is left over.
 //
 // It has happened twice: once mid-session, and once as PR #178, which changed
 // Taskfile.yaml alone.
@@ -50,7 +63,7 @@ const remoteCache = ".task/remote"
 // there is no third file both can read it from. A bump applied to one leaves
 // the other fetching a ref whose checksums were just replaced, and the message
 // is about trust rather than about the version.
-func TestTasklib_EveryRemoteTaskfileHasItsChecksum(t *testing.T) {
+func TestTasklib_TheLockIsExactlyWhatThePinsName(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..")
@@ -99,8 +112,11 @@ func TestTasklib_EveryRemoteTaskfileHasItsChecksum(t *testing.T) {
 			// Task names the file for the sha256 of the whole URL, which is
 			// why the ref is part of it and why a bump invalidates every one.
 			sum := sha256.Sum256([]byte(remote))
-			expected[fmt.Sprintf("git.%s.%s.%s.checksum",
-				parsed.Host, module, hex.EncodeToString(sum[:]))] = remote
+			stem := fmt.Sprintf("git.%s.%s.%s", parsed.Host, module, hex.EncodeToString(sum[:]))
+
+			for _, extension := range []string{lockChecksum, lockTaskfile} {
+				expected[stem+extension] = remote
+			}
 		}
 	}
 
@@ -110,19 +126,22 @@ func TestTasklib_EveryRemoteTaskfileHasItsChecksum(t *testing.T) {
 	require.NoError(t, err, "%s is missing, so no remote taskfile is trusted", remoteCache)
 
 	for _, entry := range cached {
-		if strings.HasSuffix(entry.Name(), ".checksum") {
+		extension := filepath.Ext(entry.Name())
+		if extension == lockChecksum || extension == lockTaskfile {
 			present[entry.Name()] = true
 		}
 	}
 
 	for name, remote := range expected {
 		assert.True(t, present[name],
-			"%s/%s is missing, so Task will refuse %s as untrusted. Run a task with --yes "+
-				"once and commit the new .checksum files in the same commit as the pin",
-			remoteCache, name, remote)
+			"%s/%s is missing, so Task will not load %s: without the checksum it is "+
+				"untrusted, and without the copy an offline run has nothing to read. "+
+				"Run `task -t %s --yes --offline=false --download tasklib:lock` and commit "+
+				"what it writes in the same commit as the pin",
+			remoteCache, name, remote, citest.DevTaskfile)
 	}
 
-	// And nothing left over: a lockfile for a ref no longer pinned is a stale
+	// And nothing left over: a file for a ref no longer pinned is a stale
 	// trust decision, and it is how a directory of them grows one per bump.
 	var stale []string
 
@@ -135,6 +154,6 @@ func TestTasklib_EveryRemoteTaskfileHasItsChecksum(t *testing.T) {
 	sort.Strings(stale)
 
 	assert.Empty(t, stale,
-		"%s holds %d checksum file(s) for a ref that is no longer pinned: %s",
+		"%s holds %d file(s) for a ref that is no longer pinned; tasklib:lock drops them: %s",
 		remoteCache, len(stale), strings.Join(stale, ", "))
 }

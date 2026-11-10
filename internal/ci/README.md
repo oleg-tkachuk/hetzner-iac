@@ -44,7 +44,7 @@ here.
 | `taskdocs_test.go` | every library task this repository refuses stays in its include's `excludes:` |
 | `taskfilesplit_test.go` | the line between the two entry points: the root taskfile holds no check, and every workflow step passes `-t Taskfile.dev.yaml` |
 | `taskguards_test.go` | the arguments a task takes and what it refuses without them: the stack, the layer, the usage it prints, the question before it changes anything |
-| `tasklib_test.go` | every remote taskfile has the checksum Task will look for, ref included |
+| `tasklib_test.go` | the lock under `.task/remote` is exactly what the two pins name: a checksum and a copy per remote taskfile, ref included, and nothing left from an older ref |
 | `taskoutput_test.go` | what a task prints: the glyph vocabulary it shares with `internal/pkg/pulumilog`, and naming the layer when an operation finishes |
 | `tasks_test.go` | — reading the taskfiles and cutting one into its tasks, which the task tests above share |
 | `vendored_test.go` | each vendored manifest against its recorded digest; the half that asks upstream what it serves runs in the nightly workflow, which is the only place with a network |

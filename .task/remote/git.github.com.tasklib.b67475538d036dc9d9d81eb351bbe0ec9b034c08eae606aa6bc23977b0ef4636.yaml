@@ -1,0 +1,236 @@
+version: "3"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# tasklib — the pin on this library, and the lock Task keeps for it.
+#
+#   includes:
+#     tasklib: { taskfile: '{{printf .TASKLIB "tasklib"}}', dir: . }
+#
+# Include it once, at the repository root: it finds every Taskfile below the
+# directory the include carries.
+#
+# A pin is `?ref=<tag>` on an include of this library, and a repository has
+# one per Taskfile. Task keeps what each pin fetched under `.task/remote/`,
+# named by a hash of the whole URL — so a new ref orphans every file there,
+# and a Taskfile whose pin moved without its lock does not load. `bump` moves
+# both, in every Taskfile, in one step.
+#
+# ── Inputs ───────────────────────────────────────────────────────────────────
+# Pass these at the include's own `vars:`, not the consumer's top-level
+# `vars:`. In a repository with more than one component the top level is
+# shared with every other component — see README.md#variable-scoping.
+#
+#   VERSION            required by `bump`: the tag to pin, e.g. v15.0.0
+#   TASKLIB_FILES      list of the Taskfiles to act on
+#                      (default: every file git knows that is named like one)
+#   TASKLIB_CACHE_DIR  what Task takes as --remote-cache-dir, relative to each
+#                      Taskfile's directory            (default .task)
+#   TASKLIB_RETRIES    attempts at one Taskfile's download  (default 3)
+# ─────────────────────────────────────────────────────────────────────────────
+# shell-verbatim: _TL_LIST
+
+silent: true
+
+vars:
+  # A list, kept one by `ref:` — interpolating it into a template flattens
+  # it to "[a b]", and the entries downstream become "[a" and "b]".
+  _TL_FILES:
+    ref: 'default (list) .TASKLIB_FILES'
+  _TL_CACHE: '{{.TASKLIB_CACHE_DIR | default ".task"}}'
+  _TL_RETRIES: '{{.TASKLIB_RETRIES | default "3"}}'
+  # Where Task puts remote Taskfiles inside its cache directory.
+  _TL_REMOTE: remote
+  # A file Task would load as an entry point: Taskfile.yaml, taskfile.yml,
+  # Taskfile.dev.yaml. renovate/tasklib.json matches the same names, and
+  # tests/tasklib.test.sh holds the two equal.
+  _TL_NAME_RE: '(^|/)[Tt]askfile(\.[A-Za-z0-9_-]+)?\.ya?ml$'
+  # A YAML comment line. A pin written in one is an example, not a pin: it
+  # is neither counted nor rewritten.
+  _TL_COMMENT_RE: '^[[:space:]]*#'
+  # A pin of this library, up to the ref; and the ref itself.
+  _TL_PIN_RE: 'taskfiles\.git//[^?[:space:]''"]*\?ref='
+  _TL_REF_RE: '[^[:space:]''"&]+'
+  # What a tag may be spelt with. It is spliced into a sed replacement, where
+  # `&`, `\` and the delimiter would be read as syntax.
+  _TL_VERSION_RE: '^[A-Za-z0-9._-]+$'
+  # Prints the Taskfiles to act on, one per line. Untracked ones too: a
+  # Taskfile written a minute ago pins the library like any other.
+  _TL_LIST: |-
+    {{if ._TL_FILES}}printf '%s\n' {{range ._TL_FILES}}{{q .}} {{end}}{{else}}{
+      git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+        printf '%s tasklib · not a git repository — name the Taskfiles in TASKLIB_FILES\n' "{{._TL_ERR}}" >&2
+        exit 1
+      }
+      git ls-files --cached --others --exclude-standard | grep -E {{._TL_NAME_RE | q}} || true
+    }{{end}}
+  # Status markers. The shape carries the meaning, so a line still reads in
+  # a monochrome log; the colour sits on top and drops out under NO_COLOR.
+  _TL_RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
+  _TL_OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
+  _TL_SKIP: '{{if .NO_COLOR}}○{{else}}{{"\x1b[90m○\x1b[0m"}}{{end}}'
+  _TL_WARN: '{{if .NO_COLOR}}▲{{else}}{{"\x1b[33m▲\x1b[0m"}}{{end}}'
+  _TL_ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+
+tasks:
+
+  check:
+    desc: "Fail when the Taskfiles pin different refs, or one does not load from its lock"
+    # Two failures that otherwise surface far from their cause. Renovate moves
+    # the pins its pattern matches and leaves the rest, so a repository runs
+    # two versions of the library with nothing saying so. And a pin moved
+    # without its lock stops that Taskfile loading at all — for whoever runs
+    # it next, offline or without a terminal to answer the trust prompt.
+    cmds:
+      - cmd: |-
+          set -eu
+          cache={{._TL_CACHE | q}}
+          pin_re={{._TL_PIN_RE | q}}
+          ref_re={{._TL_REF_RE | q}}
+          comment_re={{._TL_COMMENT_RE | q}}
+          files=$({{._TL_LIST}})
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          nl='
+          '
+          IFS=$nl
+          set -f
+
+          # "<ref>\t<file>" for every pin.
+          : > "$work/pins"
+          for f in $files; do
+            { grep -vE "$comment_re" "$f" || true; } | grep -oE "$pin_re$ref_re" | sed -E "s#^$pin_re##" | sort -u | while IFS= read -r ref; do
+              printf '%s\t%s\n' "$ref" "$f" >> "$work/pins"
+            done
+          done
+          refs=$(cut -f1 "$work/pins" | sort -u)
+          if [ -z "$refs" ]; then
+            printf '%s tasklib · no Taskfile here pins the library with ?ref= — this gate checks nothing\n' "{{._TL_ERR}}" >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$refs" | wc -l)" -gt 1 ]; then
+            printf '%s tasklib · the Taskfiles pin different refs — task tasklib:bump VERSION=<tag> moves them together:\n' "{{._TL_ERR}}" >&2
+            sort "$work/pins" | sed 's/^/    /' >&2
+            exit 1
+          fi
+
+          fail=0
+          for f in $files; do
+            if ! (cd "$(dirname "$f")" && task -t "$(basename "$f")" --offline --remote-cache-dir "$cache" --list-all) > "$work/log" 2>&1 < /dev/null; then
+              printf '%s tasklib · %s does not load from its lock:\n' "{{._TL_ERR}}" "$f" >&2
+              sed 's/^/    /' "$work/log" >&2
+              fail=1
+            fi
+          done
+          if [ "$fail" != 0 ]; then
+            printf '%s tasklib · refresh the lock with: task --yes --offline=false --download tasklib:lock\n' "{{._TL_ERR}}" >&2
+            exit 1
+          fi
+          printf '%s tasklib · %s pinned by %s Taskfile(s), each loads from its lock\n' "{{._TL_OK}}" "$refs" "$(cut -f2 "$work/pins" | sort -u | wc -l | tr -d ' ')"
+
+  lock:
+    desc: "Download every Taskfile's remote includes again and replace its lock, dropping what no pin names"
+    # One Taskfile at a time. Task clones into one cache per user, and two
+    # clones of the same ref starting together fail on its git lock — which is
+    # what a fan-out over the components does. A run that still loses to
+    # another process is tried again.
+    #
+    # Each directory's downloads land in a fresh directory that replaces the
+    # lock only once every Taskfile there has loaded: a failed download leaves
+    # the old lock as it was, and whatever an earlier ref left behind is gone
+    # without this module knowing how Task names a file.
+    #
+    # --yes is the point of the task: running it is the decision to trust
+    # what the pinned ref serves, and the diff of the lock is what records it.
+    cmds:
+      - cmd: |-
+          set -eu
+          cache={{._TL_CACHE | q}}
+          remote={{._TL_REMOTE | q}}
+          retries={{._TL_RETRIES | q}}
+          case "$retries" in
+            '' | *[!0-9]* | 0) printf '%s tasklib · TASKLIB_RETRIES must be a whole number above zero, got: %s\n' "{{._TL_ERR}}" "$retries" >&2; exit 1 ;;
+          esac
+          files=$({{._TL_LIST}})
+          if [ -z "$files" ]; then
+            printf '%s tasklib · no Taskfile found — nothing to lock\n' "{{._TL_ERR}}" >&2
+            exit 1
+          fi
+          # A git hook hands its GIT_DIR and GIT_INDEX_FILE down, and the
+          # clone Task makes would then write into this repository's index.
+          for v in $(git rev-parse --local-env-vars 2>/dev/null || true); do unset "$v"; done
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          nl='
+          '
+          IFS=$nl
+          set -f
+
+          dirs=$(for f in $files; do dirname "$f"; done | sort -u)
+          n=0
+          for dir in $dirs; do
+            n=$((n + 1))
+            fresh="$work/$n"
+            mkdir -p "$fresh"
+            for f in $files; do
+              [ "$(dirname "$f")" = "$dir" ] || continue
+              try=1
+              until (cd "$dir" && task -t "$(basename "$f")" --yes --offline=false --download --remote-cache-dir "$fresh" --list-all) > "$work/log" 2>&1 < /dev/null; do
+                if [ "$try" -ge "$retries" ]; then
+                  printf '%s tasklib · %s did not download in %s attempt(s) — its lock is unchanged:\n' "{{._TL_ERR}}" "$f" "$retries" >&2
+                  sed 's/^/    /' "$work/log" >&2
+                  exit 1
+                fi
+                printf '%s tasklib · %s did not download, attempt %s of %s — trying again\n' "{{._TL_WARN}}" "$f" "$try" "$retries" >&2
+                try=$((try + 1))
+              done
+            done
+            live="$dir/$cache/$remote"
+            if [ -d "$fresh/$remote" ]; then
+              rm -rf "$live"
+              mkdir -p "$dir/$cache"
+              mv "$fresh/$remote" "$live"
+              printf '%s tasklib · %s locked\n' "{{._TL_OK}}" "$live"
+            elif [ -d "$live" ]; then
+              rm -rf "$live"
+              printf '%s tasklib · %s removed — no Taskfile in %s has a remote include\n' "{{._TL_SKIP}}" "$live" "$dir"
+            fi
+          done
+
+  bump:
+    desc: "Pin every Taskfile to VERSION, then refresh every lock (VERSION=v15.0.0)"
+    requires:
+      vars: [VERSION]
+    preconditions:
+      # `requires` passes an empty value, and an empty ref is a pin on the
+      # default branch.
+      - sh: printf '%s\n' {{.VERSION | q}} | grep -Eq {{._TL_VERSION_RE | q}}
+        msg: "VERSION must be a tag name — letters, digits, dot, dash and underscore — e.g. VERSION=v15.0.0"
+    cmds:
+      - cmd: |-
+          set -eu
+          version={{.VERSION | q}}
+          pin_re={{._TL_PIN_RE | q}}
+          ref_re={{._TL_REF_RE | q}}
+          comment_re={{._TL_COMMENT_RE | q}}
+          files=$({{._TL_LIST}})
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          nl='
+          '
+          IFS=$nl
+          set -f
+
+          moved=0
+          for f in $files; do
+            { grep -vE "$comment_re" "$f" || true; } | grep -qE "$pin_re$ref_re" || continue
+            sed -E "/$comment_re/!s#($pin_re)$ref_re#\1$version#g" "$f" > "$work/next"
+            # Written through the file, not moved over it: its mode stays.
+            cat "$work/next" > "$f"
+            moved=$((moved + 1))
+          done
+          if [ "$moved" = 0 ]; then
+            printf '%s tasklib · no Taskfile here pins the library with ?ref= — nothing to bump\n' "{{._TL_ERR}}" >&2
+            exit 1
+          fi
+          printf '%s tasklib · %s Taskfile(s) pin %s\n' "{{._TL_RUN}}" "$moved" "$version"
+      - task: lock

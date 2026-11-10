@@ -1,0 +1,17 @@
+# Task's own settings for this repository, read from here and from every
+# directory below it.
+#
+# Offline, because the shared task library is committed: .task/remote holds a
+# checksum and a copy of every module both entry points include, so a run has
+# nothing to fetch. Without this each `task` clones the pinned ref again —
+# which makes every check depend on a clone being served, and two runs that
+# start together collide in Task's per-user git cache.
+#
+# The one command that has to go online says so itself:
+#
+#   task -t Taskfile.dev.yaml --yes --offline=false --download tasklib:lock
+#
+# Set here and not as TASK_OFFLINE in the environment: Task does not read
+# that variable, and a run under it downloads every include.
+remote:
+  offline: true

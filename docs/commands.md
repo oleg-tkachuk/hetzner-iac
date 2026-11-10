@@ -40,8 +40,10 @@ on them.
 Tasks from the shared library
 ([oleg-tkachuk/taskfiles](https://github.com/oleg-tkachuk/taskfiles), pinned)
 are trimmed with `excludes:` to what works here: `hcloud` and `helm` act on a
-live cluster and are on the first entry point; `go` and `security` answer
-questions about this repository and are on the second.
+live cluster and are on the first entry point; `go`, `security`, `checkov` and
+`tasklib` answer questions about this repository and are on the second. The
+library is loaded from the lock committed under `.task/remote`, never from the
+network — see [ci.md](ci.md#the-task-librarys-lock).
 
 Tasks marked **†** are the ones a workflow runs itself, so a green local run
 of one is a green pull request for that check. CI runs the unit suite,
@@ -293,6 +295,8 @@ Everything below is on the second entry point,
 | `task -t Taskfile.dev.yaml docs:check` † | the tests that read the documentation and `.gitignore` — the gates a prose-only pull request still runs |
 | `task -t Taskfile.dev.yaml checkov:scan` † | hardening rules over the manifests and workflows this repository ships |
 | `task -t Taskfile.dev.yaml checkov:triage` | every finding, including the ones `.checkov.yaml` skips — for deciding what to fix, never a gate |
+| `task -t Taskfile.dev.yaml tasklib:check` | fail when the two entry points pin the shared library at different refs, or either does not load offline from `.task/remote` |
+| `task -t Taskfile.dev.yaml tasklib:bump VERSION=<tag>` | move both pins to a tag and replace the lock under `.task/remote` — the one task here that goes online for the library |
 | `task -t Taskfile.dev.yaml layers` † | the layer order, for CI's matrix — a pass-through to `platform:layers` |
 
 ### Charts

@@ -276,7 +276,7 @@ Tools for building and running a cluster. The checks' own tools are in
 |------|-----|
 | [Pulumi](https://www.pulumi.com/docs/install/) 3.261+ | runs everything here; `pulumi login https://api.pulumi.com` before the first task |
 | [Go](https://go.dev/dl/) 1.27+ | the programs are Go |
-| [Task](https://taskfile.dev/installation/) 3.53+ | the entry points; the [remote Taskfiles](https://github.com/oleg-tkachuk/taskfiles) it includes need 3.53 |
+| [Task](https://taskfile.dev/installation/) 3.54+ | the entry points; the [remote Taskfiles](https://github.com/oleg-tkachuk/taskfiles) it includes ask for 3.54 |
 | [hcloud CLI](https://github.com/hetznercloud/cli) | inspection, and baking the Talos image |
 | [hcloud-upload-image](https://github.com/apricote/hcloud-upload-image) | Hetzner has no custom-image upload API |
 | [talosctl](https://docs.siderolabs.com/talos/v1.14/getting-started/talosctl) | validates the machine config before anything exists; then upgrades, etcd snapshots, clean shutdown |
