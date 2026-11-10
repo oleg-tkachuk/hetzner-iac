@@ -1,0 +1,511 @@
+version: "3"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# hcloud — what a project owns in Hetzner Cloud, the power state of its
+# servers, a way in when one of them stops answering, and a freeze for when it
+# must not be touched.
+#
+#   includes:
+#     hcloud:
+#       taskfile: '{{printf .TASKLIB "hcloud"}}'
+#       dir: .
+#
+# Every task except `ssh` and `console` acts on EVERY server the selector
+# matches, which is what makes one command work on a single server and on
+# five. The selector is therefore the whole safety boundary: an empty one
+# matches every server in the project, so a missing value is refused rather
+# than widened.
+#
+# What this is not: a wrapper per API call. `hcloud server` alone also has
+# rebuild, change-type, rescue mode, ISO attachment, backups, snapshots, RDNS
+# and metrics — each of them either fights whatever provisions the servers for
+# ownership of them, or is a one-off an operator is better off typing. Three
+# more are left out for reasons worth naming, because they look like they
+# belong here:
+#
+#   add-label / remove-label   they mutate the very selector every task below
+#                              depends on. Relabel a server and the next task
+#                              silently acts on a different set.
+#   reset-password             it needs the server powered on AND the qemu
+#                              guest agent answering, so it fails in exactly
+#                              the situation that sends you to `console` — and
+#                              it rotates root's password out from under
+#                              whatever configures the machine.
+#   firewall apply-to-resource the one tempting cross-resource command
+#                              ("isolate the fleet"), but it has to name a
+#                              firewall that already exists, which is the
+#                              provisioner's to own, not this module's.
+#
+# Use the CLI for those; this module is the handful a project reaches for
+# while operating what it already has.
+#
+# Nothing here saves money. A Hetzner server is billed while it EXISTS, not
+# while it runs, so stopping one changes nothing on the invoice. `inventory`
+# is the task that answers what does: it lists every resource the selector
+# matches, not only the servers.
+#
+# ── Inputs ───────────────────────────────────────────────────────────────────
+# Pass these at the include's own `vars:`, not the consumer's top-level
+# `vars:`. In a repository with more than one component the top level is
+# shared with every other component — see README.md#variable-scoping.
+#
+#   PROJECT_NAME          the label in every log line
+#   HCLOUD_SELECTOR       label selector naming the servers          (required)
+#   HCLOUD_SELECTOR_CMD   a command printing one, when it has to be looked up
+#   HCLOUD_TOKEN_CMD      a command printing the API token
+#   HCLOUD_SERVER         the server for hcloud:ssh and hcloud:console
+#   HCLOUD_LIST_COLUMNS   columns for hcloud:servers
+#   HCLOUD_STATUS         show only servers in these states, e.g. "off"
+#   HCLOUD_PAID_ONLY      "1" to limit hcloud:inventory to what costs money
+#   HCLOUD_PROTECTION     what protect/unprotect set (default "delete rebuild")
+#   HCLOUD_SSH_USER       user for hcloud:ssh                 (default "root")
+#   HCLOUD_SSH_PORT       port for hcloud:ssh                   (default "22")
+#   HCLOUD_SSH_IPV6       "1" to reach the server over IPv6
+#
+# HCLOUD_TOKEN from the environment is what the CLI itself reads, so a shell
+# that already exports one needs neither input. HCLOUD_TOKEN_CMD is for a
+# project that keeps the token somewhere it has to be fetched from: it runs
+# inside the task, not at parse time, so `task --list` never reaches for a
+# credential.
+#
+# Nothing here is declared under a bare knob name: a var declared in an
+# included file shadows the including file's value of the same name, so every
+# input is read as `{{.NAME | default ...}}` and every derived value is prefixed
+# `_HC_`.
+# ─────────────────────────────────────────────────────────────────────────────
+# shell-verbatim: HCLOUD_TOKEN_CMD HCLOUD_SELECTOR_CMD CLI_ARGS _HC_TOKEN _HC_SELECTOR _HC_EACH_SERVER _HC_FAN_OUT _HC_ONE_SERVER _HC_PROTECTION_ARGS
+
+silent: true
+
+vars:
+  _HC_SVC: '{{.PROJECT_NAME | default "servers"}}'
+  _HC_COLUMNS: '{{.HCLOUD_LIST_COLUMNS | default "name,status,type,location,ipv4,private_net"}}'
+  _HC_PAID: '{{.HCLOUD_PAID_ONLY | default "0"}}'
+  # Both levels by default. A freeze that leaves rebuild open is not a freeze:
+  # rebuild replaces the disk in place, which loses everything on it without
+  # ever deleting the server.
+  _HC_PROTECTION: '{{.HCLOUD_PROTECTION | default "delete rebuild"}}'
+  # The levels as separate, quoted arguments.
+  _HC_PROTECTION_ARGS: '{{range (regexSplit "\\s+" (trim ._HC_PROTECTION) -1)}}{{q .}} {{end}}'
+  _HC_SSH_USER: '{{.HCLOUD_SSH_USER | default "root"}}'
+  _HC_SSH_PORT: '{{.HCLOUD_SSH_PORT | default "22"}}'
+  # Opt-in by an explicit value, like _HC_PAID: `{{.X | default "0"}}` yields
+  # the default for an unset var AND an empty one, so "off" cannot be spelled
+  # by passing nothing.
+  _HC_SSH_IPV6: '{{.HCLOUD_SSH_IPV6 | default "0"}}'
+
+  # Status markers. The shape carries the meaning, so a line still reads in
+  # a monochrome log; the colour sits on top and drops out under NO_COLOR.
+  _HC_RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
+  _HC_OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
+  _HC_WARN: '{{if .NO_COLOR}}▲{{else}}{{"\x1b[33m▲\x1b[0m"}}{{end}}'
+  _HC_ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+
+  # The token, resolved inside the task rather than in an `env:` stanza. Task
+  # evaluates `env:` BEFORE preconditions, so a token fetched there runs before
+  # the check that would have explained why it could not be.
+  #
+  # Every task starts with this, so it also sets `svc`, the label the log
+  # lines below print — a shell variable, so a project name is never code.
+  #
+  # The branch is in the template, not in the shell, so the command only ever
+  # appears inside `$( )`. A shell `[ -n "…" ]` test put it inside double
+  # quotes first, and a command with an odd number of them broke the script —
+  # the failure checkov's CHECKOV_VERSION_CMD already hit and fixed this way.
+  _HC_TOKEN: |
+    svc={{._HC_SVC | q}}
+    {{if .HCLOUD_TOKEN_CMD -}}
+    HCLOUD_TOKEN="$({{.HCLOUD_TOKEN_CMD}})"
+    export HCLOUD_TOKEN
+    {{end -}}
+    if [ -z "${HCLOUD_TOKEN:-}" ]; then
+      printf '%s\n' "{{._HC_ERR}} $svc · hcloud · no HCLOUD_TOKEN, and no HCLOUD_TOKEN_CMD to get one from" >&2
+      exit 1
+    fi
+
+  # The selector on its own. `inventory` needs exactly this and nothing more:
+  # a selector can legitimately match a volume or a load balancer while
+  # matching no server at all, and refusing that would hide the resources the
+  # task exists to show.
+  _HC_SELECTOR: |
+    selector={{.HCLOUD_SELECTOR | default "" | q}}
+    {{if .HCLOUD_SELECTOR_CMD -}}
+    if [ -z "$selector" ]; then
+      selector="$({{.HCLOUD_SELECTOR_CMD}})"
+    fi
+    {{end -}}
+    if [ -z "$selector" ]; then
+      printf '%s\n' "{{._HC_ERR}} $svc · hcloud · no HCLOUD_SELECTOR: an empty one matches every server in the project" >&2
+      exit 1
+    fi
+
+  # The selector, and the servers it matches. Every task that acts on servers
+  # goes through this, because all of them must refuse an empty match rather
+  # than loop zero times and report success.
+  _HC_EACH_SERVER: |
+    {{._HC_SELECTOR}}
+    servers="$(hcloud server list -l "$selector" -o noheader -o columns=name)"
+    if [ -z "$servers" ]; then
+      printf '%s\n' "{{._HC_ERR}} $svc · hcloud · no server matches $selector" >&2
+      exit 1
+    fi
+
+  # Fan-out, and the reason every mutating task below goes through `hc_each`
+  # rather than writing its own loop. A bare `for ... do hcloud ... done` under
+  # `set -e` stops at the first server that refuses: with five matched, a
+  # failure on the third leaves two untouched, the task's success line never
+  # runs, and nothing says which half of the fleet took the command. This runs
+  # every server, then fails at the end naming the ones that did not.
+  #
+  # It also prints what it is about to act on. The selector is the safety
+  # boundary, so seeing the names it expanded to — before the actions land —
+  # is the one check an operator can still make.
+  _HC_FAN_OUT: |
+    hc_each() {
+      _verb="$1"
+      shift
+      printf '%s\n' "{{._HC_RUN}} $svc · hcloud · $_verb ·$(printf ' %s' $servers)"
+
+      _failed=""
+      for server in $servers; do
+        if ! hcloud server "$_verb" "$server" "$@"; then
+          _failed="$_failed $server"
+        fi
+      done
+
+      if [ -n "$_failed" ]; then
+        printf '\n'
+        printf '%s\n' "{{._HC_ERR}} $svc · hcloud · $_verb did not take on:$_failed" >&2
+        return 1
+      fi
+    }
+
+  # One server out of the matched set, for the two tasks that cannot fan out.
+  # The name is checked against the selector first: a project's account holds
+  # servers this selector does not cover, and `hcloud server ssh` on one of
+  # those works perfectly. Reads `$want` and `$what` from the calling task
+  # rather than the vars block, so a name passed on the command line is seen
+  # where it is used.
+  _HC_ONE_SERVER: |
+    if [ -z "$want" ]; then
+      printf '%s\n' "{{._HC_ERR}} $svc · hcloud · $what needs a server. The selector matches:" >&2
+      printf '  %s\n' $servers >&2
+      exit 1
+    fi
+
+    found=no
+    for server in $servers; do
+      if [ "$server" = "$want" ]; then
+        found=yes
+      fi
+    done
+
+    if [ "$found" = no ]; then
+      printf '%s\n' "{{._HC_ERR}} $svc · hcloud · $want is not matched by the selector. It matches:" >&2
+      printf '  %s\n' $servers >&2
+      exit 1
+    fi
+
+tasks:
+
+  # ═══ what is there ══════════════════════════════════════════════════════════
+
+  servers:
+    desc: "Power state of every server the selector matches (HCLOUD_STATUS=off to narrow)"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # Changes nothing. HCLOUD_STATUS narrows what is DISPLAYED, not what the
+      # selector matched: the guard above still refuses a selector that matches
+      # no server at all, which is a different problem from every server being
+      # in a state this filter hides.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+          hcloud server list -l "$selector" -o columns={{._HC_COLUMNS | q}}{{if .HCLOUD_STATUS}} --status {{.HCLOUD_STATUS | q}}{{end}}
+
+  inventory:
+    desc: "Every resource the selector matches, not just the servers (HCLOUD_PAID_ONLY=1 for the billable ones)"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # `servers` answers one question about one resource type. This answers
+      # the one that bites: volumes, load balancers, floating and primary IPs,
+      # firewalls, snapshots and networks can all carry the same labels as the
+      # servers, and none of them appear in `servers`. A server that is gone
+      # leaves its volume behind, still labelled and still billed.
+      #
+      # HCLOUD_PAID_ONLY is the money question specifically — it drops the
+      # free resources (networks, firewalls, SSH keys) and leaves what the
+      # invoice is made of. `all list` takes no -o columns, only json or yaml,
+      # so HCLOUD_LIST_COLUMNS does not reach it.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_SELECTOR}}
+          hcloud all list -l "$selector"{{if eq ._HC_PAID "1"}} --paid{{end}}
+
+  # ═══ power ══════════════════════════════════════════════════════════════════
+
+  poweron:
+    desc: "Power the servers on — nothing else can, a stopped server runs no agent"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # No prompt: starting a stopped server takes nothing away, and this is
+      # the task an operator reaches for when something else already did.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+          {{._HC_FAN_OUT}}
+
+          hc_each poweron
+
+          printf '\n'
+          printf '%s\n' "{{._HC_OK}} $svc · hcloud · powered on — the guests need a moment"
+
+  shutdown:
+    desc: "ACPI shutdown — the power button, and the guest decides what to do with it"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # The matched servers first, then the question about them — see _confirm.
+      - task: _matched
+      - task: _confirm
+        vars: { QUESTION: "Send an ACPI shutdown to every server matching {{if .HCLOUD_SELECTOR}}{{.HCLOUD_SELECTOR}}{{else}}the selector that `{{.HCLOUD_SELECTOR_CMD}}` prints{{end}}?" }
+      # Graceful at the machine level and nowhere else: Hetzner sends the ACPI
+      # event and the guest acts on it, so whatever runs inside learns about it
+      # by going away rather than by being told first.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+          {{._HC_FAN_OUT}}
+
+          hc_each shutdown
+
+          printf '\n'
+          printf '%s\n' "{{._HC_OK}} $svc · hcloud · shutdown sent — back up with hcloud:poweron"
+
+  reboot:
+    desc: "ACPI reboot — for a server whose kernel lives but whose agent does not"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # The matched servers first, then the question about them — see _confirm.
+      - task: _matched
+      - task: _confirm
+        vars: { QUESTION: "Send an ACPI reboot to every server matching {{if .HCLOUD_SELECTOR}}{{.HCLOUD_SELECTOR}}{{else}}the selector that `{{.HCLOUD_SELECTOR_CMD}}` prints{{end}}?" }
+      # The middle rung. Whatever runs inside the server has its own restart
+      # and is the one to prefer — `hcloud:ssh` is how you reach it; `reset`
+      # below cuts the power and is the one to fall back to. This asks the
+      # kernel, which is what is left when the guest's own agent has stopped
+      # answering and the machine has not stopped running.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+          {{._HC_FAN_OUT}}
+
+          hc_each reboot
+
+          printf '\n'
+          printf '%s\n' "{{._HC_OK}} $svc · hcloud · reboot sent"
+
+  poweroff:
+    desc: "Cut power without a clean shutdown — for when the guest cannot answer"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # The matched servers first, then the question about them — see _confirm.
+      - task: _matched
+      - task: _confirm
+        vars: { QUESTION: "Cut power to every server matching {{if .HCLOUD_SELECTOR}}{{.HCLOUD_SELECTOR}}{{else}}the selector that `{{.HCLOUD_SELECTOR_CMD}}` prints{{end}} without a clean shutdown?" }
+      # The plug. Anything mid-write inside the server is mid-write when the
+      # power goes, so this is the right command only when the guest has
+      # stopped answering — its own shutdown is otherwise strictly better.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+          {{._HC_FAN_OUT}}
+
+          hc_each poweroff
+
+          printf '\n'
+          printf '%s\n' "{{._HC_OK}} $svc · hcloud · power cut — back up with hcloud:poweron"
+
+  reset:
+    desc: "Hard reset — a power cut and a start in one, for an unresponsive server"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # The matched servers first, then the question about them — see _confirm.
+      - task: _matched
+      - task: _confirm
+        vars: { QUESTION: "Hard reset every server matching {{if .HCLOUD_SELECTOR}}{{.HCLOUD_SELECTOR}}{{else}}the selector that `{{.HCLOUD_SELECTOR_CMD}}` prints{{end}}? No clean shutdown." }
+      # For the server that has stopped answering entirely, where the
+      # alternative is poweroff followed by poweron and a wait in between.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+          {{._HC_FAN_OUT}}
+
+          hc_each reset
+
+          printf '\n'
+          printf '%s\n' "{{._HC_OK}} $svc · hcloud · reset sent"
+
+  # ═══ the freeze ═════════════════════════════════════════════════════════════
+  #
+  # Break-glass, not a desired state. Whatever provisions these servers almost
+  # certainly declares protection itself — Terraform's hcloud_server carries
+  # delete_protection and rebuild_protection — and will plan the flag back to
+  # what it says the next time it runs. Turn it on for the length of an
+  # incident, turn it off again, and leave the steady state to the provisioner.
+
+  protect:
+    desc: "Refuse deletion and rebuild on every matched server — for the length of an incident"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # No prompt: this only ever takes capability away, and the task that
+      # gives it back is the one that asks. Running it on a server that is
+      # already protected sets the same flags to the same values.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+          {{._HC_FAN_OUT}}
+
+          hc_each enable-protection {{._HC_PROTECTION_ARGS}}
+
+          printf '\n'
+          printf '%s %s · hcloud · protected (%s) — release with hcloud:unprotect\n' "{{._HC_OK}}" "$svc" {{._HC_PROTECTION | q}}
+
+  unprotect:
+    desc: "Lift that protection again — asks first"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # The matched servers first, then the question about them — see _confirm.
+      - task: _matched
+      - task: _confirm
+        vars: { QUESTION: "Lift {{._HC_PROTECTION}} protection on every server matching {{if .HCLOUD_SELECTOR}}{{.HCLOUD_SELECTOR}}{{else}}the selector that `{{.HCLOUD_SELECTOR_CMD}}` prints{{end}}?" }
+      # The only task here that makes the fleet easier to destroy, which is why
+      # it is the half that prompts.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+          {{._HC_FAN_OUT}}
+
+          hc_each disable-protection {{._HC_PROTECTION_ARGS}}
+
+          printf '\n'
+          printf '%s %s · hcloud · protection lifted (%s) — these servers can be deleted again\n' "{{._HC_WARN}}" "$svc" {{._HC_PROTECTION | q}}
+
+  # ═══ getting in ═════════════════════════════════════════════════════════════
+
+  ssh:
+    desc: "SSH into one server the selector matches (HCLOUD_SERVER=<name>; anything after -- runs as the remote command)"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+      - sh: command -v ssh >/dev/null
+        msg: "ssh not installed — `hcloud server ssh` resolves the address and then execs ssh from PATH"
+    cmds:
+      # The rung above `reboot`: whatever runs inside the server is the thing
+      # that should close down first, and this is how the module reaches it.
+      # The CLI's own subcommand rather than a hand-rolled `ssh $(hcloud server
+      # ip ...)` — it looks the address up through the same API and the same
+      # token the rest of this module already resolves, so there is no second
+      # place where a name turns into an address.
+      #
+      # One server, not the selector: a fan-out shell is not a thing. The
+      # selector still decides which names are allowed.
+      #
+      # A server with no public Primary IP fails here, and correctly so — the
+      # CLI has nothing to connect to. `console` is the way into one of those.
+      #
+      # Flag order is not cosmetic. `hcloud server ssh` stops parsing its own
+      # flags at the first positional, so -u and -p only mean anything BEFORE
+      # the name, and everything after it reaches the remote shell untouched —
+      # which is why `task hcloud:ssh -- journalctl -u nginx` works and why no
+      # `--` is inserted here. A `--` would be forwarded to ssh as a literal
+      # argument and the remote shell would try to run it.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+
+          what=ssh
+          want={{.HCLOUD_SERVER | default "" | q}}
+          {{._HC_ONE_SERVER}}
+
+          hcloud server ssh {{if eq ._HC_SSH_IPV6 "1"}}--ipv6 {{end}}-u {{._HC_SSH_USER | q}} -p {{._HC_SSH_PORT | q}} "$want" {{.CLI_ARGS}}
+
+  console:
+    desc: "Open a VNC console on one server — the only way to watch one that will not boot (HCLOUD_SERVER=<name>)"
+    preconditions:
+      - sh: command -v hcloud >/dev/null
+        msg: "hcloud CLI not installed — https://github.com/hetznercloud/cli"
+    cmds:
+      # Below `ssh`: this needs nothing of the guest at all, which is what
+      # makes it the way into a server that never finished booting.
+      #
+      # What it prints is a credential — console access to the machine, which
+      # is root on it. Hetzner expires it shortly, and there is no way to use
+      # one without a person reading it, so it is printed. Keep it out of
+      # anything that logs.
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+
+          what=console
+          want={{.HCLOUD_SERVER | default "" | q}}
+          {{._HC_ONE_SERVER}}
+
+          printf '%s\n' "{{._HC_WARN}} $svc · hcloud · the url and password below are console access, and short-lived"
+          printf '\n'
+          hcloud server request-console "$want"
+
+  # ─── internals ──────────────────────────────────────────────────────────────
+
+  # What a confirmed action will act on, printed before the question. Task asks
+  # a task's `prompt:` before any of its cmds run, so a prompt on the action
+  # itself was answered with only the selector in view — or, for
+  # HCLOUD_SELECTOR_CMD, the text of a command nobody had run yet. The names
+  # appeared once the answer was given, as the actions landed.
+  _matched:
+    internal: true
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          {{._HC_TOKEN}}
+          {{._HC_EACH_SERVER}}
+          printf '%s %s · hcloud · %s matches:\n' "{{._HC_RUN}}" "$svc" "$selector"
+          printf '    %s\n' $servers
+
+  # The question, as its own task so that it is asked after _matched has run.
+  # A refusal stops the whole chain, so the action after it never starts.
+  _confirm:
+    internal: true
+    requires:
+      vars: [QUESTION]
+    prompt: "{{.QUESTION}}"
+    cmds:
+      - cmd: "true"

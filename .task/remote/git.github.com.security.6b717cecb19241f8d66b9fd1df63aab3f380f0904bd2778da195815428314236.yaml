@@ -1,0 +1,312 @@
+version: "3"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# security — the scans that are worth running before a release.
+#
+#   includes:
+#     security:
+#       taskfile: '{{printf .TASKLIB "security"}}'
+#       dir: .
+#       vars: { GO_MODULES: ["backend/api", "backend/worker"] }
+#
+# Each tool is optional in the sense that a missing binary produces an install
+# hint rather than a stack trace, but present-and-failing is always fatal: a
+# scan that can be silently skipped is a scan that does not exist.
+#
+# ── Inputs ───────────────────────────────────────────────────────────────────
+# Pass these at the include's own `vars:`, not the consumer's top-level
+# `vars:`. In a repository with more than one component the top level is
+# shared with every other component — see README.md#variable-scoping.
+#
+#   GO_MODULES   list of module directories for the Go scans (default ["."])
+#   DOCKERFILES  list of Dockerfiles to lint               (default: discovered)
+#   SCAN_EXCLUDE find(1) predicates discovery skips — vendored and throwaway trees
+#   BASE         branch the new-findings and breaking gates compare against
+#   GOSEC_FLAGS        extra gosec flags
+#   GO_TOOL_MODFILE    a go.mod whose `tool` directives pin govulncheck,
+#                      golangci-lint and gosec, when a module's own does not;
+#                      relative to the include's directory   (default none)
+#   GOVULNCHECK_FLAGS  extra govulncheck flags
+#   GOLANGCI_FLAGS     extra golangci-lint flags
+#   GITLEAKS_FLAGS     extra gitleaks flags
+#   TRIVY_SCANNERS     default "--scanners vuln,secret"
+#   TRIVY_SUBCOMMAND   default "fs"; "image" to scan a built image instead
+#   TRIVY_TARGET       what to scan              (default ".")
+#   TRIVY_SKIP_DIRS    list of directories trivy walks past (default [".claude"]);
+#                      replaces the default, so keep .claude in a list of your own
+#   TRIVY_FLAGS        extra trivy flags
+#   BUF_BREAKING_FLAGS extra buf breaking flags
+#   HADOLINT_FLAGS     hadolint flags (default "--failure-threshold error")
+#
+# Every tool takes a FLAGS input, appended to the invocation rather than
+# replacing it: the flags that make a task a gate — trivy's --exit-code, the
+# base golangci-lint measures against — stay where a consumer cannot drop them
+# by accident, and everything else is theirs to add.
+#   GITLEAKS_BASELINE  findings accepted as known, so the gate reports only new ones
+# ─────────────────────────────────────────────────────────────────────────────
+# shell-verbatim: CMD _SEC_PRUNE SCAN_EXCLUDE _SEC_GOSEC_FLAGS GOSEC_FLAGS _SEC_VULN_FLAGS GOVULNCHECK_FLAGS
+# shell-verbatim: _SEC_LINT_FLAGS GOLANGCI_FLAGS _SEC_GL_FLAGS GITLEAKS_FLAGS _SEC_TRIVY_SCAN TRIVY_SCANNERS
+# shell-verbatim: _SEC_TRIVY_FLAGS TRIVY_FLAGS _SEC_TRIVY_CONFIG_FLAGS
+# shell-verbatim: TRIVY_CONFIG_FLAGS _SEC_BUF_FLAGS BUF_BREAKING_FLAGS _SEC_HADOLINT_FLAGS HADOLINT_FLAGS
+
+silent: true
+
+vars:
+  # Whitespace-separated module directories for the Go scans. Unset means the
+  # repo root is the only module.
+  # A list, and `ref:` is what keeps it one: interpolated into a template it
+  # flattens to "[a b]", and every consumer of it below then splits that on
+  # spaces into "[a" and "b]". Neither holds a go.mod, so the scans reported
+  # every module skipped and exited 0 — a vulnerability scan of nothing, in
+  # the green.
+  _SEC_MODULES:
+    ref: 'default (list ".") .GO_MODULES'
+  # Branch the breaking-change and new-issue gates compare against.
+  _SEC_BASE: '{{.BASE | default "main"}}'
+  _SEC_GOSEC_FLAGS: '{{.GOSEC_FLAGS | default ""}}'
+  _SEC_TOOL_MOD: '{{.GO_TOOL_MODFILE | default ""}}'
+  # What to say when a Go tool is neither pinned nor on PATH.
+  _SEC_GOSEC_HINT: go get -tool github.com/securego/gosec/v2/cmd/gosec
+  _SEC_VULN_HINT: go get -tool golang.org/x/vuln/cmd/govulncheck
+  _SEC_LINT_HINT: https://golangci-lint.run/docs/welcome/install/
+  _SEC_VULN_FLAGS: '{{.GOVULNCHECK_FLAGS | default ""}}'
+  _SEC_LINT_FLAGS: '{{.GOLANGCI_FLAGS | default ""}}'
+  _SEC_GL_FLAGS: '{{.GITLEAKS_FLAGS | default ""}}'
+  _SEC_TRIVY_SCAN: '{{.TRIVY_SCANNERS | default "--scanners vuln,secret"}}'
+  _SEC_TRIVY_SUB: '{{.TRIVY_SUBCOMMAND | default "fs"}}'
+  _SEC_TRIVY_TARGET: '{{.TRIVY_TARGET | default "."}}'
+  # Agent worktrees under .claude are throwaway copies of this repository, so
+  # every finding arrives twice — once against code that ships and once against
+  # a tree nobody builds. find-based discovery prunes them through _SEC_PRUNE;
+  # trivy walks the filesystem itself and has to be told separately.
+  # A list of directories, one --skip-dirs each. It was trivy's flags
+  # verbatim under a name that promised directories, so a bare directory
+  # became a second positional argument to trivy.
+  _SEC_TRIVY_SKIP:
+    ref: 'default (list ".claude") .TRIVY_SKIP_DIRS'
+  _SEC_TRIVY_FLAGS: '{{.TRIVY_FLAGS | default ""}}'
+  # Its own input, not a share of TRIVY_FLAGS: `trivy config` and `trivy fs`
+  # are two invocations with two flag sets, and a flag meant for one is an
+  # error on the other. It defaults to TRIVY_FLAGS all the same, because the
+  # one flag both calls need is --ignorefile, and a repository that has an
+  # ignore file wants it read by both.
+  _SEC_TRIVY_CONFIG_FLAGS: '{{.TRIVY_CONFIG_FLAGS | default .TRIVY_FLAGS | default ""}}'
+  _SEC_BUF_FLAGS: '{{.BUF_BREAKING_FLAGS | default ""}}'
+  # What discovery never looks inside. Vendored trees and throwaway agent
+  # worktrees are not this repository's code, and scanning them turns a gate
+  # into noise about somebody else's Dockerfile.
+  # The patterns carry their own quotes: this value is spliced into a shell
+  # command unquoted, and a bare */node_modules/* is a glob the shell expands
+  # to real paths before find ever sees it — find then gets a list of
+  # directories where it expected one pattern, errors, and discovery comes
+  # back empty.
+  _SEC_PRUNE: >-
+    {{.SCAN_EXCLUDE | default "-not -path \"*/node_modules/*\" -not -path \"*/.git/*\" -not -path \"*/.venv/*\" -not -path \"*/.claude/*\" -not -path \"*/vendor/*\" -not -path \"*/3rd-party-repos/*\" -not -path \"*/dist/*\" -not -path \"*/.terraform/*\""}}
+  _SEC_DOCKERFILES:
+    ref: 'default (list) .DOCKERFILES'
+  # error-level only by default. Across this workspace hadolint's out-of-the-box
+  # threshold flags 113 findings in 48 Dockerfiles — 3 errors and 110 warnings
+  # and notes. A gate that is red everywhere on the day it lands is one people
+  # learn to skip; the errors block, the rest print. Tighten per repository with
+  # HADOLINT_FLAGS once the backlog is down.
+  _SEC_HADOLINT_FLAGS: '{{.HADOLINT_FLAGS | default "--failure-threshold error"}}'
+  _SEC_GL_BASE: '{{.GITLEAKS_BASELINE | default ""}}'
+  # Status markers. The shape carries the meaning, so a line still reads in
+  # a monochrome log; the colour sits on top and drops out under NO_COLOR.
+  _SEC_RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
+  _SEC_OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
+  _SEC_SKIP: '{{if .NO_COLOR}}○{{else}}{{"\x1b[90m○\x1b[0m"}}{{end}}'
+  _SEC_ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+
+tasks:
+
+  # A COMPOSITE, named for the work: a fixed, ordered pipeline over sibling
+  # tasks that each exist and each run on their own.
+  #
+  # It was `all` until this module's composite took the verb. `all` is a
+  # quantifier, and the naming convention in the README asks for the plain verb
+  # for the work — so `all` described how much rather than what, in the one
+  # place a consumer looks first.
+  #
+  # NOT a selector. `scan select=<sibling>` would need an enumerable set of
+  # interchangeable items, and here the items ARE the tasks: each carries its
+  # own description and its own precondition naming the tool it needs, and a
+  # selector would hide both from `--list`.
+  scan:
+    desc: "Run every scan: secrets, filesystem, Go vuln + lint + SAST, Dockerfiles"
+    # proto:breaking is deliberately not here. Every task above runs against
+    # whatever the repository happens to hold, but that one needs a proto tree
+    # and a base branch to compare against, so it would fail for every consumer
+    # that ships no protobuf — and a gate that cannot pass is a gate people
+    # learn to skip. Call it from the workflow that owns the contract.
+    cmds:
+      # Agnostic first: they apply to every repository, so a consumer that
+      # ships no Go still gets them even if a later scan has something to say.
+      - task: secrets
+      - task: trivy
+      - task: vuln
+      - task: lint
+      - task: gosec
+      - task: dockerfile
+
+  vuln:
+    desc: "govulncheck across every Go module — vulnerabilities the code actually reaches"
+    cmds:
+      - for: { var: _SEC_MODULES }
+        task: _in-module
+        vars: { MODULE: "{{.ITEM}}", TOOL: govulncheck, HINT: "{{._SEC_VULN_HINT}}", CMD: "{{._SEC_VULN_FLAGS}} ./...", LABEL: "govulncheck" }
+
+  lint:
+    desc: "golangci-lint across every Go module, limited to issues new since {{._SEC_BASE}}"
+    # Whole-repo mode on a codebase with years of accumulated findings is a
+    # permanently red gate that everyone learns to ignore. New-since-base is a
+    # gate that can actually stay green. Full audit: golangci-lint run ./...
+    cmds:
+      - for: { var: _SEC_MODULES }
+        task: _in-module
+        vars:
+          MODULE: "{{.ITEM}}"
+          TOOL: golangci-lint
+          HINT: "{{._SEC_LINT_HINT}}"
+          CMD: "run --new-from-merge-base={{._SEC_BASE | q}} {{._SEC_LINT_FLAGS}} ./..."
+          LABEL: "golangci-lint"
+
+  secrets:
+    desc: "gitleaks — committed credentials anywhere in the history"
+    preconditions:
+      - sh: command -v gitleaks >/dev/null
+        msg: "gitleaks is not installed — https://github.com/gitleaks/gitleaks#installing"
+    cmds:
+      - printf '%s sec · gitleaks\n' "{{._SEC_RUN}}"
+      # A repository with accepted historical findings passes a baseline; without
+      # one every old finding is reported again on every run, and a gate that
+      # always fails is a gate nobody reads.
+      # -v prints the rule, file, line and commit of each finding. Without it
+      # gitleaks reports a count and nothing else — "leaks found: 2" with no
+      # way to act on it, which cost a manual re-run to locate two findings in
+      # a consumer. --redact keeps the values out of the log either way: with
+      # both flags the Secret and Finding fields print as REDACTED.
+      - gitleaks git . --no-banner --redact -v{{if ._SEC_GL_BASE}} --baseline-path {{._SEC_GL_BASE | q}}{{end}} {{._SEC_GL_FLAGS}}
+      - printf '%s sec · no secrets in history\n' "{{._SEC_OK}}"
+
+  trivy:
+    desc: "trivy — vulnerable dependencies and secrets (blocking) plus IaC misconfig (report-only)"
+    preconditions:
+      - sh: command -v trivy >/dev/null
+        msg: "trivy is not installed — https://github.com/aquasecurity/trivy#installation"
+    cmds:
+      - printf '%s sec · trivy %s %s\n' "{{._SEC_RUN}}" {{._SEC_TRIVY_SUB | q}} {{._SEC_TRIVY_TARGET | q}}
+      - trivy {{._SEC_TRIVY_SUB | q}} {{._SEC_TRIVY_SCAN}} --quiet {{range $d := ._SEC_TRIVY_SKIP}}--skip-dirs {{$d | q}} {{end}} {{._SEC_TRIVY_FLAGS}} --exit-code 1 {{._SEC_TRIVY_TARGET | q}}
+      # Misconfiguration findings are informational: they are dense, noisy, and
+      # blocking on them would stop every release for a Kubernetes default.
+      - trivy config --exit-code 0 --quiet {{range $d := ._SEC_TRIVY_SKIP}}--skip-dirs {{$d | q}} {{end}} {{._SEC_TRIVY_CONFIG_FLAGS}} .
+      - printf '%s sec · trivy clean\n' "{{._SEC_OK}}"
+
+  proto:breaking:
+    desc: "buf breaking — refuse incompatible proto changes against {{._SEC_BASE}}"
+    preconditions:
+      - sh: command -v buf >/dev/null
+        msg: "buf is not installed — https://buf.build/docs/installation/"
+    cmds:
+      - printf '%s sec · buf breaking vs %s\n' "{{._SEC_RUN}}" {{._SEC_BASE | q}}
+      - buf breaking --against '.git#branch='{{._SEC_BASE | q}} {{._SEC_BUF_FLAGS}}
+      - printf '%s sec · proto contract compatible\n' "{{._SEC_OK}}"
+
+  # The single place the Go scans decide whether there is anything to scan.
+  # A directory with no go.mod is skipped and says so — the repository is not
+  # a Go one, or not one here, and failing would make `scan` unusable for every
+  # consumer that ships another language. The skip is printed rather than done
+  # through `status:`, which is silent: a GO_MODULES typo must be visible.
+  # No `dir:`: Task creates a dir that is not there, so a typo in GO_MODULES
+  # left an empty directory in the consumer's tree and a green "skipped".
+  # Runs TOOL with the arguments in CMD inside MODULE. The tool is the one a
+  # `tool` directive pins — in the module's own go.mod, or in GO_TOOL_MODFILE —
+  # and only then the one on PATH: the same rule the go module follows, so
+  # `go:lint` and `security:lint` cannot run two versions of one linter.
+  _in-module:
+    internal: true
+    cmds:
+      - cmd: |-
+          set -eu
+          # Made absolute before the cd below: the input is relative to the
+          # include's directory, not to each module's.
+          modfile={{._SEC_TOOL_MOD | q}}
+          case "$modfile" in '' | /*) ;; *) modfile="$PWD/$modfile" ;; esac
+          # Refused when it is not there: `go tool -n` fails on it the way it
+          # does on a tool nobody pinned, and the scan would carry on with
+          # whatever PATH holds.
+          if [ -n "$modfile" ] && [ ! -f "$modfile" ]; then
+            printf '%s sec · %s · GO_TOOL_MODFILE names %s, which does not exist\n' "{{._SEC_ERR}}" {{.LABEL | q}} {{._SEC_TOOL_MOD | q}} >&2
+            exit 1
+          fi
+          go_tool() { if [ -n "$modfile" ]; then go tool -modfile="$modfile" "$@"; else go tool "$@"; fi; }
+          if [ ! -d {{.MODULE | q}} ]; then
+            printf '%s sec · %s · GO_MODULES names %s, which does not exist\n' "{{._SEC_ERR}}" {{.LABEL | q}} {{.MODULE | q}} >&2
+            exit 1
+          fi
+          cd {{.MODULE | q}}
+          if [ ! -f go.mod ]; then
+            printf '%s sec · %s · %s is not a Go module — skipped\n' "{{._SEC_SKIP}}" {{.LABEL | q}} {{.MODULE | q}}
+            exit 0
+          fi
+          printf '%s sec · %s · %s\n' "{{._SEC_RUN}}" {{.LABEL | q}} {{.MODULE | q}}
+          if go_tool -n {{.TOOL | q}} >/dev/null 2>&1; then set -- go_tool {{.TOOL | q}}
+          elif command -v {{.TOOL | q}} >/dev/null 2>&1; then set -- {{.TOOL | q}}
+          else
+            printf '%s sec · %s is not installed — %s\n' "{{._SEC_ERR}}" {{.TOOL | q}} {{.HINT | q}} >&2
+            exit 1
+          fi
+          "$@" {{.CMD}}
+
+
+  dockerfile:
+    desc: "hadolint over the Dockerfiles this repository ships"
+    vars:
+      # The branch is in the TEMPLATE, so the shell is left with the one job
+      # it is here for. It was a shell `[ -n "…" ]` on the input, which an
+      # empty LIST would have passed — `[]` is two characters, and the
+      # discovery below would never have run.
+      _SEC_DF_LIST:
+        sh: |-
+          {{- if ._SEC_DOCKERFILES -}}
+          printf '%s' {{._SEC_DOCKERFILES | join " " | q}}
+          {{- else -}}
+          find . -name "Dockerfile*" -not -name "*.dockerignore" \
+            {{._SEC_PRUNE}} 2>/dev/null | sort | tr "\n" " "
+          {{- end -}}
+    cmds:
+      # A scan that found nothing and a scan that ran on nothing print the same
+      # thing otherwise — which is the whole of its output, since every line
+      # below is per-Dockerfile.
+      - '{{if not ._SEC_DF_LIST}}printf "%s\n" "{{._SEC_SKIP}} sec · hadolint · no Dockerfile in this repository"{{end}}'
+      - for: { var: _SEC_DF_LIST }
+        cmd: |-
+          set -eu
+          # A named file that is not there is a typo, not a skip: it linted
+          # nothing and passed. The same rule as a GO_MODULES entry.
+          if [ ! -f {{.ITEM | q}} ]; then
+            printf '%s sec · hadolint · DOCKERFILES names %s, which does not exist\n' "{{._SEC_ERR}}" {{.ITEM | q}} >&2
+            exit 1
+          fi
+          command -v hadolint >/dev/null || {
+            printf '%s sec · hadolint is not installed — https://github.com/hadolint/hadolint#install\n' "{{._SEC_ERR}}" >&2
+            exit 1
+          }
+          printf '%s sec · hadolint · %s\n' "{{._SEC_RUN}}" {{.ITEM | q}}
+          hadolint {{._SEC_HADOLINT_FLAGS}} {{.ITEM | q}}
+          printf '%s sec · hadolint · %s clean\n' "{{._SEC_OK}}" {{.ITEM | q}}
+
+  # ═══ Go static analysis ═════════════════════════════════════════════════════
+
+  gosec:
+    desc: "gosec — insecure patterns the compiler is happy with"
+    # gosec reads export data through golang.org/x/tools, and a release binary
+    # or an `@latest` install carries the x/tools gosec's own go.mod names —
+    # which can be too old to decode what the module's Go writes. A `tool`
+    # directive builds it inside the module, so MVS gives it the module's
+    # x/tools; that is preferred, per module, and a gosec on PATH is the
+    # fallback for a module that does not declare one.
+    cmds:
+      - for: { var: _SEC_MODULES }
+        task: _in-module
+        vars: { MODULE: "{{.ITEM}}", TOOL: gosec, HINT: "{{._SEC_GOSEC_HINT}}", CMD: "{{._SEC_GOSEC_FLAGS}} ./...", LABEL: "gosec" }

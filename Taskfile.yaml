@@ -9,8 +9,12 @@ vars:
   # The git form is the default because someone who clones this repository has
   # no sibling checkout. Working on the library itself:
   #   TASKLIB: '../taskfiles/%s'
-  # renovate: datasource=github-tags depName=oleg-tkachuk/taskfiles
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v14.3.2'
+  #
+  # No `# renovate:` annotation, unlike the pin below: the library's own
+  # Renovate preset, which .github/renovate.json extends, finds `?ref=` on a
+  # taskfiles.git URL by itself, and an annotation here would give this line
+  # two managers.
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v14.6.2'
 
   # Shared Pulumi tools — github.com/oleg-tkachuk/pulumi-kit, pinned.
   #

@@ -255,17 +255,43 @@ Tests in `internal/ci` run Renovate's own regex out of its configuration and
 assert that every pin is matched and every pin is annotated, because a pin
 Renovate cannot match fails silently: no pull request, ever.
 
-A second custom manager watches the two pins in the task entry points: the
-shared task library's ref, which is part of a URL, and `PULUMI_KIT_VERSION`,
+A second custom manager watches `PULUMI_KIT_VERSION` in the task entry points,
 which `go run` fetches. `respectLatest` is off for `pulumi-kit`, because the Go
 module proxy's `@latest` lags its version list and would hold Renovate one
 release behind.
 
-A task library bump invalidates every checksum under `.task/remote`, because
-Task names its trust files for the sha256 of the whole URL. The post-upgrade
-task `bash .github/scripts/trust-tasklib.sh` replaces them on the same branch.
-Every post-upgrade command must also be listed in `RENOVATE_ALLOWED_COMMANDS`
-in `renovate.yaml`, or Renovate skips it with a warning.
+The shared task library's ref is found by the library's own preset,
+`github>oleg-tkachuk/taskfiles//renovate/tasklib`, which `renovate.json`
+extends: it matches `?ref=` on a `taskfiles.git` URL in any Taskfile, so the
+two `TASKLIB` pins carry no annotation and move in one pull request.
+
+A task library bump orphans the whole lock under `.task/remote`, because Task
+names each file there for the sha256 of the include's URL, ref included. The
+post-upgrade task
+`task -t Taskfile.dev.yaml --yes --offline=false --download tasklib:lock`
+downloads both entry points' includes again and replaces the directory on the
+same branch, which also drops the old ref's files. Every post-upgrade command
+must also be listed in `RENOVATE_ALLOWED_COMMANDS` in `renovate.yaml`, or
+Renovate skips it with a warning.
+
+### The task library's lock
+
+`.task/remote` is committed: per module a `.checksum`, which is what Task
+compares a fetch against, and the module itself as `.yaml`. `.taskrc.yml` sets
+`remote.offline: true`, so every `task` here — locally and in CI — loads the
+library from those copies and fetches nothing. A moved tag therefore cannot
+change a build, and a job does not depend on GitHub serving a clone.
+
+`task -t Taskfile.dev.yaml tasklib:check` is the gate, and `verify` runs it:
+it fails when the two entry points pin different refs or either does not load
+offline. `TestTasklib_TheLockIsExactlyWhatThePinsName` asks the same of the
+files without running Task, and also refuses what a previous ref left behind.
+Moving the pin by hand is one command, which rewrites both entry points and
+then the lock:
+
+```bash
+task -t Taskfile.dev.yaml tasklib:bump VERSION=v15.0.0
+```
 
 The runners are pinned to one `ubuntu-<release>` label rather than `ubuntu-latest`, and
 Renovate's built-in `github-runners` datasource proposes the next image as a

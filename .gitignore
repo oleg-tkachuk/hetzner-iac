@@ -65,11 +65,15 @@ Pulumi.*.yaml
 
 # Task. The remote lock is the exception and is committed on purpose: it pins
 # the CONTENT behind the `?ref=vX.Y.Z` tag, so a moved tag stops the build
-# instead of silently changing it. Refresh deliberately with `task --download`.
+# instead of silently changing it. Both halves are tracked — the checksum is
+# the trust decision, and the copy beside it is what .taskrc.yml's
+# `offline: true` loads instead of fetching. Refresh deliberately with
+# `task -t Taskfile.dev.yaml --yes --offline=false --download tasklib:lock`.
 .task/*
 !.task/remote/
 .task/remote/*
 !.task/remote/*.checksum
+!.task/remote/*.yaml
 
 # Cluster credentials, generated on demand by `task cluster:kubeconfig` and
 # `cluster:talosconfig`. Both are cluster-admin.

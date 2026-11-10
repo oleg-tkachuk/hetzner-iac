@@ -16,7 +16,7 @@ brew "pulumi"
 # The programs are Go.
 brew "go"
 
-# The entry points. Remote Taskfiles need 3.53, which is why the formula is
+# The entry points. Remote Taskfiles need 3.54, which is why the formula is
 # `go-task` and not `task` — the latter is a different project.
 brew "go-task"
 

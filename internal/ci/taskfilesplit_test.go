@@ -154,7 +154,12 @@ func TestWorkflows_CallTasksThroughTheDevTaskfile(t *testing.T) {
 				continue
 			}
 
-			for _, match := range taskInvocation.FindAllStringSubmatch(trimmed, -1) {
+			// Renovate's allow-list names a command as a regex, so the dots
+			// in it are escaped. It is the same invocation and held the same
+			// way: unescaped first, then read.
+			command := strings.ReplaceAll(trimmed, regexEscape, "")
+
+			for _, match := range taskInvocation.FindAllStringSubmatch(command, -1) {
 				args := strings.Fields(match[1])
 				require.NotEmpty(t, args)
 
@@ -170,6 +175,9 @@ func TestWorkflows_CallTasksThroughTheDevTaskfile(t *testing.T) {
 
 	assert.Positive(t, checked, "no workflow runs any task; this test is checking nothing")
 }
+
+// regexEscape is what precedes a literal dot in a pattern.
+const regexEscape = `\`
 
 // taskInvocation matches `task` and the arguments that follow it on one line.
 // `task:` as a YAML key does not match: a colon follows the word directly.

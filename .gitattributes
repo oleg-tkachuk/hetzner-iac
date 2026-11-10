@@ -58,6 +58,9 @@ Brewfile -linguist-detectable
 # templates are written and reviewed here, and "Go Template" describes them
 # honestly.
 #
-# The five .task/remote/*.checksum files are machine-written and no reviewer
-# can verify a sha256 by eye, but they are 320 bytes in total — collapsing
-# five short lines is not worth a rule.
+# The shared task library's lock under .task/remote: a checksum and a copy of
+# each module, both machine-written. The checksums are 64 bytes apiece, which
+# is not worth a rule. The copies are large and stay expanded on purpose —
+# a bump is a decision to trust what the new ref serves, and that diff is the
+# only place the decision can be read. YAML is a `data` language, so they do
+# not reach the language bar either way.

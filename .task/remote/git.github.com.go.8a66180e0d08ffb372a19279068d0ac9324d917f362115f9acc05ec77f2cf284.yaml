@@ -1,0 +1,380 @@
+version: "3"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# go — the Go build/test/lint surface.
+#
+#   includes:
+#     go: { taskfile: '{{printf .TASKLIB "go"}}', dir: . }
+#
+# ── Inputs ───────────────────────────────────────────────────────────────────
+# Pass these at the include's own `vars:`, not the consumer's top-level
+# `vars:`. In a repository with more than one component the top level is
+# shared with every other component — see README.md#variable-scoping.
+#
+#   PROJECT_NAME     label in log lines
+#   GO_PKG           package pattern to test/lint       (default ./...)
+#   GO_MAIN          package(s) that produce binaries   (default ./cmd/...)
+#   GO_BIN_DIR       output directory                   (default ./bin)
+#   GO_TEST_FLAGS    default "-race -short"
+#   GO_BUILD_FLAGS   extra `go build` flags
+#   GOLANGCI_FLAGS   extra golangci-lint flags
+#   GO_TOOL_MODFILE  a go.mod whose `tool` directives pin the tools, when
+#                    they are not in this module's own  (default none)
+#   GO_FMT_GOIMPORTS 1: fmt needs goimports and fails without it; 0: fmt
+#                    never runs it        (default: runs it when it is found)
+#   GO_TEST_TAGS     build tags for test:tagged:compile (default integration)
+#   GO_TEST_TIMEOUT  go test's -timeout for test:integration (default 10m)
+#   GO_TEST_JSON     where test:integration writes go test -json's stream,
+#                    for a consumer to read; needs gotestsum  (default none)
+#   GO_FIX_FLAGS     extra `go fix` flags for fix:check, e.g. to switch an
+#                    analyzer off
+#   GO_BENCH_PKG     packages to benchmark              (default GO_PKG)
+#   GO_BENCH_FLAGS   default "-benchtime=1x"
+#   GOWORK           "auto" to build through a go.work workspace
+#
+# GOWORK=off is the default and is the point of this file. A go.work in the
+# tree makes a local build resolve dependencies through the workspace, so a
+# module can be missing entries from its own go.sum and still look green here
+# while CI — which builds each module standalone — fails on it. That has
+# happened more than once, most recently on a dependency bump that left go.sum
+# with an h1 hash and no /go.mod hash beside it.
+#
+# ── Tools ────────────────────────────────────────────────────────────────────
+# golangci-lint, govulncheck, goimports and gotestsum are each found the same
+# way: the one a `tool` directive pins — in this module's go.mod, or in
+# GO_TOOL_MODFILE — and only then the one on PATH. A pinned tool is the same
+# version on every machine and in CI; PATH is whatever was installed last.
+# ─────────────────────────────────────────────────────────────────────────────
+# shell-verbatim: _GO_TEST_FLAGS GO_TEST_FLAGS _GO_BUILD_FLAGS GO_BUILD_FLAGS _GO_LINT_FLAGS GOLANGCI_FLAGS
+# shell-verbatim: _GO_FIX_FLAGS GO_FIX_FLAGS
+# shell-verbatim: _GO_BENCH_FLAGS GO_BENCH_FLAGS _GO_PKGS _GO_MAINS _GO_BENCH_PKGS _GO_TOOLS
+
+silent: true
+
+vars:
+  _GO_NAME: '{{.PROJECT_NAME | default "go"}}'
+  _GO_PKG: '{{.GO_PKG | default "./..."}}'
+  _GO_MAIN: '{{.GO_MAIN | default "./cmd/..."}}'
+  _GO_BIN: '{{.GO_BIN_DIR | default "./bin"}}'
+  _GO_TEST_FLAGS: '{{.GO_TEST_FLAGS | default "-race -short"}}'
+  _GO_BUILD_FLAGS: '{{.GO_BUILD_FLAGS | default ""}}'
+  _GO_LINT_FLAGS: '{{.GOLANGCI_FLAGS | default ""}}'
+  _GO_FIX_FLAGS: '{{.GO_FIX_FLAGS | default ""}}'
+  _GO_TAGS: '{{.GO_TEST_TAGS | default "integration"}}'
+  # go test's own default, named: a suite that starts containers per test
+  # can need more under load, and a hang must still fail.
+  _GO_TEST_TIMEOUT: '{{.GO_TEST_TIMEOUT | default "10m"}}'
+  _GO_BENCH_PKG: '{{.GO_BENCH_PKG | default .GO_PKG | default "./..."}}'
+  _GO_BENCH_FLAGS: '{{.GO_BENCH_FLAGS | default "-benchtime=1x"}}'
+  # The package inputs as arguments: a space-separated list of patterns
+  # splits into one quoted argument per pattern, never into shell.
+  _GO_PKGS: '{{range splitList " " ._GO_PKG}}{{if .}}{{q .}} {{end}}{{end}}'
+  _GO_MAINS: '{{range splitList " " ._GO_MAIN}}{{if .}}{{q .}} {{end}}{{end}}'
+  _GO_BENCH_PKGS: '{{range splitList " " ._GO_BENCH_PKG}}{{if .}}{{q .}} {{end}}{{end}}'
+  _GO_TOOL_MOD: '{{.GO_TOOL_MODFILE | default ""}}'
+  # What GO_FMT_GOIMPORTS may be, and what it is when unset.
+  _GO_IMPORTS_ON: "1"
+  _GO_IMPORTS_OFF: "0"
+  _GO_IMPORTS_AUTO: auto
+  _GO_IMPORTS: '{{.GO_FMT_GOIMPORTS | default "auto"}}'
+  # The shell every task that calls a tool starts with. have_tool says whether
+  # a tool can be run at all; run_tool runs the pinned one, else PATH's.
+  # A GO_TOOL_MODFILE that is not there is refused here: `go tool -n` fails on
+  # it the way it does on a tool nobody pinned, and the run would carry on
+  # with whatever PATH holds — the pin gone, and nothing saying so.
+  _GO_TOOLS: |-
+    go_tool() { go tool{{if ._GO_TOOL_MOD}} -modfile={{._GO_TOOL_MOD | q}}{{end}} "$@"; }
+    have_tool() { go_tool -n "$1" >/dev/null 2>&1 || command -v "$1" >/dev/null 2>&1; }
+    run_tool() {
+      if go_tool -n "$1" >/dev/null 2>&1; then go_tool "$@"; else "$@"; fi
+    }
+    {{if ._GO_TOOL_MOD}}if [ ! -f {{._GO_TOOL_MOD | q}} ]; then
+      printf '%s %s · go · GO_TOOL_MODFILE names %s, which does not exist\n' "{{._GO_ERR}}" {{._GO_NAME | q}} {{._GO_TOOL_MOD | q}} >&2
+      exit 1
+    fi{{end}}
+  # Status markers. The shape carries the meaning, so a line still reads in
+  # a monochrome log; the colour sits on top and drops out under NO_COLOR.
+  _GO_RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
+  _GO_OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
+  _GO_ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+
+env:
+  # "auto" hands go an empty GOWORK, which is go's own "find a go.work". An
+  # empty input cannot mean that: `default` reads "" as unset and gives "off".
+  GOWORK: '{{$w := .GOWORK | default "off"}}{{if ne $w "auto"}}{{$w}}{{end}}'
+
+tasks:
+
+  build:
+    desc: "Compile the command packages into the bin directory"
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{._GO_BIN}}/*"
+    preconditions:
+      - sh: command -v go >/dev/null
+        msg: "go is not installed — https://go.dev/doc/install"
+    cmds:
+      - printf '%s %s · go · build %s\n' "{{._GO_RUN}}" {{._GO_NAME | q}} {{._GO_MAIN | q}}
+      - go build {{._GO_BUILD_FLAGS}} -o {{._GO_BIN | q}}/ {{._GO_MAINS}}
+      - printf '%s %s · go · built → %s\n' "{{._GO_OK}}" {{._GO_NAME | q}} {{._GO_BIN | q}}
+
+  compile:
+    desc: "Type-check every package without writing a binary (for library modules)"
+    cmds:
+      - printf '%s %s · go · compile %s\n' "{{._GO_RUN}}" {{._GO_NAME | q}} {{._GO_PKG | q}}
+      # -o /dev/null compiles every package but writes nothing, so a main under
+      # ./cmd cannot collide with the cmd/ directory itself.
+      - go build -o /dev/null {{._GO_PKGS}}
+      - printf '%s %s · go · compiles clean\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  test:
+    desc: "Run the unit suite"
+    cmds:
+      - printf '%s %s · go · test %s\n' "{{._GO_RUN}}" {{._GO_NAME | q}} {{._GO_PKG | q}}
+      # gotestsum when there is one (one line per package), plain go test
+      # otherwise — neither is worth a hard dependency. `&&/||` would run go
+      # test a second time whenever gotestsum found a real failure, not just
+      # when it was absent — a flaky test then gets a second roll of the dice
+      # to pass on, and the run reports green either way.
+      - cmd: |-
+          {{._GO_TOOLS}}
+          if have_tool gotestsum; then
+            run_tool gotestsum --format pkgname --hide-summary skipped -- {{._GO_TEST_FLAGS}} {{._GO_PKGS}}
+          else
+            go test {{._GO_TEST_FLAGS}} {{._GO_PKGS}}
+          fi
+      - printf '%s %s · go · tests pass\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  test:coverage:
+    desc: "Run the unit suite with coverage; HTML report lands in coverage/"
+    cmds:
+      - mkdir -p coverage
+      # The unit run, so the unit run's flags: a suite that needs `-p 1` to
+      # share package state needs it here too.
+      - go test {{._GO_TEST_FLAGS}} -coverprofile=coverage/cover.out {{._GO_PKGS}}
+      - go tool cover -html=coverage/cover.out -o coverage/cover.html
+      - printf '%s %s · go · coverage report → coverage/cover.html\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  test:integration:
+    desc: "Run the integration suite (build tag, needs Docker)"
+    cmds:
+      - printf '%s %s · go · integration tests\n' "{{._GO_RUN}}" {{._GO_NAME | q}}
+      # gotestsum when there is one, as the unit run; it also keeps the
+      # run's go test -json stream where GO_TEST_JSON names, for a consumer
+      # that reads each package's result and time. Without gotestsum a
+      # GO_TEST_JSON fails the run here: a consumer would read no stream, or
+      # an earlier run's.
+      - cmd: |-
+          {{._GO_TOOLS}}
+          if have_tool gotestsum; then
+            run_tool gotestsum --format pkgname --hide-summary skipped {{if .GO_TEST_JSON}}--jsonfile {{.GO_TEST_JSON | q}} {{end}}-- -race -timeout={{._GO_TEST_TIMEOUT | q}} -tags={{._GO_TAGS | q}} {{._GO_PKGS}}
+          else
+            {{if .GO_TEST_JSON}}printf 'GO_TEST_JSON names %s, but go test alone keeps no stream: install gotestsum\n' {{.GO_TEST_JSON | q}} >&2; exit 1{{end}}
+            go test -race -timeout={{._GO_TEST_TIMEOUT | q}} -tags={{._GO_TAGS | q}} {{._GO_PKGS}}
+          fi
+      - printf '%s %s · go · integration tests pass\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  test:tagged:compile:
+    desc: "Type-check build-tagged suites that the default test run never compiles"
+    # A tagged suite is invisible to the normal gate: it does not compile, it
+    # does not run, and nothing notices it has rotted until someone needs it.
+    # `go vet` with the tag takes seconds and catches exactly that.
+    cmds:
+      - printf '%s %s · go · vet -tags=%s\n' "{{._GO_RUN}}" {{._GO_NAME | q}} {{._GO_TAGS | q}}
+      - go vet -tags={{._GO_TAGS | q}} {{._GO_PKGS}}
+      - printf '%s %s · go · tagged suites compile\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  lint:
+    desc: "golangci-lint over the module"
+    cmds:
+      - printf '%s %s · go · golangci-lint\n' "{{._GO_RUN}}" {{._GO_NAME | q}}
+      - cmd: |-
+          {{._GO_TOOLS}}
+          if ! have_tool golangci-lint; then
+            printf '%s %s · go · golangci-lint is not installed — https://golangci-lint.run/docs/welcome/install/\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+            exit 1
+          fi
+          run_tool golangci-lint run {{._GO_LINT_FLAGS}} {{._GO_PKGS}}
+      - printf '%s %s · go · lint clean\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  fmt:
+    desc: "gofmt -s -w, plus goimports when there is one (GO_FMT_GOIMPORTS=1 to need it, 0 to never run it)"
+    cmds:
+      - gofmt -s -w .
+      # Unset, goimports runs where it is found and not elsewhere, so two
+      # machines can format one tree two ways. A repository that gates on the
+      # result says which it wants: 1 fails without goimports, 0 never runs it.
+      #
+      # `&&/||` would swallow a genuine goimports failure the same way it
+      # would report success on it being absent — presence and success are
+      # checked separately instead.
+      - cmd: |-
+          {{._GO_TOOLS}}
+          case {{._GO_IMPORTS | q}} in
+            {{._GO_IMPORTS_OFF | q}}) exit 0 ;;
+            {{._GO_IMPORTS_ON | q}})
+              if ! have_tool goimports; then
+                printf '%s %s · go · GO_FMT_GOIMPORTS=%s, and goimports is not installed — go get -tool golang.org/x/tools/cmd/goimports\n' "{{._GO_ERR}}" {{._GO_NAME | q}} {{._GO_IMPORTS_ON | q}} >&2
+                exit 1
+              fi ;;
+            {{._GO_IMPORTS_AUTO | q}}) have_tool goimports || exit 0 ;;
+            *)
+              printf '%s %s · go · GO_FMT_GOIMPORTS must be %s or %s, got: %s\n' "{{._GO_ERR}}" {{._GO_NAME | q}} {{._GO_IMPORTS_ON | q}} {{._GO_IMPORTS_OFF | q}} {{._GO_IMPORTS | q}} >&2
+              exit 1 ;;
+          esac
+          run_tool goimports -w .
+      - printf '%s %s · go · formatted\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  fmt:check:
+    desc: "Fail if gofmt -s would change any file — the CI-safe half of fmt"
+    # gofmt -l reports nothing on stderr and exits 0 whether or not it found
+    # anything to list — it is a formatter's exit code, not a checker's. `fmt`
+    # itself cannot be the gate: it mutates the tree, which is fine on a
+    # laptop and wrong in CI, where a step that rewrites files and still exits
+    # 0 hides the very drift it should fail on.
+    cmds:
+      - cmd: |-
+          set -eu
+          unformatted=$(gofmt -s -l .)
+          if [ -n "$unformatted" ]; then
+            printf '%s %s · go · not gofmt -s clean:\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+            printf '%s\n' "$unformatted" >&2
+            exit 1
+          fi
+          printf '%s %s · go · gofmt -s clean\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  tidy:
+    desc: "go mod tidy the way CI resolves the module — standalone"
+    cmds:
+      - go mod tidy
+      - printf '%s %s · go · go.mod tidy\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  tidy:check:
+    desc: "Fail if go mod tidy would change go.mod or go.sum — the CI-safe half of tidy"
+    # `tidy` rewrites both files, which a gate must not: a step that fixes the
+    # drift and exits 0 hides it. -diff prints what tidy would do and changes
+    # nothing; it needs Go 1.23, and an older go fails here on the flag.
+    cmds:
+      - cmd: |-
+          set -eu
+          if ! diff=$(go mod tidy -diff 2>&1); then
+            printf '%s %s · go · go.mod is not tidy — run tidy:\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+            printf '%s\n' "$diff" >&2
+            exit 1
+          fi
+          printf '%s %s · go · go.mod tidy\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  fix:check:
+    desc: "Fail if go fix would change any file — code still written for an older Go"
+    # go fix rewrites code to what the module's go version offers. -diff
+    # prints the rewrite and changes nothing; it needs Go 1.26, and an older
+    # go fails here on the flag.
+    cmds:
+      - cmd: |-
+          set -eu
+          if ! diff=$(go fix -diff {{._GO_FIX_FLAGS}} {{._GO_PKGS}} 2>&1); then
+            printf '%s %s · go · go fix would change files — run go fix:\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+            printf '%s\n' "$diff" >&2
+            exit 1
+          fi
+          printf '%s %s · go · nothing for go fix to change\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  vuln:
+    desc: "govulncheck — vulnerabilities this module's code actually reaches"
+    cmds:
+      - printf '%s %s · go · govulncheck\n' "{{._GO_RUN}}" {{._GO_NAME | q}}
+      - cmd: |-
+          {{._GO_TOOLS}}
+          if ! have_tool govulncheck; then
+            printf '%s %s · go · govulncheck is not installed — go get -tool golang.org/x/vuln/cmd/govulncheck\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+            exit 1
+          fi
+          run_tool govulncheck {{._GO_PKGS}}
+
+  deps:update:
+    desc: "Bump the direct dependencies to the latest minor/patch, tidy, then prove it still builds"
+    # Majors are deliberately not crossed: they need an import-path /vN edit and
+    # a read of the upstream CHANGELOG.
+    #
+    # DIRECT requirements only, and that is the fix for a failure `-u ./...`
+    # produced in a consumer. That form walks indirect modules too, and an
+    # indirect module with NO releases resolves to a pseudo-version of its
+    # master every time — always ahead of the release train its siblings are
+    # pinned to.
+    #
+    # Measured: k8s.io/kube-openapi has no releases. `-u ./...` moved it to a
+    # master pseudo-version requiring sigs.k8s.io/structured-merge-diff/v7,
+    # while the newest RELEASED k8s.io/apimachinery still used /v6 — and
+    # apimachinery converts a kube-openapi schema with it. So the two majors
+    # met inside apimachinery, and the build failed there:
+    #
+    #   managedfields/internal/typeconverter.go:51:61: cannot use
+    #   typeSchema.Types (.../v7/schema.TypeDef) as .../v6/schema.TypeDef
+    #
+    # naming neither the upgrade nor the reason. The comment above was true
+    # only of modules `-u` upgrades itself: one of those may REQUIRE a new
+    # major of something else, which -u does not control.
+    #
+    # Direct requirements move here and the resolver picks the rest, so an
+    # indirect module moves when its direct requirer does — which is when the
+    # train moves.
+    cmds:
+      - printf '%s %s · go · go get -u, direct requirements\n' "{{._GO_RUN}}" {{._GO_NAME | q}}
+      - cmd: |-
+          set -euo pipefail
+
+          # `go list -m` rather than parsing go.mod: it knows what a direct
+          # requirement IS. An awk over the require block missed the
+          # single-line form — `require example.com/x v1.2.3` with no
+          # parentheses is perfectly valid and this task would then find
+          # nothing to bump in a module that has plenty.
+          #
+          # Usable here, and that was checked rather than assumed: a failed
+          # bump leaves a module that COMPILES wrong, not one that resolves
+          # wrong, so the module graph still loads. `.Main` is filtered
+          # because `all` starts with the main module, and passing its own
+          # path to go get is an error.
+          direct="$(go list -m -f '{{"{{"}}if and (not .Main) (not .Indirect){{"}}"}}{{"{{"}}.Path{{"}}"}}{{"{{"}}end{{"}}"}}' all | awk 'NF')"
+
+          if [ -z "${direct}" ]; then
+            printf '%s %s · go · go.mod lists no direct requirement — nothing to bump\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+            exit 1
+          fi
+
+          # The guard above is not decoration: GNU xargs runs the command once
+          # with no arguments when its input is empty, and `go get -u` with no
+          # arguments acts on the current directory instead. BSD xargs runs
+          # nothing, so without the guard this task would behave differently
+          # on Linux and on macOS.
+          printf '%s\n' "${direct}" | xargs go get -u
+      - go mod tidy
+      - go build -o /dev/null {{._GO_PKGS}}
+      - printf '%s %s · go · deps bumped — review git diff go.mod go.sum\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  deps:outdated:
+    desc: "List dependencies with a newer version available (read-only)"
+    cmds:
+      # Capturing to a variable first, rather than piping go list straight
+      # into grep, is what makes a genuine go list failure (module
+      # unresolvable, no network) abort here instead of reading as "every
+      # dependency current" — the same conclusion an empty match gives.
+      - cmd: |-
+          set -eu
+          out=$(go list -u -m all)
+          printf '%s\n' "$out" | grep '\[' || printf '%s %s · go · every dependency current\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+
+  bench:
+    desc: "Run the benchmarks — no unit tests, just the measurements"
+    # -run='^$' matches no test, so the run is benchmarks only: without it every
+    # unit test runs first and its time lands in the same wall clock.
+    #
+    # Benchmarks that need a database sit behind a build tag, which is why the
+    # tags the tagged-compile gate already knows about are passed here too.
+    cmds:
+      - printf '%s %s · go · benchmarks in %s\n' "{{._GO_RUN}}" {{._GO_NAME | q}} {{._GO_BENCH_PKG | q}}
+      - >-
+        go test -tags={{._GO_TAGS | q}} -run='^$' -bench={{.BENCH | default "." | q}}
+        {{._GO_BENCH_FLAGS}} {{._GO_BENCH_PKGS}}

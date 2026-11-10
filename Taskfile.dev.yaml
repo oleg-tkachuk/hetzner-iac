@@ -40,11 +40,13 @@ vars:
   # The second copy of this pin, and it has to be: Task resolves `includes:`
   # before it loads `dotenv:`, and an included taskfile may not declare
   # `dotenv:` at all — so there is no file both entry points can read it from.
-  # Measured both ways. TestTasklib_EveryRemoteTaskfileHasItsChecksum holds
-  # the two equal, because a half-applied bump otherwise fails one entry point
-  # with a message about trust rather than about the version.
-  # renovate: datasource=github-tags depName=oleg-tkachuk/taskfiles
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v14.3.2'
+  # Measured both ways. `tasklib:check` below holds the two equal, and so
+  # does TestTasklib_TheLockIsExactlyWhatThePinsName, because a half-applied
+  # bump otherwise fails one entry point with a message about trust rather
+  # than about the version.
+  #
+  # Not annotated for Renovate, for the reason the root taskfile gives.
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v14.6.2'
 
   ROOT: { sh: pwd }
 
@@ -152,6 +154,18 @@ includes:
       # away from undoing that, and TestLibraryExcludes_StayInPlace holds the
       # exclusion.
       - baseline
+
+  # The pin above and the lock under .task/remote, as one thing. `check` is
+  # the gate `verify` runs; `lock` is what Renovate runs on the branch that
+  # moves the pin, and what a hand bump runs:
+  #
+  #   task -t Taskfile.dev.yaml tasklib:bump VERSION=v15.0.0
+  #
+  # Here rather than on the root entry point because it answers a question
+  # about this repository, not about a cluster. It still acts on both files:
+  # the module finds every Taskfile git knows and loads each as its own entry
+  # point.
+  tasklib: { taskfile: '{{printf .TASKLIB "tasklib"}}', dir: . }
 
   # The chart pins. Four of the five tasks are judgments — the pins resolve,
   # the renders still produce the expected workloads, each AppVersion is what
@@ -261,6 +275,10 @@ tasks:
       # No leading colon on any of these: the colon is for an INCLUDED
       # taskfile reaching back to the root, and this file IS the root when
       # Task is pointed at it. `:go:test` here fails with "does not exist".
+      # First, because it is the cheapest and what it catches breaks every
+      # line below: two entry points on different refs, or a pin whose lock
+      # was never refreshed.
+      - task: tasklib:check
       - task: fmt-check
       - task: tidy-check
       - task: go:test
