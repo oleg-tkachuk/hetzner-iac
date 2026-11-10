@@ -561,7 +561,7 @@ jobs:
       # Renders every pinned chart and checks it still produces the workloads
       # internal/pkg/workloads expects — the same table the e2e suite asserts against.
       # This is the gate that catches a chart rename in CI instead of at 3am.
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
         with:
           # Pinned to the version the check was verified against; `latest`
           # would let a Helm release change what CI renders with no commit of
