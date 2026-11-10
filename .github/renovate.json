@@ -13,7 +13,8 @@
   "extends": [
     "config:recommended",
     ":semanticCommits",
-    ":dependencyDashboard"
+    ":dependencyDashboard",
+    "github>oleg-tkachuk/taskfiles//renovate/tasklib"
   ],
   "timezone": "Europe/Kyiv",
   "rebaseWhen": "behind-base-branch",
@@ -50,11 +51,10 @@
       "versioningTemplate": "helm"
     },
     {
-      "description": "The two pins in the task entry points: the shared task library, whose ref is part of a URL, and pulumi-kit, which `go run` fetches. Same annotation style as the workflow manager below and for the same reason — the `renovate:` comment carries the datasource and depName, so this pattern knows no special cases. Two matchStrings because the two pins are shaped differently: one is `ref=` inside a quoted URL, the other a bare `*_VERSION`. A test in internal/ci reads these regexes out of this file and asserts they still match every annotated pin AND that every pin is annotated, because the failure mode is silent: Renovate opens no pull request, for ever, and nothing says so.",
+      "description": "The pin in the task entry points that the shared task library's own preset does not find: pulumi-kit, which `go run` fetches. Same annotation style as the workflow manager below and for the same reason — the `renovate:` comment carries the datasource and depName, so this pattern knows no special cases. The library's ref is NOT matched here: the preset this file extends finds `?ref=` on a taskfiles.git URL in any Taskfile, and a second manager on the same line would propose every bump twice. A test in internal/ci reads this regex out of this file and asserts it still matches every annotated pin, that every pin is annotated, and that it leaves the library's pin alone, because the failure mode is silent: Renovate opens no pull request, for ever, and nothing says so.",
       "customType": "regex",
       "managerFilePatterns": ["/^Taskfile\\.yaml$/", "/^Taskfile\\.dev\\.yaml$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s+[A-Z0-9_]+:\\s*'[^']*ref=(?<currentValue>[^'\\s]+)'",
         "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s+[A-Z0-9_]+_VERSION:\\s*(?<currentValue>\\S+)"
       ]
     },
@@ -77,14 +77,14 @@
       "labels": ["tooling"]
     },
     {
-      "description": "A task library bump changes the commands this repository has, not what it deploys, so it releases nothing on its own. Task names its trust files for the sha256 of the whole URL, ref included, so bumping the ref invalidates every checksum under .task/remote; the post-upgrade task replaces them on the same branch. Its command must be in RENOVATE_ALLOWED_COMMANDS in .github/workflows/renovate.yaml, or Renovate skips it with a warning.",
+      "description": "A task library bump changes the commands this repository has, not what it deploys, so it releases nothing on its own. Task names each file of its lock for the sha256 of the whole URL, ref included, so bumping the ref orphans everything under .task/remote; the post-upgrade task downloads every entry point's includes again and replaces the directory on the same branch, old files included, which is why the filter covers the directory rather than one extension. The library ships this as a preset, renovate/tasklib-lock, which is not extended: its command carries no -t, and the tasklib module is included by Taskfile.dev.yaml. The command must be in RENOVATE_ALLOWED_COMMANDS in .github/workflows/renovate.yaml, or Renovate skips it with a warning.",
       "matchDepNames": ["oleg-tkachuk/taskfiles"],
       "semanticCommitType": "chore",
       "semanticCommitScope": "tasklib",
       "labels": ["tooling"],
       "postUpgradeTasks": {
-        "commands": ["bash .github/scripts/trust-tasklib.sh"],
-        "fileFilters": [".task/remote/*.checksum"],
+        "commands": ["task -t Taskfile.dev.yaml --yes --offline=false --download tasklib:lock"],
+        "fileFilters": [".task/remote/*"],
         "executionMode": "branch"
       }
     },
@@ -125,9 +125,10 @@
       "semanticCommitScope": "deps"
     },
     {
-      "description": "The pinned CI tools, same reasoning: they change what the checks are, never what is deployed. Scoped by datasource rather than by manager, because the other custom manager is the chart registry and its pull requests are releases.",
+      "description": "The pinned CI tools, same reasoning: they change what the checks are, never what is deployed. Scoped by datasource rather than by manager, because the other custom manager is the chart registry and its pull requests are releases. The shared task library is named out: its preset resolves it from github-releases, and without the exclusion this rule would take its bump into the group and out of its own scope.",
       "matchManagers": ["custom.regex"],
       "matchDatasources": ["github-releases", "pypi", "go"],
+      "matchDepNames": ["!oleg-tkachuk/taskfiles"],
       "semanticCommitType": "chore",
       "semanticCommitScope": "ci",
       "labels": ["ci"],
