@@ -25,7 +25,9 @@ version: "3"
 #                      (default: every file git knows that is named like one)
 #   TASKLIB_CACHE_DIR  what Task takes as --remote-cache-dir, relative to each
 #                      Taskfile's directory            (default .task)
-#   TASKLIB_RETRIES    attempts at one Taskfile's download  (default 3)
+#   TASKLIB_RETRIES    attempts at one Taskfile's download  (default 5)
+#   TASKLIB_TIMEOUT    how long one download may take, as Task's --timeout
+#                      takes it                             (default 1m)
 # ─────────────────────────────────────────────────────────────────────────────
 # shell-verbatim: _TL_LIST
 
@@ -37,7 +39,11 @@ vars:
   _TL_FILES:
     ref: 'default (list) .TASKLIB_FILES'
   _TL_CACHE: '{{.TASKLIB_CACHE_DIR | default ".task"}}'
-  _TL_RETRIES: '{{.TASKLIB_RETRIES | default "3"}}'
+  # Five, and a minute each: a first attempt at a Taskfile with several
+  # includes fails often even with nothing else running, three ran out on a
+  # busy machine, and Task's own ten seconds is less than a clone takes there.
+  _TL_RETRIES: '{{.TASKLIB_RETRIES | default "5"}}'
+  _TL_TIMEOUT: '{{.TASKLIB_TIMEOUT | default "1m"}}'
   # Where Task puts remote Taskfiles inside its cache directory.
   _TL_REMOTE: remote
   # A file Task would load as an entry point: Taskfile.yaml, taskfile.yml,
@@ -74,7 +80,7 @@ vars:
 tasks:
 
   check:
-    desc: "Fail when the Taskfiles pin different refs, or one does not load from its lock"
+    desc: "Fail when the Taskfiles pin different refs, one does not load from its lock, or a lock holds more or less than its pin names"
     # Two failures that otherwise surface far from their cause. Renovate moves
     # the pins its pattern matches and leaves the rest, so a repository runs
     # two versions of the library with nothing saying so. And a pin moved
@@ -113,19 +119,75 @@ tasks:
             exit 1
           fi
 
+          # Each Taskfile is loaded offline, verbosely: Task then names every
+          # lock file it reads, which is how the files nothing reads are told
+          # apart without this module knowing how Task names one.
           fail=0
+          : > "$work/used"
           for f in $files; do
-            if ! (cd "$(dirname "$f")" && task -t "$(basename "$f")" --offline --remote-cache-dir "$cache" --list-all) > "$work/log" 2>&1 < /dev/null; then
+            dir=$(dirname "$f")
+            if ! (cd "$dir" && task -v -t "$(basename "$f")" --offline --remote-cache-dir "$cache" --list-all) > "$work/log" 2>&1 < /dev/null; then
               printf '%s tasklib · %s does not load from its lock:\n' "{{._TL_ERR}}" "$f" >&2
-              sed 's/^/    /' "$work/log" >&2
+              awk '!/^(checking cache for|cache expired at|in offline mode)/ { print "    " $0 }' "$work/log" >&2
               fail=1
             fi
+            awk -F'"' -v dir="$dir" '/^checking cache for "/ && NF >= 5 { n = split($4, part, "/"); stem = part[n]; sub(/\.yaml$/, "", stem); print dir "\t" stem }' "$work/log" >> "$work/used"
+          done
+
+          # Then the lock itself. Offline, Task reads a module's .yaml and
+          # never its .checksum, so a lock can load and still be one that asks
+          # to be trusted again the first time anything goes online.
+          remote={{._TL_REMOTE | q}}
+          if command -v shasum >/dev/null 2>&1; then digest() { shasum -a 256 "$1" | awk '{ print $1 }'; }
+          elif command -v sha256sum >/dev/null 2>&1; then digest() { sha256sum "$1" | awk '{ print $1 }'; }
+          else
+            digest() { :; }
+            printf '%s tasklib · neither shasum nor sha256sum is installed — lock files are not compared with their checksums\n' "{{._TL_WARN}}" >&2
+          fi
+          told=0
+          for dir in $(for f in $files; do dirname "$f"; done | sort -u); do
+            live="$dir/$cache/$remote"
+            [ -d "$live" ] || continue
+            for found in $(ls "$live" | awk -v used="$work/used" -v dir="$dir" '
+              BEGIN { while ((getline line < used) > 0) { split(line, field, "\t"); known++; if (field[1] == dir) read[field[2]] = 1 } }
+              /\.yaml$/ { stem = $0; sub(/\.yaml$/, "", stem); body[stem] = 1 }
+              /\.checksum$/ { stem = $0; sub(/\.checksum$/, "", stem); sum[stem] = 1 }
+              END {
+                if (known == 0) { print "unknown\t-"; exit }
+                for (stem in body) {
+                  if (!(stem in read)) print "stale\t" stem ".yaml"
+                  else if (!(stem in sum)) print "bare\t" stem
+                  else print "pair\t" stem
+                }
+                for (stem in sum) if (!(stem in read)) print "stale\t" stem ".checksum"
+              }' | sort); do
+              kind=${found%%"$(printf '\t')"*}
+              name=${found#*"$(printf '\t')"}
+              case "$kind" in
+                unknown)
+                  [ "$told" = 1 ] || printf '%s tasklib · Task did not say which lock files it read — files left by earlier refs are not checked\n' "{{._TL_WARN}}" >&2
+                  told=1 ;;
+                stale)
+                  printf '%s tasklib · %s/%s is read by no Taskfile in %s — an earlier ref left it\n' "{{._TL_ERR}}" "$live" "$name" "$dir" >&2
+                  fail=1 ;;
+                bare)
+                  printf '%s tasklib · %s/%s.yaml has no .checksum beside it — online, Task would ask to trust it again\n' "{{._TL_ERR}}" "$live" "$name" >&2
+                  fail=1 ;;
+                pair)
+                  have=$(digest "$live/$name.yaml")
+                  [ -n "$have" ] || continue
+                  if [ "$have" != "$(awk '{ printf "%s", $1 }' "$live/$name.checksum")" ]; then
+                    printf '%s tasklib · %s/%s.yaml is not what its .checksum records — it changed after it was fetched\n' "{{._TL_ERR}}" "$live" "$name" >&2
+                    fail=1
+                  fi ;;
+              esac
+            done
           done
           if [ "$fail" != 0 ]; then
             printf '%s tasklib · refresh the lock with: task --yes --offline=false --download tasklib:lock\n' "{{._TL_ERR}}" >&2
             exit 1
           fi
-          printf '%s tasklib · %s pinned by %s Taskfile(s), each loads from its lock\n' "{{._TL_OK}}" "$refs" "$(cut -f2 "$work/pins" | sort -u | wc -l | tr -d ' ')"
+          printf '%s tasklib · %s pinned by %s Taskfile(s), each loads from its lock and the lock holds nothing else\n' "{{._TL_OK}}" "$refs" "$(cut -f2 "$work/pins" | sort -u | wc -l | tr -d ' ')"
 
   lock:
     desc: "Download every Taskfile's remote includes again and replace its lock, dropping what no pin names"
@@ -174,7 +236,7 @@ tasks:
             for f in $files; do
               [ "$(dirname "$f")" = "$dir" ] || continue
               try=1
-              until (cd "$dir" && task -t "$(basename "$f")" --yes --offline=false --download --remote-cache-dir "$fresh" --list-all) > "$work/log" 2>&1 < /dev/null; do
+              until (cd "$dir" && task -t "$(basename "$f")" --yes --offline=false --download --timeout {{._TL_TIMEOUT | q}} --remote-cache-dir "$fresh" --list-all) > "$work/log" 2>&1 < /dev/null; do
                 if [ "$try" -ge "$retries" ]; then
                   printf '%s tasklib · %s did not download in %s attempt(s) — its lock is unchanged:\n' "{{._TL_ERR}}" "$f" "$retries" >&2
                   sed 's/^/    /' "$work/log" >&2
