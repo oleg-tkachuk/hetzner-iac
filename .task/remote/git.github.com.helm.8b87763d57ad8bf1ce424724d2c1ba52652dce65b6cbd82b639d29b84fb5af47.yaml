@@ -109,7 +109,7 @@ tasks:
       - sh: >-
           ctx={{if .K8S_CONTEXT}}{{.K8S_CONTEXT | q}}{{else}}"$(kubectl config current-context 2>/dev/null)"{{end}};
           test -n "$ctx"
-          && kubectl config get-contexts -o name 2>/dev/null | grep -qxF -- "$ctx"
+          && kubectl config get-contexts -o name 2>/dev/null | WANT="$ctx" awk '$0 == ENVIRON["WANT"] { found = 1 } END { exit !found }'
           && test {{.CONFIRM | q}} = "$ctx"
         msg: |-
           CONFIRM does not name the context this would empty.
@@ -122,8 +122,7 @@ tasks:
       - printf '%s\n' "{{._HELM_RUN}} helm · about to uninstall:"
       - cmd: |-
           helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q \
-            | awk -v want={{.RELEASE | q}} 'want == "all" || $1 == want' \
-            | sed 's/^/    /'
+            | awk -v want={{.RELEASE | q}} 'want == "all" || $1 == want { print "    " $0 }'
       # awk over helm's table rather than a JSON parse: a release name is a DNS
       # label, so the first two columns cannot contain a space, and this asks
       # nothing of the machine that helm has not already asked. The earlier
@@ -135,7 +134,7 @@ tasks:
           # rather than silently emptying the cluster instead of removing one
           # release: a helm release name is a DNS label, so `all` is legal.
           if [ {{.RELEASE | q}} = all ] \
-             && helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q | grep -qx all; then
+             && helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q | awk '$0 == "all" { found = 1 } END { exit !found }'; then
             printf '%s\n' "{{._HELM_ERR}} helm · a release is named 'all', and RELEASE=all means EVERY release." >&2
             printf '%s\n' "         Refusing rather than guessing. Scope it with HELM_NS=<namespace>, or rename it." >&2
             exit 1
@@ -145,7 +144,7 @@ tasks:
           # operator asked for something to be gone and it never was. Saying so
           # is the difference between "done" and "you removed nothing".
           if [ {{.RELEASE | q}} != all ] \
-             && ! helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q | grep -qx {{.RELEASE | q}}; then
+             && ! helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q | WANT={{.RELEASE | q}} awk '$0 == ENVIRON["WANT"] { found = 1 } END { exit !found }'; then
             printf '%s helm · no release named %s in scope\n' "{{._HELM_ERR}}" {{.RELEASE | q}} >&2
             exit 1
           fi
@@ -193,7 +192,7 @@ tasks:
       # cluster holding more keeps the rest after a pass that went cleanly.
       - cmd: |-
           if [ {{.RELEASE | q}} = all ]; then
-            left=$(helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q | grep -c . || true)
+            left=$(helm list{{._HELM_CTX}} {{._HELM_SCOPE}} {{._HELM_EVERY_STATE}} -q | awk '/./ { n++ } END { print n + 0 }')
             if [ "$left" -ne 0 ]; then
               printf '%s helm · %s release(s) still in scope after %s passes — see what is left with helm list\n' "{{._HELM_ERR}}" "$left" {{._HELM_MAX_PASSES | q}} >&2
               exit 1

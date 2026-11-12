@@ -20,6 +20,12 @@ version: "3"
 #   GOLANGCI_FLAGS   extra golangci-lint flags
 #   GO_TOOL_MODFILE  a go.mod whose `tool` directives pin the tools, when
 #                    they are not in this module's own  (default none)
+#   GOLANGCI_LINT_MODFILE  a go.mod that pins golangci-lint alone, when it
+#                    is kept apart from the other tools  (default none)
+#   GO_TOOLS_PINNED  1: a tool no `tool` directive pins is not there, and
+#                    PATH is never asked                 (default 0)
+#   GOVULNCHECK_IGNORE  list of vulnerability IDs vuln passes over; one it
+#                    no longer finds fails the task      (default none)
 #   GO_FMT_GOIMPORTS 1: fmt needs goimports and fails without it; 0: fmt
 #                    never runs it        (default: runs it when it is found)
 #   GO_TEST_TAGS     build tags for test:tagged:compile (default integration)
@@ -44,6 +50,7 @@ version: "3"
 # way: the one a `tool` directive pins — in this module's go.mod, or in
 # GO_TOOL_MODFILE — and only then the one on PATH. A pinned tool is the same
 # version on every machine and in CI; PATH is whatever was installed last.
+# GO_TOOLS_PINNED=1 takes PATH out of it: a tool nobody pinned is then missing.
 # ─────────────────────────────────────────────────────────────────────────────
 # shell-verbatim: _GO_TEST_FLAGS GO_TEST_FLAGS _GO_BUILD_FLAGS GO_BUILD_FLAGS _GO_LINT_FLAGS GOLANGCI_FLAGS
 # shell-verbatim: _GO_FIX_FLAGS GO_FIX_FLAGS
@@ -72,31 +79,62 @@ vars:
   _GO_MAINS: '{{range splitList " " ._GO_MAIN}}{{if .}}{{q .}} {{end}}{{end}}'
   _GO_BENCH_PKGS: '{{range splitList " " ._GO_BENCH_PKG}}{{if .}}{{q .}} {{end}}{{end}}'
   _GO_TOOL_MOD: '{{.GO_TOOL_MODFILE | default ""}}'
+  _GO_LINT_MOD: '{{.GOLANGCI_LINT_MODFILE | default ""}}'
+  # What GO_TOOLS_PINNED may be, and what it is when unset.
+  _GO_PINNED_ON: "1"
+  _GO_PINNED_OFF: "0"
+  _GO_PINNED: '{{.GO_TOOLS_PINNED | default "0"}}'
+  # A list, as an include writes it; on the command line a variable is a
+  # string, and the IDs are then separated by spaces.
+  _GO_VULN_IGNORE: '{{if kindIs "slice" .GOVULNCHECK_IGNORE}}{{join " " .GOVULNCHECK_IGNORE}}{{else}}{{.GOVULNCHECK_IGNORE | default ""}}{{end}}'
+  # What govulncheck exits with when the code reaches a vulnerability; any
+  # other failure is the scan itself not having run.
+  _GO_VULN_RC: "3"
   # What GO_FMT_GOIMPORTS may be, and what it is when unset.
   _GO_IMPORTS_ON: "1"
   _GO_IMPORTS_OFF: "0"
   _GO_IMPORTS_AUTO: auto
   _GO_IMPORTS: '{{.GO_FMT_GOIMPORTS | default "auto"}}'
   # The shell every task that calls a tool starts with. have_tool says whether
-  # a tool can be run at all; run_tool runs the pinned one, else PATH's.
-  # A GO_TOOL_MODFILE that is not there is refused here: `go tool -n` fails on
-  # it the way it does on a tool nobody pinned, and the run would carry on
-  # with whatever PATH holds — the pin gone, and nothing saying so.
+  # a tool can be run at all; run_tool runs the pinned one, else PATH's;
+  # $absent is what to say of one that cannot. Under GO_TOOLS_PINNED=1 PATH
+  # is in neither.
+  # use_modfile <path> <input> reads the pins from another go.mod. One that is
+  # not there is refused: `go tool -n` fails on it the way it does on a tool
+  # nobody pinned, and the run would carry on with whatever PATH holds — the
+  # pin gone, and nothing saying so.
   _GO_TOOLS: |-
-    go_tool() { go tool{{if ._GO_TOOL_MOD}} -modfile={{._GO_TOOL_MOD | q}}{{end}} "$@"; }
-    have_tool() { go_tool -n "$1" >/dev/null 2>&1 || command -v "$1" >/dev/null 2>&1; }
-    run_tool() {
-      if go_tool -n "$1" >/dev/null 2>&1; then go_tool "$@"; else "$@"; fi
+    tool_mod=''
+    go_tool() { if [ -n "$tool_mod" ]; then go tool -modfile="$tool_mod" "$@"; else go tool "$@"; fi; }
+    pinned() { go_tool -n "$1" >/dev/null 2>&1; }
+    use_modfile() {
+      [ -n "$1" ] || return 0
+      if [ ! -f "$1" ]; then
+        printf '%s %s · go · %s names %s, which does not exist\n' "{{._GO_ERR}}" {{._GO_NAME | q}} "$2" "$1" >&2
+        exit 1
+      fi
+      tool_mod=$1
     }
-    {{if ._GO_TOOL_MOD}}if [ ! -f {{._GO_TOOL_MOD | q}} ]; then
-      printf '%s %s · go · GO_TOOL_MODFILE names %s, which does not exist\n' "{{._GO_ERR}}" {{._GO_NAME | q}} {{._GO_TOOL_MOD | q}} >&2
-      exit 1
-    fi{{end}}
+    case {{._GO_PINNED | q}} in
+      {{._GO_PINNED_ON | q}})
+        absent='is not pinned by a tool directive, and GO_TOOLS_PINNED='{{._GO_PINNED_ON | q}}' leaves PATH out'
+        have_tool() { pinned "$1"; }
+        run_tool() { go_tool "$@"; } ;;
+      {{._GO_PINNED_OFF | q}})
+        absent='is not installed'
+        have_tool() { pinned "$1" || command -v "$1" >/dev/null 2>&1; }
+        run_tool() { if pinned "$1"; then go_tool "$@"; else "$@"; fi; } ;;
+      *)
+        printf '%s %s · go · GO_TOOLS_PINNED must be %s or %s, got: %s\n' "{{._GO_ERR}}" {{._GO_NAME | q}} {{._GO_PINNED_ON | q}} {{._GO_PINNED_OFF | q}} {{._GO_PINNED | q}} >&2
+        exit 1 ;;
+    esac
+    use_modfile {{._GO_TOOL_MOD | q}} GO_TOOL_MODFILE
   # Status markers. The shape carries the meaning, so a line still reads in
   # a monochrome log; the colour sits on top and drops out under NO_COLOR.
   _GO_RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
   _GO_OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
   _GO_ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+  _GO_WARN: '{{if .NO_COLOR}}▲{{else}}{{"\x1b[33m▲\x1b[0m"}}{{end}}'
 
 env:
   # "auto" hands go an empty GOWORK, which is go's own "find a go.work". An
@@ -193,8 +231,9 @@ tasks:
       - printf '%s %s · go · golangci-lint\n' "{{._GO_RUN}}" {{._GO_NAME | q}}
       - cmd: |-
           {{._GO_TOOLS}}
+          use_modfile {{._GO_LINT_MOD | q}} GOLANGCI_LINT_MODFILE
           if ! have_tool golangci-lint; then
-            printf '%s %s · go · golangci-lint is not installed — https://golangci-lint.run/docs/welcome/install/\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+            printf '%s %s · go · golangci-lint %s — https://golangci-lint.run/docs/welcome/install/\n' "{{._GO_ERR}}" {{._GO_NAME | q}} "$absent" >&2
             exit 1
           fi
           run_tool golangci-lint run {{._GO_LINT_FLAGS}} {{._GO_PKGS}}
@@ -217,7 +256,7 @@ tasks:
             {{._GO_IMPORTS_OFF | q}}) exit 0 ;;
             {{._GO_IMPORTS_ON | q}})
               if ! have_tool goimports; then
-                printf '%s %s · go · GO_FMT_GOIMPORTS=%s, and goimports is not installed — go get -tool golang.org/x/tools/cmd/goimports\n' "{{._GO_ERR}}" {{._GO_NAME | q}} {{._GO_IMPORTS_ON | q}} >&2
+                printf '%s %s · go · GO_FMT_GOIMPORTS=%s, and goimports %s — go get -tool golang.org/x/tools/cmd/goimports\n' "{{._GO_ERR}}" {{._GO_NAME | q}} {{._GO_IMPORTS_ON | q}} "$absent" >&2
                 exit 1
               fi ;;
             {{._GO_IMPORTS_AUTO | q}}) have_tool goimports || exit 0 ;;
@@ -289,13 +328,66 @@ tasks:
       - cmd: |-
           {{._GO_TOOLS}}
           if ! have_tool govulncheck; then
-            printf '%s %s · go · govulncheck is not installed — go get -tool golang.org/x/vuln/cmd/govulncheck\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+            printf '%s %s · go · govulncheck %s — go get -tool golang.org/x/vuln/cmd/govulncheck\n' "{{._GO_ERR}}" {{._GO_NAME | q}} "$absent" >&2
             exit 1
           fi
-          run_tool govulncheck {{._GO_PKGS}}
+          ignore={{._GO_VULN_IGNORE | q}}
+          if [ -z "$ignore" ]; then
+            run_tool govulncheck {{._GO_PKGS}}
+            exit
+          fi
+          # A finding with no fixed version keeps this gate red for as long
+          # as upstream takes, and a red gate hides the next finding. Named in
+          # GOVULNCHECK_IGNORE it is passed over, and said so on every run.
+          # The list cannot outlive its reason: an entry the scan no longer
+          # reports fails the task until it is dropped.
+          set -f
+          list=''
+          for id in $ignore; do
+            case "$id" in
+              GO-[0-9][0-9][0-9][0-9]-*[!0-9]* | GO-[0-9][0-9][0-9][0-9]-) ok=0 ;;
+              GO-[0-9][0-9][0-9][0-9]-*) ok=1 ;;
+              *) ok=0 ;;
+            esac
+            if [ "$ok" = 0 ]; then
+              printf '%s %s · go · GOVULNCHECK_IGNORE takes IDs as govulncheck prints them, GO-2026-0001, got: %s\n' "{{._GO_ERR}}" {{._GO_NAME | q}} "$id" >&2
+              exit 1
+            fi
+            list="$list $id"
+          done
+          out=$(mktemp)
+          trap 'rm -f "$out"' EXIT
+          rc=0
+          run_tool govulncheck {{._GO_PKGS}} > "$out" 2>&1 || rc=$?
+          cat "$out"
+          # Only what the code reaches counts, as it does for the exit status:
+          # under -show verbose the same heading lists what a required module
+          # merely contains.
+          case "$rc" in
+            0) found='' ;;
+            {{._GO_VULN_RC | q}})
+              found=$(awk '/^=== / { symbols = ($0 == "=== Symbol Results ===") } symbols && /^Vulnerability #[0-9]+: / { printf "%s ", $3 }' "$out")
+              if [ -z "$found" ]; then
+                printf '%s %s · go · govulncheck found vulnerabilities and named none under Symbol Results — GOVULNCHECK_IGNORE cannot be held against this output\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+                exit 1
+              fi ;;
+            *) exit "$rc" ;;
+          esac
+          extra='' stale=''
+          for id in $found; do case " $list " in *" $id "*) ;; *) extra="$extra $id" ;; esac; done
+          for id in $list; do case " $found " in *" $id "*) ;; *) stale="$stale $id" ;; esac; done
+          if [ -n "$extra" ]; then
+            printf '%s %s · go · not in GOVULNCHECK_IGNORE:%s\n' "{{._GO_ERR}}" {{._GO_NAME | q}} "$extra" >&2
+            exit 1
+          fi
+          if [ -n "$stale" ]; then
+            printf '%s %s · go · GOVULNCHECK_IGNORE names what govulncheck no longer reports — drop the entry:%s\n' "{{._GO_ERR}}" {{._GO_NAME | q}} "$stale" >&2
+            exit 1
+          fi
+          printf '%s %s · go · passed over, by GOVULNCHECK_IGNORE:%s\n' "{{._GO_WARN}}" {{._GO_NAME | q}} "$list"
 
   deps:update:
-    desc: "Bump the direct dependencies to the latest minor/patch, tidy, then prove it still builds"
+    desc: "Bump the direct dependencies and tools to the latest minor/patch, tidy, then prove it still builds"
     # Majors are deliberately not crossed: they need an import-path /vN edit and
     # a read of the upstream CHANGELOG.
     #
@@ -320,9 +412,17 @@ tasks:
     #
     # Direct requirements move here and the resolver picks the rest, so an
     # indirect module moves when its direct requirer does — which is when the
-    # train moves.
+    # train moves. That needs `<path>@upgrade` WITHOUT -u: -u also lifts every
+    # dependency of the named modules to its own latest, an indirect one
+    # included. Measured: pressly/goose v3.30.0 requires
+    # mfridman/interpolate v0.0.2; -u took interpolate to v0.2.0, whose API
+    # goose does not compile against.
+    #
+    # Tools too. A `tool` directive's module is marked // indirect when no
+    # package imports it, so a module of tools alone listed no direct
+    # requirement and nothing moved; `go list tool` names their packages.
     cmds:
-      - printf '%s %s · go · go get -u, direct requirements\n' "{{._GO_RUN}}" {{._GO_NAME | q}}
+      - printf '%s %s · go · go get @upgrade, direct requirements and tools\n' "{{._GO_RUN}}" {{._GO_NAME | q}}
       - cmd: |-
           set -euo pipefail
 
@@ -337,19 +437,25 @@ tasks:
           # wrong, so the module graph still loads. `.Main` is filtered
           # because `all` starts with the main module, and passing its own
           # path to go get is an error.
-          direct="$(go list -m -f '{{"{{"}}if and (not .Main) (not .Indirect){{"}}"}}{{"{{"}}.Path{{"}}"}}{{"{{"}}end{{"}}"}}' all | awk 'NF')"
+          # -mod=mod: a module that replaces a sibling by path takes the
+          # sibling's requirements, and an earlier module in the same run may
+          # just have raised them. Read-only, go list then refuses the graph
+          # ("updates to go.mod needed") before anything is bumped.
+          direct="$(go list -mod=mod -m -f '{{"{{"}}if and (not .Main) (not .Indirect){{"}}"}}{{"{{"}}.Path{{"}}"}}{{"{{"}}end{{"}}"}}' all | awk 'NF')"
+          tools="$(go list -mod=mod tool | awk 'NF')"
+          wanted="$(printf '%s\n%s\n' "${direct}" "${tools}" | awk 'NF { print $0 "@upgrade" }')"
 
-          if [ -z "${direct}" ]; then
-            printf '%s %s · go · go.mod lists no direct requirement — nothing to bump\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
+          if [ -z "${wanted}" ]; then
+            printf '%s %s · go · go.mod lists no direct requirement and no tool — nothing to bump\n' "{{._GO_ERR}}" {{._GO_NAME | q}} >&2
             exit 1
           fi
 
           # The guard above is not decoration: GNU xargs runs the command once
-          # with no arguments when its input is empty, and `go get -u` with no
+          # with no arguments when its input is empty, and `go get` with no
           # arguments acts on the current directory instead. BSD xargs runs
           # nothing, so without the guard this task would behave differently
           # on Linux and on macOS.
-          printf '%s\n' "${direct}" | xargs go get -u
+          printf '%s\n' "${wanted}" | xargs go get
       - go mod tidy
       - go build -o /dev/null {{._GO_PKGS}}
       - printf '%s %s · go · deps bumped — review git diff go.mod go.sum\n' "{{._GO_OK}}" {{._GO_NAME | q}}
@@ -358,13 +464,13 @@ tasks:
     desc: "List dependencies with a newer version available (read-only)"
     cmds:
       # Capturing to a variable first, rather than piping go list straight
-      # into grep, is what makes a genuine go list failure (module
+      # into awk, is what makes a genuine go list failure (module
       # unresolvable, no network) abort here instead of reading as "every
       # dependency current" — the same conclusion an empty match gives.
       - cmd: |-
           set -eu
           out=$(go list -u -m all)
-          printf '%s\n' "$out" | grep '\[' || printf '%s %s · go · every dependency current\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+          printf '%s\n' "$out" | awk '/\[/ { print; found = 1 } END { exit !found }' || printf '%s %s · go · every dependency current\n' "{{._GO_OK}}" {{._GO_NAME | q}}
 
   bench:
     desc: "Run the benchmarks — no unit tests, just the measurements"
