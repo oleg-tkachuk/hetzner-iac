@@ -56,9 +56,42 @@ vars:
   # A pin of this library, up to the ref; and the ref itself.
   _TL_PIN_RE: 'taskfiles\.git//[^?[:space:]''"]*\?ref='
   _TL_REF_RE: '[^[:space:]''"&]+'
-  # What a tag may be spelt with. It is spliced into a sed replacement, where
-  # `&`, `\` and the delimiter would be read as syntax.
+  # What a tag may be spelt with: it is written into a URL's query, in a
+  # YAML string, and nothing else belongs in either.
   _TL_VERSION_RE: '^[A-Za-z0-9._-]+$'
+  # Both read the three expressions above from the environment, PIN, REF and
+  # COMMENT: a value given with -v would have its backslashes read as escapes.
+  # Prints "<ref>\t<file>" for every pin a file holds, each once.
+  _TL_READ_PINS: |-
+    BEGIN { pin = ENVIRON["PIN"]; ref = ENVIRON["REF"]; comment = ENVIRON["COMMENT"] }
+    $0 ~ comment { next }
+    {
+      line = $0
+      while (match(line, pin ref)) {
+        found = substr(line, RSTART, RLENGTH)
+        line = substr(line, RSTART + RLENGTH)
+        match(found, pin)
+        r = substr(found, RLENGTH + 1)
+        if (!seen[FILENAME, r]++) print r "\t" FILENAME
+      }
+    }
+  # Prints the file with the ref of every pin replaced by VERSION.
+  _TL_MOVE_PINS: |-
+    BEGIN { pin = ENVIRON["PIN"]; ref = ENVIRON["REF"]; comment = ENVIRON["COMMENT"]; version = ENVIRON["VERSION"] }
+    $0 ~ comment { print; next }
+    {
+      line = $0
+      out = ""
+      while (match(line, pin ref)) {
+        at = RSTART
+        len = RLENGTH
+        found = substr(line, at, len)
+        match(found, pin)
+        out = out substr(line, 1, at - 1) substr(found, 1, RLENGTH) version
+        line = substr(line, at + len)
+      }
+      print out line
+    }
   # Prints the Taskfiles to act on, one per line. Untracked ones too: a
   # Taskfile written a minute ago pins the library like any other.
   _TL_LIST: |-
@@ -67,7 +100,7 @@ vars:
         printf '%s tasklib · not a git repository — name the Taskfiles in TASKLIB_FILES\n' "{{._TL_ERR}}" >&2
         exit 1
       }
-      git ls-files --cached --others --exclude-standard | grep -E {{._TL_NAME_RE | q}} || true
+      git ls-files --cached --others --exclude-standard | RE={{._TL_NAME_RE | q}} awk '$0 ~ ENVIRON["RE"]'
     }{{end}}
   # Status markers. The shape carries the meaning, so a line still reads in
   # a monochrome log; the colour sits on top and drops out under NO_COLOR.
@@ -104,18 +137,19 @@ tasks:
           # "<ref>\t<file>" for every pin.
           : > "$work/pins"
           for f in $files; do
-            { grep -vE "$comment_re" "$f" || true; } | grep -oE "$pin_re$ref_re" | sed -E "s#^$pin_re##" | sort -u | while IFS= read -r ref; do
-              printf '%s\t%s\n' "$ref" "$f" >> "$work/pins"
-            done
+            # Tracked and deleted from the tree is still listed: it holds no
+            # pin to read, and the load below is what reports it.
+            [ -f "$f" ] || continue
+            PIN="$pin_re" REF="$ref_re" COMMENT="$comment_re" awk {{._TL_READ_PINS | q}} "$f" >> "$work/pins"
           done
-          refs=$(cut -f1 "$work/pins" | sort -u)
+          refs=$(awk -F'\t' '!seen[$1]++ { print $1 }' "$work/pins")
           if [ -z "$refs" ]; then
             printf '%s tasklib · no Taskfile here pins the library with ?ref= — this gate checks nothing\n' "{{._TL_ERR}}" >&2
             exit 1
           fi
-          if [ "$(printf '%s\n' "$refs" | wc -l)" -gt 1 ]; then
+          if [ "$(printf '%s\n' "$refs" | awk 'END { print NR }')" -gt 1 ]; then
             printf '%s tasklib · the Taskfiles pin different refs — task tasklib:bump VERSION=<tag> moves them together:\n' "{{._TL_ERR}}" >&2
-            sort "$work/pins" | sed 's/^/    /' >&2
+            sort "$work/pins" | awk '{ print "    " $0 }' >&2
             exit 1
           fi
 
@@ -187,7 +221,7 @@ tasks:
             printf '%s tasklib · refresh the lock with: task --yes --offline=false --download tasklib:lock\n' "{{._TL_ERR}}" >&2
             exit 1
           fi
-          printf '%s tasklib · %s pinned by %s Taskfile(s), each loads from its lock and the lock holds nothing else\n' "{{._TL_OK}}" "$refs" "$(cut -f2 "$work/pins" | sort -u | wc -l | tr -d ' ')"
+          printf '%s tasklib · %s pinned by %s Taskfile(s), each loads from its lock and the lock holds nothing else\n' "{{._TL_OK}}" "$refs" "$(awk -F'\t' '!seen[$2]++ { n++ } END { print n + 0 }' "$work/pins")"
 
   lock:
     desc: "Download every Taskfile's remote includes again and replace its lock, dropping what no pin names"
@@ -239,7 +273,7 @@ tasks:
               until (cd "$dir" && task -t "$(basename "$f")" --yes --offline=false --download --timeout {{._TL_TIMEOUT | q}} --remote-cache-dir "$fresh" --list-all) > "$work/log" 2>&1 < /dev/null; do
                 if [ "$try" -ge "$retries" ]; then
                   printf '%s tasklib · %s did not download in %s attempt(s) — its lock is unchanged:\n' "{{._TL_ERR}}" "$f" "$retries" >&2
-                  sed 's/^/    /' "$work/log" >&2
+                  awk '{ print "    " $0 }' "$work/log" >&2
                   exit 1
                 fi
                 printf '%s tasklib · %s did not download, attempt %s of %s — trying again\n' "{{._TL_WARN}}" "$f" "$try" "$retries" >&2
@@ -265,7 +299,8 @@ tasks:
     preconditions:
       # `requires` passes an empty value, and an empty ref is a pin on the
       # default branch.
-      - sh: printf '%s\n' {{.VERSION | q}} | grep -Eq {{._TL_VERSION_RE | q}}
+      - sh: >-
+          printf '%s\n' {{.VERSION | q}} | RE={{._TL_VERSION_RE | q}} awk '$0 ~ ENVIRON["RE"] { found = 1 } END { exit !found }'
         msg: "VERSION must be a tag name — letters, digits, dot, dash and underscore — e.g. VERSION=v15.0.0"
     cmds:
       - cmd: |-
@@ -284,8 +319,9 @@ tasks:
 
           moved=0
           for f in $files; do
-            { grep -vE "$comment_re" "$f" || true; } | grep -qE "$pin_re$ref_re" || continue
-            sed -E "/$comment_re/!s#($pin_re)$ref_re#\1$version#g" "$f" > "$work/next"
+            [ -f "$f" ] || continue
+            [ -n "$(PIN="$pin_re" REF="$ref_re" COMMENT="$comment_re" awk {{._TL_READ_PINS | q}} "$f")" ] || continue
+            PIN="$pin_re" REF="$ref_re" COMMENT="$comment_re" VERSION="$version" awk {{._TL_MOVE_PINS | q}} "$f" > "$work/next"
             # Written through the file, not moved over it: its mode stays.
             cat "$work/next" > "$f"
             moved=$((moved + 1))

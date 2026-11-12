@@ -104,7 +104,7 @@ vars:
     checkov_installed=""
     if command -v checkov >/dev/null 2>&1; then
       # checkov prints the bare version and nothing else.
-      checkov_installed="$(checkov --version 2>/dev/null | tr -d '\r')"
+      checkov_installed="$(checkov --version 2>/dev/null | awk '{ gsub(/\r/, ""); print }')"
     fi
 
     if [ -z "$checkov_version" ]; then
@@ -171,7 +171,7 @@ tasks:
           run_checkov --config-file {{._CKV_CFG | q}} {{._CKV_FLAGS}} >"$out" 2>&1 || status=$?
           cat "$out"
           [ "$status" -eq 0 ] || exit "$status"
-          if grep -q 'does not exist; skipping it' "$out"; then
+          if awk '/does not exist; skipping it/ { found = 1 } END { exit !found }' "$out"; then
             printf '%s checkov · a directory in %s does not exist, so part of the tree went unscanned — the line above names it\n' "{{._CKV_ERR}}" {{._CKV_CFG | q}} >&2
             exit 1
           fi
@@ -248,12 +248,11 @@ tasks:
           # same way len(check_ids) summed across them does. No interpreter
           # required — an interpreter this task has no reason to require, and
           # whose absence would surface only after the prompt above had already
-          # been answered. `grep -c` alone is not enough here: on zero matches it
-          # both prints 0 AND exits 1, so `|| echo 0` would double that 0 — the
-          # missing-file case is handled separately instead.
+          # been answered. awk prints 0 on no match and exits 0; a file that
+          # is not there is handled separately, where awk would fail.
           count() {
             [ -f "$1" ] || { printf '%s' 0; return; }
-            grep -c '"CKV' "$1" || true
+            awk '/"CKV/ { n++ } END { print n + 0 }' "$1"
           }
           {{._CKV_RESOLVE}}
           before=$(count {{._CKV_BASE | q}})
@@ -268,11 +267,11 @@ tasks:
           if ! [ {{._CKV_BASE | q}} -nt "$stamp" ]; then
             printf '%s checkov · %s was not written (checkov exited %s); checkov writes %s into the directory it scans. The last of its output:\n' \
               "{{._CKV_ERR}}" {{._CKV_BASE | q}} "$status" {{._CKV_BASE_NAME | q}} >&2
-            tail -n {{._CKV_LOG_TAIL | q}} "$log" | sed 's/^/    /' >&2
+            awk -v n={{._CKV_LOG_TAIL | q}} '{ line[NR % n] = $0 } END { for (i = (NR > n ? NR - n + 1 : 1); i <= NR; i++) print "    " line[i % n] }' "$log" >&2
             # Where it did write, when that is somewhere else: the config's
             # directory is not CHECKOV_BASELINE's. Found rather than parsed
             # out of the config, which would need a YAML reader here.
-            written=$(find . -name .git -prune -o -name {{._CKV_BASE_NAME | q}} -newer "$stamp" -print 2>/dev/null | sed 's|^\./||')
+            written=$(find . -name .git -prune -o -name {{._CKV_BASE_NAME | q}} -newer "$stamp" -print 2>/dev/null | awk '{ sub(/^\.\//, ""); print }')
             if [ -n "$written" ]; then
               printf '%s checkov · it wrote %s instead — point CHECKOV_BASELINE there\n' "{{._CKV_ERR}}" "$(echo $written)" >&2
             fi
