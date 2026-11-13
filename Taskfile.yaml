@@ -14,7 +14,7 @@ vars:
   # Renovate preset, which .github/renovate.json extends, finds `?ref=` on a
   # taskfiles.git URL by itself, and an annotation here would give this line
   # two managers.
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v14.14.0'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v14.18.0'
 
   # Shared Pulumi tools — github.com/oleg-tkachuk/pulumi-kit, pinned.
   #

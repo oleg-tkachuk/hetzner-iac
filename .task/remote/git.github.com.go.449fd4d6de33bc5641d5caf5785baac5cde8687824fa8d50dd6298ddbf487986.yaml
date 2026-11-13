@@ -131,10 +131,10 @@ vars:
     use_modfile {{._GO_TOOL_MOD | q}} GO_TOOL_MODFILE
   # Status markers. The shape carries the meaning, so a line still reads in
   # a monochrome log; the colour sits on top and drops out under NO_COLOR.
-  _GO_RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
-  _GO_OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
-  _GO_ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
-  _GO_WARN: '{{if .NO_COLOR}}▲{{else}}{{"\x1b[33m▲\x1b[0m"}}{{end}}'
+  _GO_RUN: '{{if .NO_COLOR}}◉ start ·{{else}}{{"\x1b[36m◉ start\x1b[0m ·"}}{{end}}'
+  _GO_OK: '{{if .NO_COLOR}}✔ ok    ·{{else}}{{"\x1b[32m✔ ok\x1b[0m    ·"}}{{end}}'
+  _GO_ERR: '{{if .NO_COLOR}}✖ fail  ·{{else}}{{"\x1b[31m✖ fail\x1b[0m  ·"}}{{end}}'
+  _GO_WARN: '{{if .NO_COLOR}}▲ warn  ·{{else}}{{"\x1b[33m▲ warn\x1b[0m  ·"}}{{end}}'
 
 env:
   # "auto" hands go an empty GOWORK, which is go's own "find a go.work". An
