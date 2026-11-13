@@ -78,7 +78,7 @@ Use it when only one chart's values changed. Everything it does not touch
 keeps its last full apply's inputs, so the task marks the run:
 
 ```
-▲ platform · 30-cluster-services · targeted: everything else kept its last-applied inputs
+▲ warn  · platform · 30-cluster-services · targeted: everything else kept its last-applied inputs
 ```
 
 After targeted applies, run a full one so the layer matches its program again.
