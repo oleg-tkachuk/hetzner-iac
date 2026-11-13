@@ -1,6 +1,6 @@
 package ci
 
-// What a task prints: the glyph vocabulary it shares with internal/pkg/pulumilog,
+// What a task prints: the marker vocabulary it shares with internal/pkg/pulumilog,
 // and naming the layer again when a per-layer operation finishes.
 
 import (
@@ -15,13 +15,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// glyphVar matches a marker definition in an entry point's vars, and goGlyph
-// the matching constant in the logger.
+// markerVar matches a marker definition in an entry point's vars — a glyph,
+// a word, the padding after it and the `·` that opens the scope, once without
+// colour and once with it — and goGlyph, goWord and goColour the matching
+// constants in the logger.
 var (
-	glyphVar = regexp.MustCompile(`(?m)^  _([A-Z]+): '\{\{if \.NO_COLOR\}\}(.)\{\{else\}\}\{\{"\\x1b\[(\d+)m(.)\\x1b\[0m"\}\}`)
+	markerVar = regexp.MustCompile(
+		`(?m)^  _([A-Z]+): '\{\{if \.NO_COLOR\}\}(.) (\w+)( +)·` +
+			`\{\{else\}\}\{\{"\\x1b\[(\d+)m(.) (\w+)\\x1b\[0m( +)·"\}\}\{\{end\}\}'$`)
 	goGlyph  = regexp.MustCompile(`(?m)^\t(Glyph\w+)\s+= "(.)"`)
+	goWord   = regexp.MustCompile(`(?m)^\t(Word\w+)\s+= "(\w+)"`)
 	goColour = regexp.MustCompile(`(?m)^\t(colour\w+)\s+= "\\x1b\[(\d+)m"`)
 )
+
+// taskMarker is one marker definition, read from a taskfile.
+type taskMarker struct {
+	glyph, word, colour string
+	// width is the word and its padding together: where the `·` falls.
+	width int
+}
 
 // TestTaskGlyphs_MatchThePulumiLogger holds the two halves of one vocabulary
 // equal.
@@ -42,21 +54,28 @@ func TestTaskGlyphs_MatchThePulumiLogger(t *testing.T) {
 		glyphs[found[1]] = found[2]
 	}
 
+	words := map[string]string{}
+	for _, found := range goWord.FindAllStringSubmatch(string(logger), -1) {
+		words[found[1]] = found[2]
+	}
+
 	require.NotEmpty(t, glyphs, "no glyph constants in pulumilog")
+	require.Len(t, words, len(glyphs), "pulumilog has a glyph without its word, or a word without its glyph")
 
 	colours := map[string]bool{}
 	for _, found := range goColour.FindAllStringSubmatch(string(logger), -1) {
 		colours[found[2]] = true
 	}
 
-	// The taskfile's marker name → the logger's constant. ERR has no pair:
-	// a layer reports failure by returning an error, which Pulumi formats
-	// itself, so pulumilog deliberately has no error glyph.
+	// The taskfile's marker name → the suffix of the logger's Glyph and Word
+	// constants. ERR has no pair: a layer reports failure by returning an
+	// error, which Pulumi formats itself, so pulumilog deliberately has no
+	// error marker.
 	markers := map[string]string{
-		"RUN":  "GlyphRunning",
-		"OK":   "GlyphOK",
-		"SKIP": "GlyphSkipped",
-		"WARN": "GlyphWarning",
+		"RUN":  "Running",
+		"OK":   "OK",
+		"SKIP": "Skipped",
+		"WARN": "Warning",
 	}
 
 	// Both entry points, because both print. Each defines the markers its own
@@ -74,20 +93,22 @@ func TestTaskGlyphs_MatchThePulumiLogger(t *testing.T) {
 
 		var declared int
 
-		for marker, constant := range markers {
-			glyph, colour, found := glyphOf(t, string(raw), marker)
-			if !found {
+		for marker, suffix := range markers {
+			found, ok := markerOf(t, string(raw), marker)
+			if !ok {
 				continue
 			}
 
 			declared++
 			defined[marker] = true
 
-			assert.Equal(t, glyphs[constant], glyph,
-				"_%s in %s and %s in pulumilog are different glyphs", marker, name, constant)
-			assert.True(t, colours[colour],
+			assert.Equal(t, glyphs["Glyph"+suffix], found.glyph,
+				"_%s in %s and Glyph%s in pulumilog are different glyphs", marker, name, suffix)
+			assert.Equal(t, words["Word"+suffix], found.word,
+				"_%s in %s and Word%s in pulumilog are different words", marker, name, suffix)
+			assert.True(t, colours[found.colour],
 				"_%s is coloured \\x1b[%sm in %s, which pulumilog does not use",
-				marker, colour, name)
+				marker, found.colour, name)
 		}
 
 		assert.Positive(t, declared,
@@ -101,24 +122,59 @@ func TestTaskGlyphs_MatchThePulumiLogger(t *testing.T) {
 	}
 }
 
-// glyphOf returns one marker's glyph and its ANSI colour code, whether the
-// taskfile defines it at all, and fails if the plain and coloured halves of
-// the definition disagree.
-func glyphOf(t *testing.T, taskfile, marker string) (glyph, colour string, found bool) {
+// markerOf returns one marker as the taskfile defines it, whether it defines
+// it at all, and fails if the plain and coloured halves of the definition
+// disagree.
+func markerOf(t *testing.T, taskfile, marker string) (taskMarker, bool) {
 	t.Helper()
 
-	for _, match := range glyphVar.FindAllStringSubmatch(taskfile, -1) {
+	for _, match := range markerVar.FindAllStringSubmatch(taskfile, -1) {
 		if match[1] != marker {
 			continue
 		}
 
-		require.Equal(t, match[2], match[4],
-			"_%s prints one glyph without colour and another with it", marker)
+		plain := match[2] + " " + match[3] + match[4]
+		painted := match[6] + " " + match[7] + match[8]
+		require.Equal(t, plain, painted,
+			"_%s prints one marker without colour and another with it", marker)
 
-		return match[2], match[3], true
+		return taskMarker{
+			glyph:  match[2],
+			word:   match[3],
+			colour: match[5],
+			width:  len(match[3]) + len(match[4]),
+		}, true
 	}
 
-	return "", "", false
+	return taskMarker{}, false
+}
+
+// statusMarkers are every marker an entry point may define.
+var statusMarkers = []string{"RUN", "OK", "SKIP", "WARN", "ERR"}
+
+// TestTaskMarkers_PutTheScopeInOneColumn holds the padding: the words differ
+// in length, and a marker padded to another width than the rest starts its
+// scope one column off from every line around it.
+func TestTaskMarkers_PutTheScopeInOneColumn(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+
+	for _, name := range []string{"Taskfile.yaml", citest.DevTaskfile} {
+		raw, err := os.ReadFile(filepath.Join(root, name))
+		require.NoError(t, err)
+
+		widths := map[int][]string{}
+
+		for _, marker := range statusMarkers {
+			if found, ok := markerOf(t, string(raw), marker); ok {
+				widths[found.width] = append(widths[found.width], marker)
+			}
+		}
+
+		require.NotEmpty(t, widths, "%s defines no status marker in the form this test reads", name)
+		assert.Len(t, widths, 1, "%s pads its markers to different widths: %v", name, widths)
+	}
 }
 
 // layerLoop is the shell loop that runs one Pulumi operation per layer.
@@ -203,7 +259,8 @@ var (
 // internal/pkg/report cannot import pulumilog — the reports that use it keep
 // Pulumi out — so it spells the glyphs and colours again, and this is what
 // keeps platform:status, platform:drift and cluster:orphans printing the marks
-// the tasks around them print.
+// the tasks around them print. Only the glyph: a report's marks are table
+// cells and section heads, where the word would widen a column for nothing.
 func TestStatusMarks_MatchTheTaskfile(t *testing.T) {
 	t.Parallel()
 
@@ -237,10 +294,10 @@ func TestStatusMarks_MatchTheTaskfile(t *testing.T) {
 	require.Len(t, marks, len(pairs), "report declares a mark this test does not pair with a marker")
 
 	for marker, pair := range pairs {
-		glyph, colour, found := glyphOf(t, string(taskfile), marker)
-		require.True(t, found, "Taskfile.yaml no longer defines _%s", marker)
+		found, ok := markerOf(t, string(taskfile), marker)
+		require.True(t, ok, "Taskfile.yaml no longer defines _%s", marker)
 
-		assert.Equal(t, glyph, marks[pair[0]], "_%s and report.%s are different glyphs", marker, pair[0])
-		assert.Equal(t, colour, colours[pair[1]], "_%s and report.%s are different colours", marker, pair[1])
+		assert.Equal(t, found.glyph, marks[pair[0]], "_%s and report.%s are different glyphs", marker, pair[0])
+		assert.Equal(t, found.colour, colours[pair[1]], "_%s and report.%s are different colours", marker, pair[1])
 	}
 }

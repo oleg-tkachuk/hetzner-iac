@@ -580,16 +580,19 @@ the layers and the taskfiles' own lines, both borrowed from the
 [taskfiles](https://github.com/oleg-tkachuk/taskfiles) library so that `task`
 and `pulumi up` read as one tool.
 
-| glyph | means | survives a pulumi run |
-|-------|-------|-----------------------|
-| `◉` | work starting | no |
-| `✔` | work finished | no |
-| `○` | deliberately not done | **yes** |
-| `▲` | configured, and will not do what it looks like | **yes** |
-| `✖` | failed — tasks only | — |
+| marker | means | survives a pulumi run |
+|--------|-------|-----------------------|
+| `◉ start` | work starting | no |
+| `✔ ok` | work finished | no |
+| `○ skip` | deliberately not done | **yes** |
+| `▲ warn` | configured, and will not do what it looks like | **yes** |
+| `✖ fail` | failed — tasks only | — |
 
-The line is `<glyph> <scope> · <area> · <what happened>`, with `→` for "became"
-or "went to". `✖` has no Go counterpart on purpose: a layer reports failure by
+The line is `<glyph> <word> · <scope> · <area> · <what happened>`, with `→`
+for "became" or "went to". The word is padded to the widest one, so the scope
+starts in one column on every line. The status reports
+(`platform:status`, `platform:drift`, `cluster:orphans`) use the glyph alone:
+there it marks a table row, not a line. `✖` has no Go counterpart on purpose: a layer reports failure by
 returning an error, which Pulumi formats itself.
 
 The last two glyphs are the point. A layer that installs cert-manager and no

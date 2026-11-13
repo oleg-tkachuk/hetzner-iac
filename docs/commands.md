@@ -114,7 +114,7 @@ nothing is touched:
 $ task cluster:apply stack=dev          # after editing placement.location
     +-8 to replace
     5 errored
-○ cluster · apply · a protected resource is the control plane or the API endpoint
+○ skip  · cluster · apply · a protected resource is the control plane or the API endpoint
 
     task cluster:etcd:snapshot stack=dev   # first, if etcd is running
     task cluster:apply stack=dev replace_control_plane=yes
@@ -258,7 +258,7 @@ inputs**, and neither the state nor the output looks different afterwards. So
 the task says it, with `▲`:
 
 ```
-▲ platform · 30-cluster-services · targeted: everything else kept its last-applied inputs
+▲ warn  · platform · 30-cluster-services · targeted: everything else kept its last-applied inputs
 ```
 
 Two consequences worth holding on to: a plan taken from a targeted preview

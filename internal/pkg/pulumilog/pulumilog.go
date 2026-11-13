@@ -3,13 +3,13 @@
 //
 // The vocabulary is deliberately the same as the taskfiles repository's, so
 // output from `task` and output from `pulumi up` read as one tool rather than
-// two: a glyph, then the scope, then dot-separated fields, then `→` for
-// "became" or "went to".
+// two: a glyph and its word, then the scope, then dot-separated fields, then
+// `→` for "became" or "went to".
 //
-//	◉ observability · loki · chart 7.3.0 → observability
-//	✔ ingress · load-balancer · lb11 in hel1
-//	○ core · cluster-issuer · acmeEmail unset, none created
-//	▲ observability · alerting · alertmanager has no receiver
+//	◉ start · observability · loki · chart 7.3.0 → observability
+//	✔ ok    · ingress · load-balancer · lb11 in hel1
+//	○ skip  · core · cluster-issuer · acmeEmail unset, none created
+//	▲ warn  · observability · alerting · alertmanager has no receiver
 //
 // Two channels, chosen per call rather than per site:
 //
@@ -34,13 +34,14 @@
 // the feature was created or the code path moved.
 //
 // The detail names the bare config key, never the namespaced one: the line
-// already opens with the layer, so `○ gitops · ingress · gitops:domain unset`
+// already opens with the layer, so `○ skip  · gitops · ingress · gitops:domain unset`
 // says gitops twice.
 package pulumilog
 
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -55,6 +56,23 @@ const (
 	GlyphSkipped = "○" // deliberately not done
 )
 
+// Words, one beside each glyph, as taskfiles/ prints them since v14.18.0. A
+// glyph alone cannot be typed into a search and vanishes where a font drops
+// it; the word survives both.
+const (
+	WordOK      = "ok"
+	WordRunning = "start"
+	WordWarning = "warn"
+	WordSkipped = "skip"
+)
+
+// wordWidth is what every word is padded to, so the scope after it starts in
+// one column whichever marker opens the line. The widest word sets it.
+const wordWidth = len(WordRunning)
+
+// separator joins a line's parts.
+const separator = " · "
+
 // No error glyph: a layer reports failure by returning an error, which Pulumi
 // prints itself in its own format. taskfiles/ uses ✖ where it has to print the
 // failure by hand; here there is nothing to print it from.
@@ -66,6 +84,19 @@ const (
 	colourYellow = "\x1b[33m"
 	colourGrey   = "\x1b[90m"
 	colourReset  = "\x1b[0m"
+)
+
+// marker is what opens a line: a glyph, its word and the colour both are
+// painted in.
+type marker struct {
+	glyph, word, colour string
+}
+
+var (
+	markOK      = marker{GlyphOK, WordOK, colourGreen}
+	markRunning = marker{GlyphRunning, WordRunning, colourCyan}
+	markWarning = marker{GlyphWarning, WordWarning, colourYellow}
+	markSkipped = marker{GlyphSkipped, WordSkipped, colourGrey}
 )
 
 // sink is where a finished line goes.
@@ -167,12 +198,12 @@ func colourEnabled() bool {
 
 // Step reports work starting. Ephemeral.
 func (l *Logger) Step(component, detail string) {
-	l.info(GlyphRunning, colourCyan, component, detail, true)
+	l.info(markRunning, component, detail, true)
 }
 
 // Done reports work finished. Ephemeral.
 func (l *Logger) Done(component, detail string) {
-	l.info(GlyphOK, colourGreen, component, detail, true)
+	l.info(markOK, component, detail, true)
 }
 
 // Skipped reports something deliberately not created, and survives the run.
@@ -181,7 +212,7 @@ func (l *Logger) Done(component, detail string) {
 // key is unset is the single most confusing thing this codebase can do, and
 // the README documenting it does not help the person staring at the output.
 func (l *Logger) Skipped(component, detail string) {
-	l.info(GlyphSkipped, colourGrey, component, detail, false)
+	l.info(markSkipped, component, detail, false)
 }
 
 // Warn reports a configuration that will not do what it looks like it does.
@@ -191,7 +222,7 @@ func (l *Logger) Warn(component, format string, args ...any) {
 		return
 	}
 
-	line := l.line(GlyphWarning, colourYellow, component, fmt.Sprintf(format, args...))
+	line := l.line(markWarning, component, fmt.Sprintf(format, args...))
 
 	// Discarded deliberately, and this is the one place where that is not a
 	// shortcut: the only way to report that logging failed is to log. A
@@ -200,7 +231,7 @@ func (l *Logger) Warn(component, format string, args ...any) {
 	_ = l.out.Warn(line, &pulumi.LogArgs{Ephemeral: false})
 }
 
-func (l *Logger) info(glyph, colour, component, detail string, ephemeral bool) {
+func (l *Logger) info(mark marker, component, detail string, ephemeral bool) {
 	if l == nil || l.out == nil {
 		return
 	}
@@ -208,25 +239,28 @@ func (l *Logger) info(glyph, colour, component, detail string, ephemeral bool) {
 	// Discarded for the reason Warn gives: reporting a failure to report has
 	// nowhere to go.
 	_ = l.out.Info(
-		l.line(glyph, colour, component, detail),
+		l.line(mark, component, detail),
 		&pulumi.LogArgs{Ephemeral: ephemeral})
 }
 
-// line assembles one line: glyph, then scope and component separated by a
-// middle dot, then the detail.
+// line assembles one line: the marker padded to one width, then scope and
+// component separated by a middle dot, then the detail.
 //
 // The format is the point of this package, so the tests assert on it directly
 // rather than through a Pulumi context, which does not capture diagnostics.
-func (l *Logger) line(glyph, colour, component, detail string) string {
-	if l.colour && colour != "" {
-		glyph = colour + glyph + colourReset
+func (l *Logger) line(mark marker, component, detail string) string {
+	opening := mark.glyph + " " + mark.word
+	if l.colour && mark.colour != "" {
+		opening = mark.colour + opening + colourReset
 	}
 
-	line := glyph + " " + l.scope
+	// Padded after the reset, as taskfiles/ does: the padding is layout, and
+	// a coloured run of spaces is invisible on screen and noise in a paste.
+	line := opening + strings.Repeat(" ", max(wordWidth-len(mark.word), 0)) + separator + l.scope
 
 	for _, field := range []string{component, detail} {
 		if field != "" {
-			line += " · " + field
+			line += separator + field
 		}
 	}
 

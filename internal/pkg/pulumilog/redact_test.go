@@ -148,7 +148,7 @@ func TestLine_RedactsWhateverTheCallerPassed(t *testing.T) {
 	secret := token(t)
 	logger := &Logger{scope: "core", colour: false}
 
-	line := logger.line(GlyphRunning, "", "token", "reading "+secret)
+	line := logger.line(markRunning, "token", "reading "+secret)
 
 	assert.NotContains(t, line, secret, "a secret in the detail reached the log line")
 	assert.Contains(t, line, Redacted)

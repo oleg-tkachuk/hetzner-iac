@@ -113,14 +113,18 @@ vars:
   # shared library prints from shell. The shape carries the meaning, so a line
   # still reads in a monochrome log; the colour drops out under NO_COLOR.
   #
+  # A glyph, a word padded to one width, then the `·` that opens the scope:
+  # the library's spelling since taskfiles v14.18.0, copied exactly. The word
+  # is what a search can type; the padding keeps every field in one column.
+  #
   # Held equal to internal/pkg/pulumilog's constants by
   # TestTaskGlyphs_MatchThePulumiLogger — two vocabularies in one terminal
   # session is what this replaces.
-  _RUN: '{{if .NO_COLOR}}◉{{else}}{{"\x1b[36m◉\x1b[0m"}}{{end}}'
-  _OK: '{{if .NO_COLOR}}✔{{else}}{{"\x1b[32m✔\x1b[0m"}}{{end}}'
-  _SKIP: '{{if .NO_COLOR}}○{{else}}{{"\x1b[90m○\x1b[0m"}}{{end}}'
-  _WARN: '{{if .NO_COLOR}}▲{{else}}{{"\x1b[33m▲\x1b[0m"}}{{end}}'
-  _ERR: '{{if .NO_COLOR}}✖{{else}}{{"\x1b[31m✖\x1b[0m"}}{{end}}'
+  _RUN: '{{if .NO_COLOR}}◉ start ·{{else}}{{"\x1b[36m◉ start\x1b[0m ·"}}{{end}}'
+  _OK: '{{if .NO_COLOR}}✔ ok    ·{{else}}{{"\x1b[32m✔ ok\x1b[0m    ·"}}{{end}}'
+  _SKIP: '{{if .NO_COLOR}}○ skip  ·{{else}}{{"\x1b[90m○ skip\x1b[0m  ·"}}{{end}}'
+  _WARN: '{{if .NO_COLOR}}▲ warn  ·{{else}}{{"\x1b[33m▲ warn\x1b[0m  ·"}}{{end}}'
+  _ERR: '{{if .NO_COLOR}}✖ fail  ·{{else}}{{"\x1b[31m✖ fail\x1b[0m  ·"}}{{end}}'
 
   # The layers, in dependency order. This list is the only place the order
   # lives: `platform:apply layer=all` walks it, and CI derives its matrix from

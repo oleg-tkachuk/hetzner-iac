@@ -20,14 +20,33 @@ func coloured(scope string) *Logger {
 	return &Logger{scope: scope, colour: true}
 }
 
-func TestLine_GlyphThenScopeThenFields(t *testing.T) {
+func TestLine_MarkerThenScopeThenFields(t *testing.T) {
 	t.Parallel()
 
-	// Same shape as taskfiles/: glyph, scope, then fields joined by a middle
-	// dot. Output from `task` and from `pulumi up` should read as one tool.
-	got := plain("observability").line(GlyphRunning, colourCyan, "loki", "chart 7.3.0 → observability")
+	// Same shape as taskfiles/: glyph and word, scope, then fields joined by a
+	// middle dot. Output from `task` and from `pulumi up` should read as one
+	// tool.
+	got := plain("observability").line(markRunning, "loki", "chart 7.3.0 → observability")
 
-	assert.Equal(t, "◉ observability · loki · chart 7.3.0 → observability", got)
+	assert.Equal(t, "◉ start · observability · loki · chart 7.3.0 → observability", got)
+}
+
+func TestLine_EveryMarkerPutsTheScopeInOneColumn(t *testing.T) {
+	t.Parallel()
+
+	// The words differ in length; the padding is what keeps the fields of a
+	// mixed run of lines aligned, as taskfiles/ prints them.
+	for name, tc := range map[string]struct {
+		mark marker
+		want string
+	}{
+		"start": {markRunning, "◉ start · layer"},
+		"ok":    {markOK, "✔ ok    · layer"},
+		"skip":  {markSkipped, "○ skip  · layer"},
+		"warn":  {markWarning, "▲ warn  · layer"},
+	} {
+		assert.Equal(t, tc.want, plain("layer").line(tc.mark, "", ""), name)
+	}
 }
 
 func TestLine_OmitsEmptyFieldsRatherThanLeavingDanglingSeparators(t *testing.T) {
@@ -36,36 +55,39 @@ func TestLine_OmitsEmptyFieldsRatherThanLeavingDanglingSeparators(t *testing.T) 
 	for name, tc := range map[string]struct {
 		component, detail, want string
 	}{
-		"both":         {"bucket", "created", "✔ layer · bucket · created"},
-		"no detail":    {"bucket", "", "✔ layer · bucket"},
-		"no component": {"", "created", "✔ layer · created"},
-		"neither":      {"", "", "✔ layer"},
+		"both":         {"bucket", "created", "✔ ok    · layer · bucket · created"},
+		"no detail":    {"bucket", "", "✔ ok    · layer · bucket"},
+		"no component": {"", "created", "✔ ok    · layer · created"},
+		"neither":      {"", "", "✔ ok    · layer"},
 	} {
-		got := plain("layer").line(GlyphOK, colourGreen, tc.component, tc.detail)
+		got := plain("layer").line(markOK, tc.component, tc.detail)
 		assert.Equal(t, tc.want, got, name)
 	}
 }
 
-func TestLine_ColoursOnlyTheGlyph(t *testing.T) {
+func TestLine_ColoursOnlyTheGlyphAndItsWord(t *testing.T) {
 	t.Parallel()
 
 	// The text stays uncoloured on purpose: a line whose body carries escape
-	// codes is unreadable once it is pasted into an issue or grepped.
-	got := coloured("cluster-services").line(GlyphSkipped, colourGrey, "cluster-issuer", "acmeEmail unset")
+	// codes is unreadable once it is pasted into an issue or grepped. The
+	// padding is outside the colour too, as taskfiles/ prints it.
+	got := coloured("cluster-services").line(markSkipped, "cluster-issuer", "acmeEmail unset")
 
-	assert.Equal(t, "\x1b[90m○\x1b[0m cluster-services · cluster-issuer · acmeEmail unset", got)
-	assert.Equal(t, 1, strings.Count(got, colourReset), "exactly one reset, right after the glyph")
-	assert.NotContains(t, strings.TrimPrefix(got, colourGrey+GlyphSkipped+colourReset), "\x1b[")
+	painted := colourGrey + GlyphSkipped + " " + WordSkipped + colourReset
+
+	assert.Equal(t, "\x1b[90m○ skip\x1b[0m  · cluster-services · cluster-issuer · acmeEmail unset", got)
+	assert.Equal(t, 1, strings.Count(got, colourReset), "exactly one reset, right after the word")
+	assert.NotContains(t, strings.TrimPrefix(got, painted), "\x1b[")
 }
 
 func TestLine_WithoutColourCarriesNoEscapeCodes(t *testing.T) {
 	t.Parallel()
 
 	// NO_COLOR has to produce output that is safe to diff and to grep.
-	got := plain("cluster-services").line(GlyphWarning, colourYellow, "issuer", "no email")
+	got := plain("cluster-services").line(markWarning, "issuer", "no email")
 
 	assert.NotContains(t, got, "\x1b[")
-	assert.Equal(t, "▲ cluster-services · issuer · no email", got)
+	assert.Equal(t, "▲ warn  · cluster-services · issuer · no email", got)
 }
 
 func TestColourEnabled_HonoursNoColor(t *testing.T) {
@@ -101,6 +123,15 @@ func TestGlyphs_MatchTheTaskfilesVocabulary(t *testing.T) {
 	assert.Equal(t, "◉", GlyphRunning)
 	assert.Equal(t, "▲", GlyphWarning)
 	assert.Equal(t, "○", GlyphSkipped)
+
+	assert.Equal(t, "ok", WordOK)
+	assert.Equal(t, "start", WordRunning)
+	assert.Equal(t, "warn", WordWarning)
+	assert.Equal(t, "skip", WordSkipped)
+
+	for _, word := range []string{WordOK, WordRunning, WordWarning, WordSkipped} {
+		assert.LessOrEqual(t, len(word), wordWidth, "%q is wider than the column every word is padded to", word)
+	}
 
 	assert.Equal(t, "\x1b[32m", colourGreen)
 	assert.Equal(t, "\x1b[36m", colourCyan)
