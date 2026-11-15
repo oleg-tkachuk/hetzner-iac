@@ -156,16 +156,43 @@ tasks:
           # Each Taskfile is loaded offline, verbosely: Task then names every
           # lock file it reads, which is how the files nothing reads are told
           # apart without this module knowing how Task names one.
+          #
+          # Without colour, whatever the environment asks for: under CI=true,
+          # FORCE_COLOR or TASK_COLOR, Task colours those lines with no
+          # terminal there, each in three writes that the includes it reads
+          # together interleave. Most runs then show no line that reads as one
+          # and the lock goes unchecked; the rest show a few, and every file
+          # but those is reported as left by an earlier ref.
+          #
+          # What Task says is still read, not asked for — it has no listing of
+          # the files it resolves — so a line about the cache that does not
+          # read as `checking cache for "<url>" in "<file>.yaml"` puts its
+          # directory in $work/unread, and that directory's leftovers are
+          # then not judged: a reading that lost one line would call a file
+          # that is in use left over.
           fail=0
           : > "$work/used"
+          : > "$work/unread"
           for f in $files; do
             dir=$(dirname "$f")
-            if ! (cd "$dir" && task -v -t "$(basename "$f")" --offline --remote-cache-dir "$cache" --list-all) > "$work/log" 2>&1 < /dev/null; then
+            loaded=1
+            if ! (cd "$dir" && task -v -t "$(basename "$f")" --offline --remote-cache-dir "$cache" --color=false --list-all) > "$work/log" 2>&1 < /dev/null; then
               printf '%s tasklib · %s does not load from its lock:\n' "{{._TL_ERR}}" "$f" >&2
               awk '!/^(checking cache for|cache expired at|in offline mode)/ { print "    " $0 }' "$work/log" >&2
               fail=1
+              loaded=0
             fi
-            awk -F'"' -v dir="$dir" '/^checking cache for "/ && NF >= 5 { n = split($4, part, "/"); stem = part[n]; sub(/\.yaml$/, "", stem); print dir "\t" stem }' "$work/log" >> "$work/used"
+            # "<dir>\t<stem>\t<loaded>": a file Task named, and whether the
+            # load it named it in went through — only then is it sure to be
+            # in the lock.
+            awk -F'"' -v dir="$dir" -v loaded="$loaded" -v unread="$work/unread" '
+              !index($0, "checking cache for") { next }
+              /^checking cache for "/ && NF == 5 && $3 == " in " && $4 ~ /\.yaml$/ {
+                n = split($4, part, "/"); stem = part[n]; sub(/\.yaml$/, "", stem)
+                print dir "\t" stem "\t" loaded
+                next
+              }
+              { print dir >> unread }' "$work/log" >> "$work/used"
           done
 
           # Then the lock itself. Offline, Task reads a module's .yaml and
@@ -179,15 +206,23 @@ tasks:
             printf '%s tasklib · neither shasum nor sha256sum is installed — lock files are not compared with their checksums\n' "{{._TL_WARN}}" >&2
           fi
           told=0
+          unsure=0
           for dir in $(for f in $files; do dirname "$f"; done | sort -u); do
             live="$dir/$cache/$remote"
             [ -d "$live" ] || continue
-            for found in $(ls "$live" | awk -v used="$work/used" -v dir="$dir" '
-              BEGIN { while ((getline line < used) > 0) { split(line, field, "\t"); known++; if (field[1] == dir) read[field[2]] = 1 } }
+            for found in $(ls "$live" | awk -v used="$work/used" -v unread="$work/unread" -v dir="$dir" '
+              BEGIN {
+                while ((getline line < used) > 0) { split(line, field, "\t"); known++; if (field[1] == dir) { read[field[2]] = 1; if (field[3] == 1) sure[field[2]] = 1 } }
+                while ((getline line < unread) > 0) { known++; if (line == dir) garbled = 1 }
+              }
               /\.yaml$/ { stem = $0; sub(/\.yaml$/, "", stem); body[stem] = 1 }
               /\.checksum$/ { stem = $0; sub(/\.checksum$/, "", stem); sum[stem] = 1 }
               END {
                 if (known == 0) { print "unknown\t-"; exit }
+                # A file a load that went through is said to have read, and
+                # that is not here, was not read out of what Task said.
+                for (stem in sure) if (!(stem in body)) garbled = 1
+                if (garbled) { print "garbled\t-"; exit }
                 for (stem in body) {
                   if (!(stem in read)) print "stale\t" stem ".yaml"
                   else if (!(stem in sum)) print "bare\t" stem
@@ -201,6 +236,9 @@ tasks:
                 unknown)
                   [ "$told" = 1 ] || printf '%s tasklib · Task did not say which lock files it read — files left by earlier refs are not checked\n' "{{._TL_WARN}}" >&2
                   told=1 ;;
+                garbled)
+                  printf '%s tasklib · could not tell which lock files the Taskfiles in %s read — what Task said of %s did not read as file names, so nothing there is called left over; run it again\n' "{{._TL_ERR}}" "$dir" "$live" >&2
+                  unsure=1 ;;
                 stale)
                   printf '%s tasklib · %s/%s is read by no Taskfile in %s — an earlier ref left it\n' "{{._TL_ERR}}" "$live" "$name" "$dir" >&2
                   fail=1 ;;
@@ -221,6 +259,8 @@ tasks:
             printf '%s tasklib · refresh the lock with: task --yes --offline=false --download tasklib:lock\n' "{{._TL_ERR}}" >&2
             exit 1
           fi
+          # Not a lock to refresh: the lock was not read, and may be right.
+          [ "$unsure" = 0 ] || exit 1
           printf '%s tasklib · %s pinned by %s Taskfile(s), each loads from its lock and the lock holds nothing else\n' "{{._TL_OK}}" "$refs" "$(awk -F'\t' '!seen[$2]++ { n++ } END { print n + 0 }' "$work/pins")"
 
   lock:
