@@ -71,7 +71,7 @@ env:
   # Pinned in ci.yaml too, to the same version — a test holds the two
   # together, and Renovate bumps both in one pull request.
   # renovate: datasource=pypi depName=uv
-  UV_VERSION: "0.13.7"
+  UV_VERSION: "0.13.8"
   # renovate: datasource=go depName=github.com/rhysd/actionlint
   ACTIONLINT_VERSION: "v1.7.12"
   # renovate: datasource=github-releases depName=aquasecurity/trivy extractVersion=^v(?<version>.+)$
