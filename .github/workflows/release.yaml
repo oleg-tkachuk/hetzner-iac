@@ -125,6 +125,6 @@ jobs:
           # brings writer 8: 10.2.1 rendered empty notes and 10.4.0 refuses
           # outright. The analyzer reads only the preset's parser and works
           # with either.
-          semantic_version: 25
+          semantic_version: 26
           extra_plugins: |
             conventional-changelog-conventionalcommits@9.3.1
