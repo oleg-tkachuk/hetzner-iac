@@ -48,8 +48,8 @@ func init() {
 		Chart: Chart{
 			Name:       "cilium",
 			Repo:       "https://helm.cilium.io",
-			Version:    "1.20.4", // app 1.20.4
-			AppVersion: "1.20.4",
+			Version:    "1.20.5", // app 1.20.5
+			AppVersion: "1.20.5",
 			Namespace:  NamespaceKubeSystem,
 		},
 		Workloads: []Object{
