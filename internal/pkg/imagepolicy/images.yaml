@@ -94,8 +94,8 @@ images:
   - repository: docker.io/hetznercloud/hcloud-csi-driver
     unsigned:
       reason: Hetzner publishes no signature for the CSI driver.
-      tag: v2.24.1
-      digest: sha256:cc6f83a2b00f74656f23fdc25a67118b58a133184d30817a9528765b49eaca3e
+      tag: v2.24.2
+      digest: sha256:c231060c9d24d485c8ac25eeb3dd445994ce1abb7417c5a49b88301931a9fe29
 
   - repository: ghcr.io/kedacore/keda
     signed: &keda
