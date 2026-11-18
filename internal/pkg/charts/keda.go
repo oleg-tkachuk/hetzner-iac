@@ -24,8 +24,8 @@ func init() {
 		Chart: Chart{
 			Name:       "keda",
 			Repo:       "https://kedacore.github.io/charts",
-			Version:    "2.21.0", // app 2.21.0
-			AppVersion: "2.21.0",
+			Version:    "2.21.1", // app 2.21.1
+			AppVersion: "2.21.1",
 			Namespace:  Keda,
 		},
 		Workloads: []Object{
