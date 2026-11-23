@@ -342,7 +342,8 @@ tasks:
           ignore={{.IGNORE | default "" | q}}
           if [ -z "$ignore" ]; then
             "$@" {{.CMD}}
-            exit
+            printf '%s sec · %s · %s clean\n' "{{._SEC_OK}}" {{.LABEL | q}} {{.MODULE | q}}
+            exit 0
           fi
           set -f
           out=$(mktemp)
@@ -371,6 +372,11 @@ tasks:
             exit 1
           fi
           printf '%s' "$reported" >> "$found_file"
+          if [ -z "$reported" ]; then
+            printf '%s sec · %s · %s clean\n' "{{._SEC_OK}}" {{.LABEL | q}} {{.MODULE | q}}
+          else
+            printf '%s sec · %s · %s · nothing reached outside GOVULNCHECK_IGNORE\n' "{{._SEC_OK}}" {{.LABEL | q}} {{.MODULE | q}}
+          fi
 
 
   dockerfile:

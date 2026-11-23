@@ -333,8 +333,9 @@ tasks:
           fi
           ignore={{._GO_VULN_IGNORE | q}}
           if [ -z "$ignore" ]; then
-            run_tool govulncheck {{._GO_PKGS}}
-            exit
+            run_tool govulncheck {{._GO_PKGS}} || exit $?
+            printf '%s %s · go · no reachable vulnerabilities\n' "{{._GO_OK}}" {{._GO_NAME | q}}
+            exit 0
           fi
           # A finding with no fixed version keeps this gate red for as long
           # as upstream takes, and a red gate hides the next finding. Named in
@@ -385,6 +386,7 @@ tasks:
             exit 1
           fi
           printf '%s %s · go · passed over, by GOVULNCHECK_IGNORE:%s\n' "{{._GO_WARN}}" {{._GO_NAME | q}} "$list"
+          printf '%s %s · go · nothing reached outside GOVULNCHECK_IGNORE\n' "{{._GO_OK}}" {{._GO_NAME | q}}
 
   deps:update:
     desc: "Bump the direct dependencies and tools to the latest minor/patch, tidy, then prove it still builds"
@@ -484,3 +486,4 @@ tasks:
       - >-
         go test -tags={{._GO_TAGS | q}} -run='^$' -bench={{.BENCH | default "." | q}}
         {{._GO_BENCH_FLAGS}} {{._GO_BENCH_PKGS}}
+      - printf '%s %s · go · benchmarks ran\n' "{{._GO_OK}}" {{._GO_NAME | q}}

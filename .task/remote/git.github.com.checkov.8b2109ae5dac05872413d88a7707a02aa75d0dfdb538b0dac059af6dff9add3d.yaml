@@ -278,7 +278,7 @@ tasks:
             exit 1
           fi
           after=$(count {{._CKV_BASE | q}})
-          printf '%s\n' "{{._CKV_RUN}} checkov · baselined findings: ${before} → ${after}"
+          printf '%s\n' "{{._CKV_OK}} checkov · baselined findings: ${before} → ${after}"
           if [ "${after}" -gt "${before}" ]; then
             printf '%s\n' "{{._CKV_WARN}} checkov · the baseline GREW — something new was accepted rather than fixed" >&2
           fi
