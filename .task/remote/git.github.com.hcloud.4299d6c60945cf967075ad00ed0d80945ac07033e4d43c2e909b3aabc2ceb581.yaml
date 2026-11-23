@@ -492,6 +492,7 @@ tasks:
   # appeared once the answer was given, as the actions landed.
   _matched:
     internal: true
+    # start-only: a listing printed before a prompt — the action that follows prints its own ok
     cmds:
       - cmd: |
           set -euo pipefail

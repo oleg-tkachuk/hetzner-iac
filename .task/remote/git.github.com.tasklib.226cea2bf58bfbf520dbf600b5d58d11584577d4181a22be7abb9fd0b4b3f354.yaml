@@ -104,7 +104,6 @@ vars:
     }{{end}}
   # Status markers. The shape carries the meaning, so a line still reads in
   # a monochrome log; the colour sits on top and drops out under NO_COLOR.
-  _TL_RUN: '{{if .NO_COLOR}}◉ start ·{{else}}{{"\x1b[36m◉ start\x1b[0m ·"}}{{end}}'
   _TL_OK: '{{if .NO_COLOR}}✔ ok    ·{{else}}{{"\x1b[32m✔ ok\x1b[0m    ·"}}{{end}}'
   _TL_SKIP: '{{if .NO_COLOR}}○ skip  ·{{else}}{{"\x1b[90m○ skip\x1b[0m  ·"}}{{end}}'
   _TL_WARN: '{{if .NO_COLOR}}▲ warn  ·{{else}}{{"\x1b[33m▲ warn\x1b[0m  ·"}}{{end}}'
@@ -370,5 +369,5 @@ tasks:
             printf '%s tasklib · no Taskfile here pins the library with ?ref= — nothing to bump\n' "{{._TL_ERR}}" >&2
             exit 1
           fi
-          printf '%s tasklib · %s Taskfile(s) pin %s\n' "{{._TL_RUN}}" "$moved" "$version"
+          printf '%s tasklib · %s Taskfile(s) pin %s\n' "{{._TL_OK}}" "$moved" "$version"
       - task: lock

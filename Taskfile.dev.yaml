@@ -46,7 +46,7 @@ vars:
   # than about the version.
   #
   # Not annotated for Renovate, for the reason the root taskfile gives.
-  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v14.20.0'
+  TASKLIB: 'https://github.com/oleg-tkachuk/taskfiles.git//%s?ref=v14.20.1'
 
   ROOT: { sh: pwd }
 
