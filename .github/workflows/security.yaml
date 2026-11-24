@@ -66,7 +66,7 @@ env:
   # renovate: datasource=go depName=golang.org/x/vuln
   GOVULNCHECK_VERSION: "v1.10.0"
   # renovate: datasource=pypi depName=zizmor
-  ZIZMOR_VERSION: "1.32.0"
+  ZIZMOR_VERSION: "1.33.1"
   # uv runs the Python scanners, at the versions pinned here, through uvx.
   # Pinned in ci.yaml too, to the same version — a test holds the two
   # together, and Renovate bumps both in one pull request.
