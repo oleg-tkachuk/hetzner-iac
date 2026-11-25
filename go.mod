@@ -10,13 +10,13 @@ require (
 	github.com/hetznercloud/hcloud-go/v2 v2.53.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/pulumi/pulumi-hcloud/sdk v1.43.4
-	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.34.3
+	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.35.0
 	github.com/pulumi/pulumi-random/sdk/v4 v4.21.6
 	github.com/pulumi/pulumi/sdk/v3 v3.277.0
 	github.com/pulumiverse/pulumi-talos/sdk v0.8.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/siderolabs/image-factory v1.8.0
-	github.com/siderolabs/talos/pkg/machinery v1.14.6
+	github.com/siderolabs/talos/pkg/machinery v1.14.7
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/bbolt v1.5.0
 	go.yaml.in/yaml/v4 v4.0.0
