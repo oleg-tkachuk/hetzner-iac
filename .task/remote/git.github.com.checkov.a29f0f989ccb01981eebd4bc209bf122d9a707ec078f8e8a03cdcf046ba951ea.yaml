@@ -224,6 +224,9 @@ tasks:
     vars:
       # Lines of checkov's output shown when a run did not write the baseline.
       _CKV_LOG_TAIL: '20'
+      # How many findings a baseline accepts, as jq: every check_id of every
+      # resource of every file.
+      _CKV_COUNT_JQ: '[.failed_checks[].findings[].check_ids[]] | length'
     preconditions:
       # Either is enough — see _CKV_RESOLVE.
       - sh: command -v checkov >/dev/null || command -v uvx >/dev/null
@@ -241,17 +244,23 @@ tasks:
       # regenerated to clear one fixed finding also swallows anything that broke
       # since, and the run that does it looks exactly like the run that does not.
       - cmd: |-
-          # Each accepted finding's check_ids sit one per line in checkov's own
-          # baseline writer, indent=4 regardless of --compact — a resource with
-          # several failing checks (Kubernetes groups them per-resource) lists
-          # every id on its own line, so counting "CKV lines counts findings the
-          # same way len(check_ids) summed across them does. No interpreter
-          # required — an interpreter this task has no reason to require, and
-          # whose absence would surface only after the prompt above had already
-          # been answered. awk prints 0 on no match and exits 0; a file that
-          # is not there is handled separately, where awk would fail.
+          # A finding is one check_id of one resource: counted from the
+          # baseline's JSON where jq is on PATH and can read the file. It is
+          # not required — its absence would surface only after the prompt
+          # above had already been answered — so without it, or with a file
+          # it cannot read, the lines are counted instead: checkov's own
+          # baseline writer puts each check_id on a line of its own, indent=4
+          # regardless of --compact, so counting "CKV lines gives the same
+          # number for a file checkov wrote and a check it ships. A file that
+          # is not there is handled first, where awk would fail.
           count() {
             [ -f "$1" ] || { printf '%s' 0; return; }
+            # An empty file is no JSON at all, and jq passes it with nothing
+            # said: only a number it printed is its answer.
+            if command -v jq >/dev/null 2>&1 && found=$(jq {{._CKV_COUNT_JQ | q}} "$1" 2>/dev/null) && [ -n "$found" ]; then
+              printf '%s\n' "$found"
+              return
+            fi
             awk '/"CKV/ { n++ } END { print n + 0 }' "$1"
           }
           {{._CKV_RESOLVE}}
